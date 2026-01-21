@@ -1,0 +1,20 @@
+{
+  "name": "scorely",
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "dev",
+  "workspaceFolder": "/workspace",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "humao.rest-client",
+        "eamodio.gitlens",
+        "Vue.volar",
+        "christian-kohler.path-intellisense",
+        "usernamehw.errorlens",
+        "ms-azuretools.vscode-docker"
+      ]
+    }
+  }
+}

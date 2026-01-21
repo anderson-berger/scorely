@@ -1,0 +1,36 @@
+@baseUrl = http://localhost:3000
+@accessToken = COLE_O_ACCESS_TOKEN_AQUI
+
+### Buscar usuário autenticado
+GET {{baseUrl}}/api/users/me
+Authorization: Bearer {{accessToken}}
+
+### Atualizar nome do usuário (PUT)
+PUT {{baseUrl}}/api/users
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "name": "Meu Nome"
+}
+
+### Atualizar nome do usuário (PATCH)
+PATCH {{baseUrl}}/api/users
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "name": "Novo Nome"
+}
+
+### Listar todos os usuários
+GET {{baseUrl}}/api/users
+Authorization: Bearer {{accessToken}}
+
+### Listar com paginação
+GET {{baseUrl}}/api/users?limit=10
+Authorization: Bearer {{accessToken}}
+
+### Buscar usuário por ID
+GET {{baseUrl}}/api/users/ID_DO_USUARIO
+Authorization: Bearer {{accessToken}}

@@ -1,0 +1,8 @@
+@api_local = http://localhost:3000
+# @api_dev =  https://v5zcdnldv9.execute-api.sa-east-1.amazonaws.com
+
+### Criar novo user e credential
+GET {{api_local}}/api/health
+Content-Type: application/json
+
+

@@ -1,0 +1,59 @@
+services:
+  dev:
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
+    container_name: scorely-dev
+    volumes:
+      - ..:/workspace:cached
+      - node_modules:/workspace/node_modules
+    working_dir: /workspace
+    command: sleep infinity
+    ports:
+      - "5173:5173"
+      - "3000:3000"
+    environment:
+      - AWS_REGION=sa-east-1
+    depends_on:
+      - localstack
+    networks:
+      - scorely-network
+    stdin_open: true
+    tty: true
+
+  localstack:
+    image: localstack/localstack:latest
+    container_name: scorely-localstack
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=dynamodb,ses
+      - DEBUG=1
+    volumes:
+      - localstack-data:/var/lib/localstack
+    networks:
+      - scorely-network
+
+  dynamodb-admin:
+    image: aaronshaf/dynamodb-admin:latest
+    container_name: scorely-dynamodb-admin
+    ports:
+      - "8001:8001"
+    environment:
+      - DYNAMO_ENDPOINT=http://localstack:4566
+      - AWS_REGION=sa-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+
+    networks:
+      - scorely-network
+    depends_on:
+      - localstack
+
+volumes:
+  node_modules:
+  localstack-data:
+
+networks:
+  scorely-network:
+    driver: bridge
