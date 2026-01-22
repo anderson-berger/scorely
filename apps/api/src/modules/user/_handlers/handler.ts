@@ -8,8 +8,8 @@ import {
 } from "@/utils/error/errors";
 import { AuthorizedAPIGatewayProxyEventV2 } from "@/utils/schemas/api-gateway.schemas";
 import { $paginationQuery } from "@/utils/pagination/pagination";
-import { UserService } from "./UserService";
-import { $updateUser } from "./user_schemas";
+import { UserService } from "../user/UserService";
+import { $user } from "@/modules/user/user/user_schemas";
 
 const userService = new UserService();
 
@@ -31,7 +31,6 @@ export async function handler(
 
     switch (method) {
       case "PUT":
-      case "PATCH":
         return await update(event);
       case "GET":
         return await get(event);
@@ -48,13 +47,9 @@ async function update(
 ): Promise<APIGatewayProxyResult> {
   const userId = getUserIdFromEvent(event);
   const body = JSON.parse(event.body || "{}");
-  const data = $updateUser.parse(body);
+  const data = $user.parse(body);
 
   const result = await userService.update(userId, data);
-
-  if (!result) {
-    throw new NotFoundError("User not found");
-  }
 
   return apiSuccess(result);
 }
