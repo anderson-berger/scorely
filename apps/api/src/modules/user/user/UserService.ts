@@ -1,7 +1,11 @@
 import { generateId, generateTimestamp } from "@/utils/generators";
-import { UserRepository } from "@/modules/user/UserRepository";
-import { NotFoundError } from "@/utils/error/errors";
-import type { User } from "./user_schemas";
+import { UserRepository } from "@/modules/user/user/UserRepository";
+import {
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+} from "@/utils/error/errors";
+import { $updateUser, type User } from "@/modules/user/user/user_schemas";
 import type {
   PaginatedResult,
   PaginationQuery,
@@ -14,6 +18,8 @@ export class UserService {
     const now = generateTimestamp();
     const user: User = {
       id: generateId(),
+      version: 0,
+      name: null,
       email,
       createdAt: now,
       updatedAt: now,
@@ -21,24 +27,32 @@ export class UserService {
     return this.userRepository.create(user);
   }
 
-  async update(id: string, updates: Partial<Pick<User, "name">>): Promise<User> {
-    const existingUser = await this.userRepository.findById(id);
-    if (!existingUser) {
-      throw new NotFoundError("User not found");
+  async update(userId: User["id"], user: User): Promise<User> {
+    if (userId !== user.id) {
+      throw new ForbiddenError();
     }
 
-    const hasChanges = updates.name !== existingUser.name;
-    if (!hasChanges) {
-      return existingUser;
+    const oldUser = await this.userRepository.findById(user.id);
+
+    if (!oldUser) {
+      throw new NotFoundError();
     }
 
+    if (user.version !== oldUser.version) {
+      throw new ConflictError();
+    }
+
+    const updateUser = $updateUser.parse(user);
+
+    const now = generateTimestamp();
     const updatedUser: User = {
-      ...existingUser,
-      ...updates,
-      updatedAt: generateTimestamp(),
+      ...oldUser,
+      ...updateUser,
+      version: oldUser.version + 1,
+      updatedAt: now,
     };
 
-    return this.userRepository.save(updatedUser);
+    return this.userRepository.update(updatedUser);
   }
 
   async findById(id: string): Promise<User | null> {

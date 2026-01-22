@@ -8,8 +8,8 @@ import {
 } from "@/utils/error/errors";
 import { AuthorizedAPIGatewayProxyEventV2 } from "@/utils/schemas/api-gateway.schemas";
 import { $paginationQuery } from "@/utils/pagination/pagination";
-import { UserService } from "./UserService";
-import { $user } from "@/modules/user/user_schemas";
+import { UserService } from "../user/UserService";
+import { $user } from "@/modules/user/user/user_schemas";
 
 const userService = new UserService();
 
@@ -50,10 +50,6 @@ async function update(
   const data = $user.parse(body);
 
   const result = await userService.update(userId, data);
-
-  if (!result) {
-    throw new NotFoundError("User not found");
-  }
 
   return apiSuccess(result);
 }

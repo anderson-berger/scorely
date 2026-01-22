@@ -1,5 +1,5 @@
 import { TokenService } from "@/utils/token/TokenService";
-import { UserService } from "@/modules/user/UserService";
+import { UserService } from "@/modules/user/user/UserService";
 import type { AuthToken } from "@/modules/auth/magic-link/auth_schemas";
 
 export class AuthService {

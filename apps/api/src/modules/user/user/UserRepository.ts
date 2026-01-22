@@ -1,4 +1,9 @@
-import { PutCommand, GetCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import {
+  PutCommand,
+  GetCommand,
+  QueryCommand,
+  UpdateCommand,
+} from "@aws-sdk/lib-dynamodb";
 import { dynamoDBClient } from "@/utils/db/dynamodb_client";
 import { env } from "@/utils/config/env";
 import {
@@ -7,7 +12,7 @@ import {
   type PaginatedResult,
   type PaginationQuery,
 } from "@/utils/pagination/pagination";
-import type { User } from "./user_schemas";
+import type { User } from "@/modules/user/user/user_schemas";
 
 export class UserRepository {
   private tableName = env.TABLE;
@@ -32,20 +37,30 @@ export class UserRepository {
     return user;
   }
 
-  async save(user: User): Promise<User> {
+  async update(user: User): Promise<User> {
     await dynamoDBClient.send(
-      new PutCommand({
+      new UpdateCommand({
         TableName: this.tableName,
-        Item: {
+        Key: {
           PK: `USER#${user.id}`,
           SK: "METADATA",
-          GSI1PK: `EMAIL#${user.email.toLowerCase()}`,
-          GSI1SK: "USER",
-          GSI2PK: "USERS",
-          GSI2SK: `USER#${user.createdAt}#${user.id}`,
-          data: user,
         },
-        ConditionExpression: "attribute_exists(PK)",
+        UpdateExpression: `
+        SET
+          #data = :data
+      `,
+        ConditionExpression: `
+        attribute_exists(PK)
+        AND #data.#version = :expectedVersion
+      `,
+        ExpressionAttributeNames: {
+          "#data": "data",
+          "#version": "version",
+        },
+        ExpressionAttributeValues: {
+          ":data": user,
+          ":expectedVersion": user.version - 1,
+        },
       }),
     );
 
