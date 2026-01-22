@@ -2,7 +2,7 @@ import {
   APIGatewayAuthorizerResult,
   APIGatewayRequestAuthorizerEvent,
 } from "aws-lambda";
-import { TokenService } from "@/utils/jwt/TokenService";
+import { TokenService } from "@/utils/token/TokenService";
 import { UnauthorizedError } from "@/utils/error/errors";
 
 const tokenService = new TokenService();

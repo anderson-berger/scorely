@@ -7,7 +7,7 @@
     "moduleResolution": "node",
     "lib": ["ES2022"],
     "outDir": ".build",
-    "rootDir": "src",
+    "rootDir": ".",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -16,9 +16,10 @@
     "isolatedModules": true,
     "sourceMap": true,
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["src/*"],
+      "@serverless/*": ["serverless/*"]
     }
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*", "serverless/**/*"],
   "exclude": ["node_modules", ".build"]
 }

@@ -1,8 +1,7 @@
 import { SignJWT, jwtVerify } from "jose";
 import { UnauthorizedError } from "@/utils/error/errors";
 import { env } from "@/utils/config/env";
-import type { User } from "@/modules/user/user_schemas";
-import type { MagicLinkPayload, AccessTokenPayload } from "./token_schemas";
+import { AccessTokenSubject } from "@/utils/token/token_schemas";
 
 export class TokenService {
   private readonly magicLinkSecret: Uint8Array;
@@ -21,32 +20,29 @@ export class TokenService {
       .sign(this.magicLinkSecret);
   }
 
-  async generateAccessToken(user: User): Promise<string> {
-    return await new SignJWT({ userId: user.id, email: user.email })
+  async generateAccessToken(
+    accessTokenSubject: AccessTokenSubject,
+  ): Promise<string> {
+    return await new SignJWT(accessTokenSubject)
       .setProtectedHeader({ alg: "HS256", typ: "JWT" })
       .setIssuedAt()
       .setExpirationTime(env.JWT_ACCESS_TOKEN_EXPIRY)
       .sign(this.accessSecret);
   }
 
-  async verifyMagicLinkToken(token: string): Promise<MagicLinkPayload> {
+  async verifyMagicLinkToken(token: string): Promise<string> {
     try {
       const { payload } = await jwtVerify(token, this.magicLinkSecret);
-      return {
-        email: payload.email as string,
-      };
+      return payload.email as string;
     } catch (error) {
       throw new UnauthorizedError("Invalid or expired token");
     }
   }
 
-  async verifyAccessToken(token: string): Promise<AccessTokenPayload> {
+  async verifyAccessToken(token: string): Promise<string> {
     try {
       const { payload } = await jwtVerify(token, this.accessSecret);
-      return {
-        userId: payload.userId as string,
-        email: payload.email as string,
-      };
+      return payload.userId as string;
     } catch (error) {
       throw new UnauthorizedError("Invalid or expired token");
     }

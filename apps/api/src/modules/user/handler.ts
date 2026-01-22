@@ -9,7 +9,7 @@ import {
 import { AuthorizedAPIGatewayProxyEventV2 } from "@/utils/schemas/api-gateway.schemas";
 import { $paginationQuery } from "@/utils/pagination/pagination";
 import { UserService } from "./UserService";
-import { $updateUser } from "./user_schemas";
+import { $user } from "@/modules/user/user_schemas";
 
 const userService = new UserService();
 
@@ -31,7 +31,6 @@ export async function handler(
 
     switch (method) {
       case "PUT":
-      case "PATCH":
         return await update(event);
       case "GET":
         return await get(event);
@@ -48,7 +47,7 @@ async function update(
 ): Promise<APIGatewayProxyResult> {
   const userId = getUserIdFromEvent(event);
   const body = JSON.parse(event.body || "{}");
-  const data = $updateUser.parse(body);
+  const data = $user.parse(body);
 
   const result = await userService.update(userId, data);
 

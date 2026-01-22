@@ -1,16 +1,44 @@
-import { UserRepository } from "./UserRepository";
-import type { User, NewUser, UpdateUser } from "./user_schemas";
-import type { PaginatedResult, PaginationQuery } from "@/utils/pagination/pagination";
+import { generateId, generateTimestamp } from "@/utils/generators";
+import { UserRepository } from "@/modules/user/UserRepository";
+import { NotFoundError } from "@/utils/error/errors";
+import type { User } from "./user_schemas";
+import type {
+  PaginatedResult,
+  PaginationQuery,
+} from "@/utils/pagination/pagination";
 
 export class UserService {
   private userRepository = new UserRepository();
 
-  async create(data: NewUser): Promise<User> {
-    return this.userRepository.create(data);
+  async create(email: string): Promise<User> {
+    const now = generateTimestamp();
+    const user: User = {
+      id: generateId(),
+      email,
+      createdAt: now,
+      updatedAt: now,
+    };
+    return this.userRepository.create(user);
   }
 
-  async update(id: string, data: UpdateUser): Promise<User | null> {
-    return this.userRepository.update(id, data);
+  async update(id: string, updates: Partial<Pick<User, "name">>): Promise<User> {
+    const existingUser = await this.userRepository.findById(id);
+    if (!existingUser) {
+      throw new NotFoundError("User not found");
+    }
+
+    const hasChanges = updates.name !== existingUser.name;
+    if (!hasChanges) {
+      return existingUser;
+    }
+
+    const updatedUser: User = {
+      ...existingUser,
+      ...updates,
+      updatedAt: generateTimestamp(),
+    };
+
+    return this.userRepository.save(updatedUser);
   }
 
   async findById(id: string): Promise<User | null> {

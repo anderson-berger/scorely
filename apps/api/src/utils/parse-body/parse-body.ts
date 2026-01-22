@@ -1,9 +1,5 @@
 import { BadRequestError } from "@/utils/error/errors";
 
-/**
- * Safely parses JSON request body from API Gateway event.
- * Throws BadRequestError (400) if JSON is malformed.
- */
 export function parseRequestBody<T = Record<string, unknown>>(
   body: string | null | undefined,
 ): T {
@@ -16,4 +12,14 @@ export function parseRequestBody<T = Record<string, unknown>>(
   } catch (error) {
     throw new BadRequestError("Invalid JSON in request body");
   }
+}
+
+export function parseQueryString<T = Record<string, unknown>>(
+  queryStringParameters: Record<string, string | undefined> | null,
+): T {
+  if (!queryStringParameters) {
+    return {} as T;
+  }
+
+  return queryStringParameters as T;
 }

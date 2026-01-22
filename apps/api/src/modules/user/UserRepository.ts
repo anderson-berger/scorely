@@ -1,9 +1,4 @@
-import {
-  PutCommand,
-  GetCommand,
-  QueryCommand,
-  UpdateCommand,
-} from "@aws-sdk/lib-dynamodb";
+import { PutCommand, GetCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { dynamoDBClient } from "@/utils/db/dynamodb_client";
 import { env } from "@/utils/config/env";
 import {
@@ -12,34 +7,23 @@ import {
   type PaginatedResult,
   type PaginationQuery,
 } from "@/utils/pagination/pagination";
-import type { User, NewUser, UpdateUser } from "./user_schemas";
+import type { User } from "./user_schemas";
 
 export class UserRepository {
   private tableName = env.TABLE;
 
-  async create(data: NewUser): Promise<User> {
-    const now = new Date().toISOString();
-    const id = crypto.randomUUID();
-
-    const user: User = {
-      id,
-      email: data.email,
-      name: data.name,
-      createdAt: now,
-      updatedAt: now,
-    };
-
+  async create(user: User): Promise<User> {
     await dynamoDBClient.send(
       new PutCommand({
         TableName: this.tableName,
         Item: {
-          PK: `USER#${id}`,
+          PK: `USER#${user.id}`,
           SK: "METADATA",
-          GSI1PK: `EMAIL#${data.email.toLowerCase()}`,
+          GSI1PK: `EMAIL#${user.email.toLowerCase()}`,
           GSI1SK: "USER",
           GSI2PK: "USERS",
-          GSI2SK: `USER#${now}#${id}`,
-          ...user,
+          GSI2SK: `USER#${user.createdAt}#${user.id}`,
+          data: user,
         },
         ConditionExpression: "attribute_not_exists(PK)",
       }),
@@ -48,39 +32,24 @@ export class UserRepository {
     return user;
   }
 
-  async update(id: string, data: UpdateUser): Promise<User | null> {
-    const now = new Date().toISOString();
-
-    const result = await dynamoDBClient.send(
-      new UpdateCommand({
+  async save(user: User): Promise<User> {
+    await dynamoDBClient.send(
+      new PutCommand({
         TableName: this.tableName,
-        Key: {
-          PK: `USER#${id}`,
+        Item: {
+          PK: `USER#${user.id}`,
           SK: "METADATA",
-        },
-        UpdateExpression: "SET #name = :name, #updatedAt = :updatedAt",
-        ExpressionAttributeNames: {
-          "#name": "name",
-          "#updatedAt": "updatedAt",
-        },
-        ExpressionAttributeValues: {
-          ":name": data.name,
-          ":updatedAt": now,
+          GSI1PK: `EMAIL#${user.email.toLowerCase()}`,
+          GSI1SK: "USER",
+          GSI2PK: "USERS",
+          GSI2SK: `USER#${user.createdAt}#${user.id}`,
+          data: user,
         },
         ConditionExpression: "attribute_exists(PK)",
-        ReturnValues: "ALL_NEW",
       }),
     );
 
-    if (!result.Attributes) return null;
-
-    return {
-      id: result.Attributes.id,
-      email: result.Attributes.email,
-      name: result.Attributes.name,
-      createdAt: result.Attributes.createdAt,
-      updatedAt: result.Attributes.updatedAt,
-    };
+    return user;
   }
 
   async findById(id: string): Promise<User | null> {
@@ -96,13 +65,7 @@ export class UserRepository {
 
     if (!result.Item) return null;
 
-    return {
-      id: result.Item.id,
-      email: result.Item.email,
-      name: result.Item.name,
-      createdAt: result.Item.createdAt,
-      updatedAt: result.Item.updatedAt,
-    };
+    return result.Item.data as User;
   }
 
   async findByEmail(email: string): Promise<User | null> {
@@ -121,14 +84,7 @@ export class UserRepository {
 
     if (!result.Items || result.Items.length === 0) return null;
 
-    const item = result.Items[0];
-    return {
-      id: item.id,
-      email: item.email,
-      name: item.name,
-      createdAt: item.createdAt,
-      updatedAt: item.updatedAt,
-    };
+    return result.Items[0].data as User;
   }
 
   async list(pagination: PaginationQuery): Promise<PaginatedResult<User>> {
@@ -150,13 +106,7 @@ export class UserRepository {
       }),
     );
 
-    const items: User[] = (result.Items || []).map((item) => ({
-      id: item.id,
-      email: item.email,
-      name: item.name,
-      createdAt: item.createdAt,
-      updatedAt: item.updatedAt,
-    }));
+    const items: User[] = (result.Items || []).map((item) => item.data as User);
 
     return {
       items,
