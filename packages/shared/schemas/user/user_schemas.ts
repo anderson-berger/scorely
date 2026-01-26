@@ -23,3 +23,4 @@ export const $updateUser = $user.omit({
 
 export type User = z.infer<typeof $user>;
 export type NewUser = z.infer<typeof $newUser>;
+export type UpdateUser = z.infer<typeof $updateUser>;

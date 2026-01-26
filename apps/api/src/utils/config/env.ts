@@ -13,6 +13,7 @@ const envSchema = z.object({
   JWT_MAGIC_LINK_TOKEN_EXPIRY: z.string(),
   JWT_ACCESS_SECRET: z.string(),
   JWT_ACCESS_TOKEN_EXPIRY: z.string(),
+  FRONTEND_URL: z.string().url(),
 });
 
 const parsed = envSchema.safeParse(process.env);

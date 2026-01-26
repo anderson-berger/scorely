@@ -5,7 +5,7 @@ import {
   ForbiddenError,
   NotFoundError,
 } from "@/utils/error/errors";
-import { $updateUser, type User } from "@/modules/user/user/user_schemas";
+import { $updateUser, type User } from "@scorely/shared/schemas/user";
 import type {
   PaginatedResult,
   PaginationQuery,

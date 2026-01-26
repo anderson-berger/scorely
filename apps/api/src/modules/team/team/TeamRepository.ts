@@ -1,13 +1,18 @@
-import { PutCommand, GetCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import {
+  PutCommand,
+  GetCommand,
+  QueryCommand,
+  UpdateCommand,
+} from "@aws-sdk/lib-dynamodb";
 import { dynamoDBClient } from "@/utils/db/dynamodb_client";
 import { env } from "@/utils/config/env";
-import {
-  encodeCursor,
-  decodeCursor,
-  type PaginatedResult,
-  type PaginationQuery,
+import { encodeCursor, decodeCursor } from "@/utils/pagination/pagination";
+import type {
+  PaginatedResult,
+  PaginationQuery,
 } from "@/utils/pagination/pagination";
-import type { Team } from "./team/team_schemas";
+
+import type { Team } from "@scorely/shared/schemas/team";
 
 export class TeamRepository {
   private tableName = env.TABLE;
@@ -21,9 +26,34 @@ export class TeamRepository {
           SK: "METADATA",
           GSI1PK: "TEAMS",
           GSI1SK: `TEAM#${team.createdAt}#${team.id}`,
-          ...team,
+          data: team,
         },
         ConditionExpression: "attribute_not_exists(PK)",
+      }),
+    );
+
+    return team;
+  }
+
+  async update(team: Team): Promise<Team> {
+    await dynamoDBClient.send(
+      new UpdateCommand({
+        TableName: this.tableName,
+        Key: {
+          PK: `TEAM#${team.id}`,
+          SK: "METADATA",
+        },
+        UpdateExpression: "SET #data = :data",
+        ConditionExpression:
+          "attribute_exists(PK) AND #data.#version = :expectedVersion",
+        ExpressionAttributeNames: {
+          "#data": "data",
+          "#version": "version",
+        },
+        ExpressionAttributeValues: {
+          ":data": team,
+          ":expectedVersion": team.version - 1,
+        },
       }),
     );
 
@@ -43,12 +73,7 @@ export class TeamRepository {
 
     if (!result.Item) return null;
 
-    return {
-      id: result.Item.id,
-      name: result.Item.name,
-      createdAt: result.Item.createdAt,
-      updatedAt: result.Item.updatedAt,
-    };
+    return result.Item.data as Team;
   }
 
   async list(pagination: PaginationQuery): Promise<PaginatedResult<Team>> {
@@ -70,12 +95,7 @@ export class TeamRepository {
       }),
     );
 
-    const items: Team[] = (result.Items || []).map((item) => ({
-      id: item.id,
-      name: item.name,
-      createdAt: item.createdAt,
-      updatedAt: item.updatedAt,
-    }));
+    const items: Team[] = (result.Items || []).map((item) => item.data as Team);
 
     return {
       items,

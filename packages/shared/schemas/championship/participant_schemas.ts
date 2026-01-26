@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const $participant = z.object({
   id: z.uuid(),
+  version: z.number(),
   championshipId: z.uuid(),
   teamId: z.uuid(),
   createdAt: z.iso.datetime(),

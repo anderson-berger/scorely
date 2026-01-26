@@ -8,6 +8,7 @@
     "dev": "npm run setup:local && serverless offline start --stage local"
   },
   "dependencies": {
+    "@scorely/shared": "*",
     "@aws-sdk/client-dynamodb": "^3.705.0",
     "@aws-sdk/lib-dynamodb": "^3.705.0",
     "dotenv": "^17.2.3",
