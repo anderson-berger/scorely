@@ -1,7 +1,12 @@
-import { PutCommand } from "@aws-sdk/lib-dynamodb";
+import {
+  PutCommand,
+  GetCommand,
+  QueryCommand,
+  DeleteCommand,
+} from "@aws-sdk/lib-dynamodb";
 import { dynamoDBClient } from "@/utils/db/dynamodb_client";
 import { env } from "@/utils/config/env";
-import type { Participant } from "./participant_schemas";
+import type { Participant } from "@scorely/shared/schemas/championship";
 
 export class ParticipantRepository {
   private tableName = env.TABLE;
@@ -17,10 +22,73 @@ export class ParticipantRepository {
           GSI1SK: `CHAMPIONSHIP#${participant.championshipId}`,
           data: participant,
         },
-        ConditionExpression: "attribute_not_exists(PK) AND attribute_not_exists(SK)",
+        ConditionExpression:
+          "attribute_not_exists(PK) AND attribute_not_exists(SK)",
       }),
     );
 
     return participant;
+  }
+
+  async delete(championshipId: string, teamId: string): Promise<void> {
+    await dynamoDBClient.send(
+      new DeleteCommand({
+        TableName: this.tableName,
+        Key: {
+          PK: `CHAMPIONSHIP#${championshipId}`,
+          SK: `PARTICIPANT#${teamId}`,
+        },
+        ConditionExpression: "attribute_exists(PK)",
+      }),
+    );
+  }
+
+  async findByChampionshipAndTeam(
+    championshipId: string,
+    teamId: string,
+  ): Promise<Participant | null> {
+    const result = await dynamoDBClient.send(
+      new GetCommand({
+        TableName: this.tableName,
+        Key: {
+          PK: `CHAMPIONSHIP#${championshipId}`,
+          SK: `PARTICIPANT#${teamId}`,
+        },
+      }),
+    );
+
+    if (!result.Item) return null;
+
+    return result.Item.data as Participant;
+  }
+
+  async findByChampionshipId(championshipId: string): Promise<Participant[]> {
+    const result = await dynamoDBClient.send(
+      new QueryCommand({
+        TableName: this.tableName,
+        KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
+        ExpressionAttributeValues: {
+          ":pk": `CHAMPIONSHIP#${championshipId}`,
+          ":sk": "PARTICIPANT#",
+        },
+      }),
+    );
+
+    return (result.Items || []).map((item) => item.data as Participant);
+  }
+
+  async findByTeamId(teamId: string): Promise<Participant[]> {
+    const result = await dynamoDBClient.send(
+      new QueryCommand({
+        TableName: this.tableName,
+        IndexName: "GSI1",
+        KeyConditionExpression: "GSI1PK = :pk",
+        ExpressionAttributeValues: {
+          ":pk": `TEAM#${teamId}`,
+        },
+      }),
+    );
+
+    return (result.Items || []).map((item) => item.data as Participant);
   }
 }

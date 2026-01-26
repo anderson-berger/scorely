@@ -1,11 +1,15 @@
 import { APIGatewayProxyResult } from "aws-lambda";
 
 import { apiSuccess, apiError } from "@/utils/response/response";
-import { BadRequestError, NotFoundError } from "@/utils/error/errors";
+import {
+  BadRequestError,
+  NotFoundError,
+  UnauthorizedError,
+} from "@/utils/error/errors";
 import { AuthorizedAPIGatewayProxyEventV2 } from "@/utils/schemas/api-gateway.schemas";
 import { $paginationQuery } from "@/utils/pagination/pagination";
-import { TeamService } from "../team/TeamService";
-import { $newTeam } from "../team/team_schemas";
+import { TeamService } from "@/modules/team/team/TeamService";
+import { $newTeam } from "@scorely/shared/schemas/team";
 
 const teamService = new TeamService();
 
@@ -31,10 +35,11 @@ export async function handler(
 async function create(
   event: AuthorizedAPIGatewayProxyEventV2,
 ): Promise<APIGatewayProxyResult> {
+  const userId = getUserIdFromEvent(event);
   const body = JSON.parse(event.body || "{}");
-  const data = $newTeam.parse(body);
+  const newTeam = $newTeam.parse(body);
 
-  const team = await teamService.create(data);
+  const team = await teamService.create(userId, newTeam);
 
   return apiSuccess(team, 201);
 }
@@ -57,4 +62,14 @@ async function get(
 
   const result = await teamService.list(pagination);
   return apiSuccess(result);
+}
+
+function getUserIdFromEvent(event: AuthorizedAPIGatewayProxyEventV2): string {
+  const userId = event.requestContext.authorizer?.lambda?.userId;
+
+  if (!userId) {
+    throw new UnauthorizedError("User not authenticated");
+  }
+
+  return userId;
 }

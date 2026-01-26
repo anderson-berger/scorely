@@ -12,7 +12,7 @@ import {
   type PaginatedResult,
   type PaginationQuery,
 } from "@/utils/pagination/pagination";
-import type { User } from "@/modules/user/user/user_schemas";
+import type { User } from "@scorely/shared/schemas/user";
 
 export class UserRepository {
   private tableName = env.TABLE;

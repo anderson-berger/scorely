@@ -4,6 +4,8 @@ export const $magicLink = z.object({
   email: z.email(),
 });
 
+export type MagicLink = z.infer<typeof $magicLink>;
+
 export const $verify = z.object({
   token: z.string(),
 });

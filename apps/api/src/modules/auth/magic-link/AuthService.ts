@@ -1,6 +1,7 @@
 import { TokenService } from "@/utils/token/TokenService";
 import { UserService } from "@/modules/user/user/UserService";
-import type { AuthToken } from "@/modules/auth/magic-link/auth_schemas";
+import { env } from "@/utils/config/env";
+import type { AuthToken } from "@scorely/shared/schemas/auth";
 
 export class AuthService {
   private tokenService = new TokenService();
@@ -8,7 +9,7 @@ export class AuthService {
 
   async sendMagicLink(email: string): Promise<{ magicLink: string }> {
     const token = await this.tokenService.generateMagicLinkToken(email);
-    const magicLink = `http://localhost:5173/auth/verify?token=${token}`;
+    const magicLink = `${env.FRONTEND_URL}/auth/verify?token=${token}`;
 
     console.log("=================================");
     console.log("MAGIC LINK para:", email);

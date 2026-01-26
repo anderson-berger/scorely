@@ -1,4 +1,9 @@
-import { PutCommand, GetCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import {
+  PutCommand,
+  GetCommand,
+  QueryCommand,
+  UpdateCommand,
+} from "@aws-sdk/lib-dynamodb";
 import { dynamoDBClient } from "@/utils/db/dynamodb_client";
 import { env } from "@/utils/config/env";
 import {
@@ -7,7 +12,7 @@ import {
   type PaginatedResult,
   type PaginationQuery,
 } from "@/utils/pagination/pagination";
-import type { Championship } from "./championship/championship_schemas";
+import type { Championship } from "@scorely/shared/schemas/championship";
 
 export class ChampionshipRepository {
   private tableName = env.TABLE;
@@ -24,6 +29,31 @@ export class ChampionshipRepository {
           data: championship,
         },
         ConditionExpression: "attribute_not_exists(PK)",
+      }),
+    );
+
+    return championship;
+  }
+
+  async update(championship: Championship): Promise<Championship> {
+    await dynamoDBClient.send(
+      new UpdateCommand({
+        TableName: this.tableName,
+        Key: {
+          PK: `CHAMPIONSHIP#${championship.id}`,
+          SK: "METADATA",
+        },
+        UpdateExpression: "SET #data = :data",
+        ConditionExpression:
+          "attribute_exists(PK) AND #data.#version = :expectedVersion",
+        ExpressionAttributeNames: {
+          "#data": "data",
+          "#version": "version",
+        },
+        ExpressionAttributeValues: {
+          ":data": championship,
+          ":expectedVersion": championship.version - 1,
+        },
       }),
     );
 
