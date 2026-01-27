@@ -1,7 +1,7 @@
 import type { RouteRecordRaw } from 'vue-router';
 
 const routes: RouteRecordRaw[] = [
-  // 🌍 PUBLIC AREA
+  //  PUBLIC AREA
   {
     path: '/',
     component: () => import('layouts/PublicLayout.vue'),
@@ -24,7 +24,7 @@ const routes: RouteRecordRaw[] = [
     ],
   },
 
-  // 🔐 AUTH AREA
+  // AUTH AREA
   {
     path: '/auth',
     component: () => import('layouts/PublicLayout.vue'),
@@ -42,46 +42,74 @@ const routes: RouteRecordRaw[] = [
     ],
   },
 
-  // 🔒 PRIVATE AREA
+  // PRIVATE AREA
   {
     path: '/app',
     component: () => import('layouts/AppLayout.vue'),
     meta: { requiresAuth: true },
     children: [
+      // Home / Dashboard geral
       {
         path: '',
-        name: 'app.dashboard',
-        component: () => import('pages/app/DashboardPage.vue'),
+        name: 'app.index',
+        component: () => import('pages/app/IndexPage.vue'),
       },
+
       {
-        path: 'teams',
-        name: 'app.teams',
-        component: () => import('pages/app/teams/TeamListPage.vue'),
+        path: 'perfil',
+        name: 'app.perfil',
+        component: () => import('pages/app/perfil/PerfilPage.vue'),
       },
+
+      // Rotas do Time (com teamId dinâmico)
       {
-        path: 'teams/:id',
-        name: 'app.team.detail',
-        component: () => import('pages/app/teams/TeamDetailPage.vue'),
+        path: 'team/:teamId',
+        name: 'app.team',
+        component: () => import('pages/app/team/TeamPage.vue'),
+        children: [
+          {
+            path: 'dashboard',
+            name: 'app.team.dashboard',
+            component: () => import('pages/app/team/TeamDashboardPage.vue'),
+          },
+          {
+            path: 'championships',
+            name: 'app.team.championships',
+            component: () => import('pages/app/team/TeamChampionshipsPage.vue'),
+          },
+          {
+            path: 'calendar',
+            name: 'app.team.calendar',
+            component: () => import('pages/app/team/TeamCalendarPage.vue'),
+          },
+          {
+            path: 'members',
+            name: 'app.team.members',
+            component: () => import('pages/app/team/TeamMembersPage.vue'),
+          },
+          {
+            path: 'invites',
+            name: 'app.team.invites',
+            component: () => import('pages/app/team/TeamInvitesPage.vue'),
+          },
+          {
+            path: 'settings',
+            name: 'app.team.settings',
+            component: () => import('pages/app/team/TeamSettingsPage.vue'),
+          },
+          {
+            path: 'billing',
+            name: 'app.team.billing',
+            component: () => import('pages/app/team/TeamBillingPage.vue'),
+          },
+        ],
       },
+
+      // Campeonatos
       {
-        path: 'teams/:id/members',
-        name: 'app.team.members',
-        component: () => import('pages/app/teams/TeamMembersPage.vue'),
-      },
-      {
-        path: 'championships',
-        name: 'app.championships',
-        component: () => import('pages/app/championships/ChampionshipListPage.vue'),
-      },
-      {
-        path: 'championships/:id',
-        name: 'app.championship.detail',
-        component: () => import('pages/app/championships/ChampionshipDetailPage.vue'),
-      },
-      {
-        path: 'invites',
-        name: 'app.invites',
-        component: () => import('pages/app/InvitesPage.vue'),
+        path: 'championship',
+        name: 'app.championship',
+        component: () => import('pages/app/championship/ChampionshipPage.vue'),
       },
     ],
   },

@@ -1,5 +1,5 @@
 import type { MagicLink } from '@scorely/shared/schemas/auth';
-import api from 'src/services/api';
+import api from 'src/services/api/api';
 
 interface AuthData {
   token: string;

@@ -1,57 +1,67 @@
 <template>
-  <q-layout view="lHh Lpr lFf">
-    <q-header elevated class="bg-primary text-white">
-      <q-toolbar>
-        <q-btn flat dense round icon="menu" aria-label="Menu" @click="toggleDrawer" />
-        <q-toolbar-title>Scorely</q-toolbar-title>
-        <q-btn flat round icon="person" />
-      </q-toolbar>
-    </q-header>
+  <q-layout view="hHh Lpr lFf">
+    <!-- Header -->
+    <HeaderComponent v-model:drawerOpen="drawerOpen" />
 
-    <q-drawer v-model="drawerOpen" show-if-above bordered>
-      <q-list>
-        <q-item clickable :to="{ name: 'app.dashboard' }" exact>
-          <q-item-section avatar>
-            <q-icon name="dashboard" />
-          </q-item-section>
-          <q-item-section>Dashboard</q-item-section>
-        </q-item>
+    <!-- Sidebar estilo Discord -->
+    <LeftDrawerComponent v-model="drawerOpen" />
 
-        <q-item clickable :to="{ name: 'app.teams' }">
-          <q-item-section avatar>
-            <q-icon name="groups" />
-          </q-item-section>
-          <q-item-section>Times</q-item-section>
-        </q-item>
-
-        <q-item clickable :to="{ name: 'app.championships' }">
-          <q-item-section avatar>
-            <q-icon name="emoji_events" />
-          </q-item-section>
-          <q-item-section>Campeonatos</q-item-section>
-        </q-item>
-
-        <q-item clickable :to="{ name: 'app.invites' }">
-          <q-item-section avatar>
-            <q-icon name="mail" />
-          </q-item-section>
-          <q-item-section>Convites</q-item-section>
-        </q-item>
-      </q-list>
-    </q-drawer>
-
-    <q-page-container>
+    <!-- Conteúdo principal com offset do sidebar -->
+    <q-page-container class="main-content">
       <router-view />
     </q-page-container>
   </q-layout>
 </template>
 
-<script setup lang="ts">
-import { ref } from 'vue';
+<script lang="ts">
+import { defineComponent } from 'vue';
+import HeaderComponent from 'src/layouts/app-layout/HeaderComponent.vue';
+import LeftDrawerComponent from 'src/layouts/app-layout/LeftDrawerComponent.vue';
 
-const drawerOpen = ref(false);
+export default defineComponent({
+  name: 'AppLayout',
 
-function toggleDrawer() {
-  drawerOpen.value = !drawerOpen.value;
-}
+  components: {
+    HeaderComponent,
+    LeftDrawerComponent,
+  },
+
+  props: {},
+
+  emits: [],
+
+  data() {
+    return {
+      drawerOpen: false,
+    };
+  },
+
+  computed: {},
+
+  methods: {},
+
+  created() {},
+
+  mounted() {},
+});
 </script>
+
+<style scoped>
+.main-content {
+  min-height: 100vh;
+}
+
+/* Desktop: conteúdo com offset do sidebar */
+@media (min-width: 1024px) {
+  .main-content {
+    margin-left: 312px; /* 72px (teams bar) + 240px (menu panel) */
+  }
+}
+
+/* Mobile: sem offset */
+@media (max-width: 1023px) {
+  .main-content {
+    margin-left: 0;
+  }
+}
+</style>

@@ -5,6 +5,7 @@ export const $user = z.object({
   version: z.number(),
   email: z.email(),
   name: z.string().min(3).max(50).nullable(),
+  avatar: z.url(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
 });

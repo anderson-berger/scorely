@@ -90,15 +90,19 @@ export default defineConfig((/* ctx */) => {
     // https://v2.quasar.dev/quasar-cli-vite/quasar-config-file#framework
     framework: {
       config: {
+        dark: 'auto',
         brand: {
-          primary: '#1B5E20',
-          secondary: '#2E7D32',
-          accent: '#FFC107',
-          dark: '#1A1A2E',
-          positive: '#43A047',
-          negative: '#E53935',
-          info: '#455A64',
-          warning: '#FF8F00',
+          primary: '#1976D2', // azul Material clássico (botões principais, links, ação)
+          secondary: '#26A69A', // teal muted (detalhes secundários, hover, multi-esporte)
+          accent: '#9C27B0', // roxo/purple (destaques, troféus, live badges)
+
+          positive: '#21BA45', // verde clássico vitória/confirmação
+          negative: '#C10015', // vermelho erro/placar negativo
+          info: '#31CCEC', // ciano info/notificações
+          warning: '#F2C037', // amarelo warning
+
+          dark: '#1D1D1D', // cinza-preto tradicional (fundos dark confortáveis)
+          'dark-page': '#121212', // preto padrão Material para página imersiva (override comum)
         },
       },
 
@@ -113,7 +117,7 @@ export default defineConfig((/* ctx */) => {
       // directives: [],
 
       // Quasar plugins
-      plugins: ['Loading', 'Notify'],
+      plugins: ['Loading', 'Notify', 'Dark'],
     },
 
     // animations: 'all', // --- includes all animations

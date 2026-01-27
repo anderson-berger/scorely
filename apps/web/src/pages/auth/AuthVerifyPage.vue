@@ -31,7 +31,7 @@
 
 <script lang="ts">
 import { defineComponent } from 'vue';
-import AuthService from 'src/services/AuthService';
+import AuthService from 'src/services/api/AuthService';
 
 export default defineComponent({
   name: 'AuthVerifyPage',
@@ -55,7 +55,7 @@ export default defineComponent({
         await AuthService.verifyMagicLink(token);
 
         setTimeout(() => {
-          void this.$router.push({ name: 'app.dashboard' });
+          void this.$router.push({ name: 'app.index' });
         }, 1500);
       } catch {
         this.error = 'Token invalido ou expirado';

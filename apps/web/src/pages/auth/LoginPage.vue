@@ -47,13 +47,7 @@
           Enviamos um link para <strong>{{ magicLink.email }}</strong>
         </p>
         <p class="text-grey-6">Verifique sua caixa de entrada</p>
-        <q-btn
-          flat
-          no-caps
-          color="primary"
-          label="Usar outro email"
-          @click="emailSent = false"
-        />
+        <q-btn flat no-caps color="primary" label="Usar outro email" @click="emailSent = false" />
       </q-card-section>
     </q-card>
   </q-page>
@@ -61,7 +55,7 @@
 
 <script lang="ts">
 import { defineComponent } from 'vue';
-import AuthService from 'src/services/AuthService';
+import AuthService from 'src/services/api/AuthService';
 import type { MagicLink } from '@scorely/shared/schemas/auth';
 
 export default defineComponent({
