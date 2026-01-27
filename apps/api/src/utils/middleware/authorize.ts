@@ -21,7 +21,7 @@ export async function handler(
   try {
     const token = extractToken(event);
     const tokenPayload = await tokenService.verifyAccessToken(token);
-
+    console.log("tokenPayload", tokenPayload);
     const resource = event.routeArn ?? event.routeKey ?? "*";
 
     return {
@@ -38,7 +38,6 @@ export async function handler(
       },
       context: {
         userId: tokenPayload.userId,
-        email: tokenPayload.email,
       },
     };
   } catch (err) {

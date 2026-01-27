@@ -6,7 +6,7 @@ import {
   createWebHistory,
 } from 'vue-router';
 import routes from './routes';
-import AuthService from 'src/services/AuthService';
+import AuthService from 'src/services/api/AuthService';
 
 export default defineRouter(function (/* { store, ssrContext } */) {
   const createHistory = process.env.SERVER
@@ -34,7 +34,7 @@ export default defineRouter(function (/* { store, ssrContext } */) {
 
     // 🔐 Usuário logado tentando acessar auth (exceto verify)
     if (isAuthenticated && to.path.startsWith('/auth') && to.name !== 'auth.verify') {
-      return next({ name: 'app.dashboard' });
+      return next({ name: 'app.index' });
     }
 
     return next();

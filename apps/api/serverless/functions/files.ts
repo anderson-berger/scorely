@@ -2,19 +2,12 @@ import type { AWS } from "@serverless/typescript";
 
 export const user: AWS["functions"] = {
   users: {
-    handler: "src/modules/user/_handlers/user_handler.handler",
+    handler: "src/modules/file/_handlers/file_handler.handler",
     events: [
       {
         httpApi: {
-          path: "/api/users/me",
+          path: "/api/file/presign",
           method: "get",
-          authorizer: { name: "authLambda" },
-        },
-      },
-      {
-        httpApi: {
-          path: "/api/users/me",
-          method: "put",
           authorizer: { name: "authLambda" },
         },
       },

@@ -1,1 +1,115 @@
-/* app global css */
+/* app global css - Estilos globais para o app de campeonatos esportivos */
+
+/* Variáveis CSS - Modo tradicional dark + light acinzentado */
+:root {
+  /* Light mode: acinzentado moderno (off-white/cinza claro) */
+  --bg-page-light: #f8fafc; /* slate-50 - cinza bem claro, confortável */
+  --bg-drawer-light: #f1f5f9; /* slate-100 - um pouco mais cinza para drawer */
+  --card-bg-light: #ffffff; /* branco puro para cards destacados no light */
+  --card-border-light: #e2e8f0; /* slate-200 - borda sutil */
+  --shadow-light: rgba(0, 0, 0, 0.08);
+
+  /* Dark mode: tradicional/preto padrão (como apps esportivos clássicos) */
+  --bg-page-dark: #121212; /* clássico dark Material/Quasar/ESPN/Sofascore */
+  --bg-drawer-dark: #1e1e1e; /* cinza-preto sutil para drawer (não some no fundo) */
+  --card-bg-dark: rgba(255, 255, 255, 0.06); /* branco transparente baixo para glassmorphism */
+  --card-border-dark: rgba(255, 255, 255, 0.12); /* borda branca sutil no dark */
+  --shadow-dark: rgba(0, 0, 0, 0.6); /* sombra forte para elevação */
+
+  --toolbar-bg-dark: #121212; /* mesmo do page para toolbar tradicional */
+  --toolbar-border-dark: #2a2a2a; /* cinza escuro para separador */
+
+  /* Glows mantidos se quiser usar em live/troféus (opcional) */
+  --accent-glow: rgba(245, 158, 11, 0.3); /* amber se usar accent */
+  --positive-glow: rgba(16, 185, 129, 0.25); /* emerald se usar positive */
+}
+
+/* Light mode - fundo acinzentado */
+body:not(.body--dark) {
+  background-color: var(--bg-page-light);
+}
+
+body:not(.body--dark) .q-page {
+  background-color: var(--bg-page-light);
+}
+
+body:not(.body--dark) .q-drawer {
+  background-color: var(--bg-drawer-light);
+}
+
+/* Dark mode - fundo preto tradicional */
+body.body--dark {
+  background-color: var(--bg-page-dark);
+  color: #e0e0e0; /* cinza claro para texto default (melhor que branco puro) */
+}
+
+body.body--dark .q-page {
+  background-color: var(--bg-page-dark);
+}
+
+body.body--dark .q-drawer {
+  background-color: var(--bg-drawer-dark);
+}
+
+/* Toolbar - tradicional neutro */
+.q-toolbar {
+  transition:
+    background-color 0.3s ease,
+    color 0.3s ease;
+}
+
+body:not(.body--dark) .q-toolbar {
+  background-color: #ffffff;
+  border-bottom: 1px solid #e2e8f0;
+  color: #111827; /* slate-900 escuro para ícones/textos */
+}
+
+body.body--dark .q-toolbar {
+  background-color: var(--toolbar-bg-dark);
+  border-bottom: 1px solid var(--toolbar-border-dark);
+  color: #e0e0e0; /* cinza claro para legibilidade */
+}
+
+/* Feature Cards - ajustado para os modos */
+.feature-card {
+  border-radius: 12px;
+  height: 100%;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+body:not(.body--dark) .feature-card {
+  background: var(--card-bg-light);
+  border: 1px solid var(--card-border-light);
+}
+
+.body--dark .feature-card {
+  background: var(--card-bg-dark);
+  border: 1px solid var(--card-border-dark);
+  backdrop-filter: blur(6px); /* glass sutil, menos blur para performance */
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.feature-card:hover {
+  transform: translateY(-4px);
+}
+
+body:not(.body--dark) .feature-card:hover {
+  box-shadow: 0 8px 24px var(--shadow-light);
+}
+
+.body--dark .feature-card:hover {
+  box-shadow: 0 12px 32px var(--shadow-dark);
+  background: rgba(255, 255, 255, 0.08); /* hover mais visível no dark */
+}
+
+/* Exemplo de live indicator (tradicional) */
+.live-indicator {
+  background: #ef4444; /* vermelho clássico para urgência (ou seu accent se preferir) */
+  color: white;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-weight: bold;
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.4);
+}

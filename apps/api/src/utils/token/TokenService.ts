@@ -39,10 +39,13 @@ export class TokenService {
     }
   }
 
-  async verifyAccessToken(token: string): Promise<string> {
+  async verifyAccessToken(token: string): Promise<AccessTokenSubject> {
     try {
-      const { payload } = await jwtVerify(token, this.accessSecret);
-      return payload.userId as string;
+      const { payload } = await jwtVerify<AccessTokenSubject>(
+        token,
+        this.accessSecret,
+      );
+      return payload;
     } catch (error) {
       throw new UnauthorizedError("Invalid or expired token");
     }
