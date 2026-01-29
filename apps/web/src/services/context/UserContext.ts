@@ -1,27 +1,27 @@
-import type { User } from '@scorely/shared/schemas/user';
+import type { User } from '@scorely/shared/schemas/user/user_schemas';
 import UserService from 'src/services/api/UserService';
 
 const STORAGE_KEY = 'scorely:user';
 
 class UserContext {
-  private user: User | null = null;
+  private user: User | undefined = undefined;
 
-  get(): User | null {
+  get(): User | undefined {
     if (this.user) return this.user;
 
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
+    if (!raw) return undefined;
 
     try {
       this.user = JSON.parse(raw);
       return this.user;
     } catch {
       this.clear();
-      return null;
+      return undefined;
     }
   }
 
-  async load(force = false): Promise<User> {
+  async load(force = false) {
     if (!force) {
       const cached = this.get();
       if (cached) return cached;
@@ -29,7 +29,6 @@ class UserContext {
 
     const user = await UserService.getMe();
     this.set(user);
-    return user;
   }
 
   set(user: User) {
@@ -38,7 +37,7 @@ class UserContext {
   }
 
   clear() {
-    this.user = null;
+    this.user = undefined;
     localStorage.removeItem(STORAGE_KEY);
   }
 }

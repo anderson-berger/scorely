@@ -9,7 +9,7 @@ import {
 import { AuthorizedAPIGatewayProxyEventV2 } from "@/utils/schemas/api-gateway.schemas";
 import { $paginationQuery } from "@/utils/pagination/pagination";
 import { TeamService } from "@/modules/team/team/TeamService";
-import { $newTeam } from "@scorely/shared/schemas/team";
+import { $newTeam } from "@scorely/shared/schemas/team/team_schemas";
 
 const teamService = new TeamService();
 

@@ -1,99 +1,123 @@
 <template>
-  <q-page class="q-pa-md">
-    <div class="row q-col-gutter-lg">
-      <div class="col-12 col-md-4">
-        <q-card dark class="card-dark">
-          <q-card-section class="text-center">
-            <!-- Avatar com upload -->
-            <div class="avatar-container q-mb-md">
-              <q-avatar size="120px" class="avatar-profile">
-                <img :src="user.avatar || defaultAvatar" />
-              </q-avatar>
-              <q-btn
-                round
-                dense
-                color="primary"
-                icon="photo_camera"
-                class="avatar-edit-btn"
-                @click="changeAvatar"
-              >
-                <q-tooltip>Alterar foto</q-tooltip>
-              </q-btn>
-            </div>
-
-            <div class="text-h6">{{ user.name }}</div>
-            <div class="text-grey-5">{{ user.email }}</div>
-
-            <q-separator dark class="q-my-md" />
-
-            <div class="text-left">
-              <div class="row items-center q-mb-sm">
-                <q-icon name="event" size="20px" class="q-mr-sm text-grey-5" />
-                <span class="text-grey-4">Membro desde {{ user.createdAt }}</span>
-              </div>
-              <div class="row items-center">
-                <q-icon name="groups" size="20px" class="q-mr-sm text-grey-5" />
-                <span class="text-grey-4">{{ user.teamsCount }} times</span>
-              </div>
-            </div>
-          </q-card-section>
-        </q-card>
+  <div v-if="user" class="perfil-page q-pa-xs">
+    <div class="row q-col-gutter-xs">
+      <div class="col-12">
+        <ProfilePersonalDataForm :item="user" @handler-file="onFile" @save="saveUser" />
       </div>
-    </div>
-  </q-page>
+      {{ user }}
+      <!-- <div class="col-12">
+        <ProfilePasswordForm
+          :form="passwordForm"
+          :loading="changingPassword"
+          :can-change="canChangePassword"
+          @update:form="passwordForm = $event"
+          @change-password="changePassword"
+        />
+      </div>
 
-  {{ user }}
+      <div class="col-12">
+        <ProfilePreferences
+          :preferences="preferences"
+          @update:preferences="preferences = $event"
+          @toggle-dark-mode="toggleDarkMode"
+        />
+      </div>
+
+      <div class="col-12">
+        <ProfileDangerZone
+          @export-data="exportData"
+          @confirm-delete-account="confirmDeleteAccount"
+        />
+      </div> -->
+    </div>
+
+    <!-- <DeleteAccountDialog
+      :show="showDeleteDialog"
+      :confirmation="deleteConfirmation"
+      @update:show="showDeleteDialog = $event"
+      @update:confirmation="deleteConfirmation = $event"
+      @cancel="showDeleteDialog = false"
+      @confirm="deleteAccount"
+    />  -->
+  </div>
 </template>
 
 <script lang="ts">
-import type { User } from '@scorely/shared/schemas/user';
-import UserService from 'src/services/api/UserService';
-import UserContext from 'src/services/context/UserContext';
 import { defineComponent } from 'vue';
+
+//components
+import ProfilePersonalDataForm from 'src/pages/app/perfil/perfil-page/ProfilePersonalDataForm.vue';
+//services
+import UserContext from 'src/services/context/UserContext';
+//types
+import FileService from 'src/services/api/FileService';
+import UserService from 'src/services/api/UserService';
+import type { User } from '@scorely/shared/schemas/user/user_schemas';
 
 export default defineComponent({
   name: 'PerfilPage',
 
-  components: {},
+  components: { ProfilePersonalDataForm },
 
   props: {},
 
   emits: [],
 
   data() {
-    const user: User = {
-      id: '',
-      version: 0,
-      email: '',
-      name: null,
-      createdAt: '',
-      updatedAt: '',
-    };
     return {
-      user,
+      avatarFile: undefined as undefined | File,
+      user: undefined as User | undefined,
+      userSnapshot: '',
     };
   },
 
-  computed: {},
+  computed: {
+    userHasChanges() {
+      if (this.avatarFile) return true;
+      return this.userSnapshot === JSON.stringify(this.user);
+    },
+  },
 
   methods: {
-    async getMe() {
-      const user = await this.$load.execute('get-me', async () => {
-        return await UserContext.load(true);
+    onFile(file: File) {
+      this.avatarFile = file;
+      // lógica aqui
+    },
+    async saveUser() {
+      await this.$load.execute('save-user', async () => {
+        if (!this.user) return;
+        if (this.avatarFile) {
+          const key = await FileService.uploadFile(this.avatarFile);
+          this.user.avatar = key;
+        }
+
+        if (!this.userHasChanges) return;
+
+        await UserService.update(this.user);
+        await this.syncUser();
       });
-      this.user = user;
     },
-    async changeAvatar(avatarUrl: string): Promise<User> {
-      const response = await UserService.changeAvatar;
-      return response.data;
+
+    async uploadFile() {
+      if (!this.user || !this.avatarFile) return;
+      const url = await FileService.uploadFile(this.avatarFile);
+      this.user.avatar = url;
+    },
+
+    async syncUser() {
+      await this.$load.execute('sync-user', async () => {
+        await UserContext.load(true);
+        this.user = UserContext.get();
+        this.userSnapshot = JSON.stringify(this.user);
+      });
     },
   },
 
-  async created() {},
-
-  async mounted() {
-    await this.getMe();
+  async created() {
+    await this.syncUser();
   },
+
+  mounted() {},
 });
 </script>
 

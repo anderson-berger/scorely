@@ -1,7 +1,7 @@
 import { generateId, generateTimestamp } from "@/utils/generators";
 import { NotFoundError } from "@/utils/error/errors";
 import { ParticipantRepository } from "./ParticipantRepository";
-import type { Participant, NewParticipant } from "@scorely/shared/schemas/championship";
+import type { Participant, NewParticipant } from "@scorely/shared/schemas/championship/participant_schemas";
 
 export class ParticipantService {
   private participantRepository = new ParticipantRepository();

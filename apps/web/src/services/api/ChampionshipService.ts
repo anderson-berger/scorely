@@ -1,4 +1,4 @@
-import type { Championship, NewChampionship } from '@scorely/shared/schemas/championship';
+import type { Championship, NewChampionship } from '@scorely/shared/schemas/championship/championship_schemas';
 import api from 'src/services/api/api';
 
 interface PaginatedResponse<T> {

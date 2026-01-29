@@ -6,7 +6,7 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 import { dynamoDBClient } from "@/utils/db/dynamodb_client";
 import { env } from "@/utils/config/env";
-import type { Participant } from "@scorely/shared/schemas/championship";
+import type { Participant } from "@scorely/shared/schemas/championship/participant_schemas";
 
 export class ParticipantRepository {
   private tableName = env.TABLE;

@@ -5,7 +5,7 @@ import {
   parseQueryString,
 } from "@/utils/parse-body/parse-body";
 import { AuthService } from "@/modules/auth/magic-link/AuthService";
-import { $magicLink, $verify } from "@scorely/shared/schemas/auth";
+import { $magicLink, $verify } from "@scorely/shared/schemas/auth/magic_link_schemas";
 
 const authService = new AuthService();
 
@@ -28,8 +28,6 @@ export async function verify(
   event: APIGatewayProxyEvent,
 ): Promise<APIGatewayProxyResult> {
   try {
-    console.log("event", event);
-
     const query = parseQueryString(event.queryStringParameters);
     console.log("query", query);
     const { token } = $verify.parse(query);

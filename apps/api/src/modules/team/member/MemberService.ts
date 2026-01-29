@@ -1,7 +1,7 @@
 import { generateId, generateTimestamp } from "@/utils/generators";
 import { ConflictError, NotFoundError } from "@/utils/error/errors";
 import { MemberRepository } from "./MemberRepository";
-import type { Member, NewMember } from "@scorely/shared/schemas/team";
+import type { Member, NewMember } from "@scorely/shared/schemas/team/member_schemas";
 
 export class MemberService {
   private memberRepository = new MemberRepository();

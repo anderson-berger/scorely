@@ -5,7 +5,11 @@ import {
   ForbiddenError,
   NotFoundError,
 } from "@/utils/error/errors";
-import { $updateUser, type User } from "@scorely/shared/schemas/user";
+import {
+  $attributes,
+  type User,
+} from "@scorely/shared/schemas/user/user_schemas";
+
 import type {
   PaginatedResult,
   PaginationQuery,
@@ -18,8 +22,7 @@ export class UserService {
     const now = generateTimestamp();
     const user: User = {
       id: generateId(),
-      version: 0,
-      name: null,
+      version: 1,
       email,
       createdAt: now,
       updatedAt: now,
@@ -42,12 +45,12 @@ export class UserService {
       throw new ConflictError();
     }
 
-    const updateUser = $updateUser.parse(user);
+    const attributes = $attributes.parse(user);
 
     const now = generateTimestamp();
     const updatedUser: User = {
       ...oldUser,
-      ...updateUser,
+      ...attributes,
       version: oldUser.version + 1,
       updatedAt: now,
     };

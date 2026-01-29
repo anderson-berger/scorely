@@ -12,7 +12,7 @@ import type {
   PaginationQuery,
 } from "@/utils/pagination/pagination";
 
-import type { Team } from "@scorely/shared/schemas/team";
+import type { Team } from "@scorely/shared/schemas/team/team_schemas";
 
 export class TeamRepository {
   private tableName = env.TABLE;

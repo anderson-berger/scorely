@@ -12,7 +12,7 @@ import {
   type PaginatedResult,
   type PaginationQuery,
 } from "@/utils/pagination/pagination";
-import type { Championship } from "@scorely/shared/schemas/championship";
+import type { Championship } from "@scorely/shared/schemas/championship/championship_schemas";
 
 export class ChampionshipRepository {
   private tableName = env.TABLE;

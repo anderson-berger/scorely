@@ -1,11 +1,12 @@
 import { APIGatewayProxyResult } from "aws-lambda";
 import { apiSuccess, apiError } from "@/utils/response/response";
-import { BadRequestError, NotFoundError } from "@/utils/error/errors";
+import { BadRequestError, UnauthorizedError } from "@/utils/error/errors";
 import { AuthorizedAPIGatewayProxyEventV2 } from "@/utils/schemas/api-gateway.schemas";
-import { $file } from "@scorely/shared/schemas/file";
+import { $presignedUrlRequest } from "@scorely/shared/schemas/file/file_schemas";
 import { parseRequestBody } from "@/utils/parse-body/parse-body";
+import { FileService } from "../file/FileService";
 
-const userService = new UserService();
+const fileService = new FileService();
 
 function getUserIdFromEvent(event: AuthorizedAPIGatewayProxyEventV2): string {
   const userId = event.requestContext.authorizer?.lambda?.userId;
@@ -40,9 +41,9 @@ async function post(
 ): Promise<APIGatewayProxyResult> {
   const userId = getUserIdFromEvent(event);
   const body = parseRequestBody(event.body);
-  const data = $file.parse(body);
+  const data = $presignedUrlRequest.parse(body);
 
-  const result = await userService.update(userId, data);
+  const result = await fileService.generatePresignedUrl(userId, data);
 
   return apiSuccess(result);
 }

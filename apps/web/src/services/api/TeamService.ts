@@ -1,4 +1,4 @@
-import type { Team, NewTeam } from '@scorely/shared/schemas/team';
+import type { Team, NewTeam } from '@scorely/shared/schemas/team/team_schemas';
 import api from 'src/services/api/api';
 
 interface PaginatedResponse<T> {
