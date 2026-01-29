@@ -4,10 +4,10 @@ import { ChampionshipRepository } from "./ChampionshipRepository";
 import {
   type Championship,
   type NewChampionship,
-  type NewOrganizer,
   $updateChampionship,
-} from "@scorely/shared/schemas/championship";
-import type { User } from "@scorely/shared/schemas/user";
+} from "@scorely/shared/schemas/championship/championship_schemas";
+import type { NewOrganizer } from "@scorely/shared/schemas/championship/organizer_schemas";
+import type { User } from "@scorely/shared/schemas/user/user_schemas";
 import type {
   PaginatedResult,
   PaginationQuery,

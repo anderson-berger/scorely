@@ -9,7 +9,7 @@ import {
 import { AuthorizedAPIGatewayProxyEventV2 } from "@/utils/schemas/api-gateway.schemas";
 import { $paginationQuery } from "@/utils/pagination/pagination";
 import { UserService } from "../user/UserService";
-import { $user } from "@scorely/shared/schemas/user";
+import { $user } from "@scorely/shared/schemas/user/user_schemas";
 
 const userService = new UserService();
 

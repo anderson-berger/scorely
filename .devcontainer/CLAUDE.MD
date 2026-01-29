@@ -21,7 +21,7 @@ Nada aqui deve ser considerado configuração de produção.
 ## Serviços locais
 
 - `dev`: container principal de desenvolvimento
-- `localstack`: simula serviços AWS (DynamoDB, SES)
+- `localstack`: simula serviços AWS (DynamoDB, SES, S3)
 - `dynamodb-admin`: UI para inspeção do DynamoDB local
 
 ## Princípios

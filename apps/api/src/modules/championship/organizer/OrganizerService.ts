@@ -1,7 +1,7 @@
 import { generateId, generateTimestamp } from "@/utils/generators";
 import { ConflictError, NotFoundError } from "@/utils/error/errors";
 import { OrganizerRepository } from "./OrganizerRepository";
-import type { Organizer, NewOrganizer } from "@scorely/shared/schemas/championship";
+import type { Organizer, NewOrganizer } from "@scorely/shared/schemas/championship/organizer_schemas";
 
 export class OrganizerService {
   private organizerRepository = new OrganizerRepository();

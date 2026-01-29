@@ -1,4 +1,4 @@
-import type { MagicLink } from '@scorely/shared/schemas/auth';
+import type { MagicLink } from '@scorely/shared/schemas/auth/magic_link_schemas';
 import api from 'src/services/api/api';
 
 interface AuthData {

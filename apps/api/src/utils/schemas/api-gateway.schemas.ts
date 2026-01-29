@@ -2,11 +2,12 @@ import type { APIGatewayProxyEventV2 } from "aws-lambda";
 
 export interface AuthorizerContext {
   userId: string;
-  email: string;
 }
 
-export interface AuthorizedAPIGatewayProxyEventV2
-  extends Omit<APIGatewayProxyEventV2, "requestContext"> {
+export interface AuthorizedAPIGatewayProxyEventV2 extends Omit<
+  APIGatewayProxyEventV2,
+  "requestContext"
+> {
   requestContext: APIGatewayProxyEventV2["requestContext"] & {
     authorizer?: {
       lambda?: AuthorizerContext;

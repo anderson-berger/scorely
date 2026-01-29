@@ -7,7 +7,7 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 import { dynamoDBClient } from "@/utils/db/dynamodb_client";
 import { env } from "@/utils/config/env";
-import type { Organizer } from "@scorely/shared/schemas/championship";
+import type { Organizer } from "@scorely/shared/schemas/championship/organizer_schemas";
 
 export class OrganizerRepository {
   private tableName = env.TABLE;

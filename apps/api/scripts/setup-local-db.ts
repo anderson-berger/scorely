@@ -4,22 +4,36 @@ import {
   DescribeTableCommand,
   DeleteTableCommand,
 } from "@aws-sdk/client-dynamodb";
+import {
+  S3Client,
+  CreateBucketCommand,
+  HeadBucketCommand,
+  PutBucketCorsCommand,
+} from "@aws-sdk/client-s3";
 
 const TABLE_NAME = "scorely-local";
+const BUCKET_NAME = "scorely-images-local";
 const ENDPOINT = "http://localstack:4566";
 
-const client = new DynamoDBClient({
+const awsConfig = {
   region: "sa-east-1",
   endpoint: ENDPOINT,
   credentials: {
     accessKeyId: "test",
     secretAccessKey: "test",
   },
-});
+  forcePathStyle: true,
+};
 
+const dynamoClient = new DynamoDBClient(awsConfig);
+const s3Client = new S3Client(awsConfig);
+
+// DynamoDB functions
 async function tableExists(): Promise<boolean> {
   try {
-    await client.send(new DescribeTableCommand({ TableName: TABLE_NAME }));
+    await dynamoClient.send(
+      new DescribeTableCommand({ TableName: TABLE_NAME }),
+    );
     return true;
   } catch {
     return false;
@@ -27,7 +41,7 @@ async function tableExists(): Promise<boolean> {
 }
 
 async function createTable(): Promise<void> {
-  await client.send(
+  await dynamoClient.send(
     new CreateTableCommand({
       TableName: TABLE_NAME,
       AttributeDefinitions: [
@@ -61,17 +75,49 @@ async function createTable(): Promise<void> {
         },
       ],
       BillingMode: "PAY_PER_REQUEST",
-    })
+    }),
   );
 }
 
 async function deleteTable(): Promise<void> {
-  await client.send(new DeleteTableCommand({ TableName: TABLE_NAME }));
+  await dynamoClient.send(new DeleteTableCommand({ TableName: TABLE_NAME }));
+}
+
+// S3 functions
+async function bucketExists(): Promise<boolean> {
+  try {
+    await s3Client.send(new HeadBucketCommand({ Bucket: BUCKET_NAME }));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function createBucket(): Promise<void> {
+  await s3Client.send(new CreateBucketCommand({ Bucket: BUCKET_NAME }));
+
+  await s3Client.send(
+    new PutBucketCorsCommand({
+      Bucket: BUCKET_NAME,
+      CORSConfiguration: {
+        CORSRules: [
+          {
+            AllowedHeaders: ["*"],
+            AllowedMethods: ["GET", "PUT", "POST"],
+            AllowedOrigins: ["*"],
+            ExposeHeaders: ["ETag"],
+            MaxAgeSeconds: 3000,
+          },
+        ],
+      },
+    }),
+  );
 }
 
 async function main(): Promise<void> {
   const forceRecreate = process.argv.includes("--force");
 
+  // Setup DynamoDB
   console.log(`🔍 Checking if table '${TABLE_NAME}' exists...`);
 
   if (await tableExists()) {
@@ -82,13 +128,25 @@ async function main(): Promise<void> {
       await new Promise((r) => setTimeout(r, 2000));
     } else {
       console.log(`✅ Table '${TABLE_NAME}' already exists`);
-      return;
     }
   }
 
-  console.log(`📦 Creating table '${TABLE_NAME}'...`);
-  await createTable();
-  console.log(`✅ Table '${TABLE_NAME}' created successfully`);
+  if (!(await tableExists())) {
+    console.log(`📦 Creating table '${TABLE_NAME}'...`);
+    await createTable();
+    console.log(`✅ Table '${TABLE_NAME}' created successfully`);
+  }
+
+  // Setup S3
+  console.log(`🔍 Checking if bucket '${BUCKET_NAME}' exists...`);
+
+  if (await bucketExists()) {
+    console.log(`✅ Bucket '${BUCKET_NAME}' already exists`);
+  } else {
+    console.log(`📦 Creating bucket '${BUCKET_NAME}'...`);
+    await createBucket();
+    console.log(`✅ Bucket '${BUCKET_NAME}' created with CORS configured`);
+  }
 }
 
 main().catch((error) => {

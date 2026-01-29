@@ -1,7 +1,7 @@
 import { TokenService } from "@/utils/token/TokenService";
 import { UserService } from "@/modules/user/user/UserService";
 import { env } from "@/utils/config/env";
-import type { AuthToken } from "@scorely/shared/schemas/auth";
+import type { AuthToken } from "@scorely/shared/schemas/auth/magic_link_schemas";
 
 export class AuthService {
   private tokenService = new TokenService();

@@ -1,6 +1,11 @@
 import { TeamRepository } from "./TeamRepository";
-import { type Team, type NewTeam, type NewMember, $updateTeam } from "@scorely/shared/schemas/team";
-import type { User } from "@scorely/shared/schemas/user";
+import {
+  type Team,
+  type NewTeam,
+  $updateTeam,
+} from "@scorely/shared/schemas/team/team_schemas";
+import type { NewMember } from "@scorely/shared/schemas/team/member_schemas";
+import type { User } from "@scorely/shared/schemas/user/user_schemas";
 import type {
   PaginatedResult,
   PaginationQuery,

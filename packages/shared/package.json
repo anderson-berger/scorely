@@ -3,11 +3,6 @@
   "version": "0.1.0",
   "description": "Scorely - Schemas e types compartilhados",
   "private": true,
-  "exports": {
-    ".": "./schemas/index.ts",
-    "./schemas": "./schemas/index.ts",
-    "./schemas/*": "./schemas/*/index.ts"
-  },
   "dependencies": {
     "zod": "^4.3.5"
   }
