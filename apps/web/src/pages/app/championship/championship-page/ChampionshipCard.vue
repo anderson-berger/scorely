@@ -51,13 +51,17 @@
 </template>
 
 <script lang="ts">
-import { defineComponent, PropType } from 'vue';
+import { defineComponent, type PropType } from 'vue';
+import type { Championship } from 'src/services/api/ChampionshipService';
 
 export default defineComponent({
   name: 'ChampionshipCard',
 
   props: {
-    championship: Object as PropType<any>,
+    championship: {
+      type: Object as PropType<Championship>,
+      required: true,
+    },
     role: {
       type: String as PropType<'owner' | 'admin' | 'member'>,
       required: true,

@@ -40,13 +40,14 @@
 </template>
 
 <script lang="ts">
-import { defineComponent, PropType } from 'vue';
+import { defineComponent, type PropType } from 'vue';
+import type { Championship } from 'src/services/api/ChampionshipService';
 
 export default defineComponent({
   name: 'ChampionshipActionPanel',
 
   props: {
-    championship: Object,
+    championship: Object as PropType<Championship | null>,
     action: String as PropType<'create' | 'edit' | 'manage' | null>,
   },
 
@@ -61,8 +62,8 @@ export default defineComponent({
       immediate: true,
       handler() {
         if (this.action === 'edit' && this.championship) {
-          this.form.name = this.championship.name;
-          this.form.sport = this.championship.sport;
+          this.form.name = this.championship.name ?? '';
+          this.form.sport = this.championship.sport ?? '';
         }
 
         if (this.action === 'create') {

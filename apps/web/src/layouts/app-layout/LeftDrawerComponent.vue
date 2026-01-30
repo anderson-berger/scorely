@@ -16,7 +16,10 @@
           <div class="column items-center q-py-sm">
             <!-- Home/Dashboard geral -->
             <div class="team-item-wrapper q-mb-xs">
-              <div class="pill-indicator" :class="{ active: !activeTeamId, hovered: homeHovered }" />
+              <div
+                class="pill-indicator"
+                :class="{ active: !activeTeamId, hovered: homeHovered }"
+              />
               <q-btn
                 flat
                 class="team-btn home-btn"
@@ -322,7 +325,8 @@ export default defineComponent({
   created() {
     // Seleciona o primeiro time ao iniciar
     if (this.teams.length > 0) {
-      this.activeTeamId = this.teams[0].id;
+      const team = this.teams[0];
+      this.activeTeamId = team ? team.id : null;
     }
   },
 
@@ -335,19 +339,20 @@ export default defineComponent({
 
     selectTeam(team: Team) {
       this.activeTeamId = team.id;
-      this.$router.push({ name: 'app.team', params: { teamId: team.id } });
+      void this.$router.push({ name: 'app.team', params: { teamId: team.id } });
     },
 
     goHome() {
       this.activeTeamId = null;
-      this.$router.push({ name: 'app.index' });
+      void this.$router.push({ name: 'app.index' });
       if (this.isMobile) {
         this.closeDrawer();
       }
     },
 
     navigateTo(routeName: string, params?: Record<string, string>) {
-      this.$router.push({ name: routeName, params });
+      void this.$router.push(params ? { name: routeName, params } : { name: routeName });
+
       if (this.isMobile) {
         this.closeDrawer();
       }

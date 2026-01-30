@@ -1,9 +1,0 @@
-{
-  "name": "@scorely/shared",
-  "version": "0.1.0",
-  "description": "Scorely - Schemas e types compartilhados",
-  "private": true,
-  "dependencies": {
-    "zod": "^4.3.5"
-  }
-}

@@ -1,4 +1,4 @@
-import type { User } from '@scorely/shared/schemas/user/user_schemas';
+import type { User } from '@scorely/api/modules/user/user.schemas';
 import UserService from 'src/services/api/UserService';
 
 const STORAGE_KEY = 'scorely:user';

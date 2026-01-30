@@ -1,0 +1,18 @@
+@baseUrl = http://localhost:3000
+@accessToken = COLE_O_ACCESS_TOKEN_AQUI
+
+### 1. Solicitar Magic Link
+# @name magicLink
+POST {{baseUrl}}/api/auth/magic-link
+Content-Type: application/json
+
+{
+  "email": "teste2@exemplo.com"
+}
+
+### 2. Verificar token (copie o token do email)
+GET {{baseUrl}}/api/auth/verify?token=TOKEN_AQUI
+
+### GET /auth/me - Buscar usuário autenticado
+GET {{baseUrl}}/api/auth/me
+Authorization: Bearer {{accessToken}}

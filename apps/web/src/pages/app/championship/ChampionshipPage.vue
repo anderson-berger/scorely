@@ -84,6 +84,7 @@
 import { defineComponent } from 'vue';
 import ChampionshipCard from './championship-page/ChampionshipCard.vue';
 import ChampionshipActionPanel from './championship-page/ChampionshipActionPanel.vue';
+import type { Championship } from 'src/services/api/ChampionshipService';
 
 export default defineComponent({
   name: 'ChampionshipPage',
@@ -98,7 +99,7 @@ export default defineComponent({
       tab: 'owner',
       showActionDialog: false,
 
-      selectedChampionship: null as any,
+      selectedChampionship: null as Championship | null,
       currentAction: null as 'create' | 'edit' | 'manage' | null,
 
       myChampionships: [
@@ -106,27 +107,30 @@ export default defineComponent({
           id: 1,
           name: 'Liga Alpha',
           description: 'Campeonato competitivo',
+          sport: 'Futebol',
           status: 'draft',
         },
-      ],
+      ] as Championship[],
 
       managedChampionships: [
         {
           id: 2,
           name: 'Copa Regional',
           description: 'Times convidados',
+          sport: 'Basquete',
           status: 'open',
         },
-      ],
+      ] as Championship[],
 
       memberChampionships: [
         {
           id: 3,
           name: 'Torneio de Verão',
           description: 'Fase de grupos',
+          sport: 'Vôlei',
           status: 'running',
         },
-      ],
+      ] as Championship[],
     };
   },
 
@@ -146,7 +150,7 @@ export default defineComponent({
       }
     },
 
-    selectChampionship(championship: any) {
+    selectChampionship(championship: Championship) {
       this.selectedChampionship = championship;
       this.currentAction = null;
 
@@ -155,7 +159,7 @@ export default defineComponent({
       }
     },
 
-    setAction(action: 'edit' | 'manage', championship: any) {
+    setAction(action: 'edit' | 'manage', championship: Championship) {
       this.selectedChampionship = championship;
       this.currentAction = action;
 
@@ -164,11 +168,11 @@ export default defineComponent({
       }
     },
 
-    deleteChampionship(championship: any) {
+    deleteChampionship(championship: Championship) {
       console.log('delete', championship);
     },
 
-    leaveChampionship(championship: any) {
+    leaveChampionship(championship: Championship) {
       console.log('leave', championship);
     },
   },

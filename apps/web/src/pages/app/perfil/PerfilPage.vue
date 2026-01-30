@@ -1,10 +1,23 @@
 <template>
-  <div v-if="user" class="perfil-page q-pa-xs">
+  <div v-if="originalUser && userDraft" class="perfil-page q-pa-xs">
     <div class="row q-col-gutter-xs">
       <div class="col-12">
-        <ProfilePersonalDataForm :item="user" @handler-file="onFile" @save="saveUser" />
+        <ProfilePersonalDataForm
+          :user="userDraft"
+          :original-user="originalUser"
+          :has-changes="hasChanges"
+          :avatar-file="avatarFile"
+          @update:user="userDraft = $event"
+          @update:avatar-file="avatarFile = $event"
+          @save="saveUser"
+        />
       </div>
-      {{ user }}
+      {{ originalUser }}
+      <q-separator></q-separator>
+      {{ userDraft }}
+
+      <q-separator></q-separator>
+      {{ avatarFile }}
       <!-- <div class="col-12">
         <ProfilePasswordForm
           :form="passwordForm"
@@ -44,83 +57,79 @@
 
 <script lang="ts">
 import { defineComponent } from 'vue';
-
-//components
 import ProfilePersonalDataForm from 'src/pages/app/perfil/perfil-page/ProfilePersonalDataForm.vue';
-//services
 import UserContext from 'src/services/context/UserContext';
-//types
 import FileService from 'src/services/api/FileService';
 import UserService from 'src/services/api/UserService';
-import type { User } from '@scorely/shared/schemas/user/user_schemas';
+import type { User } from '@scorely/api/modules/user/user.schemas';
 
 export default defineComponent({
   name: 'PerfilPage',
 
   components: { ProfilePersonalDataForm },
 
-  props: {},
-
-  emits: [],
-
   data() {
     return {
-      avatarFile: undefined as undefined | File,
-      user: undefined as User | undefined,
-      userSnapshot: '',
+      originalUser: undefined as User | undefined,
+      userDraft: undefined as User | undefined,
+      avatarFile: undefined as File | undefined,
     };
   },
 
   computed: {
-    userHasChanges() {
+    hasChanges(): boolean {
+      if (!this.originalUser || !this.userDraft) return false;
+
+      // Mudança no avatar
       if (this.avatarFile) return true;
-      return this.userSnapshot === JSON.stringify(this.user);
+
+      // Mudanças nos campos
+      return JSON.stringify(this.originalUser) !== JSON.stringify(this.userDraft);
     },
   },
 
   methods: {
-    onFile(file: File) {
-      this.avatarFile = file;
-      // lógica aqui
-    },
     async saveUser() {
       await this.$load.execute('save-user', async () => {
-        if (!this.user) return;
+        if (!this.userDraft) return;
+
+        // Upload do avatar se houver
         if (this.avatarFile) {
           const key = await FileService.uploadFile(this.avatarFile);
-          this.user.avatar = key;
+          this.userDraft.avatar = key;
         }
 
-        if (!this.userHasChanges) return;
+        // Só atualiza se tiver mudanças
+        if (!this.hasChanges) return;
 
-        await UserService.update(this.user);
-        await this.syncUser();
+        // Atualiza no backend
+        await UserService.update(this.userDraft);
+
+        // Atualiza o contexto global
+        await this.loadUser();
       });
     },
 
-    async uploadFile() {
-      if (!this.user || !this.avatarFile) return;
-      const url = await FileService.uploadFile(this.avatarFile);
-      this.user.avatar = url;
-    },
+    async loadUser() {
+      await UserContext.load(true);
+      const user = UserContext.get();
+      if (!user) return;
 
-    async syncUser() {
-      await this.$load.execute('sync-user', async () => {
-        await UserContext.load(true);
-        this.user = UserContext.get();
-        this.userSnapshot = JSON.stringify(this.user);
-      });
+      this.originalUser = structuredClone(user);
+      this.userDraft = structuredClone(user);
+      this.avatarFile = undefined;
     },
   },
 
   async created() {
-    await this.syncUser();
+    await this.loadUser();
   },
-
-  mounted() {},
 });
 </script>
 
 <style scoped>
-/* Estilos locais aqui */
+.perfil-page {
+  max-width: 1024px; /* ajuste aqui: 720 / 900 / 1024 */
+  margin: 0 auto; /* centraliza */
+}
 </style>

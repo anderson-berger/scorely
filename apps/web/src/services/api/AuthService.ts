@@ -1,4 +1,4 @@
-import type { MagicLink } from '@scorely/shared/schemas/auth/magic_link_schemas';
+import type { SendMagicLinkInput } from '@scorely/api/modules/auth/auth.schemas';
 import api from 'src/services/api/api';
 
 interface AuthData {
@@ -9,7 +9,7 @@ interface AuthData {
 class AuthService {
   private readonly AUTH_KEY = 'auth';
 
-  async sendMagicLink(data: MagicLink): Promise<void> {
+  async sendMagicLink(data: SendMagicLinkInput): Promise<void> {
     await api.post('/auth/magic-link', data);
   }
 

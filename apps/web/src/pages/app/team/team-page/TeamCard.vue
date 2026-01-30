@@ -63,11 +63,16 @@
 <script lang="ts">
 import { defineComponent, type PropType } from 'vue';
 
+interface Team {
+  avatar: string;
+  name: string;
+  description: string;
+}
 export default defineComponent({
   name: 'TeamCard',
 
   props: {
-    team: { type: Object as PropType<any>, required: true },
+    team: { type: Object as PropType<Team>, required: true },
     role: {
       type: String as PropType<'owner' | 'admin' | 'member'>,
       required: true,

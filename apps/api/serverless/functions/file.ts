@@ -2,7 +2,7 @@ import type { AWS } from "@serverless/typescript";
 
 export const file: AWS["functions"] = {
   file: {
-    handler: "src/modules/file/_handlers/file_handler.handler",
+    handler: "src/modules/file/handler.handler",
     events: [
       {
         httpApi: {

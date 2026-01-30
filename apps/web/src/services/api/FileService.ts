@@ -1,20 +1,17 @@
-import { $presignedUrlRequest } from '@scorely/shared/schemas/file/file_schemas';
 import type {
   PresignedUrlRequest,
   PresignedUrlResponse,
-} from '@scorely/shared/schemas/file/file_schemas';
+} from '@scorely/api/modules/file/file.schemas';
 import api from 'src/services/api/api';
 
 class FileService {
   async getPresignedUrl(file: File): Promise<PresignedUrlResponse> {
-    const payload: PresignedUrlRequest = $presignedUrlRequest.parse({
-      filename: file.name,
-      contentType: file.type,
+    const payload: PresignedUrlRequest = {
+      contentType: file.type as PresignedUrlRequest['contentType'],
       size: file.size,
-    });
+    };
 
     const { data } = await api.post<PresignedUrlResponse>('/file/presign', payload);
-    console.log('data', data);
     return data;
   }
 
@@ -36,9 +33,7 @@ class FileService {
 
   async uploadFile(file: File): Promise<string> {
     const presigned = await this.getPresignedUrl(file);
-
     const result = await this.upload(presigned.uploadUrl, file);
-
     return result.url;
   }
 }
