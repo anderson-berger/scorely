@@ -1,6 +1,7 @@
 {
   "extends": "./.quasar/tsconfig.json",
   "compilerOptions": {
+    "baseUrl": ".",
     "paths": {
       "src": ["./src"],
       "src/*": ["./src/*"],
@@ -19,7 +20,7 @@
       "stores": ["./src/stores"],
       "#q-app": ["../../node_modules/@quasar/app-vite/types/index.d.ts"],
       "#q-app/wrappers": ["../../node_modules/@quasar/app-vite/types/app-wrappers.d.ts"],
-      "@scorely/shared/*": ["../../packages/shared/*"]
+      "@scorely/api/*": ["../api/src/*"]
     }
   }
 }

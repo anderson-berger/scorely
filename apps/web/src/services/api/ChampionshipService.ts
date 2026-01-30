@@ -1,5 +1,20 @@
-import type { Championship, NewChampionship } from '@scorely/shared/schemas/championship/championship_schemas';
 import api from 'src/services/api/api';
+
+// TODO: Importar do backend quando o módulo championship for implementado
+export interface Championship {
+  id: number;
+  name: string;
+  description?: string;
+  avatar?: string;
+  sport?: string;
+  status?: string;
+}
+
+export interface NewChampionship {
+  name: string;
+  description?: string;
+  sport?: string;
+}
 
 interface PaginatedResponse<T> {
   data: T[];

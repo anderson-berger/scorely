@@ -1,0 +1,42 @@
+@baseUrl = http://localhost:3000
+@accessToken = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiIxNTk4Y2M1Ni1lNDU5LTRiZjUtYWQ4NS0zYzY3ZjhhNjQ1MzgiLCJpYXQiOjE3Njk3ODQzMjIsImV4cCI6MTc3MDM4OTEyMn0.WXnuOJp8gIT6MyG5T90ACNd4dexCDcj5FNywLCDwVBM
+
+### GET /user - Listar usuários
+GET {{baseUrl}}/api/user
+Authorization: Bearer {{accessToken}}
+
+### GET /user - Listar com paginacao
+GET {{baseUrl}}/api/user?limit=10
+Authorization: Bearer {{accessToken}}
+
+### GET /user - Buscar por email
+GET {{baseUrl}}/api/user?email=teste@exemplo.com
+Authorization: Bearer {{accessToken}}
+
+### GET /user - Buscar por nickname
+GET {{baseUrl}}/api/user?nickname=meu-nickname
+Authorization: Bearer {{accessToken}}
+
+### GET /user/{id} - Buscar usuario por ID
+GET {{baseUrl}}/api/user/1598cc56-e459-4bf5-ad85-3c67f8a64538
+Authorization: Bearer {{accessToken}}
+
+### PUT /user/{id} - Atualizar dados do usuario
+PUT {{baseUrl}}/api/user/1598cc56-e459-4bf5-ad85-3c67f8a64538
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "id": "1598cc56-e459-4bf5-ad85-3c67f8a64538",
+  "version": 2,
+  "createdAt": "2024-01-01T00:00:00.000Z",
+  "updatedAt": "2024-01-01T00:00:00.000Z",
+  "email": "teste@exemplo.com",
+  "nickname": "deh",
+  "name": "Meu Nome",
+  "bio": "Minha bio"
+}
+
+### DELETE /user/{id} - Deletar usuario (so pode deletar a si mesmo)
+DELETE {{baseUrl}}/api/user/1598cc56-e459-4bf5-ad85-3c67f8a64538
+Authorization: Bearer {{accessToken}}

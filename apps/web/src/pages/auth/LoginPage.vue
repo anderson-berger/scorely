@@ -56,13 +56,13 @@
 <script lang="ts">
 import { defineComponent } from 'vue';
 import AuthService from 'src/services/api/AuthService';
-import type { MagicLink } from '@scorely/shared/schemas/auth';
+import type { SendMagicLinkInput } from '@scorely/api/modules/auth/auth.schemas';
 
 export default defineComponent({
   name: 'LoginPage',
 
   data() {
-    const magicLink: MagicLink = {
+    const magicLink: SendMagicLinkInput = {
       email: '',
     };
     return {

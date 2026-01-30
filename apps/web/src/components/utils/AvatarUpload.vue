@@ -63,7 +63,7 @@ export default defineComponent({
     },
   },
 
-  emits: ['handler-file'],
+  emits: ['update:file'],
 
   data() {
     return {
@@ -115,7 +115,7 @@ export default defineComponent({
       this.previewUrl = URL.createObjectURL(file);
       this.selectedFile = file;
 
-      this.$emit('handler-file', file);
+      this.$emit('update:file', file);
 
       target.value = '';
     },

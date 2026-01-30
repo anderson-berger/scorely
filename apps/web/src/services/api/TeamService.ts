@@ -1,5 +1,17 @@
-import type { Team, NewTeam } from '@scorely/shared/schemas/team/team_schemas';
 import api from 'src/services/api/api';
+
+// TODO: Importar do backend quando o módulo team for implementado
+export interface Team {
+  id: number;
+  name: string;
+  description?: string;
+  avatar?: string;
+}
+
+export interface NewTeam {
+  name: string;
+  description?: string;
+}
 
 interface PaginatedResponse<T> {
   data: T[];
