@@ -3,6 +3,9 @@ import { UnauthorizedError } from "@/utils/error/errors";
 import { env } from "@/utils/config/env";
 import { AccessTokenSubject } from "@/utils/token/token_schemas";
 
+const MAGIC_LINK_TOKEN_EXPIRY = "15m";
+const ACCESS_TOKEN_EXPIRY = "7d";
+
 export class TokenService {
   private readonly magicLinkSecret: Uint8Array;
   private readonly accessSecret: Uint8Array;
@@ -16,7 +19,7 @@ export class TokenService {
     return await new SignJWT({ email })
       .setProtectedHeader({ alg: "HS256", typ: "JWT" })
       .setIssuedAt()
-      .setExpirationTime(env.JWT_MAGIC_LINK_TOKEN_EXPIRY)
+      .setExpirationTime(MAGIC_LINK_TOKEN_EXPIRY)
       .sign(this.magicLinkSecret);
   }
 
@@ -26,7 +29,7 @@ export class TokenService {
     return await new SignJWT(accessTokenSubject)
       .setProtectedHeader({ alg: "HS256", typ: "JWT" })
       .setIssuedAt()
-      .setExpirationTime(env.JWT_ACCESS_TOKEN_EXPIRY)
+      .setExpirationTime(ACCESS_TOKEN_EXPIRY)
       .sign(this.accessSecret);
   }
 
