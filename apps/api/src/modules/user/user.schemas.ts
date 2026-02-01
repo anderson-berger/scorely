@@ -17,7 +17,7 @@ export const $lookupUser = z.object({
 export const $attributesUser = z
   .object({
     name: z.string().min(3).max(50),
-    avatar: z.string().url(),
+    avatar: z.string().min(1),
     bio: z.string().max(200),
     birthdate: z.iso.datetime(),
     contacts: z.array(z.string()),
