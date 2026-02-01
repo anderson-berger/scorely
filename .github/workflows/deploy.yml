@@ -49,6 +49,7 @@ jobs:
         run: |
           echo "JWT_MAGIC_LINK_SECRET=${{ secrets.JWT_MAGIC_LINK_SECRET }}" >> $GITHUB_ENV
           echo "JWT_ACCESS_SECRET=${{ secrets.JWT_ACCESS_SECRET }}" >> $GITHUB_ENV
+          echo "SERVERLESS_ACCESS_KEY=${{ secrets.SERVERLESS_ACCESS_KEY }}" >> $GITHUB_ENV
 
       - name: Deploy API
         id: deploy
@@ -96,6 +97,7 @@ jobs:
         working-directory: apps/web
         env:
           API_GATEWAY_ENDPOINT: ${{ needs.deploy-api.outputs.api-endpoint }}
+          SERVERLESS_ACCESS_KEY: ${{ secrets.SERVERLESS_ACCESS_KEY }}
         run: npx serverless deploy --stage ${{ steps.stage.outputs.stage }}
 
       - name: Invalidate CloudFront cache
@@ -122,4 +124,5 @@ jobs:
           JWT_MAGIC_LINK_SECRET: ${{ secrets.JWT_MAGIC_LINK_SECRET }}
           JWT_ACCESS_SECRET: ${{ secrets.JWT_ACCESS_SECRET }}
           FRONTEND_URL: ${{ steps.cloudfront.outputs.url }}
+          SERVERLESS_ACCESS_KEY: ${{ secrets.SERVERLESS_ACCESS_KEY }}
         run: npx serverless deploy --stage ${{ steps.stage.outputs.stage }}
