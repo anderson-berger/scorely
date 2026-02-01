@@ -1,0 +1,127 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: "Stage"
+        required: true
+        default: "dev"
+        type: choice
+        options:
+          - dev
+          - prod
+
+env:
+  NODE_VERSION: "20"
+  AWS_REGION: "sa-east-1"
+
+jobs:
+  deploy-api:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.stage || 'dev' }}
+    outputs:
+      api-endpoint: ${{ steps.deploy.outputs.endpoint }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Determine stage
+        id: stage
+        run: echo "stage=${{ inputs.stage || 'dev' }}" >> $GITHUB_OUTPUT
+
+      - name: Set environment variables
+        run: |
+          echo "JWT_MAGIC_LINK_SECRET=${{ secrets.JWT_MAGIC_LINK_SECRET }}" >> $GITHUB_ENV
+          echo "JWT_ACCESS_SECRET=${{ secrets.JWT_ACCESS_SECRET }}" >> $GITHUB_ENV
+
+      - name: Deploy API
+        id: deploy
+        working-directory: apps/api
+        run: |
+          npx serverless deploy --stage ${{ steps.stage.outputs.stage }}
+          ENDPOINT=$(aws cloudformation describe-stacks \
+            --stack-name scorely-${{ steps.stage.outputs.stage }} \
+            --query "Stacks[0].Outputs[?OutputKey=='HttpApiEndpoint'].OutputValue" \
+            --output text)
+          echo "endpoint=$ENDPOINT" >> $GITHUB_OUTPUT
+
+  deploy-web:
+    runs-on: ubuntu-latest
+    needs: deploy-api
+    environment: ${{ inputs.stage || 'dev' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Determine stage
+        id: stage
+        run: echo "stage=${{ inputs.stage || 'dev' }}" >> $GITHUB_OUTPUT
+
+      - name: Build frontend
+        working-directory: apps/web
+        run: npx quasar build
+
+      - name: Deploy Web
+        working-directory: apps/web
+        env:
+          API_GATEWAY_ENDPOINT: ${{ needs.deploy-api.outputs.api-endpoint }}
+        run: npx serverless deploy --stage ${{ steps.stage.outputs.stage }}
+
+      - name: Invalidate CloudFront cache
+        run: |
+          DIST_ID=$(aws cloudformation describe-stacks \
+            --stack-name scorely-web-${{ steps.stage.outputs.stage }} \
+            --query "Stacks[0].Outputs[?OutputKey=='CloudFrontDistributionId'].OutputValue" \
+            --output text)
+          aws cloudfront create-invalidation --distribution-id $DIST_ID --paths "/*"
+
+      - name: Get CloudFront URL
+        id: cloudfront
+        run: |
+          DOMAIN=$(aws cloudformation describe-stacks \
+            --stack-name scorely-web-${{ steps.stage.outputs.stage }} \
+            --query "Stacks[0].Outputs[?OutputKey=='CloudFrontDomainName'].OutputValue" \
+            --output text)
+          echo "url=https://$DOMAIN" >> $GITHUB_OUTPUT
+          echo "### Deployed to: https://$DOMAIN" >> $GITHUB_STEP_SUMMARY
+
+      - name: Update API with CloudFront URL
+        working-directory: apps/api
+        env:
+          JWT_MAGIC_LINK_SECRET: ${{ secrets.JWT_MAGIC_LINK_SECRET }}
+          JWT_ACCESS_SECRET: ${{ secrets.JWT_ACCESS_SECRET }}
+          FRONTEND_URL: ${{ steps.cloudfront.outputs.url }}
+        run: npx serverless deploy --stage ${{ steps.stage.outputs.stage }}
