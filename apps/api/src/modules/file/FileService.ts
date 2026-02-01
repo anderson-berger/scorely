@@ -17,7 +17,7 @@ export class FileService {
     request: PresignedUrlRequest,
   ): Promise<PresignedUrlResponse> {
     const extension = this.getExtensionFromContentType(request.contentType);
-    const key = `users/${userId}/${randomUUID()}${extension}`;
+    const key = `uploads/users/${userId}/${randomUUID()}${extension}`;
 
     const { uploadUrl, expiresIn } =
       await this.fileRepository.generatePresignedUrl(key, request);

@@ -74,7 +74,11 @@ export default defineComponent({
 
   computed: {
     displayImage(): string {
-      return this.previewUrl ?? this.avatar ?? 'https://cdn.quasar.dev/img/avatar.png';
+      if (this.previewUrl) return this.previewUrl;
+      if (!this.avatar) return 'https://cdn.quasar.dev/img/avatar.png';
+      // Se for path relativo (não começa com http), adiciona /
+      if (!this.avatar.startsWith('http')) return `/${this.avatar}`;
+      return this.avatar;
     },
   },
 

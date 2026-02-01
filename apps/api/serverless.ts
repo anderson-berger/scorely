@@ -109,9 +109,9 @@ const serverlessConfiguration: AWS = {
           BucketName: "${self:provider.environment.S3_BUCKET}-${self:provider.stage}",
           PublicAccessBlockConfiguration: {
             BlockPublicAcls: true,
-            BlockPublicPolicy: true,
+            BlockPublicPolicy: false,
             IgnorePublicAcls: true,
-            RestrictPublicBuckets: true,
+            RestrictPublicBuckets: false,
           },
           CorsConfiguration: {
             CorsRules: [
@@ -120,6 +120,29 @@ const serverlessConfiguration: AWS = {
                 AllowedMethods: ["GET", "PUT", "POST", "HEAD"],
                 AllowedHeaders: ["*"],
                 MaxAge: 3600,
+              },
+            ],
+          },
+        },
+      },
+
+      // Política do bucket de uploads - permite CloudFront acessar
+      UploadsBucketPolicy: {
+        Type: "AWS::S3::BucketPolicy",
+        Properties: {
+          Bucket: { Ref: "UploadsBucket" },
+          PolicyDocument: {
+            Statement: [
+              {
+                Effect: "Allow",
+                Principal: { Service: "cloudfront.amazonaws.com" },
+                Action: "s3:GetObject",
+                Resource: { "Fn::Sub": "${UploadsBucket.Arn}/*" },
+                Condition: {
+                  StringEquals: {
+                    "AWS:SourceAccount": { Ref: "AWS::AccountId" },
+                  },
+                },
               },
             ],
           },

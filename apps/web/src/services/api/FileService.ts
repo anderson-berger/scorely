@@ -33,8 +33,8 @@ class FileService {
 
   async uploadFile(file: File): Promise<string> {
     const presigned = await this.getPresignedUrl(file);
-    const result = await this.upload(presigned.uploadUrl, file);
-    return result.url;
+    await this.upload(presigned.uploadUrl, file);
+    return presigned.key;
   }
 }
 

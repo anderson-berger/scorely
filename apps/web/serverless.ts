@@ -14,6 +14,7 @@ const serverlessConfiguration = {
 
   custom: {
     bucketName: '${self:service}-${self:provider.stage}',
+    uploadsBucketName: 'scorely-uploads-${self:provider.stage}',
     apiEndpoint: '${env:API_GATEWAY_ENDPOINT, "https://api.example.com"}',
     s3Sync: [
       {
@@ -51,6 +52,19 @@ const serverlessConfiguration = {
         Properties: {
           OriginAccessControlConfig: {
             Name: '${self:service}-oac-${self:provider.stage}',
+            OriginAccessControlOriginType: 's3',
+            SigningBehavior: 'always',
+            SigningProtocol: 'sigv4',
+          },
+        },
+      },
+
+      // OAC para bucket de uploads
+      UploadsOAC: {
+        Type: 'AWS::CloudFront::OriginAccessControl',
+        Properties: {
+          OriginAccessControlConfig: {
+            Name: 'scorely-uploads-oac-${self:provider.stage}',
             OriginAccessControlOriginType: 's3',
             SigningBehavior: 'always',
             SigningProtocol: 'sigv4',
@@ -114,6 +128,12 @@ const serverlessConfiguration = {
                   OriginSSLProtocols: ['TLSv1.2'],
                 },
               },
+              {
+                Id: 'UploadsOrigin',
+                DomainName: '${self:custom.uploadsBucketName}.s3.sa-east-1.amazonaws.com',
+                S3OriginConfig: { OriginAccessIdentity: '' },
+                OriginAccessControlId: { Ref: 'UploadsOAC' },
+              },
             ],
 
             DefaultCacheBehavior: {
@@ -133,6 +153,15 @@ const serverlessConfiguration = {
                 AllowedMethods: ['GET', 'HEAD', 'OPTIONS', 'PUT', 'POST', 'PATCH', 'DELETE'],
                 CachePolicyId: '4135ea2d-6df8-44a3-9df3-4b5a84be39ad',
                 OriginRequestPolicyId: 'b689b0a8-53d0-40ab-baf2-68738e2966ac',
+              },
+              {
+                PathPattern: '/uploads/*',
+                TargetOriginId: 'UploadsOrigin',
+                ViewerProtocolPolicy: 'redirect-to-https',
+                AllowedMethods: ['GET', 'HEAD', 'OPTIONS'],
+                CachedMethods: ['GET', 'HEAD'],
+                CachePolicyId: '658327ea-f89d-4fab-a63d-7e88639e58f6',
+                Compress: true,
               },
             ],
 
