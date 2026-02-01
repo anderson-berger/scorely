@@ -102,6 +102,30 @@ const serverlessConfiguration: AWS = {
 
   resources: {
     Resources: {
+      // S3 Bucket para uploads com CORS
+      UploadsBucket: {
+        Type: "AWS::S3::Bucket",
+        Properties: {
+          BucketName: "${self:provider.environment.S3_BUCKET}-${self:provider.stage}",
+          PublicAccessBlockConfiguration: {
+            BlockPublicAcls: true,
+            BlockPublicPolicy: true,
+            IgnorePublicAcls: true,
+            RestrictPublicBuckets: true,
+          },
+          CorsConfiguration: {
+            CorsRules: [
+              {
+                AllowedOrigins: [getStageConfig("frontendUrl")],
+                AllowedMethods: ["GET", "PUT", "POST", "HEAD"],
+                AllowedHeaders: ["*"],
+                MaxAge: 3600,
+              },
+            ],
+          },
+        },
+      },
+
       ScorelyTable: {
         Type: "AWS::DynamoDB::Table",
         Properties: {
