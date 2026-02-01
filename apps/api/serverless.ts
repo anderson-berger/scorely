@@ -8,8 +8,8 @@ import { file } from "./serverless/functions/file";
 // Configurações por ambiente
 const stageConfig = {
   local: { frontendUrl: "http://localhost:9000" },
-  dev: { frontendUrl: "${env:FRONTEND_URL}" },
-  prod: { frontendUrl: "${env:FRONTEND_URL}" },
+  dev: { frontendUrl: "${env:FRONTEND_URL, 'https://placeholder.cloudfront.net'}" },
+  prod: { frontendUrl: "${env:FRONTEND_URL, 'https://placeholder.cloudfront.net'}" },
 };
 
 const getStageConfig = (key: keyof (typeof stageConfig)["local"]) =>
