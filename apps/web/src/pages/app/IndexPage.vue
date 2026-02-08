@@ -45,12 +45,23 @@
           </q-card>
         </div>
       </div>
+      <div>{{ sessionStore.teams }}</div>
 
       <!-- CTA Section -->
     </div>
   </q-page>
 </template>
 
-<script setup lang="ts">
-// Página estática de apresentação
+<script lang="ts">
+import { defineComponent } from 'vue';
+import { sessionStore } from 'src/services/stores/SessionStore';
+
+export default defineComponent({
+  name: 'HomePage',
+  computed: {
+    sessionStore() {
+      return sessionStore;
+    },
+  },
+});
 </script>

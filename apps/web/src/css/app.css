@@ -1,115 +1,135 @@
-/* app global css - Estilos globais para o app de campeonatos esportivos */
+/* ===========================================
+   PAGE/CONTENT THEME VARIABLES
+   =========================================== */
 
-/* Variáveis CSS - Modo tradicional dark + light acinzentado */
 :root {
-  /* Light mode: acinzentado moderno (off-white/cinza claro) */
-  --bg-page-light: #f8fafc; /* slate-50 - cinza bem claro, confortável */
-  --bg-drawer-light: #f1f5f9; /* slate-100 - um pouco mais cinza para drawer */
-  --card-bg-light: #ffffff; /* branco puro para cards destacados no light */
-  --card-border-light: #e2e8f0; /* slate-200 - borda sutil */
-  --shadow-light: rgba(0, 0, 0, 0.08);
-
-  /* Dark mode: tradicional/preto padrão (como apps esportivos clássicos) */
-  --bg-page-dark: #121212; /* clássico dark Material/Quasar/ESPN/Sofascore */
-  --bg-drawer-dark: #1e1e1e; /* cinza-preto sutil para drawer (não some no fundo) */
-  --card-bg-dark: rgba(255, 255, 255, 0.06); /* branco transparente baixo para glassmorphism */
-  --card-border-dark: rgba(255, 255, 255, 0.12); /* borda branca sutil no dark */
-  --shadow-dark: rgba(0, 0, 0, 0.6); /* sombra forte para elevação */
-
-  --toolbar-bg-dark: #121212; /* mesmo do page para toolbar tradicional */
-  --toolbar-border-dark: #2a2a2a; /* cinza escuro para separador */
-
-  /* Glows mantidos se quiser usar em live/troféus (opcional) */
-  --accent-glow: rgba(245, 158, 11, 0.3); /* amber se usar accent */
-  --positive-glow: rgba(16, 185, 129, 0.25); /* emerald se usar positive */
+  /* Page background and text */
+  --page-bg: #ffffff;
+  --page-text: #1a1a1a;
+  --page-text-secondary: #6d7681;
 }
 
-/* Light mode - fundo acinzentado */
-body:not(.body--dark) {
-  background-color: var(--bg-page-light);
+.body--dark {
+  /* Page background and text */
+  --page-bg: #313338;
+  --page-text: #ffffff;
+  --page-text-secondary: #949ba4;
 }
 
-body:not(.body--dark) .q-page {
-  background-color: var(--bg-page-light);
+/* Apply page background globally */
+.q-page {
+  background: var(--page-bg);
+  color: var(--page-text);
 }
 
-body:not(.body--dark) .q-drawer {
-  background-color: var(--bg-drawer-light);
+/* ===========================================
+   TOOLBAR/HEADER THEME VARIABLES
+   =========================================== */
+
+:root {
+  /* Header/Toolbar */
+  --header-bg: #e3e5e8;
+  --header-text: #1a1a1a;
+  --header-icon: #4f5660;
+  --header-icon-hover-bg: rgba(0, 0, 0, 0.05);
+  --header-shadow: rgba(0, 0, 0, 0.1);
 }
 
-/* Dark mode - fundo preto tradicional */
-body.body--dark {
-  background-color: var(--bg-page-dark);
-  color: #e0e0e0; /* cinza claro para texto default (melhor que branco puro) */
+.body--dark {
+  /* Header/Toolbar */
+  --header-bg: #1d1e21;
+  --header-text: #ffffff;
+  --header-icon: #b5bac1;
+  --header-icon-hover-bg: rgba(255, 255, 255, 0.1);
+  --header-shadow: rgba(0, 0, 0, 0.3);
 }
 
-body.body--dark .q-page {
-  background-color: var(--bg-page-dark);
+/* ===========================================
+   SIDEBAR THEME VARIABLES
+   =========================================== */
+
+:root {
+  /* Teams bar (left column) */
+  --sidebar-teams-bg: #e3e5e8;
+  --sidebar-teams-separator: #c4c9ce;
+
+  /* Team button */
+  --sidebar-btn-bg: #ffffff;
+  --sidebar-btn-hover-bg: var(--q-primary);
+  --sidebar-btn-active-bg: var(--q-primary);
+  --sidebar-btn-text: #4f5660;
+
+  /* Home button */
+  --sidebar-home-color: var(--q-positive);
+  --sidebar-home-hover-bg: var(--q-positive);
+
+  /* Profile button */
+  --sidebar-profile-color: var(--q-primary);
+  --sidebar-profile-hover-bg: var(--q-primary);
+
+  /* Add button */
+  --sidebar-add-color: var(--q-positive);
+  --sidebar-add-hover-bg: var(--q-positive);
+
+  /* Pill indicator */
+  --sidebar-pill-bg: var(--q-dark);
+
+  /* Menu panel (right column) */
+  --sidebar-menu-bg: #f2f3f5;
+  --sidebar-menu-header-bg: #f2f3f5;
+  --sidebar-menu-header-text: #1a1a1a;
+  --sidebar-menu-header-shadow: rgba(0, 0, 0, 0.1);
+
+  /* Menu items */
+  --sidebar-item-text: #4f5660;
+  --sidebar-item-hover-bg: rgba(0, 0, 0, 0.05);
+  --sidebar-item-hover-text: #1a1a1a;
+  --sidebar-item-active-bg: rgba(0, 0, 0, 0.1);
+  --sidebar-item-active-text: #1a1a1a;
+
+  /* Menu section header */
+  --sidebar-section-text: #6d7681;
 }
 
-body.body--dark .q-drawer {
-  background-color: var(--bg-drawer-dark);
-}
+.body--dark {
+  /* Teams bar (left column) */
+  --sidebar-teams-bg: #1e1f22;
+  --sidebar-teams-separator: #35363c;
 
-/* Toolbar - tradicional neutro */
-.q-toolbar {
-  transition:
-    background-color 0.3s ease,
-    color 0.3s ease;
-}
+  /* Team button */
+  --sidebar-btn-bg: #313338;
+  --sidebar-btn-hover-bg: var(--q-primary);
+  --sidebar-btn-active-bg: var(--q-primary);
+  --sidebar-btn-text: #dcddde;
 
-body:not(.body--dark) .q-toolbar {
-  background-color: #ffffff;
-  border-bottom: 1px solid #e2e8f0;
-  color: #111827; /* slate-900 escuro para ícones/textos */
-}
+  /* Home button */
+  --sidebar-home-color: var(--q-positive);
+  --sidebar-home-hover-bg: var(--q-positive);
 
-body.body--dark .q-toolbar {
-  background-color: var(--toolbar-bg-dark);
-  border-bottom: 1px solid var(--toolbar-border-dark);
-  color: #e0e0e0; /* cinza claro para legibilidade */
-}
+  /* Profile button */
+  --sidebar-profile-color: var(--q-primary);
+  --sidebar-profile-hover-bg: var(--q-primary);
 
-/* Feature Cards - ajustado para os modos */
-.feature-card {
-  border-radius: 12px;
-  height: 100%;
-  transition:
-    transform 0.2s ease,
-    box-shadow 0.2s ease;
-}
+  /* Add button */
+  --sidebar-add-color: var(--q-positive);
+  --sidebar-add-hover-bg: var(--q-positive);
 
-body:not(.body--dark) .feature-card {
-  background: var(--card-bg-light);
-  border: 1px solid var(--card-border-light);
-}
+  /* Pill indicator */
+  --sidebar-pill-bg: #ffffff;
 
-.body--dark .feature-card {
-  background: var(--card-bg-dark);
-  border: 1px solid var(--card-border-dark);
-  backdrop-filter: blur(6px); /* glass sutil, menos blur para performance */
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
-}
+  /* Menu panel (right column) */
+  --sidebar-menu-bg: #2b2d31;
+  --sidebar-menu-header-bg: #2b2d31;
+  --sidebar-menu-header-text: #ffffff;
+  --sidebar-menu-header-shadow: rgba(0, 0, 0, 0.2);
 
-.feature-card:hover {
-  transform: translateY(-4px);
-}
+  /* Menu items */
+  --sidebar-item-text: #949ba4;
+  --sidebar-item-hover-bg: rgba(79, 84, 92, 0.4);
+  --sidebar-item-hover-text: #dbdee1;
+  --sidebar-item-active-bg: rgba(79, 84, 92, 0.6);
+  --sidebar-item-active-text: #ffffff;
 
-body:not(.body--dark) .feature-card:hover {
-  box-shadow: 0 8px 24px var(--shadow-light);
-}
-
-.body--dark .feature-card:hover {
-  box-shadow: 0 12px 32px var(--shadow-dark);
-  background: rgba(255, 255, 255, 0.08); /* hover mais visível no dark */
-}
-
-/* Exemplo de live indicator (tradicional) */
-.live-indicator {
-  background: #ef4444; /* vermelho clássico para urgência (ou seu accent se preferir) */
-  color: white;
-  padding: 4px 8px;
-  border-radius: 999px;
-  font-weight: bold;
-  box-shadow: 0 0 10px rgba(239, 68, 68, 0.4);
+  /* Menu section header */
+  --sidebar-section-text: #949ba4;
 }

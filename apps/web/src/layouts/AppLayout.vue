@@ -1,7 +1,7 @@
 <template>
-  <q-layout view="hHh Lpr lFf">
+  <q-layout view="lHh lpR lFf">
     <!-- Header -->
-    <HeaderComponent v-model:drawerOpen="drawerOpen" />
+    <!-- <HeaderComponent v-model:drawerOpen="drawerOpen" /> -->
 
     <!-- Sidebar estilo Discord -->
     <LeftDrawerComponent v-model="drawerOpen" />
@@ -15,14 +15,15 @@
 
 <script lang="ts">
 import { defineComponent } from 'vue';
-import HeaderComponent from 'src/layouts/app-layout/HeaderComponent.vue';
+// import HeaderComponent from 'src/layouts/app-layout/HeaderComponent.vue';
 import LeftDrawerComponent from 'src/layouts/app-layout/LeftDrawerComponent.vue';
+// import LeftDrawerComponent from 'src/layouts/app-layout/LeftDrawerComponentExemple.vue';
 
 export default defineComponent({
   name: 'AppLayout',
 
   components: {
-    HeaderComponent,
+    // HeaderComponent,
     LeftDrawerComponent,
   },
 

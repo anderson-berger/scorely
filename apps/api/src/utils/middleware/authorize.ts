@@ -19,6 +19,8 @@ export async function handler(
   event: HttpApiAuthorizerEvent,
 ): Promise<APIGatewayAuthorizerResult> {
   try {
+    console.log("oi");
+
     const token = extractToken(event);
     const tokenPayload = await tokenService.verifyAccessToken(token);
     const resource = event.routeArn ?? event.routeKey ?? "*";

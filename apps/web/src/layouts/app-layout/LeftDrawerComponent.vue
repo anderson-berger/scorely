@@ -10,203 +10,61 @@
       class="discord-sidebar"
       :class="{ 'is-hidden': isMobile && !isOpen, 'mobile-open': isMobile && isOpen }"
     >
-      <!-- Coluna 1: Times (barra estreita estilo Discord) -->
-      <div class="teams-bar">
-        <q-scroll-area class="fit">
-          <div class="column items-center q-py-sm">
-            <!-- Home/Dashboard geral -->
-            <div class="team-item-wrapper q-mb-xs">
-              <div
-                class="pill-indicator"
-                :class="{ active: !activeTeamId, hovered: homeHovered }"
-              />
-              <q-btn
-                flat
-                class="team-btn home-btn"
-                :class="{ active: !activeTeamId }"
-                @click="goHome"
-                @mouseenter="homeHovered = true"
-                @mouseleave="homeHovered = false"
-              >
-                <q-icon name="home" size="24px" />
-                <q-tooltip anchor="center right" self="center left" :offset="[12, 0]">
-                  Início
-                </q-tooltip>
-              </q-btn>
-            </div>
+      <!-- Coluna 1: Times -->
+      <TeamsBar
+        :teams="teamWithMember"
+        :selection="selection"
+        @select="handleSelect"
+        @create-team="createTeam"
+      />
 
-            <q-separator dark class="teams-separator" />
+      <!-- Coluna 2: Menu do item selecionado -->
+      <HomeMenu
+        v-if="selection.type === 'home'"
+        :current-route-name="currentRouteName"
+        @navigate="navigateTo"
+      />
 
-            <!-- Times do usuário -->
-            <template v-for="team in teams" :key="team.id">
-              <div class="team-item-wrapper">
-                <div
-                  class="pill-indicator"
-                  :class="{
-                    active: team.id === activeTeamId,
-                    hovered: hoveredTeamId === team.id && team.id !== activeTeamId,
-                  }"
-                />
-                <q-btn
-                  flat
-                  class="team-btn"
-                  :class="{ active: team.id === activeTeamId }"
-                  @click="selectTeam(team)"
-                  @mouseenter="hoveredTeamId = team.id"
-                  @mouseleave="hoveredTeamId = null"
-                >
-                  <q-avatar size="48px" :class="{ 'avatar-active': team.id === activeTeamId }">
-                    <img v-if="team.logo" :src="team.logo" alt="Logo" />
-                    <span v-else class="text-uppercase text-weight-bold">
-                      {{ team.name.substring(0, 2) }}
-                    </span>
-                  </q-avatar>
-                  <q-tooltip anchor="center right" self="center left" :offset="[12, 0]">
-                    <div class="text-weight-bold">{{ team.name }}</div>
-                    <div class="text-caption text-grey-4">{{ getRoleLabel(team.role) }}</div>
-                  </q-tooltip>
-                </q-btn>
-              </div>
-            </template>
+      <ProfileMenu
+        v-else-if="selection.type === 'profile'"
+        :current-route-name="currentRouteName"
+        @navigate="navigateTo"
+      />
 
-            <q-separator dark class="teams-separator" />
-
-            <!-- Botão criar time -->
-            <div class="team-item-wrapper">
-              <div class="pill-indicator" :class="{ hovered: createHovered }" />
-              <q-btn
-                flat
-                class="team-btn add-btn"
-                @click="createTeam"
-                @mouseenter="createHovered = true"
-                @mouseleave="createHovered = false"
-              >
-                <q-icon name="add" size="24px" color="green-4" />
-                <q-tooltip anchor="center right" self="center left" :offset="[12, 0]">
-                  Criar novo time
-                </q-tooltip>
-              </q-btn>
-            </div>
-          </div>
-        </q-scroll-area>
-      </div>
-
-      <!-- Coluna 2: Menu do time selecionado -->
-      <div class="menu-panel">
-        <template v-if="activeTeam">
-          <!-- Header do time -->
-          <div class="menu-header">
-            <span class="text-weight-bold text-subtitle1">{{ activeTeam.name }}</span>
-            <q-btn flat dense round icon="more_horiz" size="sm" color="grey-4" />
-          </div>
-
-          <q-separator dark />
-
-          <!-- Menu items -->
-          <q-scroll-area class="menu-scroll">
-            <q-list padding>
-              <!-- Seção geral -->
-              <q-item-label header class="text-grey-5 text-uppercase text-caption">
-                Geral
-              </q-item-label>
-
-              <q-item
-                v-for="item in generalMenuItems"
-                :key="item.key"
-                clickable
-                v-ripple
-                :active="isActiveRoute(item.routeName)"
-                active-class="menu-item-active"
-                class="menu-item"
-                @click="navigateTo(item.routeName, item.params)"
-              >
-                <q-item-section avatar>
-                  <q-icon :name="item.icon" size="20px" />
-                </q-item-section>
-                <q-item-section>{{ item.label }}</q-item-section>
-              </q-item>
-
-              <!-- Seção administração (apenas owner/admin) -->
-              <template v-if="hasAdminAccess">
-                <q-item-label header class="text-grey-5 text-uppercase text-caption q-mt-md">
-                  Administração
-                </q-item-label>
-
-                <q-item
-                  v-for="item in adminMenuItems"
-                  :key="item.key"
-                  clickable
-                  v-ripple
-                  :active="isActiveRoute(item.routeName)"
-                  active-class="menu-item-active"
-                  class="menu-item"
-                  @click="navigateTo(item.routeName, item.params)"
-                >
-                  <q-item-section avatar>
-                    <q-icon :name="item.icon" size="20px" />
-                  </q-item-section>
-                  <q-item-section>{{ item.label }}</q-item-section>
-                </q-item>
-              </template>
-
-              <!-- Seção configurações (apenas owner) -->
-              <template v-if="isOwner">
-                <q-item-label header class="text-grey-5 text-uppercase text-caption q-mt-md">
-                  Configurações
-                </q-item-label>
-
-                <q-item
-                  v-for="item in ownerMenuItems"
-                  :key="item.key"
-                  clickable
-                  v-ripple
-                  :active="isActiveRoute(item.routeName)"
-                  active-class="menu-item-active"
-                  class="menu-item"
-                  @click="navigateTo(item.routeName, item.params)"
-                >
-                  <q-item-section avatar>
-                    <q-icon :name="item.icon" size="20px" />
-                  </q-item-section>
-                  <q-item-section>{{ item.label }}</q-item-section>
-                </q-item>
-              </template>
-            </q-list>
-          </q-scroll-area>
-        </template>
-
-        <!-- Placeholder se nenhum time selecionado -->
-        <div v-else class="no-team-selected">
-          <q-icon name="groups" size="48px" color="grey-7" />
-          <p class="text-grey-5 q-mt-md">Selecione um time</p>
-        </div>
-      </div>
+      <TeamMenu
+        v-else-if="selection.type === 'team'"
+        :active-team="activeTeam"
+        :has-admin-access="hasAdminAccess"
+        :is-owner="isOwner"
+        :general-menu-items="generalMenuItems"
+        :admin-menu-items="adminMenuItems"
+        :owner-menu-items="ownerMenuItems"
+        :current-route-name="currentRouteName"
+        @navigate="navigateTo"
+      />
     </div>
   </div>
 </template>
 
 <script lang="ts">
 import { defineComponent } from 'vue';
-
-interface Team {
-  id: string;
-  name: string;
-  role: 'owner' | 'admin' | 'member';
-  logo: string | null;
-}
-
-interface MenuItem {
-  key: string;
-  label: string;
-  icon: string;
-  routeName: string;
-  params?: Record<string, string>;
-}
+import TeamsBar from 'src/layouts/app-layout/left-drawer/TeamsBar.vue';
+import HomeMenu from 'src/layouts/app-layout/left-drawer/HomeMenu.vue';
+import ProfileMenu from 'src/layouts/app-layout/left-drawer/ProfileMenu.vue';
+import TeamMenu from 'src/layouts/app-layout/left-drawer/TeamMenu.vue';
+import type { MenuItem, DrawerSelection } from 'src/layouts/app-layout/left-drawer/types';
+import { sessionStore } from 'src/services/stores/SessionStore';
+import type { TeamWithMember } from '@scorely/api/modules/team/team/team.schemas';
 
 export default defineComponent({
   name: 'LeftDrawerComponent',
 
-  components: {},
+  components: {
+    TeamsBar,
+    HomeMenu,
+    ProfileMenu,
+    TeamMenu,
+  },
 
   props: {
     modelValue: {
@@ -219,20 +77,9 @@ export default defineComponent({
 
   data() {
     return {
-      activeTeamId: null as string | null,
-      hoveredTeamId: null as string | null,
-      homeHovered: false,
-      createHovered: false,
+      selection: { type: 'home' } as DrawerSelection,
 
-      // Dados mockados (substituir por store/API)
-      teams: [
-        { id: '1', name: 'Alpha Team', role: 'owner', logo: null },
-        { id: '2', name: 'Beta Esports', role: 'admin', logo: null },
-        { id: '3', name: 'Gamma FC', role: 'member', logo: null },
-        { id: '4', name: 'Delta Warriors', role: 'owner', logo: null },
-        { id: '5', name: 'Epsilon Squad', role: 'member', logo: null },
-        { id: '6', name: 'Zeta Gaming', role: 'member', logo: null },
-      ] as Team[],
+      // Mock data - substituir por store/API
     };
   },
 
@@ -245,16 +92,26 @@ export default defineComponent({
       return this.$q.screen.lt.md;
     },
 
-    activeTeam(): Team | null {
-      return this.teams.find((t) => t.id === this.activeTeamId) || null;
+    currentRouteName(): string | symbol | null | undefined {
+      return this.$route.name;
+    },
+
+    activeTeam(): TeamWithMember | null {
+      if (this.selection.type !== 'team') return null;
+      const { teamId } = this.selection;
+      return this.teamWithMember.find((t) => t.id === teamId) || null;
     },
 
     hasAdminAccess(): boolean {
-      return this.activeTeam?.role === 'owner' || this.activeTeam?.role === 'admin';
+      return this.activeTeam?.member.role === 'owner' || this.activeTeam?.member.role === 'admin';
     },
 
     isOwner(): boolean {
-      return this.activeTeam?.role === 'owner';
+      return this.activeTeam?.member.role === 'owner';
+    },
+
+    activeTeamId(): string {
+      return this.selection.type === 'team' ? this.selection.teamId : '';
     },
 
     generalMenuItems(): MenuItem[] {
@@ -264,21 +121,21 @@ export default defineComponent({
           label: 'Dashboard',
           icon: 'dashboard',
           routeName: 'app.team.dashboard',
-          params: { teamId: this.activeTeamId || '' },
+          params: { teamId: this.activeTeamId },
         },
         {
           key: 'championships',
           label: 'Campeonatos',
           icon: 'emoji_events',
           routeName: 'app.team.championships',
-          params: { teamId: this.activeTeamId || '' },
+          params: { teamId: this.activeTeamId },
         },
         {
           key: 'calendar',
           label: 'Calendário',
           icon: 'event',
           routeName: 'app.team.calendar',
-          params: { teamId: this.activeTeamId || '' },
+          params: { teamId: this.activeTeamId },
         },
       ];
     },
@@ -290,14 +147,14 @@ export default defineComponent({
           label: 'Membros',
           icon: 'group',
           routeName: 'app.team.members',
-          params: { teamId: this.activeTeamId || '' },
+          params: { teamId: this.activeTeamId },
         },
         {
           key: 'invites',
           label: 'Convites',
           icon: 'mail',
           routeName: 'app.team.invites',
-          params: { teamId: this.activeTeamId || '' },
+          params: { teamId: this.activeTeamId },
         },
       ];
     },
@@ -309,42 +166,38 @@ export default defineComponent({
           label: 'Configurações',
           icon: 'settings',
           routeName: 'app.team.settings',
-          params: { teamId: this.activeTeamId || '' },
+          params: { teamId: this.activeTeamId },
         },
         {
           key: 'billing',
           label: 'Faturamento',
           icon: 'payments',
           routeName: 'app.team.billing',
-          params: { teamId: this.activeTeamId || '' },
+          params: { teamId: this.activeTeamId },
         },
       ];
     },
+    teamWithMember(): TeamWithMember[] {
+      return sessionStore.teamWithMember;
+    },
   },
-
-  created() {
-    // Seleciona o primeiro time ao iniciar
-    if (this.teams.length > 0) {
-      const team = this.teams[0];
-      this.activeTeamId = team ? team.id : null;
-    }
-  },
-
-  mounted() {},
 
   methods: {
     closeDrawer() {
       this.$emit('update:modelValue', false);
     },
 
-    selectTeam(team: Team) {
-      this.activeTeamId = team.id;
-      void this.$router.push({ name: 'app.team', params: { teamId: team.id } });
-    },
+    handleSelect(newSelection: DrawerSelection) {
+      this.selection = newSelection;
 
-    goHome() {
-      this.activeTeamId = null;
-      void this.$router.push({ name: 'app.index' });
+      if (newSelection.type === 'home') {
+        void this.$router.push({ name: 'app.index' });
+      } else if (newSelection.type === 'profile') {
+        void this.$router.push({ name: 'app.profile' });
+      } else if (newSelection.type === 'team') {
+        void this.$router.push({ name: 'app.team', params: { teamId: newSelection.teamId } });
+      }
+
       if (this.isMobile) {
         this.closeDrawer();
       }
@@ -358,22 +211,10 @@ export default defineComponent({
       }
     },
 
-    isActiveRoute(routeName: string): boolean {
-      return this.$route.name === routeName;
-    },
-
-    getRoleLabel(role: string): string {
-      const labels: Record<string, string> = {
-        owner: 'Proprietário',
-        admin: 'Administrador',
-        member: 'Membro',
-      };
-      return labels[role] || role;
-    },
-
-    createTeam() {
-      // TODO: Abrir modal ou navegar para criação de time
-      console.log('Criar novo time');
+    async createTeam() {
+      await this.$load.execute('create-team', async () => {
+        await sessionStore.createTeam();
+      });
     },
   },
 });
@@ -407,156 +248,6 @@ export default defineComponent({
 
 .discord-sidebar.mobile-open {
   transform: translateX(0);
-}
-
-/* Barra de times (estilo Discord) */
-.teams-bar {
-  width: 72px;
-  background: #1e1f22;
-  padding-top: 12px;
-  flex-shrink: 0;
-}
-
-.team-item-wrapper {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  margin-bottom: 8px;
-}
-
-/* Pill indicator (barra lateral estilo Discord) */
-.pill-indicator {
-  position: absolute;
-  left: 0;
-  width: 4px;
-  height: 8px;
-  background: white;
-  border-radius: 0 4px 4px 0;
-  transition: height 0.2s ease;
-  opacity: 0;
-}
-
-.pill-indicator.hovered {
-  opacity: 1;
-  height: 20px;
-}
-
-.pill-indicator.active {
-  opacity: 1;
-  height: 40px;
-}
-
-.team-btn {
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
-  background: #313338;
-  transition: all 0.2s ease;
-  padding: 0;
-  min-height: 48px;
-}
-
-.team-btn:hover,
-.team-btn.active {
-  border-radius: 16px;
-  background: #5865f2;
-}
-
-.team-btn .q-avatar {
-  transition: border-radius 0.2s ease;
-}
-
-.team-btn:hover .q-avatar,
-.team-btn.active .q-avatar {
-  border-radius: 16px;
-}
-
-.home-btn {
-  background: #313338;
-  color: #3ba55d;
-}
-
-.home-btn:hover,
-.home-btn.active {
-  background: #3ba55d;
-  color: white;
-}
-
-.add-btn {
-  background: #313338;
-}
-
-.add-btn:hover {
-  background: #3ba55d;
-  border-radius: 16px;
-}
-
-.add-btn:hover .q-icon {
-  color: white !important;
-}
-
-.teams-separator {
-  width: 32px;
-  height: 2px;
-  background: #35363c;
-  margin: 4px 0 12px;
-  border-radius: 1px;
-}
-
-/* Painel do menu */
-.menu-panel {
-  width: 240px;
-  background: #2b2d31;
-  display: flex;
-  flex-direction: column;
-  flex-shrink: 0;
-}
-
-.menu-header {
-  padding: 12px 16px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  color: white;
-  height: 48px;
-  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.2);
-}
-
-.menu-scroll {
-  flex: 1;
-  height: calc(100vh - 49px);
-}
-
-.menu-item {
-  margin: 2px 8px;
-  border-radius: 4px;
-  color: #949ba4;
-  min-height: 34px;
-  padding: 6px 8px;
-}
-
-.menu-item:hover {
-  background: rgba(79, 84, 92, 0.4);
-  color: #dbdee1;
-}
-
-.menu-item-active {
-  background: rgba(79, 84, 92, 0.6) !important;
-  color: white !important;
-}
-
-.menu-item .q-item__section--avatar {
-  min-width: 32px;
-}
-
-.no-team-selected {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
 }
 
 /* Transições */

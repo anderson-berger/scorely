@@ -1,4 +1,3 @@
-import { generateId, generateTimestamp } from "@/utils/generators";
 import { UserRepository } from "@/modules/user/UserRepository";
 import {
   BadRequestError,
@@ -7,9 +6,7 @@ import {
 } from "@/utils/error/errors";
 import {
   $attributesUser,
-  $lookupUser,
   type AuthProvider,
-  type LookupType,
   type NewUser,
   type User,
 } from "@/modules/user/user.schemas";
@@ -30,31 +27,25 @@ export class UserService {
     }
   }
 
-  private async createByMagicLink(newUser: NewUser): Promise<User> {
-    if (!newUser.email) {
-      throw new BadRequestError("Email is required for magic_link provider");
-    }
-
-    await this.userRepository.validateLookups(newUser);
-
-    const now = generateTimestamp();
-    const user: User = {
-      id: generateId(),
-      version: 1,
-      createdAt: now,
-      updatedAt: now,
-      ...newUser,
-    };
-
-    return this.userRepository.createWithLookups(user);
+  async findById(id: string): Promise<User | null> {
+    return this.userRepository.findById(id);
   }
 
-  async update(userId: string, requestedBy: string, input: User): Promise<User> {
-    if (userId !== requestedBy) {
+  async findByEmail(email: string): Promise<User | null> {
+    return this.userRepository.findByEmail(email);
+  }
+
+  async list(pagination: PaginationQuery): Promise<PaginatedResult<User>> {
+    return this.userRepository.list(pagination);
+  }
+
+  async update(requestedBy: User["id"], input: User): Promise<User> {
+    if (requestedBy !== input.id) {
       throw new ForbiddenError("You can only update your own account");
     }
 
-    const currentUser = await this.userRepository.findById(userId);
+    const currentUser = await this.userRepository.findById(input.id);
+
     if (!currentUser) {
       throw new NotFoundError("User not found");
     }
@@ -63,41 +54,12 @@ export class UserService {
       throw new BadRequestError("Version mismatch");
     }
 
+    if (currentUser.email !== input.email) {
+      throw new BadRequestError("Email cannot be updated");
+    }
+
     const attributes = $attributesUser.parse(input);
-    const lookups = $lookupUser.parse(input);
-
-    await this.userRepository.validateLookups(lookups, userId);
-
-    const now = generateTimestamp();
-    const updatedUser: User = {
-      ...currentUser,
-      ...lookups,
-      ...attributes,
-      version: currentUser.version + 1,
-      updatedAt: now,
-    };
-
-    return this.userRepository.updateWithLookups(updatedUser, currentUser);
-  }
-
-  async findById(id: string): Promise<User | null> {
-    return this.userRepository.findById(id);
-  }
-
-  async findByLookup(type: LookupType, value: string): Promise<User | null> {
-    return this.userRepository.findByLookup(type, value);
-  }
-
-  async findByEmail(email: string): Promise<User | null> {
-    return this.findByLookup("email", email);
-  }
-
-  async findByNickname(nickname: string): Promise<User | null> {
-    return this.findByLookup("nickname", nickname);
-  }
-
-  async list(pagination: PaginationQuery): Promise<PaginatedResult<User>> {
-    return this.userRepository.list(pagination);
+    return this.userRepository.update(currentUser, attributes);
   }
 
   async delete(userId: string, requestedBy: string): Promise<void> {
@@ -110,6 +72,20 @@ export class UserService {
       throw new NotFoundError("User not found");
     }
 
-    return this.userRepository.deleteWithLookups(user);
+    await this.userRepository.delete(user.id);
+  }
+
+  private async createByMagicLink(newUser: NewUser): Promise<User> {
+    if (!newUser.email) {
+      throw new BadRequestError("Email is required for magic_link provider");
+    }
+
+    const existingUser = await this.userRepository.findByEmail(newUser.email);
+
+    if (existingUser) {
+      throw new BadRequestError("Email already in use");
+    }
+
+    return this.userRepository.create({ email: newUser.email });
   }
 }

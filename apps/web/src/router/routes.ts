@@ -5,6 +5,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/',
     component: () => import('layouts/PublicLayout.vue'),
+    meta: { requiresAuth: false },
     children: [
       {
         path: '',
@@ -28,6 +29,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/auth',
     component: () => import('layouts/PublicLayout.vue'),
+    meta: { requiresAuth: false },
     children: [
       {
         path: 'login',
@@ -118,6 +120,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/:catchAll(.*)*',
     component: () => import('pages/ErrorNotFound.vue'),
+    meta: { requiresAuth: false },
   },
 ];
 

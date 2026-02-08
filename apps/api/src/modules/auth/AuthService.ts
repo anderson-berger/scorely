@@ -22,8 +22,10 @@ export class AuthService {
   async verifyAndAuthenticate(token: string): Promise<AuthToken> {
     const email = await this.tokenService.verifyMagicLinkToken(token);
     const existingUser = await this.userService.findByEmail(email);
-    const user =
-      existingUser ?? (await this.userService.create({ email }, "magic_link"));
+    const user = !existingUser
+      ? await this.userService.create({ email }, "magic_link")
+      : existingUser;
+
     const accessToken = await this.tokenService.generateAccessToken({
       userId: user.id,
     });

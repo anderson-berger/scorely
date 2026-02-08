@@ -9,10 +9,11 @@ import {
   CreateBucketCommand,
   HeadBucketCommand,
   PutBucketCorsCommand,
+  PutBucketPolicyCommand,
 } from "@aws-sdk/client-s3";
 
 const TABLE_NAME = "scorely-local";
-const BUCKET_NAME = "scorely-images-local";
+const BUCKET_NAME = "scorely-uploads-local";
 const ENDPOINT = "http://localstack:4566";
 
 const awsConfig = {
@@ -112,6 +113,25 @@ async function createBucket(): Promise<void> {
       },
     }),
   );
+
+  // Política de leitura pública (simula CloudFront em prod)
+  await s3Client.send(
+    new PutBucketPolicyCommand({
+      Bucket: BUCKET_NAME,
+      Policy: JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [
+          {
+            Sid: "PublicReadGetObject",
+            Effect: "Allow",
+            Principal: "*",
+            Action: "s3:GetObject",
+            Resource: `arn:aws:s3:::${BUCKET_NAME}/*`,
+          },
+        ],
+      }),
+    }),
+  );
 }
 
 async function main(): Promise<void> {
@@ -142,11 +162,51 @@ async function main(): Promise<void> {
 
   if (await bucketExists()) {
     console.log(`✅ Bucket '${BUCKET_NAME}' already exists`);
+    console.log(`🔄 Updating bucket policies...`);
+    await updateBucketPolicies();
+    console.log(`✅ Bucket policies updated`);
   } else {
     console.log(`📦 Creating bucket '${BUCKET_NAME}'...`);
     await createBucket();
-    console.log(`✅ Bucket '${BUCKET_NAME}' created with CORS configured`);
+    console.log(`✅ Bucket '${BUCKET_NAME}' created with CORS and public read policy`);
   }
+}
+
+async function updateBucketPolicies(): Promise<void> {
+  await s3Client.send(
+    new PutBucketCorsCommand({
+      Bucket: BUCKET_NAME,
+      CORSConfiguration: {
+        CORSRules: [
+          {
+            AllowedHeaders: ["*"],
+            AllowedMethods: ["GET", "PUT", "POST"],
+            AllowedOrigins: ["*"],
+            ExposeHeaders: ["ETag"],
+            MaxAgeSeconds: 3000,
+          },
+        ],
+      },
+    }),
+  );
+
+  await s3Client.send(
+    new PutBucketPolicyCommand({
+      Bucket: BUCKET_NAME,
+      Policy: JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [
+          {
+            Sid: "PublicReadGetObject",
+            Effect: "Allow",
+            Principal: "*",
+            Action: "s3:GetObject",
+            Resource: `arn:aws:s3:::${BUCKET_NAME}/*`,
+          },
+        ],
+      }),
+    }),
+  );
 }
 
 main().catch((error) => {
