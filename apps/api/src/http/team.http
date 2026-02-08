@@ -1,0 +1,61 @@
+@baseUrl = http://localhost:3000
+@token =  eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJkMTU0ODg4Zi0yOGM2LTQwNmUtYjkxMC02N2VlYmU4NjE0ZTIiLCJpYXQiOjE3Njk5NzQ4MDEsImV4cCI6MTc3MDU3OTYwMX0.bRNSmilpa4-SWSAWbcIrksFpmcwhFR4uadD2dIzC2RA
+### ==================== TEAM ====================
+
+### Create Team (empty - no name/logo required)
+# @name createTeam
+POST {{baseUrl}}/api/teams
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{}
+
+### Create Team (with name)
+# @name createTeamWithName
+POST {{baseUrl}}/api/teams
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": "Meu Time"
+}
+
+### Create Team (with name and logo)
+# @name createTeamFull
+POST {{baseUrl}}/api/teams
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": "Time Completo",
+  "logo": "https://example.com/logo.png"
+}
+
+### List Teams
+GET {{baseUrl}}/api/teams
+Authorization: Bearer {{token}}
+
+### List Teams (with pagination)
+GET {{baseUrl}}/api/teams?limit=2
+Authorization: Bearer {{token}}
+
+### Get Team by ID
+@teamId = 125e5fb8-f3b2-485d-a7ad-007bd9e4a0d7
+GET {{baseUrl}}/api/teams/{{teamId}}
+Authorization: Bearer {{token}}
+
+### Update Team
+PUT {{baseUrl}}/api/teams/{{teamId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "id": "{{teamId}}",
+  "version": 1,
+  "name": "Nome Atualizado",
+  "logo": "https://example.com/new-logo.png"
+}
+
+### Delete Team
+DELETE {{baseUrl}}/api/teams/{{teamId}}
+Authorization: Bearer {{token}}

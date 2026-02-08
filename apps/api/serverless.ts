@@ -3,13 +3,18 @@ import type { AWS } from "@serverless/typescript";
 import { authorizer } from "./serverless/functions/authorizer";
 import { auth } from "./serverless/functions/auth";
 import { user } from "./serverless/functions/user";
+import { team } from "./serverless/functions/team";
 import { file } from "./serverless/functions/file";
 
 // Configurações por ambiente
 const stageConfig = {
   local: { frontendUrl: "http://localhost:9000" },
-  dev: { frontendUrl: "${env:FRONTEND_URL, 'https://placeholder.cloudfront.net'}" },
-  prod: { frontendUrl: "${env:FRONTEND_URL, 'https://placeholder.cloudfront.net'}" },
+  dev: {
+    frontendUrl: "${env:FRONTEND_URL, 'https://placeholder.cloudfront.net'}",
+  },
+  prod: {
+    frontendUrl: "${env:FRONTEND_URL, 'https://placeholder.cloudfront.net'}",
+  },
 };
 
 const getStageConfig = (key: keyof (typeof stageConfig)["local"]) =>
@@ -28,8 +33,8 @@ const serverlessConfiguration: AWS = {
       TABLE: "${self:service}-${self:provider.stage}",
       STAGE: "${self:provider.stage}",
       REGION: "${self:provider.region}",
-      JWT_MAGIC_LINK_SECRET: "${env:JWT_MAGIC_LINK_SECRET, ''}",
-      JWT_ACCESS_SECRET: "${env:JWT_ACCESS_SECRET, ''}",
+      JWT_MAGIC_LINK_SECRET: "${env:JWT_MAGIC_LINK_SECRET, 'local'}",
+      JWT_ACCESS_SECRET: "${env:JWT_ACCESS_SECRET, 'local'}",
       FRONTEND_URL: getStageConfig("frontendUrl"),
       S3_BUCKET: "scorely-uploads",
     },
@@ -97,6 +102,7 @@ const serverlessConfiguration: AWS = {
     ...authorizer,
     ...auth,
     ...user,
+    ...team,
     ...file,
   },
 
@@ -106,7 +112,8 @@ const serverlessConfiguration: AWS = {
       UploadsBucket: {
         Type: "AWS::S3::Bucket",
         Properties: {
-          BucketName: "${self:provider.environment.S3_BUCKET}-${self:provider.stage}",
+          BucketName:
+            "${self:provider.environment.S3_BUCKET}-${self:provider.stage}",
           PublicAccessBlockConfiguration: {
             BlockPublicAcls: true,
             BlockPublicPolicy: false,

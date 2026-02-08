@@ -13,9 +13,6 @@ Authorization: Bearer {{accessToken}}
 GET {{baseUrl}}/api/user?email=teste@exemplo.com
 Authorization: Bearer {{accessToken}}
 
-### GET /user - Buscar por nickname
-GET {{baseUrl}}/api/user?nickname=meu-nickname
-Authorization: Bearer {{accessToken}}
 
 ### GET /user/{id} - Buscar usuario por ID
 GET {{baseUrl}}/api/user/1598cc56-e459-4bf5-ad85-3c67f8a64538

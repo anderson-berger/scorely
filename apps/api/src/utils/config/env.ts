@@ -23,7 +23,7 @@ const envSchema = z.object({
   // S3 (defaults para LocalStack)
   S3_BUCKET: z.string().default("scorely-uploads"),
   S3_INTERNAL_ENDPOINT: z.string().default("http://localstack:4566"),
-  S3_PUBLIC_ENDPOINT: z.string().default("http://localhost:4566"),
+  S3_PUBLIC_ENDPOINT: z.string().default("http://localhost:9000"),
 });
 
 const parsed = envSchema.safeParse(process.env);

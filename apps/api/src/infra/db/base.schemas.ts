@@ -7,11 +7,4 @@ export const $baseEntity = z.object({
   updatedAt: z.iso.datetime(),
 });
 
-export const $repositoryConfig = z.object({
-  entityName: z.string(),
-  sk: z.string(),
-  gsiPK: z.string().nullable(),
-});
-
 export type BaseEntity = z.infer<typeof $baseEntity>;
-export type RepositoryConfig = z.infer<typeof $repositoryConfig>;

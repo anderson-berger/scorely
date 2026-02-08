@@ -6,7 +6,9 @@ import {
   createWebHistory,
 } from 'vue-router';
 import routes from './routes';
-import AuthService from 'src/services/api/AuthService';
+// router/guards.ts
+import { authStore } from 'src/services/stores/AuthStore';
+import { sessionStore } from 'src/services/stores/SessionStore';
 
 export default defineRouter(function (/* { store, ssrContext } */) {
   const createHistory = process.env.SERVER
@@ -21,23 +23,31 @@ export default defineRouter(function (/* { store, ssrContext } */) {
     history: createHistory(process.env.VUE_ROUTER_BASE),
   });
 
-  Router.beforeEach((to, _from, next) => {
-    const isAuthenticated = AuthService.isAuthenticated();
+  Router.beforeEach(async (to, from, next) => {
+    const requiresAuth = to.meta.requiresAuth ?? true;
 
-    // 🔒 Rotas privadas - redireciona para login
-    if (to.meta.requiresAuth && !isAuthenticated) {
-      return next({
-        name: 'auth.login',
-        query: { redirect: to.fullPath },
-      });
+    if (!requiresAuth) {
+      return next();
     }
 
-    // 🔐 Usuário logado tentando acessar auth (exceto verify)
-    if (isAuthenticated && to.path.startsWith('/auth') && to.name !== 'auth.verify') {
-      return next({ name: 'app.index' });
+    // Verificar autenticação
+    if (!authStore.isAuthenticated) {
+      return next({ name: 'auth.login', query: { redirect: to.fullPath } });
     }
 
-    return next();
+    // Inicializar session apenas uma vez
+    if (!sessionStore.isInitialized) {
+      try {
+        await sessionStore.init();
+      } catch {
+        // Token inválido ou expirado
+        authStore.clearTokens();
+        sessionStore.reset();
+        return next({ name: 'auth.login', query: { redirect: to.fullPath } });
+      }
+    }
+
+    next();
   });
 
   return Router;

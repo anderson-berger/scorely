@@ -43,9 +43,15 @@
 
 <script lang="ts">
 import { defineComponent } from 'vue';
+import { sessionStore } from 'src/services/stores/SessionStore';
 
 export default defineComponent({
   name: 'HomePage',
+  computed: {
+    sessionStore() {
+      return sessionStore;
+    },
+  },
 });
 </script>
 

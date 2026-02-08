@@ -12,7 +12,13 @@ import { $user } from "@/modules/user/user.schemas";
 
 const userService = new UserService();
 
-function getUserIdFromEvent(event: AuthorizedAPIGatewayProxyEventV2): string {
+/* -------------------------------------------------------------------------- */
+/* Helpers                                                                     */
+/* -------------------------------------------------------------------------- */
+
+function getAuthenticatedUserId(
+  event: AuthorizedAPIGatewayProxyEventV2,
+): string {
   const userId = event.requestContext.authorizer?.lambda?.userId;
 
   if (!userId) {
@@ -22,98 +28,127 @@ function getUserIdFromEvent(event: AuthorizedAPIGatewayProxyEventV2): string {
   return userId;
 }
 
-export async function handler(
+/* -------------------------------------------------------------------------- */
+/* Handlers                                                                    */
+/* -------------------------------------------------------------------------- */
+
+// export async function create(
+//   event: AuthorizedAPIGatewayProxyEventV2,
+// ): Promise<APIGatewayProxyResult> {
+//   try {
+//     const body = JSON.parse(event.body || "{}");
+//     const input = $user.parse(body);
+
+//     const user = await userService.create(input);
+
+//     return apiSuccess(user, 201);
+//   } catch (error) {
+//     return apiError(error);
+//   }
+// }
+
+export async function getById(
   event: AuthorizedAPIGatewayProxyEventV2,
 ): Promise<APIGatewayProxyResult> {
   try {
-    const method = event.requestContext.http.method;
+    const userId = event.pathParameters?.id;
 
-    switch (method) {
-      case "GET":
-        return await get(event);
-      case "PUT":
-        return await update(event);
-      case "DELETE":
-        return await remove(event);
-      default:
-        throw new BadRequestError("Unsupported HTTP method");
+    if (!userId) {
+      throw new BadRequestError("User ID is required");
     }
+
+    const user = await userService.findById(userId);
+
+    if (!user) {
+      throw new NotFoundError("User not found");
+    }
+
+    return apiSuccess(user);
   } catch (error) {
     return apiError(error);
   }
 }
 
-async function get(
+export async function getByEmail(
   event: AuthorizedAPIGatewayProxyEventV2,
 ): Promise<APIGatewayProxyResult> {
-  const pathId = event.pathParameters?.id;
-  const query = event.queryStringParameters || {};
+  try {
+    const email = event.queryStringParameters?.email;
 
-  if (pathId) {
-    const user = await userService.findById(pathId);
+    if (!email) {
+      throw new BadRequestError("Email is required");
+    }
+
+    const user = await userService.findByEmail(email);
 
     if (!user) {
       throw new NotFoundError("User not found");
     }
 
     return apiSuccess(user);
+  } catch (error) {
+    return apiError(error);
   }
-
-  if (query.email) {
-    const user = await userService.findByEmail(query.email);
-
-    if (!user) {
-      throw new NotFoundError("User not found");
-    }
-
-    return apiSuccess(user);
-  }
-
-  if (query.nickname) {
-    const user = await userService.findByNickname(query.nickname);
-
-    if (!user) {
-      throw new NotFoundError("User not found");
-    }
-
-    return apiSuccess(user);
-  }
-
-  const pagination = $paginationQuery.parse(query);
-  const result = await userService.list(pagination);
-
-  return apiSuccess(result);
 }
 
-async function update(
+export async function list(
   event: AuthorizedAPIGatewayProxyEventV2,
 ): Promise<APIGatewayProxyResult> {
-  const requestedBy = getUserIdFromEvent(event);
-  const pathId = event.pathParameters?.id;
+  try {
+    const query = event.queryStringParameters || {};
+    const pagination = $paginationQuery.parse(query);
 
-  if (!pathId) {
-    throw new BadRequestError("User ID is required");
+    const result = await userService.list(pagination);
+
+    return apiSuccess(result);
+  } catch (error) {
+    return apiError(error);
   }
-
-  const body = JSON.parse(event.body || "{}");
-  const input = $user.parse(body);
-
-  const user = await userService.update(pathId, requestedBy, input);
-
-  return apiSuccess(user);
 }
 
-async function remove(
+export async function update(
   event: AuthorizedAPIGatewayProxyEventV2,
 ): Promise<APIGatewayProxyResult> {
-  const userId = getUserIdFromEvent(event);
-  const pathId = event.pathParameters?.id;
+  try {
+    const requestedBy = getAuthenticatedUserId(event);
+    const userId = event.pathParameters?.id;
 
-  if (!pathId) {
-    throw new BadRequestError("User ID is required");
+    if (!userId) {
+      throw new BadRequestError("User ID is required");
+    }
+
+    const body = JSON.parse(event.body || "{}");
+    const input = $user.parse(body);
+
+    // CORRIGIDO: garantir que o ID do body seja o mesmo do path
+    if (input.id !== userId) {
+      throw new BadRequestError("User ID mismatch");
+    }
+
+    // CORRIGIDO: ordem dos parâmetros (requestedBy primeiro, depois user)
+    const user = await userService.update(requestedBy, input);
+
+    return apiSuccess(user);
+  } catch (error) {
+    return apiError(error);
   }
+}
 
-  await userService.delete(pathId, userId);
+export async function remove(
+  event: AuthorizedAPIGatewayProxyEventV2,
+): Promise<APIGatewayProxyResult> {
+  try {
+    const requestedBy = getAuthenticatedUserId(event);
+    const userId = event.pathParameters?.id;
 
-  return apiSuccess({ message: "User deleted successfully" });
+    if (!userId) {
+      throw new BadRequestError("User ID is required");
+    }
+
+    await userService.delete(userId, requestedBy);
+
+    return apiSuccess({ message: "User deleted successfully" });
+  } catch (error) {
+    return apiError(error);
+  }
 }

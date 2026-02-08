@@ -1,5 +1,6 @@
 {
   "extends": "./.quasar/tsconfig.json",
+  "exclude": ["./.quasar/shims-vue.d.ts"],
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
@@ -20,7 +21,8 @@
       "stores": ["./src/stores"],
       "#q-app": ["../../node_modules/@quasar/app-vite/types/index.d.ts"],
       "#q-app/wrappers": ["../../node_modules/@quasar/app-vite/types/app-wrappers.d.ts"],
-      "@scorely/api/*": ["../api/src/*"]
+      "@scorely/api/*": ["../api/src/*"],
+      "@/*": ["../api/src/*"]
     }
   }
 }

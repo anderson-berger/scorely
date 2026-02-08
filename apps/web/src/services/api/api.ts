@@ -1,6 +1,6 @@
-// src/services/api.ts
 import type { AxiosInstance } from 'axios';
 import axios from 'axios';
+import { authStore } from 'src/services/stores/AuthStore';
 
 const api: AxiosInstance = axios.create({
   baseURL: '/api',
@@ -12,14 +12,9 @@ const api: AxiosInstance = axios.create({
 
 api.interceptors.request.use(
   (config) => {
-    const authData = localStorage.getItem('auth');
-    if (authData) {
-      try {
-        const { token } = JSON.parse(authData);
-        config.headers.Authorization = `Bearer ${token}`;
-      } catch {
-        localStorage.removeItem('auth');
-      }
+    const token = authStore.accessToken;
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
   },
@@ -31,12 +26,9 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (axios.isAxiosError(error)) {
-      if (error.response?.status === 401) {
-        localStorage.removeItem('auth');
-        window.location.href = '/';
-      }
-      return Promise.reject(error);
+    if (axios.isAxiosError(error) && error.response?.status === 401) {
+      authStore.clearTokens();
+      window.location.href = '/';
     }
 
     return Promise.reject(error instanceof Error ? error : new Error(String(error)));

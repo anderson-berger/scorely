@@ -72,7 +72,6 @@ export default defineConfig((/* ctx */) => {
               useFlatConfig: true,
             },
           },
-          { server: false },
         ],
       ],
     },
@@ -83,6 +82,15 @@ export default defineConfig((/* ctx */) => {
       proxy: {
         '/api': {
           target: 'http://localhost:3000',
+          changeOrigin: true,
+        },
+        '/uploads': {
+          target: 'http://localstack:4566',
+          changeOrigin: true,
+          rewrite: (path: string) => `/scorely-uploads-local${path}`,
+        },
+        '/scorely-uploads-local': {
+          target: 'http://localstack:4566',
           changeOrigin: true,
         },
       },
@@ -117,7 +125,7 @@ export default defineConfig((/* ctx */) => {
       // directives: [],
 
       // Quasar plugins
-      plugins: ['Loading', 'Notify', 'Dark'],
+      plugins: ['Loading', 'Notify', 'Dark', 'LoadingBar'],
     },
 
     // animations: 'all', // --- includes all animations

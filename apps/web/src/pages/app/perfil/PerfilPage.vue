@@ -1,24 +1,20 @@
 <template>
-  <div v-if="originalUser && userDraft" class="perfil-page q-pa-xs">
-    <div class="row q-col-gutter-xs">
-      <div class="col-12">
-        <ProfilePersonalDataForm
-          :user="userDraft"
-          :original-user="originalUser"
-          :has-changes="hasChanges"
-          :avatar-file="avatarFile"
-          @update:user="userDraft = $event"
-          @update:avatar-file="avatarFile = $event"
-          @save="saveUser"
-        />
-      </div>
-      {{ originalUser }}
-      <q-separator></q-separator>
-      {{ userDraft }}
+  <q-page class="q-pa-sm">
+    <div v-if="originalUser && userDraft" class="perfil-page q-pa-xs">
+      <div class="row q-col-gutter-xs">
+        <div class="col-12">
+          <ProfilePersonalDataForm
+            :user="userDraft"
+            :original-user="originalUser"
+            :has-changes="hasChanges"
+            :avatar-file="avatarFile"
+            @update:user="userDraft = $event"
+            @update:avatar-file="avatarFile = $event"
+            @save="saveUser"
+          />
+        </div>
 
-      <q-separator></q-separator>
-      {{ avatarFile }}
-      <!-- <div class="col-12">
+        <!-- <div class="col-12">
         <ProfilePasswordForm
           :form="passwordForm"
           :loading="changingPassword"
@@ -42,9 +38,9 @@
           @confirm-delete-account="confirmDeleteAccount"
         />
       </div> -->
-    </div>
+      </div>
 
-    <!-- <DeleteAccountDialog
+      <!-- <DeleteAccountDialog
       :show="showDeleteDialog"
       :confirmation="deleteConfirmation"
       @update:show="showDeleteDialog = $event"
@@ -52,7 +48,8 @@
       @cancel="showDeleteDialog = false"
       @confirm="deleteAccount"
     />  -->
-  </div>
+    </div>
+  </q-page>
 </template>
 
 <script lang="ts">
@@ -111,18 +108,22 @@ export default defineComponent({
     },
 
     async loadUser() {
-      await UserContext.load(true);
-      const user = UserContext.get();
-      if (!user) return;
+      await this.$load.execute('load-perfil-page', async () => {
+        await UserContext.load(true);
+        const user = UserContext.get();
+        if (!user) return;
 
-      this.originalUser = structuredClone(user);
-      this.userDraft = structuredClone(user);
-      this.avatarFile = undefined;
+        this.originalUser = structuredClone(user);
+        this.userDraft = structuredClone(user);
+        this.avatarFile = undefined;
+      });
     },
   },
 
   async created() {
+    this.$q.loadingBar.start();
     await this.loadUser();
+    this.$q.loadingBar.stop();
   },
 });
 </script>

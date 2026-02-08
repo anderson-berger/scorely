@@ -1,0 +1,56 @@
+@baseUrl = http://localhost:3000
+@token =  eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJkMTU0ODg4Zi0yOGM2LTQwNmUtYjkxMC02N2VlYmU4NjE0ZTIiLCJpYXQiOjE3Njk5NzQ4MDEsImV4cCI6MTc3MDU3OTYwMX0.bRNSmilpa4-SWSAWbcIrksFpmcwhFR4uadD2dIzC2RA
+
+### ==================== MEMBER ====================
+
+### Variables (set these after creating a team)
+@teamId = TEAM_ID_HERE
+@memberId = MEMBER_ID_HERE
+@userIdToAdd = USER_ID_HERE
+
+### List Members of a Team
+GET {{baseUrl}}/api/teams/{{teamId}}/members
+Authorization: Bearer {{token}}
+
+### List Members (with pagination)
+GET {{baseUrl}}/api/teams/{{teamId}}/members?limit=10
+Authorization: Bearer {{token}}
+
+### Get Member by ID
+GET {{baseUrl}}/api/teams/{{teamId}}/members/{{memberId}}
+Authorization: Bearer {{token}}
+
+### Add Member to Team
+# Only owner/admin can add members
+POST {{baseUrl}}/api/teams/{{teamId}}/members
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "userId": "{{userIdToAdd}}"
+}
+
+### Update Member Role
+# Only owner can change roles
+# Roles: "admin" | "member" (cannot promote to "owner")
+PUT {{baseUrl}}/api/teams/{{teamId}}/members/{{memberId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "role": "admin"
+}
+
+### Demote Member to regular member
+PUT {{baseUrl}}/api/teams/{{teamId}}/members/{{memberId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "role": "member"
+}
+
+### Remove Member from Team
+# Owner/admin can remove members, or member can remove themselves
+DELETE {{baseUrl}}/api/teams/{{teamId}}/members/{{memberId}}
+Authorization: Bearer {{token}}
