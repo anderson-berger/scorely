@@ -1,5 +1,5 @@
 <template>
-  <q-card flat class="full-height">
+  <q-card class="full-height">
     <!-- EMPTY -->
     <template v-if="!action">
       <div class="column items-center justify-center full-height text-grey-6">

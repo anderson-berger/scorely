@@ -1,5 +1,5 @@
 <template>
-  <q-card flat class="full-height q-pa-md">
+  <q-card class="full-height q-pa-md">
     <template v-if="!action">
       <div class="column items-center justify-center full-height text-grey-6">
         <q-icon name="emoji_events" size="48px" />
