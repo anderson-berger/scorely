@@ -1,5 +1,6 @@
 import type { SendMagicLinkInput } from '@scorely/api/modules/auth/auth.schemas';
 import api from 'src/services/api/api';
+import { authStore } from 'src/services/stores/AuthStore';
 
 interface VerifyResponse {
   token: string;
@@ -10,11 +11,14 @@ class AuthService {
     await api.post('/auth/magic-link', data);
   }
 
-  async verifyMagicLink(token: string): Promise<VerifyResponse> {
+  async verifyMagicLink(token: string): Promise<string> {
     const { data } = await api.get<VerifyResponse>('/auth/verify', {
       params: { token },
     });
-    return data;
+
+    authStore.setTokens(data.token);
+
+    return data.token;
   }
 }
 

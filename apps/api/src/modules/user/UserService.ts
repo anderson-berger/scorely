@@ -59,6 +59,7 @@ export class UserService {
     }
 
     const attributes = $attributesUser.parse(input);
+    console.log("attributes", attributes);
     return this.userRepository.update(currentUser, attributes);
   }
 

@@ -19,52 +19,21 @@
                 @update:file="updateAvatarFile"
               />
               <div class="text-body2 q-mt-sm">{{ localUser.email }}</div>
-              <div class="text-caption">Membro desde {{ formatDate(localUser.createdAt) }}</div>
+              <div class="text-caption text-page-secondary">
+                Membro desde {{ formatDate(localUser.createdAt) }}
+              </div>
             </div>
           </div>
 
           <div class="col-12 col-sm">
             <div class="row q-col-gutter-sm">
-              <div class="col-12 col-md-6">
+              <div class="col-12 col-md-12">
                 <q-input
                   :model-value="localUser.name"
                   @update:model-value="(v) => updateField('name', v)"
                   filled
                   dense
                   label="Nome"
-                />
-              </div>
-
-              <div class="col-12 col-md-6">
-                <q-input
-                  :disable="isNicknameDisabled"
-                  :model-value="localUser.nickname"
-                  @update:model-value="(v) => updateField('nickname', v)"
-                  filled
-                  dense
-                  label="Nickname"
-                />
-              </div>
-
-              <div class="col-12 col-md-6">
-                <q-input
-                  :model-value="birthdateFormatted"
-                  @update:model-value="updateBirthdate"
-                  filled
-                  dense
-                  type="date"
-                  label="Data de Nascimento"
-                />
-              </div>
-
-              <div class="col-12">
-                <q-input
-                  :model-value="localUser.bio"
-                  @update:model-value="(v) => updateField('bio', v)"
-                  filled
-                  dense
-                  type="textarea"
-                  label="Bio"
                 />
               </div>
             </div>
@@ -114,34 +83,12 @@ export default defineComponent({
     localUser(): User {
       return this.user;
     },
-
-    isNicknameDisabled(): boolean {
-      return !!this.originalUser.nickname;
-    },
-
-    birthdateFormatted(): string {
-      if (!this.localUser.birthdate) return '';
-      return this.localUser.birthdate.split('T')[0] || '';
-    },
   },
 
   methods: {
     updateField<K extends keyof User>(field: K, value: string | number | null) {
-      // Converte null para undefined e garante o tipo correto
       const sanitizedValue = value === null || value === '' ? undefined : String(value).trim();
-
       const updated = { ...this.localUser, [field]: sanitizedValue };
-      this.$emit('update:user', updated);
-    },
-
-    updateBirthdate(value: string | number | null) {
-      if (!value || value === '') {
-        this.updateField('birthdate', null);
-        return;
-      }
-
-      const isoDate = new Date(String(value)).toISOString();
-      const updated = { ...this.localUser, birthdate: isoDate };
       this.$emit('update:user', updated);
     },
 
@@ -161,3 +108,9 @@ export default defineComponent({
   },
 });
 </script>
+
+<style scoped>
+.text-page-secondary {
+  color: var(--page-text-secondary);
+}
+</style>

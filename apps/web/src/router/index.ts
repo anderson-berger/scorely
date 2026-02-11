@@ -8,7 +8,7 @@ import {
 import routes from './routes';
 // router/guards.ts
 import { authStore } from 'src/services/stores/AuthStore';
-import { sessionStore } from 'src/services/stores/SessionStore';
+import { initSession, resetSession } from 'src/services/stores/SessionBootstrap';
 
 export default defineRouter(function (/* { store, ssrContext } */) {
   const createHistory = process.env.SERVER
@@ -36,15 +36,19 @@ export default defineRouter(function (/* { store, ssrContext } */) {
     }
 
     // Inicializar session apenas uma vez
-    if (!sessionStore.isInitialized) {
-      try {
-        await sessionStore.init();
-      } catch {
-        // Token inválido ou expirado
-        authStore.clearTokens();
-        sessionStore.reset();
-        return next({ name: 'auth.login', query: { redirect: to.fullPath } });
-      }
+    try {
+      await initSession();
+    } catch {
+      // Token inválido ou expirado
+      authStore.clearTokens();
+      resetSession();
+      return next({ name: 'auth.login', query: { redirect: to.fullPath } });
+    }
+
+    // Bloquear rotas com status restrito
+    const blockedStatuses = ['soon', 'disabled', 'deprecated'];
+    if (to.meta.status && blockedStatuses.includes(to.meta.status as string)) {
+      return next({ name: 'app.home' });
     }
 
     next();

@@ -32,7 +32,6 @@
 <script lang="ts">
 import { defineComponent } from 'vue';
 import AuthService from 'src/services/api/AuthService';
-import { authStore } from 'src/services/stores/AuthStore';
 
 export default defineComponent({
   name: 'AuthVerifyPage',
@@ -53,8 +52,7 @@ export default defineComponent({
 
     await this.$load.execute('verify', async () => {
       try {
-        const { token: accessToken } = await AuthService.verifyMagicLink(token);
-        authStore.setTokens(accessToken);
+        await AuthService.verifyMagicLink(token);
 
         setTimeout(() => {
           void this.$router.push({ name: 'app.index' });

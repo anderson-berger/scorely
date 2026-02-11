@@ -1,5 +1,5 @@
 <template>
-  <q-card flat bordered class="cursor-pointer" @click="$emit('select', championship)">
+  <q-card bordered class="cursor-pointer" @click="$emit('select', championship)">
     <q-card-section class="row items-center no-wrap">
       <!-- Icon -->
       <q-avatar size="48px" rounded class="bg-primary text-white">

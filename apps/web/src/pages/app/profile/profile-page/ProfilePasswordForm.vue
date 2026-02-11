@@ -1,5 +1,5 @@
 <template>
-  <q-card dark class="card-dark q-mb-md">
+  <q-card>
     <q-card-section>
       <div class="text-subtitle1 q-mb-md">Alterar Senha</div>
 
@@ -8,7 +8,6 @@
           <q-input
             :model-value="form.currentPassword"
             @update:model-value="$emit('update:form', { ...form, currentPassword: $event })"
-            dark
             filled
             label="Senha atual"
             :type="showCurrentPassword ? 'text' : 'password'"
@@ -27,7 +26,6 @@
           <q-input
             :model-value="form.newPassword"
             @update:model-value="$emit('update:form', { ...form, newPassword: $event })"
-            dark
             filled
             label="Nova senha"
             :type="showNewPassword ? 'text' : 'password'"
@@ -47,7 +45,6 @@
           <q-input
             :model-value="form.confirmPassword"
             @update:model-value="$emit('update:form', { ...form, confirmPassword: $event })"
-            dark
             filled
             label="Confirmar nova senha"
             :type="showConfirmPassword ? 'text' : 'password'"
@@ -115,9 +112,3 @@ export default defineComponent({
   },
 });
 </script>
-
-<style scoped>
-.card-dark {
-  background: #2b2d31;
-}
-</style>

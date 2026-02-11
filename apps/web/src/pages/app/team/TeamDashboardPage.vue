@@ -1,7 +1,6 @@
 <template>
   <div class="dashboard-page q-pa-lg">
     <h4 class="text-white q-mt-none q-mb-lg">Dashboard do Time</h4>
-
     <div class="row q-col-gutter-md">
       <!-- Card de estatísticas -->
       <div class="col-12 col-md-4">
@@ -49,12 +48,14 @@
           </q-item-section>
         </q-item>
       </q-list>
+      {{ activeTeam }}
     </q-card>
   </div>
 </template>
 
 <script lang="ts">
 import { defineComponent } from 'vue';
+import { teamStore } from 'src/services/stores/TeamStore';
 
 export default defineComponent({
   name: 'TeamDashboardPage',
@@ -72,6 +73,9 @@ export default defineComponent({
   computed: {
     teamId(): string {
       return this.$route.params.teamId as string;
+    },
+    activeTeam() {
+      return teamStore.activeTeam;
     },
   },
 

@@ -16,7 +16,7 @@
     <div class="q-pa-lg" style="max-width: 900px; margin: 0 auto">
       <div class="row q-col-gutter-lg">
         <div class="col-12 col-md-4">
-          <q-card flat class="feature-card text-center q-pa-md">
+          <q-card class="feature-card text-center q-pa-md">
             <q-icon name="groups" size="48px" color="primary" />
             <h6 class="q-mt-md q-mb-sm">Gerencie Times</h6>
             <p class="text-grey-8 q-mb-none">
@@ -26,7 +26,7 @@
         </div>
 
         <div class="col-12 col-md-4">
-          <q-card flat class="feature-card text-center q-pa-md">
+          <q-card class="feature-card text-center q-pa-md">
             <q-icon name="emoji_events" size="48px" color="secondary" />
             <h6 class="q-mt-md q-mb-sm">Crie Campeonatos</h6>
             <p class="text-grey-8 q-mb-none">
@@ -36,7 +36,7 @@
         </div>
 
         <div class="col-12 col-md-4">
-          <q-card flat class="feature-card text-center q-pa-md">
+          <q-card class="feature-card text-center q-pa-md">
             <q-icon name="scoreboard" size="48px" color="positive" />
             <h6 class="q-mt-md q-mb-sm">Registre Partidas</h6>
             <p class="text-grey-8 q-mb-none">
@@ -45,7 +45,6 @@
           </q-card>
         </div>
       </div>
-      <div>{{ sessionStore.teams }}</div>
 
       <!-- CTA Section -->
     </div>
@@ -54,13 +53,13 @@
 
 <script lang="ts">
 import { defineComponent } from 'vue';
-import { sessionStore } from 'src/services/stores/SessionStore';
+import { teamStore } from 'src/services/stores/TeamStore';
 
 export default defineComponent({
   name: 'HomePage',
   computed: {
-    sessionStore() {
-      return sessionStore;
+    teamStore() {
+      return teamStore;
     },
   },
 });
