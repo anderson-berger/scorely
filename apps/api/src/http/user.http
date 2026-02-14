@@ -1,8 +1,19 @@
 @baseUrl = http://localhost:3000
-@accessToken = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiIxNTk4Y2M1Ni1lNDU5LTRiZjUtYWQ4NS0zYzY3ZjhhNjQ1MzgiLCJpYXQiOjE3Njk3ODQzMjIsImV4cCI6MTc3MDM4OTEyMn0.WXnuOJp8gIT6MyG5T90ACNd4dexCDcj5FNywLCDwVBM
+@accessToken = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiIxYjlkYzUxMS00NGM4LTQxMjUtYWI0Ni0xMmM3ZmEyNzAwYTIiLCJpYXQiOjE3NzEwMTE3NjUsImV4cCI6MTc3MTYxNjU2NX0.5tfKvnM5POH9Z-BD7XHI_ngFbz4LPgyss_RjWFJ8zrY
+
+
+
+### 1. Solicitar Magic Link
+# @name magicLink
+POST {{baseUrl}}/api/auth/magic-link
+Content-Type: application/json
+
+{
+  "email": "user@user.com"
+}
 
 ### GET /user - Listar usuários
-GET {{baseUrl}}/api/user
+GET {{baseUrl}}/api/users
 Authorization: Bearer {{accessToken}}
 
 ### GET /user - Listar com paginacao
@@ -10,7 +21,7 @@ GET {{baseUrl}}/api/user?limit=10
 Authorization: Bearer {{accessToken}}
 
 ### GET /user - Buscar por email
-GET {{baseUrl}}/api/user?email=teste@exemplo.com
+GET {{baseUrl}}/api/users?email=user@user.com
 Authorization: Bearer {{accessToken}}
 
 
@@ -37,3 +48,4 @@ Content-Type: application/json
 ### DELETE /user/{id} - Deletar usuario (so pode deletar a si mesmo)
 DELETE {{baseUrl}}/api/user/1598cc56-e459-4bf5-ad85-3c67f8a64538
 Authorization: Bearer {{accessToken}}
+

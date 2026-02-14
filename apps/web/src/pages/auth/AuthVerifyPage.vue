@@ -55,7 +55,7 @@ export default defineComponent({
         await AuthService.verifyMagicLink(token);
 
         setTimeout(() => {
-          void this.$router.push({ name: 'app.index' });
+          void this.$router.push({ name: 'app.home' });
         }, 1500);
       } catch {
         this.error = 'Token invalido ou expirado';

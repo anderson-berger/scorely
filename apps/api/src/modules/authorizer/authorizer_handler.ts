@@ -2,7 +2,7 @@ import {
   APIGatewayAuthorizerResult,
   APIGatewayRequestAuthorizerEvent,
 } from "aws-lambda";
-import { TokenService } from "@/utils/token/TokenService";
+import { TokenService } from "@/shared/token/token_service";
 import { UnauthorizedError } from "@/utils/error/errors";
 
 const tokenService = new TokenService();
@@ -19,8 +19,6 @@ export async function handler(
   event: HttpApiAuthorizerEvent,
 ): Promise<APIGatewayAuthorizerResult> {
   try {
-    console.log("oi");
-
     const token = extractToken(event);
     const tokenPayload = await tokenService.verifyAccessToken(token);
     const resource = event.routeArn ?? event.routeKey ?? "*";

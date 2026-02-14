@@ -1,34 +1,8 @@
 import type { AWS } from "@serverless/typescript";
 
 export const user: AWS["functions"] = {
-  userGetById: {
-    handler: "src/modules/user/handler.getById",
-    events: [
-      {
-        httpApi: {
-          path: "/api/users/{id}",
-          method: "get",
-          authorizer: { name: "authLambda" },
-        },
-      },
-    ],
-  },
-
-  userGetByEmail: {
-    handler: "src/modules/user/handler.getByEmail",
-    events: [
-      {
-        httpApi: {
-          path: "/api/users/by-email",
-          method: "get",
-          authorizer: { name: "authLambda" },
-        },
-      },
-    ],
-  },
-
-  userList: {
-    handler: "src/modules/user/handler.list",
+  userGet: {
+    handler: "src/modules/user/user_handlers.getUsers",
     events: [
       {
         httpApi: {
@@ -41,7 +15,7 @@ export const user: AWS["functions"] = {
   },
 
   userUpdate: {
-    handler: "src/modules/user/handler.update",
+    handler: "src/modules/user/user_handlers.update",
     events: [
       {
         httpApi: {
@@ -53,16 +27,28 @@ export const user: AWS["functions"] = {
     ],
   },
 
-  userRemove: {
-    handler: "src/modules/user/handler.remove",
-    events: [
-      {
-        httpApi: {
-          path: "/api/users/{id}",
-          method: "delete",
-          authorizer: { name: "authLambda" },
-        },
-      },
-    ],
-  },
+  // userRemove: {
+  //   handler: "src/modules/user/infrastructure/user_handlers.remove",
+  //   events: [
+  //     {
+  //       httpApi: {
+  //         path: "/api/users/{id}",
+  //         method: "delete",
+  //         authorizer: { name: "authLambda" },
+  //       },
+  //     },
+  //   ],
+  // },
+  // userList: {
+  //   handler: "src/modules/user/infrastructure/user_handlers.list",
+  //   events: [
+  //     {
+  //       httpApi: {
+  //         path: "/api/users",
+  //         method: "get",
+  //         authorizer: { name: "authLambda" },
+  //       },
+  //     },
+  //   ],
+  // },
 };
