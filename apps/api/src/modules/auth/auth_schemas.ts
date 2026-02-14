@@ -6,7 +6,7 @@ export const $authToken = z.object({
 });
 
 export const $sendMagicLinkInput = z.object({
-  email: z.string().email(),
+  email: z.email(),
 });
 
 export const $verifyTokenInput = z.object({

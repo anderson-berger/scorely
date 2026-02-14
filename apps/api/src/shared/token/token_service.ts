@@ -1,7 +1,8 @@
 import { SignJWT, jwtVerify } from "jose";
 import { UnauthorizedError } from "@/utils/error/errors";
 import { env } from "@/utils/config/env";
-import { AccessTokenSubject } from "@/utils/token/token_schemas";
+import { AccessTokenSubject } from "@/shared/token/token_schemas";
+import { User } from "@/modules/user/user_types";
 
 const MAGIC_LINK_TOKEN_EXPIRY = "15m";
 const ACCESS_TOKEN_EXPIRY = "7d";
@@ -15,7 +16,9 @@ export class TokenService {
     this.accessSecret = new TextEncoder().encode(env.JWT_ACCESS_SECRET);
   }
 
-  async generateMagicLinkToken(email: string): Promise<string> {
+  async generateMagicLinkToken(
+    email: NonNullable<User["email"]>,
+  ): Promise<string> {
     return await new SignJWT({ email })
       .setProtectedHeader({ alg: "HS256", typ: "JWT" })
       .setIssuedAt()
@@ -23,10 +26,8 @@ export class TokenService {
       .sign(this.magicLinkSecret);
   }
 
-  async generateAccessToken(
-    accessTokenSubject: AccessTokenSubject,
-  ): Promise<string> {
-    return await new SignJWT(accessTokenSubject)
+  async generateAccessToken(userId: User["id"]): Promise<string> {
+    return await new SignJWT({ userId })
       .setProtectedHeader({ alg: "HS256", typ: "JWT" })
       .setIssuedAt()
       .setExpirationTime(ACCESS_TOKEN_EXPIRY)

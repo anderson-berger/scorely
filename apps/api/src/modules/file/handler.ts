@@ -1,9 +1,9 @@
 import { APIGatewayProxyResult } from "aws-lambda";
-import { apiSuccess, apiError } from "@/utils/response/response";
+import { apiSuccess, apiError } from "@/utils/http/response";
 import { BadRequestError, UnauthorizedError } from "@/utils/error/errors";
-import { AuthorizedAPIGatewayProxyEventV2 } from "@/utils/schemas/api-gateway.schemas";
+import { AuthorizedAPIGatewayProxyEventV2 } from "@/utils/http/api_gateway_schemas";
 import { $presignedUrlRequest } from "@/modules/file/file.schemas";
-import { parseRequestBody } from "@/utils/parse-body/parse-body";
+import { parseRequestBody } from "@/utils/http/parse_body";
 import { FileService } from "@/modules/file/FileService";
 
 const fileService = new FileService();

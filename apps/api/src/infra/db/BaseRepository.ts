@@ -199,7 +199,10 @@ export abstract class BaseRepository<
 
   // ============ Lookup Methods ============
 
-  async findByLookup(field: keyof TEntity, value: string): Promise<TEntity | null> {
+  async findByLookup(
+    field: keyof TEntity,
+    value: string,
+  ): Promise<TEntity | null> {
     const result = await dynamoDBClient.send(
       new GetCommand({
         TableName: this.config.tableName,

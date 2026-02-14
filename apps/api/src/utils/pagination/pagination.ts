@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const $paginationQuery = z.object({
-  limit: z.coerce.number().min(1).max(100).default(20),
+  limit: z.coerce.number().min(1).max(100).optional(),
   cursor: z.string().optional(),
 });
 
@@ -13,11 +13,15 @@ export interface PaginatedResult<T> {
   hasMore: boolean;
 }
 
-export function encodeCursor(lastEvaluatedKey: Record<string, unknown>): string {
+export function encodeCursor(
+  lastEvaluatedKey: Record<string, unknown>,
+): string {
   return Buffer.from(JSON.stringify(lastEvaluatedKey)).toString("base64url");
 }
 
-export function decodeCursor(cursor: string): Record<string, unknown> | undefined {
+export function decodeCursor(
+  cursor: string,
+): Record<string, unknown> | undefined {
   try {
     return JSON.parse(Buffer.from(cursor, "base64url").toString("utf-8"));
   } catch {

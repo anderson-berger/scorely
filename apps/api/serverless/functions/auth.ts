@@ -2,7 +2,7 @@ import type { AWS } from "@serverless/typescript";
 
 export const auth: AWS["functions"] = {
   authMagicLink: {
-    handler: "src/modules/auth/handler.handler",
+    handler: "src/modules/auth/auth_handlers.handler",
     events: [
       {
         httpApi: {
@@ -14,7 +14,7 @@ export const auth: AWS["functions"] = {
   },
 
   authVerify: {
-    handler: "src/modules/auth/handler.verify",
+    handler: "src/modules/auth/auth_handlers.verify",
     events: [
       {
         httpApi: {
@@ -26,7 +26,7 @@ export const auth: AWS["functions"] = {
   },
 
   authMe: {
-    handler: "src/modules/auth/handler.me",
+    handler: "src/modules/user/user_handlers.me",
     events: [
       {
         httpApi: {
