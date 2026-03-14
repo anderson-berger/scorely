@@ -30,10 +30,10 @@ import { defineComponent } from 'vue';
 //apis
 import matchService from 'src/services/api/MatchService';
 //componentes
-import MatchCard from 'src/pages/app/home/matches-page/MatchCard.vue';
-import MatchFilters from 'src/pages/app/home/matches-page/MatchFilters.vue';
-import type { Match } from 'src/pages/app/home/matches-page/MatchCard.vue';
-import type { MatchFilterState } from 'src/pages/app/home/matches-page/MatchFilters.vue';
+import MatchCard from './matches-page/MatchCard.vue';
+import MatchFilters from './matches-page/MatchFilters.vue';
+import type { Match } from './matches-page/MatchCard.vue';
+import type { MatchFilterState } from './matches-page/MatchFilters.vue';
 
 export default defineComponent({
   name: 'MatchesPage',

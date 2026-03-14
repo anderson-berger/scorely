@@ -34,9 +34,9 @@
 
 <script lang="ts">
 import { defineComponent } from 'vue';
-import ProfilePasswordForm from 'src/pages/app/profile/profile-page/ProfilePasswordForm.vue';
-import ProfileDangerZone from 'src/pages/app/profile/profile-page/ProfileDangerZone.vue';
-import DeleteAccountDialog from 'src/pages/app/profile/profile-page/DeleteAccountDialog.vue';
+import ProfilePasswordForm from './profile-page/ProfilePasswordForm.vue';
+import ProfileDangerZone from './profile-page/ProfileDangerZone.vue';
+import DeleteAccountDialog from './profile-page/DeleteAccountDialog.vue';
 
 export default defineComponent({
   name: 'SecurityPage',

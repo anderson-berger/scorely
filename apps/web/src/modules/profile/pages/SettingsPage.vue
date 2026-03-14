@@ -15,7 +15,7 @@
 
 <script lang="ts">
 import { defineComponent } from 'vue';
-import ProfilePreferences from 'src/pages/app/profile/profile-page/ProfilePreferences.vue';
+import ProfilePreferences from './profile-page/ProfilePreferences.vue';
 
 export default defineComponent({
   name: 'SettingsPage',

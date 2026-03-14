@@ -20,7 +20,7 @@
 
 <script lang="ts">
 import { defineComponent, PropType, toRaw } from 'vue';
-import ProfilePersonalDataForm from 'src/pages/app/profile/profile-page/ProfilePersonalDataForm.vue';
+import ProfilePersonalDataForm from './profile-page/ProfilePersonalDataForm.vue';
 import { userStore } from 'src/services/stores/UserStore';
 import { User } from '@scorely/api/modules/user/user.schemas';
 import UserService from 'src/services/api/UserService';

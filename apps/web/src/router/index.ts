@@ -7,8 +7,12 @@ import {
 } from 'vue-router';
 import { publicRoutes } from './routes/public.routes';
 import { authRoutes } from './routes/auth.routes';
-import { appRoutes } from './routes/app.routes';
 import { authGuard } from './guards/authGuard';
+import homeRoutes from 'src/modules/home/home.routes';
+import profileRoutes from 'src/modules/profile/profile.routes';
+import teamRoutes from 'src/modules/team/team.routes';
+import championshipRoutes from 'src/modules/championship/championship.routes';
+import matchRoutes from 'src/modules/match/match.routes';
 
 export default defineRouter(function () {
   const createHistory = process.env.SERVER
@@ -22,7 +26,19 @@ export default defineRouter(function () {
     routes: [
       ...publicRoutes,
       ...authRoutes,
-      ...appRoutes,
+      {
+        path: '/app',
+        component: () => import('layouts/AppLayout.vue'),
+        meta: { requiresAuth: true },
+        children: [
+          { path: '', redirect: { name: 'app.home' } },
+          ...homeRoutes,
+          ...profileRoutes,
+          ...teamRoutes,
+          ...championshipRoutes,
+          ...matchRoutes,
+        ],
+      },
       {
         path: '/:catchAll(.*)*',
         component: () => import('pages/ErrorNotFound.vue'),
