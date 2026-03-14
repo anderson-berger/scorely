@@ -1,5 +1,5 @@
 import { BatchGetCommand } from "@aws-sdk/lib-dynamodb";
-import { dynamoDBClient } from "@/utils/db/dynamodb_client";
+import { dynamoDBClient } from "@/shared/db/dynamodb_client";
 import { BaseRepository } from "@/infra/db/BaseRepository";
 import { env } from "@/utils/config/env";
 import type { Team, NewTeam } from "@/modules/team/team/team.schemas";

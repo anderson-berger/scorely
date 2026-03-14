@@ -1,6 +1,6 @@
 import { TeamService } from "@/modules/team/team/TeamService";
 import { MemberService } from "@/modules/team/member/MemberService";
-import { ForbiddenError, NotFoundError } from "@/utils/error/errors";
+import { ForbiddenError, NotFoundError } from "@/shared/error/errors";
 import type {
   Team,
   NewTeam,
@@ -11,7 +11,7 @@ import type { Member } from "@/modules/team/member/member.schemas";
 import type {
   PaginatedResult,
   PaginationQuery,
-} from "@/utils/pagination/pagination";
+} from "@/shared/pagination/pagination";
 
 export interface TeamWithOwner {
   team: Team;

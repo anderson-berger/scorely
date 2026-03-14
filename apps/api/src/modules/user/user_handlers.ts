@@ -1,16 +1,16 @@
 import { APIGatewayProxyResult } from "aws-lambda";
-import { apiSuccess, apiError } from "@/utils/http/response";
-import { parseQueryString } from "@/utils/http/parse_body";
+import { apiSuccess, apiError } from "@/shared/http/response";
+import { parseQueryString } from "@/shared/http/parse_body";
 import {
   BadRequestError,
   NotFoundError,
   UnauthorizedError,
-} from "@/utils/error/errors";
-import { AuthorizedAPIGatewayProxyEventV2 } from "@/utils/http/api_gateway_schemas";
-import { $paginationQuery } from "@/utils/pagination/pagination";
+} from "@/shared/error/errors";
+import { AuthorizedAPIGatewayProxyEventV2 } from "@/shared/http/api_gateway_schemas";
+import { $paginationQuery } from "@/shared/pagination/pagination";
 import { UserService } from "@/modules/user/user_service";
 import { $user } from "@/modules/user/user_schemas";
-import { getAuthUserId } from "@/utils/http/auth_context";
+import { getAuthUserId } from "@/shared/http/auth_context";
 
 const userService = new UserService();
 

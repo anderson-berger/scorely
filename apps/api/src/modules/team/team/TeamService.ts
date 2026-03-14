@@ -1,5 +1,5 @@
 import { TeamRepository } from "@/modules/team/team/TeamRepository";
-import { BadRequestError, NotFoundError } from "@/utils/error/errors";
+import { BadRequestError, NotFoundError } from "@/shared/error/errors";
 import {
   $attributesTeam,
   type Team,
@@ -8,7 +8,7 @@ import {
 import type {
   PaginatedResult,
   PaginationQuery,
-} from "@/utils/pagination/pagination";
+} from "@/shared/pagination/pagination";
 
 export class TeamService {
   private teamRepository = new TeamRepository();

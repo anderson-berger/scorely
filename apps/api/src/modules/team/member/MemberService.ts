@@ -1,5 +1,5 @@
 import { MemberRepository } from "@/modules/team/member/MemberRepository";
-import { ConflictError, NotFoundError } from "@/utils/error/errors";
+import { ConflictError, NotFoundError } from "@/shared/error/errors";
 import {
   type Member,
   type NewMember,
@@ -8,7 +8,7 @@ import {
 import type {
   PaginatedResult,
   PaginationQuery,
-} from "@/utils/pagination/pagination";
+} from "@/shared/pagination/pagination";
 
 export class MemberService {
   private memberRepository = new MemberRepository();

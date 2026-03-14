@@ -1,4 +1,4 @@
-import type { SendMagicLinkInput } from '@scorely/api/modules/auth/auth.schemas';
+import type { SendMagicLinkInput } from '@scorely/api/modules/auth/auth_schemas';
 import api from 'src/services/api/api';
 import { authStore } from 'src/services/stores/AuthStore';
 

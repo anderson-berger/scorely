@@ -1,4 +1,4 @@
-import { dynamoDBClient } from "@/utils/db/dynamodb_client";
+import { dynamoDBClient } from "@/shared/db/dynamodb_client";
 import { GetCommand, PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { User } from "@/modules/user/user_types";
 import { env } from "@/utils/config/env";
@@ -8,7 +8,7 @@ import {
   encodeCursor,
   PaginatedResult,
   PaginationQuery,
-} from "@/utils/pagination/pagination";
+} from "@/shared/pagination/pagination";
 
 const TABLE = env.TABLE;
 
@@ -18,10 +18,10 @@ export class UserRepository {
       new PutCommand({
         TableName: TABLE,
         Item: {
-          PK: `user_${user.id}`,
-          SK: "user",
-          GSI1PK: "users",
-          GSI1SK: `user_${user.createdAt}`,
+          PK: `USER_${user.id}`,
+          SK: "USER",
+          GSI1PK: "USERS",
+          GSI1SK: `USER_${user.createdAt}`,
           data: user,
         },
         ConditionExpression:
@@ -36,8 +36,8 @@ export class UserRepository {
       new GetCommand({
         TableName: TABLE,
         Key: {
-          PK: `user_${userId}`,
-          SK: "user",
+          PK: `USER_${userId}`,
+          SK: "USER",
         },
       }),
     );
@@ -55,10 +55,10 @@ export class UserRepository {
       new PutCommand({
         TableName: TABLE,
         Item: {
-          PK: `user_${user.id}`,
-          SK: "user",
-          GSI1PK: "users",
-          GSI1SK: `user_${user.createdAt}_${user.id}`,
+          PK: `USER_${user.id}`,
+          SK: "USER",
+          GSI1PK: "USERS",
+          GSI1SK: `USER_${user.createdAt}_${user.id}`,
           data: user,
         },
         ConditionExpression: "data.#version = :expectedVersion",
@@ -87,7 +87,7 @@ export class UserRepository {
         IndexName: "GSI1",
         KeyConditionExpression: "GSI1PK = :pk",
         ExpressionAttributeValues: {
-          ":pk": "users",
+          ":pk": "USERS",
         },
         Limit: limit,
         ExclusiveStartKey: exclusiveStartKey,

@@ -5,6 +5,7 @@ import { auth } from "./serverless/functions/auth";
 import { user } from "./serverless/functions/user";
 import { team } from "./serverless/functions/team";
 import { file } from "./serverless/functions/file";
+import { match } from "./serverless/functions/match";
 
 // Configurações por ambiente
 const stageConfig = {
@@ -104,6 +105,7 @@ const serverlessConfiguration: AWS = {
     ...user,
     ...team,
     ...file,
+    ...match,
   },
 
   resources: {

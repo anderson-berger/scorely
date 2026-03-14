@@ -1,14 +1,15 @@
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
-import { apiError, apiSuccess } from "@/utils/http/response";
-import { parseRequestBody, parseQueryString } from "@/utils/http/parse_body";
+import { apiError, apiSuccess } from "@/shared/http/response";
+import { parseRequestBody, parseQueryString } from "@/shared/http/parse_body";
 import {
   $sendMagicLinkInput,
   $verifyTokenInput,
 } from "@/modules/auth/auth_schemas";
 import * as authUseCases from "@/modules/auth/auth_usecases";
-import { AuthorizedAPIGatewayProxyEventV2 } from "@/utils/http/api_gateway_schemas";
+import { AuthorizedAPIGatewayProxyEventV2 } from "@/shared/http/api_gateway_schemas";
 import { UserService } from "@/modules/user/user_service";
-import { NotFoundError, UnauthorizedError } from "@/utils/error/errors";
+import { NotFoundError, UnauthorizedError } from "@/shared/error/errors";
+import { getAuthUserId } from "@/shared/http/auth_context";
 
 const userService = new UserService();
 
@@ -46,13 +47,9 @@ export async function me(
   event: AuthorizedAPIGatewayProxyEventV2,
 ): Promise<APIGatewayProxyResult> {
   try {
-    const userId = event.requestContext.authorizer?.lambda?.userId;
+    const requestedBy = getAuthUserId(event);
 
-    if (!userId) {
-      throw new UnauthorizedError("User not authenticated");
-    }
-
-    const user = await userService.findById(userId);
+    const user = await userService.findById(requestedBy);
 
     if (!user) {
       throw new NotFoundError("User not found");

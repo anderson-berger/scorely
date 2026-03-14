@@ -1,6 +1,6 @@
 import type { APIGatewayProxyResult } from "aws-lambda";
 import { ZodError } from "zod";
-import { AppError } from "@/utils/error/errors";
+import { AppError } from "@/shared/error/errors";
 
 const corsHeaders = {
   "Content-Type": "application/json",

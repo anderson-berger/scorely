@@ -1,4 +1,4 @@
-import { BadRequestError } from "@/utils/error/errors";
+import { BadRequestError } from "@/shared/error/errors";
 
 export function parseRequestBody<T = Record<string, unknown>>(
   body: string | null | undefined,

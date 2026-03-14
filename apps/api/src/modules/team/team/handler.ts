@@ -1,11 +1,11 @@
 import { APIGatewayProxyResult } from "aws-lambda";
-import { apiSuccess, apiError } from "@/utils/http/response";
+import { apiSuccess, apiError } from "@/shared/http/response";
 import {
   BadRequestError,
   NotFoundError,
   UnauthorizedError,
-} from "@/utils/error/errors";
-import { AuthorizedAPIGatewayProxyEventV2 } from "@/utils/http/api_gateway_schemas";
+} from "@/shared/error/errors";
+import { AuthorizedAPIGatewayProxyEventV2 } from "@/shared/http/api_gateway_schemas";
 import { TeamService } from "@/modules/team/team/TeamService";
 import { TeamUseCases } from "@/modules/team/TeamUseCases";
 import { $newTeam, $team } from "@/modules/team/team/team.schemas";

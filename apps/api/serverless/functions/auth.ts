@@ -26,7 +26,7 @@ export const auth: AWS["functions"] = {
   },
 
   authMe: {
-    handler: "src/modules/user/user_handlers.me",
+    handler: "src/modules/auth/auth_handlers.me",
     events: [
       {
         httpApi: {

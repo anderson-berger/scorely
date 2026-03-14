@@ -5,7 +5,7 @@ import {
   UpdateCommand,
   DeleteCommand,
 } from "@aws-sdk/lib-dynamodb";
-import { dynamoDBClient } from "@/utils/db/dynamodb_client";
+import { dynamoDBClient } from "@/shared/db/dynamodb_client";
 import { env } from "@/utils/config/env";
 import { generateId, generateTimestamp } from "@/utils/generators";
 import {
@@ -13,7 +13,7 @@ import {
   decodeCursor,
   type PaginatedResult,
   type PaginationQuery,
-} from "@/utils/pagination/pagination";
+} from "@/shared/pagination/pagination";
 import type { Member, NewMember, MemberRole } from "@/modules/team/member/member.schemas";
 
 export class MemberRepository {

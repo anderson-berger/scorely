@@ -3,7 +3,7 @@ import {
   APIGatewayRequestAuthorizerEvent,
 } from "aws-lambda";
 import { TokenService } from "@/shared/token/token_service";
-import { UnauthorizedError } from "@/utils/error/errors";
+import { UnauthorizedError } from "@/shared/error/errors";
 
 const tokenService = new TokenService();
 

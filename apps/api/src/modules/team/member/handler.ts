@@ -1,12 +1,12 @@
 import { APIGatewayProxyResult } from "aws-lambda";
-import { apiSuccess, apiError } from "@/utils/http/response";
+import { apiSuccess, apiError } from "@/shared/http/response";
 import {
   BadRequestError,
   NotFoundError,
   UnauthorizedError,
-} from "@/utils/error/errors";
-import { AuthorizedAPIGatewayProxyEventV2 } from "@/utils/http/api_gateway_schemas";
-import { $paginationQuery } from "@/utils/pagination/pagination";
+} from "@/shared/error/errors";
+import { AuthorizedAPIGatewayProxyEventV2 } from "@/shared/http/api_gateway_schemas";
+import { $paginationQuery } from "@/shared/pagination/pagination";
 import { MemberService } from "@/modules/team/member/MemberService";
 import { TeamUseCases } from "@/modules/team/TeamUseCases";
 import { $memberRole } from "@/modules/team/member/member.schemas";

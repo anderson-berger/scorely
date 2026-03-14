@@ -61,8 +61,7 @@ export default defineComponent({
 
   methods: {
     selectTeam(teamId: string) {
-      teamStore.setActiveTeam(teamId);
-      void this.$router.push({ name: 'app.team' });
+      void this.$router.push({ name: 'app.team', params: { teamId } });
     },
 
     formatUrl(path: string | undefined): string {

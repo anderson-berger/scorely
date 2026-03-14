@@ -5,15 +5,15 @@ import {
   UpdateCommand,
   DeleteCommand,
 } from "@aws-sdk/lib-dynamodb";
-import { dynamoDBClient } from "@/utils/db/dynamodb_client";
+import { dynamoDBClient } from "@/shared/db/dynamodb_client";
 import { generateId, generateTimestamp } from "@/utils/generators";
 import {
   encodeCursor,
   decodeCursor,
   type PaginatedResult,
   type PaginationQuery,
-} from "@/utils/pagination/pagination";
-import { ConflictError } from "@/utils/error/errors";
+} from "@/shared/pagination/pagination";
+import { ConflictError } from "@/shared/error/errors";
 
 export interface BaseEntity {
   id: string;

@@ -114,8 +114,11 @@ export default defineComponent({
   },
 
   methods: {
-    navigate(routeName: string) {
-      void this.$router.push({ name: routeName });
+    navigate(routeName: string, params?: Record<string, string>) {
+      void this.$router.push({
+        name: routeName,
+        params: { teamId: this.teamId, ...params },
+      });
       this.$emit('navigated');
     },
   },

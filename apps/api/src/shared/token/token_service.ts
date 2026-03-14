@@ -1,5 +1,5 @@
 import { SignJWT, jwtVerify } from "jose";
-import { UnauthorizedError } from "@/utils/error/errors";
+import { UnauthorizedError } from "@/shared/error/errors";
 import { env } from "@/utils/config/env";
 import { AccessTokenSubject } from "@/shared/token/token_schemas";
 import { User } from "@/modules/user/user_types";

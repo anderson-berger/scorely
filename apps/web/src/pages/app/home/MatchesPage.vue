@@ -2,7 +2,14 @@
   <q-page class="matches-page q-pa-lg">
     <div class="matches-header">
       <h5 class="text-white q-my-none">Partidas</h5>
-      <q-btn color="primary" icon="add" label="Nova Partida" no-caps unelevated />
+      <q-btn
+        color="primary"
+        icon="add"
+        label="Nova Partida"
+        no-caps
+        unelevated
+        @click="createNewMatch"
+      />
     </div>
 
     <MatchFilters class="q-mt-md" @update:filters="onFiltersUpdate" />
@@ -20,6 +27,9 @@
 
 <script lang="ts">
 import { defineComponent } from 'vue';
+//apis
+import matchService from 'src/services/api/MatchService';
+//componentes
 import MatchCard from 'src/pages/app/home/matches-page/MatchCard.vue';
 import MatchFilters from 'src/pages/app/home/matches-page/MatchFilters.vue';
 import type { Match } from 'src/pages/app/home/matches-page/MatchCard.vue';
@@ -141,6 +151,9 @@ export default defineComponent({
   methods: {
     onFiltersUpdate(filters: MatchFilterState) {
       this.filters = filters;
+    },
+    async createNewMatch() {
+      await matchService.create();
     },
   },
 });

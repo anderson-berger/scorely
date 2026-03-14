@@ -1,5 +1,5 @@
 import type { NewTeam, TeamWithMember } from '@scorely/api/modules/team/team/team.schemas';
-import type { PaginatedResult } from '@scorely/api/utils/pagination/pagination';
+import type { PaginatedResult } from '@scorely/api/shared/pagination/pagination';
 import api from 'src/services/api/api';
 
 class TeamService {

@@ -4,13 +4,13 @@ import {
   BadRequestError,
   ForbiddenError,
   NotFoundError,
-} from "@/utils/error/errors";
+} from "@/shared/error/errors";
 import type { User } from "@/modules/user/user_types";
 import { generateId, generateTimestamp } from "@/utils/generators";
 import {
   PaginatedResult,
   PaginationQuery,
-} from "@/utils/pagination/pagination";
+} from "@/shared/pagination/pagination";
 
 export class UserService {
   private userRepository = new UserRepository();

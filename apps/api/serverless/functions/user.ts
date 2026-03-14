@@ -26,29 +26,4 @@ export const user: AWS["functions"] = {
       },
     ],
   },
-
-  // userRemove: {
-  //   handler: "src/modules/user/infrastructure/user_handlers.remove",
-  //   events: [
-  //     {
-  //       httpApi: {
-  //         path: "/api/users/{id}",
-  //         method: "delete",
-  //         authorizer: { name: "authLambda" },
-  //       },
-  //     },
-  //   ],
-  // },
-  // userList: {
-  //   handler: "src/modules/user/infrastructure/user_handlers.list",
-  //   events: [
-  //     {
-  //       httpApi: {
-  //         path: "/api/users",
-  //         method: "get",
-  //         authorizer: { name: "authLambda" },
-  //       },
-  //     },
-  //   ],
-  // },
 };
