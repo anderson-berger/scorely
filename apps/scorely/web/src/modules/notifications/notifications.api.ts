@@ -6,4 +6,5 @@ export const notificationsApi = {
     request({ url: '/notifications', params: cursor ? { cursor } : undefined }, NotificationPageSchema),
   markRead: (id: string) => send({ url: `/notifications/${id}/read`, method: 'POST' }),
   markAllRead: () => send({ url: '/notifications/read-all', method: 'POST' }),
+  remove: (id: string) => send({ url: `/notifications/${id}`, method: 'DELETE' }),
 };

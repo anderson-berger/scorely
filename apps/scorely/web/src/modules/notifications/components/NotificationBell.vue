@@ -1,6 +1,7 @@
 <script lang="ts">
 import type { Notification } from '@scorely/contracts';
 import { defineComponent } from 'vue';
+import { errorMessage } from '@/i18n/errors';
 import { notificationIcon } from '../notification.icons';
 import { useNotificationsStore } from '../notifications.store';
 
@@ -36,6 +37,14 @@ export default defineComponent({
     async open(n: Notification) {
       await this.store.markRead(n).catch(() => undefined);
       if (n.link) await this.$router.push(n.link);
+    },
+
+    async remove(n: Notification) {
+      try {
+        await this.store.remove(n);
+      } catch (err) {
+        this.$q.notify({ type: 'negative', message: errorMessage(err) });
+      }
     },
   },
 });
@@ -79,6 +88,18 @@ export default defineComponent({
             <q-item-label :class="{ 'text-weight-bold': !n.readAt }">{{ n.title }}</q-item-label>
             <q-item-label v-if="n.body" caption lines="2">{{ n.body }}</q-item-label>
             <q-item-label caption>{{ when(n.createdAt) }}</q-item-label>
+          </q-item-section>
+          <q-item-section side>
+            <!-- .stop: não abre a notificação; o menu continua aberto (sem v-close-popup no botão) -->
+            <q-btn
+              flat
+              round
+              dense
+              size="sm"
+              icon="delete"
+              aria-label="Apagar notificação"
+              @click.stop="remove(n)"
+            />
           </q-item-section>
         </q-item>
 

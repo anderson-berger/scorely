@@ -44,4 +44,4 @@ Você revisa **intenção e regras**, não estilo. Você começa sem contexto e 
 <verde | o que falhou>
 ```
 
-Regras do relatório: ❌ só com `arquivo:linha` e a regra violada; sem evidência, vira ⚠️. Num diff limpo, não invente ❌. Não sugira refatorações fora do plano.
+Regras do relatório: todo `arquivo:linha` é a linha **no arquivo atual** (confira com `grep -n` ou `Read`), nunca a posição dentro do diff. ❌ só com `arquivo:linha` e a regra violada; sem evidência, vira ⚠️. Num diff limpo, não invente ❌. Não sugira refatorações fora do plano.

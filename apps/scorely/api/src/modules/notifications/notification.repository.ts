@@ -27,6 +27,11 @@ export interface NotificationRepository {
   unreadCount(userId: string): Promise<number>;
   /** Marca como lida e decrementa o contador. `false` se já estava lida (ou não é do usuário). */
   markRead(userId: string, id: string, readAt: string): Promise<boolean>;
+  /**
+   * Apaga a notificação, o lookup da lista e (se não estava lida) decrementa o contador, numa transação.
+   * `false` se ela mudou desde a leitura (sumiu ou foi marcada como lida): o service relê.
+   */
+  remove(n: Notification): Promise<boolean>;
 }
 
 function inboxDelta(userId: string, delta: 1 | -1) {
@@ -101,6 +106,33 @@ export const dynamoNotificationRepository: NotificationRepository = {
               },
             },
             inboxDelta(userId, -1),
+          ],
+        }),
+      );
+      return true;
+    } catch (err) {
+      if (isTransactionConflict(err)) return false;
+      throw err;
+    }
+  },
+
+  async remove(n) {
+    // A condição fixa o estado lido como o service viu: o contador nunca cai duas vezes.
+    const readCondition = n.readAt ? 'attribute_exists(readAt)' : 'attribute_not_exists(readAt)';
+    try {
+      await dynamo().send(
+        new TransactWriteCommand({
+          TransactItems: [
+            {
+              Delete: {
+                TableName: tableName(),
+                Key: notificationKey(n.id),
+                ConditionExpression: `attribute_exists(PK) AND userId = :userId AND ${readCondition}`,
+                ExpressionAttributeValues: { ':userId': n.userId },
+              },
+            },
+            { Delete: { TableName: tableName(), Key: notificationListLookupKey(n) } },
+            ...(n.readAt ? [] : [inboxDelta(n.userId, -1)]),
           ],
         }),
       );

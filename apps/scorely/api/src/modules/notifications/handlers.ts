@@ -5,7 +5,7 @@ import { createNotificationService } from './notification.service';
 
 const notifications = createNotificationService(dynamoNotificationRepository);
 
-export const { list, markRead, markAllRead } = authHandlers({
+export const { list, markRead, markAllRead, remove } = authHandlers({
   async list(event, auth) {
     return notifications.list(auth.userId, event.queryStringParameters?.cursor);
   },
@@ -16,5 +16,9 @@ export const { list, markRead, markAllRead } = authHandlers({
 
   async markAllRead(_event, auth) {
     await notifications.markAllRead(auth.userId);
+  },
+
+  async remove(event, auth) {
+    await notifications.remove(auth.userId, pathParam(event, 'id'));
   },
 });

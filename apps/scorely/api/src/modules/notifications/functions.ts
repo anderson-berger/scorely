@@ -20,4 +20,10 @@ export const notificationsFunctions: AWS['functions'] = {
       { httpApi: { method: 'POST', path: '/notifications/read-all', authorizer: { name: AUTHORIZER } } },
     ],
   },
+  notificationsRemove: {
+    handler: handler('remove'),
+    events: [
+      { httpApi: { method: 'DELETE', path: '/notifications/{id}', authorizer: { name: AUTHORIZER } } },
+    ],
+  },
 };

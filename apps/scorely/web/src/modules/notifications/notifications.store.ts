@@ -45,6 +45,13 @@ export const useNotificationsStore = defineStore('notifications', () => {
     await refresh();
   }
 
+  /** Apaga na api e só então tira da lista (se falhar, a lista fica como estava). */
+  async function remove(n: Notification) {
+    await notificationsApi.remove(n.id);
+    items.value = items.value.filter((i) => i.id !== n.id);
+    if (!n.readAt) unreadCount.value = Math.max(0, unreadCount.value - 1);
+  }
+
   function startPolling() {
     stopPolling();
     void refresh().catch(() => undefined);
@@ -74,6 +81,7 @@ export const useNotificationsStore = defineStore('notifications', () => {
     loadMore,
     markRead,
     markAllRead,
+    remove,
     startPolling,
     stopPolling,
     reset,
