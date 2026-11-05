@@ -11,7 +11,7 @@
 | Propósito | ✅ Monorepo de vários projetos web: Vue 3 + Quasar (front) e Serverless v4 + Lambda + DynamoDB (back)                             |
 | Projetos  | ✅ `base` = template de referência · ✅ `scorely` = gerenciamento de grupos esportivos ("pelada")                                 |
 | Estado    | 🟡 `base`: funcional como template. `scorely`: **parcial**, com login, perfil e notificações; o domínio (grupos) ainda não existe |
-| Git       | ✅ Repositório sem nenhum commit (tudo untracked). Branch atual `master`; branch principal esperada `main`                        |
+| Git       | ✅ Branch `main` com o commit-base (2026-11-05). Quem commita é o dono; o `pre-commit` roda `npm run check`                       |
 
 ## 2. Árvore de pastas (3 níveis)
 
@@ -236,21 +236,20 @@ Portas encaminhadas: 5173, 3000 (base) · 5174, 3010 (scorely) · 4566 (LocalSta
 
 ## 11. Docs e pasta de agentes
 
-| Arquivo                                                      | Resumo                                                                                                                        |
-| ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
-| `README.md` ✅                                               | Estrutura, como rodar, deploy pelo compose, access key, novo projeto/módulo, DynamoDB, login do scorely, pegadinhas           |
-| `CLAUDE.md` ✅                                               | Regras para IA: infra separada da api, single-table sem GSI com lookups, Vue em Options API, auth/TTL/notificações no scorely |
-| `docs/` ✅                                                   | Só este arquivo                                                                                                               |
-| `AGENTS.md`, `.cursorrules`, `.claude/`, `.github/copilot-*` | ❌                                                                                                                            |
+> Atualizado pelo plano 002 (2026-11-05). As regras não ficam mais neste mapa: a fonte é a camada indicada.
 
-Regras para IA já definidas (CLAUDE.md) ✅:
-
-- Nunca declarar recursos no `serverless.ts` da api; criar em `infra/`, expor como Output, passar pelo compose e ler por `${param:x, self:custom.localX}`.
-- IAM por nome ou ARN montado (`Fn::Join`); nunca `Fn::GetAtt` de outro stack. Deploy só pela raiz.
-- DynamoDB: proibido GSI/LSI. Lookups guardam só o `id`. Entidade e lookups na mesma `TransactWriteItems`; `attribute_not_exists(PK)` para valores únicos; normalizar as chaves; marcar `entity`; remover PK/SK/entity/ttl antes de devolver.
-- web: componentes Vue em Options API (`defineComponent`), nunca `<script setup>`.
-- api: `handlers.ts` com as rotas como métodos de `handlers({...})`/`authHandlers({...})` e `export const { a, b } = ...`; handlers devolvem só os dados (200/204) e falham com `appError(code)` do catálogo; back só em inglês, e o web traduz por código via i18n; funções exportadas fora dos handlers são `export function`.
-- scorely: rota protegida declara `authorizer: { name: AUTHORIZER }` no `functions.ts` e coloca o método em `authHandlers({...})`; `userId` sempre de `auth.userId`; 403 de regra de negócio sempre com corpo `{ error }`; itens que expiram têm `ttl` **e** `expiresAt`; notificações via `notify()`, com tipo novo na api **e** na web + ícone; contadores com `ADD` na mesma transação.
+| Arquivo                                          | Resumo                                                                                                                            |
+| ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
+| `README.md` ✅                                   | Estrutura, como rodar, deploy pelo compose, access key, novo projeto/módulo, DynamoDB, login do scorely, fluxo com IA, pegadinhas |
+| `CLAUDE.md` ✅                                   | Índice para a IA (≤ 50 linhas): mapa, fluxo `/task`, `/rule`, `npm run check`, onde fica cada regra                               |
+| `.claude/rules/` ✅                              | Regras por área com `paths:`: infra, dynamodb, api, scorely-api, contracts, web, code                                             |
+| `.claude/agents/` ✅                             | Subagentes `test-writer` (testes só do plano + contrato) e `reviewer` (só leitura, relatório fixo)                                |
+| `.claude/skills/` ✅                             | `/task` (fluxo com paradas) e `/rule` (grava correções)                                                                           |
+| `.claude/settings.json` ✅                       | `deny` em `git commit`/`push` e leitura de `.env`; `ask` em `serverless deploy`/`remove`                                          |
+| `checks/` ✅                                     | Checks de arquitetura em Vitest (`npm run check:rules`)                                                                           |
+| `.githooks/pre-commit` ✅                        | `npm run check` no commit                                                                                                         |
+| `docs/` ✅                                       | Índice em `docs/README.md`: `product/`, `decisions/` (ADRs), `plans/`, `context/`                                                 |
+| `AGENTS.md`, `.cursorrules`, `.github/copilot-*` | ❌                                                                                                                                |
 
 ## 12. Pendências
 
@@ -261,7 +260,7 @@ Regras para IA já definidas (CLAUDE.md) ✅:
 
 ### Inconsistências / lacunas
 
-- ❌ Nenhum commit no git; o branch local é `master`, mas a branch principal esperada é `main`.
+- ✅ (resolvido em 2026-11-05) Commit-base feito na branch `main`.
 - ❌ O README diz que o "deploy acontece só pelo CI", mas não há CI.
 - ❌ Não há hospedagem do front (S3/CloudFront/Amplify), domínio nem certificado. Só as apis têm deploy definido.
 - ❌ Não há config por stage (stage/prod); tudo é `dev` por padrão. Falta CORS restrito (hoje `cors: true`).

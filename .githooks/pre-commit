@@ -1,0 +1,9 @@
+#!/bin/sh
+# Bloqueia o commit se o `npm run check` falhar (typecheck + test + lint + check:rules).
+# Ativado por `git config core.hooksPath .githooks` (o devcontainer faz isso no postCreateCommand).
+# Pular de propósito: `git commit --no-verify`.
+echo "pre-commit: npm run check"
+npm run check --silent || {
+  echo "pre-commit: npm run check falhou; commit bloqueado." >&2
+  exit 1
+}

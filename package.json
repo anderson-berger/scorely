@@ -18,7 +18,9 @@
     "test": "turbo run test",
     "lint": "biome check .",
     "format": "biome check --write .",
-    "db:setup": "turbo run db:setup"
+    "db:setup": "turbo run db:setup",
+    "check:rules": "tsc -p checks && vitest run --dir checks",
+    "check": "npm run typecheck && npm test && npm run lint && npm run check:rules"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.5",

@@ -7,7 +7,7 @@
   },
   "files": {
     "ignoreUnknown": true,
-    "includes": ["**", "!**/node_modules", "!**/dist", "!**/.serverless", "!**/.turbo"]
+    "includes": ["**", "!**/node_modules", "!**/dist", "!**/.serverless", "!**/.turbo", "!.claude/**/*.md"]
   },
   "plugins": ["./biome-plugins/no-let.grit"],
   "formatter": {
@@ -62,7 +62,8 @@
         "apps/*/api/serverless.ts",
         "apps/*/api/src/modules/*/functions.ts",
         "infra/**/*.ts",
-        "serverless-compose.ts"
+        "serverless-compose.ts",
+        "checks/**/*.ts"
       ],
       "linter": {
         "rules": {

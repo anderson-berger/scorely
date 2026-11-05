@@ -4,7 +4,7 @@
   "service": "app",
   "workspaceFolder": "/workspace",
   "remoteUser": "node",
-  "postCreateCommand": "npm ci",
+  "postCreateCommand": "npm ci && git config core.hooksPath .githooks",
   "forwardPorts": [5173, 3000, 5174, 3010, 4566],
   "portsAttributes": {
     "5173": { "label": "base · web", "onAutoForward": "notify" },

@@ -161,7 +161,26 @@ Fluxo: `POST /auth/code { email }` envia um código de 6 dígitos → `POST /aut
   A api recusa subir (500 em tudo) com o segredo de dev fora do offline.
 - **Email**: `EMAIL_MODE=console` (padrão) só escreve o código no log, ou seja, no terminal do `dev:scorely` ou no CloudWatch. Para enviar de verdade: domínio verificado no SES em `sa-east-1`, conta fora do sandbox, e deploy com `EMAIL_MODE=ses EMAIL_FROM=no-reply@<domínio>`.
 
+## Fluxo com IA (Claude Code)
+
+Plano 002 (`docs/plans/002-fluxo-ia.md`). Índice das docs em [`docs/README.md`](docs/README.md).
+
+| Peça                      | O quê                                                                                                       |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `CLAUDE.md`               | índice curto: mapa, fluxo, onde fica cada regra                                                             |
+| `.claude/rules/<área>.md` | regras por área, com `paths:`; só carregam quando a IA toca arquivos da área                                |
+| `/task <pedido>`          | plano → **você aprova** → contrato → testes (`test-writer`) → implementação → revisão (`reviewer`) → staged |
+| `/rule <correção>`        | grava uma correção como check (`checks/`), decisão (`docs/decisions/`) ou regra de área                     |
+| `npm run check`           | `typecheck` + `test` + `lint` + `check:rules` (os checks de arquitetura em `checks/`)                       |
+| `.githooks/pre-commit`    | roda `npm run check` no **seu** commit; o devcontainer liga com `git config core.hooksPath .githooks`       |
+| `.claude/settings.json`   | a IA não pode `git commit`/`git push` nem ler `.env`; `serverless deploy`/`remove` pedem confirmação        |
+
+- **Quem commita é você.** A IA deixa tudo staged e sugere a mensagem.
+- Clone fora do devcontainer: rode `git config core.hooksPath .githooks` uma vez. `git commit --no-verify` pula o hook (escolha sua).
+
 ## Pegadinhas
+
+- **Biome x frontmatter**: o formatador de markdown do Biome quebra o frontmatter YAML (troca `*` por `_` nos globs). Por isso `.claude/**/*.md` fica fora do Biome (`biome.json` → `files.includes`).
 
 - **Lockfile**: depois de mexer em dependências ou em workspaces, se aparecer "Cannot find native binding" (npm/cli#4828), apague o conteúdo de `node_modules` (no container é um volume, então a pasta em si não sai) e o `package-lock.json`, e rode `npm install`.
 - **Variáveis de ambiente no Turbo**: o Turbo 2 só repassa para as tarefas as variáveis listadas em `turbo.json` (`globalPassThroughEnv` / `globalEnv`). Se criar uma variável nova, acrescente lá.

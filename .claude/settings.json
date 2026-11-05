@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Read(**/.env)",
+      "Read(**/.env.local)",
+      "Read(**/.env.*.local)"
+    ],
+    "ask": [
+      "Bash(npx serverless deploy:*)",
+      "Bash(npx serverless remove:*)",
+      "Bash(npx serverless * deploy:*)",
+      "Bash(npx serverless * remove:*)",
+      "Bash(serverless deploy:*)",
+      "Bash(serverless remove:*)"
+    ]
+  }
+}
