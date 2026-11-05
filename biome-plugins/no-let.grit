@@ -1,0 +1,8 @@
+language js
+
+// Proíbe `let` (o `var` já é barrado pelo noVar do Biome). Veja "Código: nunca `let`" no CLAUDE.md.
+// O regex do Grit casa com o texto inteiro do nó, por isso o `[\s\S]*`.
+JsVariableDeclaration() as $decl where {
+  $decl <: r"let\s[\s\S]*",
+  register_diagnostic(span=$decl, message="Do not use `let`: use `const` and restructure (lazy, chunk/range, a function that returns the value, a const state object). See CLAUDE.md.")
+}

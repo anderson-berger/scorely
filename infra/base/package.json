@@ -1,0 +1,17 @@
+{
+  "name": "@base/infra",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "db:setup": "tsx ../shared/setup-local.ts base",
+    "build": "serverless package",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1161.0",
+    "@serverless/typescript": "^4.30.0",
+    "serverless": "^4.46.0",
+    "tsx": "^4.23.15"
+  }
+}

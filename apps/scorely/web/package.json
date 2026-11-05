@@ -1,0 +1,31 @@
+{
+  "name": "@scorely/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vue-tsc -p tsconfig.json && vite build",
+    "preview": "vite preview",
+    "typecheck": "vue-tsc -p tsconfig.json",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@quasar/extras": "^2.1.0",
+    "@scorely/contracts": "*",
+    "axios": "^1.21.0",
+    "pinia": "^4.1.0",
+    "quasar": "^2.35.2",
+    "vue": "^3.5.44",
+    "vue-i18n": "^11.4.18",
+    "vue-router": "^5.4.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@quasar/vite-plugin": "^2.0.2",
+    "@vitejs/plugin-vue": "^6.0.10",
+    "sass-embedded": "^1.107.1",
+    "vite": "^8.3.5",
+    "vue-tsc": "^3.3.14"
+  }
+}

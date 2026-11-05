@@ -1,0 +1,35 @@
+{
+  "name": "app-base",
+  "private": true,
+  "packageManager": "npm@12.2.1",
+  "engines": {
+    "node": ">=24"
+  },
+  "workspaces": [
+    "apps/*/*",
+    "infra/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev",
+    "dev:base": "turbo run dev --filter=@base/*",
+    "dev:scorely": "turbo run dev --filter=@scorely/*",
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "db:setup": "turbo run db:setup"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.6.5",
+    "@types/node": "^26.6.6",
+    "turbo": "^2.11.10",
+    "typescript": "^6.0.3",
+    "vitest": "^5.1.0"
+  },
+  "allowScripts": {
+    "esbuild": true,
+    "serverless": true,
+    "@parcel/watcher": false
+  }
+}

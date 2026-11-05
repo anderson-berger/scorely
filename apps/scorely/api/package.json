@@ -1,0 +1,26 @@
+{
+  "name": "@scorely/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "serverless offline start",
+    "build": "serverless package",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@scorely/contracts": "*",
+    "@aws-sdk/client-dynamodb": "^3.1161.0",
+    "@aws-sdk/client-sesv2": "^3.1161.0",
+    "@aws-sdk/lib-dynamodb": "^3.1161.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@scorely/infra": "*",
+    "@serverless/typescript": "^4.30.0",
+    "@types/aws-lambda": "^8.10.164",
+    "serverless": "^4.46.0",
+    "serverless-offline": "^14.8.4"
+  }
+}

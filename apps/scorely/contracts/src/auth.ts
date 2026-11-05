@@ -1,0 +1,40 @@
+import { z } from 'zod';
+import { EmailSchema, UserSchema } from './users';
+
+/** Código de login: 6 dígitos. */
+export const CodeSchema = z
+  .string()
+  .trim()
+  .regex(/^\d{6}$/, 'Code must have 6 digits');
+
+export const RequestCodeInputSchema = z.object({ email: EmailSchema });
+export type RequestCodeInput = z.infer<typeof RequestCodeInputSchema>;
+
+export const RequestCodeResultSchema = z.object({
+  expiresInSeconds: z.number().int().positive(),
+  resendInSeconds: z.number().int().nonnegative(),
+});
+export type RequestCodeResult = z.infer<typeof RequestCodeResultSchema>;
+
+export const VerifyCodeInputSchema = z.object({
+  email: EmailSchema,
+  code: CodeSchema,
+});
+export type VerifyCodeInput = z.infer<typeof VerifyCodeInputSchema>;
+
+export const RefreshInputSchema = z.object({ refreshToken: z.string().min(1) });
+export type RefreshInput = z.infer<typeof RefreshInputSchema>;
+
+export const TokensSchema = z.object({
+  accessToken: z.string(),
+  refreshToken: z.string(),
+  /** Validade do access token, em segundos. */
+  expiresIn: z.number().int().positive(),
+});
+export type Tokens = z.infer<typeof TokensSchema>;
+
+export const LoginResultSchema = TokensSchema.extend({
+  user: UserSchema,
+  isNewUser: z.boolean(),
+});
+export type LoginResult = z.infer<typeof LoginResultSchema>;

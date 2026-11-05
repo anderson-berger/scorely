@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.serverless/
+.turbo/
+.esbuild/
+coverage/
+*.log
+.env
+.env.*
+!.env.example
+.DS_Store
