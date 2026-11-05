@@ -25,8 +25,8 @@ const auth = lazy(() =>
 // Rotas públicas (sem authorizer).
 export const { requestCode, verifyCode, refresh } = handlers({
   async requestCode(event) {
-    const { email } = parseBody(event, RequestCodeInputSchema);
-    return auth().requestCode(email);
+    const { email, locale } = parseBody(event, RequestCodeInputSchema);
+    return auth().requestCode(email, locale);
   },
 
   async verifyCode(event) {

@@ -21,7 +21,8 @@ paths:
 
 - **Back (api e contracts) só em inglês**: mensagens de erro, mensagens dos schemas Zod, logs e textos técnicos. Comentários podem continuar em português.
 - O usuário nunca vê texto do back: o web traduz pelo `code` (veja `web.md`).
-- Exceção pendente: o email com o código de login e o título e o corpo das notificações ainda são gerados em português no back.
+- Email com o código de login: texto por idioma em `src/modules/auth/login-code.email.ts`, no `locale` da requisição (padrão `pt-BR`).
+- Exceção pendente: o título e o corpo das notificações ainda são gerados em português no back.
 
 ## Autenticação
 

@@ -37,9 +37,9 @@ export default defineComponent({
   <q-layout view="hHh lpR fFf">
     <q-header elevated>
       <q-toolbar>
-        <q-toolbar-title class="cursor-pointer" @click="$router.push({ name: 'home' })">scorely</q-toolbar-title>
+        <q-toolbar-title class="cursor-pointer" @click="$router.push({ name: 'home' })">{{ $t('app.name') }}</q-toolbar-title>
         <NotificationBell />
-        <q-btn v-if="auth.user" flat round dense class="q-ml-sm" aria-label="Conta">
+        <q-btn v-if="auth.user" flat round dense class="q-ml-sm" :aria-label="$t('layout.account')">
           <q-avatar size="32px" color="white" text-color="primary">{{ initial(displayName(auth.user)) }}</q-avatar>
           <q-menu anchor="bottom right" self="top right">
             <q-list style="min-width: 200px">
@@ -52,11 +52,11 @@ export default defineComponent({
               <q-separator />
               <q-item v-close-popup clickable :to="{ name: 'profile' }">
                 <q-item-section avatar><q-icon name="person" /></q-item-section>
-                <q-item-section>Perfil</q-item-section>
+                <q-item-section>{{ $t('layout.profile') }}</q-item-section>
               </q-item>
               <q-item v-close-popup clickable @click="logout">
                 <q-item-section avatar><q-icon name="logout" /></q-item-section>
-                <q-item-section>Sair</q-item-section>
+                <q-item-section>{{ $t('layout.logout') }}</q-item-section>
               </q-item>
             </q-list>
           </q-menu>

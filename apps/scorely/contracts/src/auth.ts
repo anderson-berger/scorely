@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { EmailSchema, UserSchema } from './users';
+import { EmailSchema, LocaleSchema, UserSchema } from './users';
 
 /** Código de login: 6 dígitos. */
 export const CodeSchema = z
@@ -7,7 +7,8 @@ export const CodeSchema = z
   .trim()
   .regex(/^\d{6}$/, 'Code must have 6 digits');
 
-export const RequestCodeInputSchema = z.object({ email: EmailSchema });
+/** `locale`: idioma do email com o código (padrão `pt-BR`). A web manda o idioma efetivo. */
+export const RequestCodeInputSchema = z.object({ email: EmailSchema, locale: LocaleSchema.optional() });
 export type RequestCodeInput = z.infer<typeof RequestCodeInputSchema>;
 
 export const RequestCodeResultSchema = z.object({

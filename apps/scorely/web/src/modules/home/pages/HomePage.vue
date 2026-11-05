@@ -12,7 +12,9 @@ export default defineComponent({
 
   computed: {
     greeting(): string {
-      return this.auth.user ? `Olá, ${displayName(this.auth.user)}!` : 'Olá!';
+      return this.auth.user
+        ? this.$t('home.greeting', { name: displayName(this.auth.user) })
+        : this.$t('home.greetingAnonymous');
     },
   },
 });
@@ -24,7 +26,7 @@ export default defineComponent({
     <q-card flat bordered class="q-mt-md">
       <q-card-section class="text-body2 text-grey-7">
         <q-icon name="groups" size="sm" class="q-mr-sm" />
-        Seus grupos vão aparecer aqui.
+        {{ $t('home.groupsPlaceholder') }}
       </q-card-section>
     </q-card>
   </q-page>

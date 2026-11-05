@@ -1,8 +1,9 @@
+import type { Locale } from '@scorely/contracts';
 import { createI18n } from 'vue-i18n';
 import { en } from './locales/en';
 import { type MessageSchema, ptBR } from './locales/pt-BR';
 
-export type Locale = 'pt-BR' | 'en';
+export type { Locale };
 
 export const i18n = createI18n<[MessageSchema], Locale, false>({
   legacy: false,

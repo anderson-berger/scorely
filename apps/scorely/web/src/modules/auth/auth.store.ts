@@ -1,6 +1,7 @@
 import type { UpdateMeInput, User } from '@scorely/contracts';
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
+import { applyPreferences } from '@/lib/preferences';
 import { session } from '@/lib/session';
 import { usersApi } from '../users/users.api';
 import { authApi } from './auth.api';
@@ -19,16 +20,19 @@ export const useAuthStore = defineStore('auth', () => {
     session.set(result);
     hasSession.value = true;
     user.value = result.user;
+    applyPreferences(result.user);
     return result;
   }
 
   async function loadMe() {
     user.value = await usersApi.me();
+    applyPreferences(user.value);
     return user.value;
   }
 
   async function updateProfile(patch: UpdateMeInput) {
     user.value = await usersApi.updateMe(patch);
+    applyPreferences(user.value);
     return user.value;
   }
 
@@ -37,6 +41,7 @@ export const useAuthStore = defineStore('auth', () => {
     session.clear();
     hasSession.value = false;
     user.value = undefined;
+    applyPreferences();
   }
 
   async function logout() {

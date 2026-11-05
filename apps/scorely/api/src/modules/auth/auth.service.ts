@@ -1,4 +1,4 @@
-import type { LoginResult, RequestCodeResult, Tokens } from '@scorely/contracts';
+import type { Locale, LoginResult, RequestCodeResult, Tokens } from '@scorely/contracts';
 import { hmac, randomCode, randomToken, safeEqual } from '../../lib/crypto';
 import type { Mailer } from '../../lib/email';
 import { newEntity } from '../../lib/entity';
@@ -8,6 +8,7 @@ import type { NotificationService } from '../notifications/notification.service'
 import type { UserService } from '../users/user.service';
 import type { AuthRepository } from './auth.repository';
 import type { LoginCode, Session } from './auth.table';
+import { loginCodeEmail } from './login-code.email';
 
 export const AUTH_LIMITS = {
   codeTtlSeconds: 10 * 60,
@@ -66,8 +67,8 @@ export function createAuthService({
   }
 
   return {
-    /** Gera e envia um código de 6 dígitos. Serve tanto para login quanto para cadastro. */
-    async requestCode(email: string): Promise<RequestCodeResult> {
+    /** Gera e envia um código de 6 dígitos, com o email no `locale` pedido. Serve para login e cadastro. */
+    async requestCode(email: string, locale?: Locale): Promise<RequestCodeResult> {
       const at = now();
       const previous = await repo.getCode(email);
 
@@ -98,11 +99,7 @@ export function createAuthService({
       const windowEnd = new Date(new Date(windowStart).getTime() + HOUR_MS);
       await repo.putCode(record, windowEnd > expiresAt ? windowEnd : expiresAt);
 
-      await mailer.send({
-        to: email,
-        subject: `${code} é o seu código do scorely`,
-        text: `Seu código de acesso é ${code}.\n\nEle vale por 10 minutos. Se não foi você, ignore este email.`,
-      });
+      await mailer.send({ to: email, ...loginCodeEmail(code, AUTH_LIMITS.codeTtlSeconds / 60, locale) });
       return {
         expiresInSeconds: AUTH_LIMITS.codeTtlSeconds,
         resendInSeconds: AUTH_LIMITS.resendCooldownSeconds,

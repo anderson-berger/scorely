@@ -2,6 +2,7 @@
 import type { Notification } from '@scorely/contracts';
 import { defineComponent } from 'vue';
 import { errorMessage } from '@/i18n/errors';
+import { formatDateTime } from '@/lib/datetime';
 import { notificationIcon } from '../notification.icons';
 import { useNotificationsStore } from '../notifications.store';
 
@@ -26,12 +27,7 @@ export default defineComponent({
     },
 
     when(iso: string): string {
-      return new Date(iso).toLocaleString('pt-BR', {
-        day: '2-digit',
-        month: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-      });
+      return formatDateTime(iso);
     },
 
     async open(n: Notification) {
@@ -51,7 +47,7 @@ export default defineComponent({
 </script>
 
 <template>
-  <q-btn flat round dense icon="notifications" aria-label="Notificações">
+  <q-btn flat round dense icon="notifications" :aria-label="$t('notifications.label')">
     <q-badge v-if="store.unreadCount > 0" color="red" floating rounded>
       {{ store.unreadCount > 99 ? '99+' : store.unreadCount }}
     </q-badge>
@@ -59,7 +55,7 @@ export default defineComponent({
     <q-menu anchor="bottom right" self="top right" style="width: 360px; max-width: calc(100vw - 32px)">
       <q-list separator>
         <q-item>
-          <q-item-section class="text-subtitle1 text-weight-medium">Notificações</q-item-section>
+          <q-item-section class="text-subtitle1 text-weight-medium">{{ $t('notifications.title') }}</q-item-section>
           <q-item-section side>
             <q-btn
               v-if="store.unreadCount > 0"
@@ -67,7 +63,7 @@ export default defineComponent({
               dense
               no-caps
               size="sm"
-              label="Marcar todas como lidas"
+              :label="$t('notifications.markAllRead')"
               @click="store.markAllRead()"
             />
           </q-item-section>
@@ -97,18 +93,18 @@ export default defineComponent({
               dense
               size="sm"
               icon="delete"
-              aria-label="Apagar notificação"
+              :aria-label="$t('notifications.remove')"
               @click.stop="remove(n)"
             />
           </q-item-section>
         </q-item>
 
         <q-item v-if="store.items.length === 0">
-          <q-item-section class="text-grey-7">Nada por aqui ainda</q-item-section>
+          <q-item-section class="text-grey-7">{{ $t('notifications.empty') }}</q-item-section>
         </q-item>
 
         <q-item v-if="store.nextCursor" clickable @click="store.loadMore()">
-          <q-item-section class="text-center text-primary">Ver mais</q-item-section>
+          <q-item-section class="text-center text-primary">{{ $t('notifications.more') }}</q-item-section>
         </q-item>
       </q-list>
     </q-menu>

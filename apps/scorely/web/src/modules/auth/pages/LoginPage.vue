@@ -104,8 +104,8 @@ export default defineComponent({
       <q-page class="flex flex-center q-pa-md">
         <q-card flat bordered class="login-card">
           <q-card-section>
-            <div class="text-h5 text-weight-bold">scorely</div>
-            <div class="text-body2 text-grey-7">Organize os jogos do seu grupo</div>
+            <div class="text-h5 text-weight-bold">{{ $t('app.name') }}</div>
+            <div class="text-body2 text-grey-7">{{ $t('login.tagline') }}</div>
           </q-card-section>
 
           <q-card-section v-if="step === 'email'">
@@ -113,24 +113,24 @@ export default defineComponent({
               <q-input
                 v-model="email"
                 type="email"
-                label="Seu email"
+                :label="$t('login.email')"
                 autocomplete="email"
                 outlined
                 autofocus
                 :disable="loading"
               />
-              <q-btn type="submit" color="primary" label="Receber código" class="full-width q-mt-md" :loading="loading" />
+              <q-btn type="submit" color="primary" :label="$t('login.sendCode')" class="full-width q-mt-md" :loading="loading" />
             </q-form>
           </q-card-section>
 
           <q-card-section v-else>
             <div class="text-body2 q-mb-md">
-              Enviamos um código de 6 dígitos para <strong>{{ email }}</strong>.
+              {{ $t('login.codeSent') }} <strong>{{ email }}</strong>.
             </div>
             <q-form @submit.prevent="verify">
               <q-input
                 v-model="code"
-                label="Código"
+                :label="$t('login.code')"
                 inputmode="numeric"
                 autocomplete="one-time-code"
                 mask="######"
@@ -139,16 +139,16 @@ export default defineComponent({
                 :disable="loading"
                 input-class="text-h6 text-center code-input"
               />
-              <q-btn type="submit" color="primary" label="Entrar" class="full-width q-mt-md" :loading="loading" />
+              <q-btn type="submit" color="primary" :label="$t('login.enter')" class="full-width q-mt-md" :loading="loading" />
             </q-form>
             <div class="row justify-between q-mt-sm">
-              <q-btn flat dense no-caps label="Trocar email" @click="changeEmail" />
+              <q-btn flat dense no-caps :label="$t('login.changeEmail')" @click="changeEmail" />
               <q-btn
                 flat
                 dense
                 no-caps
                 :disable="!canResend"
-                :label="resendIn > 0 ? `Reenviar em ${resendIn}s` : 'Reenviar código'"
+                :label="resendIn > 0 ? $t('login.resendIn', { seconds: resendIn }) : $t('login.resend')"
                 @click="sendCode"
               />
             </div>

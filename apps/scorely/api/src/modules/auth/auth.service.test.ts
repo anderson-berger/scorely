@@ -232,3 +232,43 @@ describe('auth: sessão', () => {
     expect((await errorOf(t.service.refresh('lixo'))).status).toBe(401);
   });
 });
+
+describe('auth: idioma do email do código', () => {
+  const codeIn = (text: string) => text.match(/\d{6}/)?.[0];
+
+  it('caso 5: requestCode com locale en → assunto e texto em inglês, com o código', async () => {
+    const t = setup();
+    await t.service.requestCode(EMAIL, 'en');
+    const email = t.sent[0];
+    expect(email?.to).toBe(EMAIL);
+    expect(codeIn(email?.text ?? '')).toMatch(/^\d{6}$/);
+    expect(email?.subject).toMatch(/code/i);
+    expect(email?.text).toMatch(/code/i);
+    expect(`${email?.subject} ${email?.text}`).not.toMatch(/código|seu|expira/i);
+  });
+
+  it('caso 5: o código do email em inglês é o que vale no login', async () => {
+    const t = setup();
+    await t.service.requestCode(EMAIL, 'en');
+    const result = await t.service.verifyCode(EMAIL, codeIn(t.sent[0]?.text ?? '') ?? '');
+    expect(result.user.email).toBe(EMAIL);
+  });
+
+  it('caso 6: requestCode sem locale → email em português (igual a hoje)', async () => {
+    const t = setup();
+    await t.service.requestCode(EMAIL);
+    const email = t.sent[0];
+    expect(codeIn(email?.text ?? '')).toMatch(/^\d{6}$/);
+    expect(`${email?.subject} ${email?.text}`).toMatch(/código/i);
+  });
+
+  it('caso 6: locale pt-BR explícito → mesmo email que sem locale', async () => {
+    const a = setup();
+    const b = setup();
+    await a.service.requestCode(EMAIL);
+    await b.service.requestCode(EMAIL, 'pt-BR');
+    const strip = (s: string | undefined) => (s ?? '').replace(/\d{6}/g, '######');
+    expect(strip(b.sent[0]?.subject)).toBe(strip(a.sent[0]?.subject));
+    expect(strip(b.sent[0]?.text)).toBe(strip(a.sent[0]?.text));
+  });
+});

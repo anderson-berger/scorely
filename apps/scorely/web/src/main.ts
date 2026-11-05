@@ -7,6 +7,7 @@ import App from './App.vue';
 import { router } from './app/router';
 import { i18n } from './i18n';
 import { onSessionExpired } from './lib/http';
+import { applyPreferences } from './lib/preferences';
 import { useAuthStore } from './modules/auth/auth.store';
 import { useNotificationsStore } from './modules/notifications/notifications.store';
 
@@ -20,4 +21,6 @@ onSessionExpired(() => {
   void router.replace({ name: 'login', query: redirect !== '/' ? { redirect } : {} });
 });
 
+// Antes do login: idioma salvo neste navegador ou o do navegador; fuso detectado. O perfil sobrescreve no loadMe.
+applyPreferences();
 app.mount('#app');
