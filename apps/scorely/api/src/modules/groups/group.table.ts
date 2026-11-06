@@ -44,3 +44,25 @@ export function userGroupsLookupPk(userId: string) {
 export function userGroupLookupKey(userId: string, groupId: Group['id']) {
   return { PK: userGroupsLookupPk(userId), SK: groupId };
 }
+
+/**
+ * Reservas do grupo (plano 007, D4): `PK=LOOKUP#GROUP#<groupId>#RESERVE`, `SK=<userId>`, `{ id: userId }`.
+ * Escrita: junto com `userGroupLookupKey` (o mesmo de membro). Leitura: GetItem (é reserva?) ou Query (lista).
+ */
+export function groupReservesLookupPk(groupId: Group['id']) {
+  return `LOOKUP#GROUP#${groupId}#RESERVE`;
+}
+
+export function groupReserveLookupKey(groupId: Group['id'], userId: string) {
+  return { PK: groupReservesLookupPk(groupId), SK: userId };
+}
+
+/** Lookup único do link de reserva: `PK=LOOKUP#GROUP#RESERVE_INVITE#<token>`, `SK=META`, `{ id }` (D5). */
+export function groupReserveInviteLookupKey(token: string) {
+  return { PK: `LOOKUP#GROUP#RESERVE_INVITE#${token}`, SK: 'META' };
+}
+
+/** Lookup único do link do jogo (convidados): `PK=LOOKUP#GROUP#GUEST#<token>`, `SK=META`, `{ id }` (D5, D7). */
+export function groupGuestLookupKey(token: string) {
+  return { PK: `LOOKUP#GROUP#GUEST#${token}`, SK: 'META' };
+}

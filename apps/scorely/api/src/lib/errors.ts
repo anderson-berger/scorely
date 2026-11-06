@@ -32,11 +32,13 @@ const CATALOG = {
   GROUP_INVITE_INVALID: { status: 404, message: 'Invalid or replaced invite link' },
   GROUP_MEMBER_NOT_FOUND: { status: 404, message: 'Member not found in this group' },
   GROUP_OWNER_NOT_REMOVABLE: { status: 409, message: 'The group owner cannot be removed' },
+  GROUP_LAYERS_INVALID: { status: 422, message: 'Layers must open in order: members, reserves, guests' },
 
   GAME_NOT_FOUND: { status: 404, message: 'Game not found' },
   GAME_LIST_NOT_OPEN: { status: 409, message: 'The attendance list is not open yet' },
   GAME_CLOSED: { status: 409, message: 'The game has started or ended; the list is closed' },
   GAME_CANCELLED: { status: 409, message: 'The game was cancelled' },
+  GAME_LINK_INVALID: { status: 404, message: 'Invalid or replaced game link' },
 } as const satisfies Record<ErrorCode, { status: number; message: string }>;
 
 /** Código com `details` obrigatório pede o objeto; os demais não aceitam nada. */

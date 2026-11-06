@@ -1,12 +1,12 @@
-import type { Game, GameStatus, MyAttendance, MyGroup } from '@scorely/contracts';
+import type { Game, GameStatus, GroupRole, GuestGame, MyAttendance, MyGroup } from '@scorely/contracts';
 import { newEntity } from '../../lib/entity';
 import { appError } from '../../lib/errors';
-import { currentOccurrence, type Occurrence, timeStatus } from '../../lib/zoned';
+import { currentOccurrence, layerOpensAt, type Occurrence, timeStatus } from '../../lib/zoned';
 import type { AttendanceRecord, GameRecord } from './game.repository';
 import type { StoredGroup } from './group.repository';
-import { type GroupsDeps, requireMember, requireOwner } from './groups.deps';
+import { type GroupsDeps, requireMember, requireOwner, reservesHours } from './groups.deps';
 
-/** Jogo atual de um grupo num instante: a ocorrência calculada (D1) e o item, se já existe. */
+/** Jogo atual de um grupo num instante: a ocorrência calculada (D1 do 003) e o item, se já existe. */
 interface CurrentGame {
   group: StoredGroup;
   occurrence: Occurrence;
@@ -14,11 +14,27 @@ interface CurrentGame {
   at: Date;
 }
 
+/** Abertura de cada camada (plano 007, D2/D8). `guests` ausente = convidados desligados. */
+interface LayerTimes {
+  member: string;
+  reserve: string;
+  guest?: string;
+}
+
 function statusOf(occurrence: Occurrence, record: GameRecord | undefined, at: Date): GameStatus {
   return record?.cancelledAt ? 'cancelled' : timeStatus(occurrence, at);
 }
 
-/** Posição do usuário na lista (D4): antes de `slots` = dentro; o resto = fila. */
+function layersOf(group: StoredGroup, occurrence: Occurrence): LayerTimes {
+  const guests = group.guestsOpenHoursBefore;
+  return {
+    member: occurrence.opensAt,
+    reserve: layerOpensAt(occurrence.startsAt, reservesHours(group)),
+    ...(guests != null && { guest: layerOpensAt(occurrence.startsAt, guests) }),
+  };
+}
+
+/** Posição do usuário na lista (D4 do 003): antes de `slots` = dentro; o resto = fila. */
 function myAttendance(list: AttendanceRecord[], slots: number, userId: string): MyAttendance | undefined {
   const index = list.findIndex((a) => a.userId === userId);
   if (index < 0) return undefined;
@@ -36,21 +52,24 @@ export function createGameService(deps: GroupsDeps) {
     return { group, occurrence, record, at };
   }
 
-  /** O jogo da rota: só o atual existe na E1 (sem histórico). */
+  /** O jogo da rota: só o atual existe (sem histórico). */
   async function loadByDate(group: StoredGroup, date: string): Promise<CurrentGame> {
     const game = await load(group, now());
     if (game.occurrence.date !== date) throw appError('GAME_NOT_FOUND');
     return game;
   }
 
-  function assertListWritable({ occurrence, record, at }: CurrentGame): void {
+  /** Confirmar/desistir: jogo aberto e a camada de quem pede já aberta (D8 do 007). */
+  function assertListWritable({ group, occurrence, record, at }: CurrentGame, role: GroupRole): void {
     const status = statusOf(occurrence, record, at);
     if (status === 'cancelled') throw appError('GAME_CANCELLED');
     if (status === 'in_progress') throw appError('GAME_CLOSED');
-    if (status === 'scheduled') throw appError('GAME_LIST_NOT_OPEN', { opensAt: occurrence.opensAt });
+    const opensAt = layersOf(group, occurrence)[role];
+    if (!opensAt) throw appError('GAME_LINK_INVALID');
+    if (at.getTime() < new Date(opensAt).getTime()) throw appError('GAME_LIST_NOT_OPEN', { opensAt });
   }
 
-  /** Materializa o jogo virtual (D1/D2). Perdeu a corrida pelo lookup da data → relê o vencedor. */
+  /** Materializa o jogo virtual (D1/D2 do 003). Perdeu a corrida pelo lookup da data → relê o vencedor. */
   async function ensureRecord({ group, occurrence, record, at }: CurrentGame): Promise<GameRecord> {
     if (record) return record;
     const created = newEntity<GameRecord>({ groupId: group.id, date: occurrence.date }, at);
@@ -64,21 +83,40 @@ export function createGameService(deps: GroupsDeps) {
     return record ? deps.games.listAttendance(record.id, { consistent: true }) : [];
   }
 
-  async function view(userId: string, game: CurrentGame): Promise<Game> {
+  /** Papel de cada pessoa da lista (D9): pelo papel atual no grupo; quem não participa é convidado. */
+  async function rolesOf(groupId: string): Promise<Map<string, GroupRole>> {
+    const members = await deps.groups.listMembers(groupId);
+    return new Map(members.map((m) => [m.userId, m.role]));
+  }
+
+  async function view(userId: string, game: CurrentGame, role: GroupRole): Promise<Game> {
     const { group, occurrence, record, at } = game;
     const list = await listOf(record);
-    const users = await deps.users.getMany(list.map((a) => a.userId));
+    const [users, roles] = await Promise.all([
+      deps.users.getMany(list.map((a) => a.userId)),
+      rolesOf(group.id),
+    ]);
     const names = new Map(users.map((u) => [u.id, u.nickname ?? u.name]));
     const attendees = list.map((a) => {
       const name = names.get(a.userId);
-      return { userId: a.userId, ...(name && { name }), confirmedAt: a.confirmedAt };
+      return {
+        userId: a.userId,
+        ...(name && { name }),
+        confirmedAt: a.confirmedAt,
+        role: roles.get(a.userId) ?? ('guest' as const),
+      };
     });
+    const layers = layersOf(group, occurrence);
+    const myOpensAt = layers[role];
     const me = myAttendance(list, group.slots, userId);
     return {
       groupId: group.id,
       date: occurrence.date,
       startsAt: occurrence.startsAt,
       opensAt: occurrence.opensAt,
+      reservesOpensAt: layers.reserve,
+      ...(layers.guest && { guestsOpensAt: layers.guest }),
+      ...(myOpensAt && { myOpensAt }),
       status: statusOf(occurrence, record, at),
       slots: group.slots,
       confirmed: attendees.slice(0, group.slots),
@@ -88,8 +126,8 @@ export function createGameService(deps: GroupsDeps) {
   }
 
   /**
-   * D6: depois que alguém de dentro saiu, quem agora ocupa a última vaga e estava na fila é avisado.
-   * `before` é a lista lida antes da saída.
+   * D6 do 003: depois que alguém de dentro saiu, quem agora ocupa a última vaga e estava na fila é avisado.
+   * `before` é a lista lida antes da saída. Convidado recebe o link do jogo; membro e reserva, o do grupo.
    */
   async function notifyPromotion(
     group: StoredGroup,
@@ -103,18 +141,58 @@ export function createGameService(deps: GroupsDeps) {
     const promoted = after[group.slots - 1];
     if (!promoted) return;
     if (before.findIndex((a) => a.userId === promoted.userId) < group.slots) return;
+    const role = await deps.groups.roleOf(group.id, promoted.userId);
+    const link = !role && group.guestToken ? `/play/${group.guestToken}` : `/groups/${group.id}`;
     await deps.notifications.notify(promoted.userId, {
       type: 'waitlist_promoted',
       title: 'Você entrou na lista',
       body: `Abriu uma vaga no jogo de ${group.name}.`,
-      link: `/groups/${group.id}`,
+      link,
     });
+  }
+
+  async function confirmAs(userId: string, group: StoredGroup, role: GroupRole, date: string): Promise<Game> {
+    const game = await loadByDate(group, date);
+    assertListWritable(game, role);
+    const record = await ensureRecord(game);
+    if (!(await deps.games.getAttendance(record.id, userId))) {
+      const attendance = newEntity<AttendanceRecord>(
+        { gameId: record.id, userId, confirmedAt: game.at.toISOString() },
+        game.at,
+      );
+      await deps.games.addAttendance(attendance);
+    }
+    return view(userId, { ...game, record }, role);
+  }
+
+  async function leaveAs(userId: string, group: StoredGroup, role: GroupRole, date: string): Promise<void> {
+    const game = await loadByDate(group, date);
+    assertListWritable(game, role);
+    if (!game.record) return;
+    const attendance = await deps.games.getAttendance(game.record.id, userId);
+    if (!attendance) return;
+    const before = await listOf(game.record);
+    await deps.games.removeAttendance(attendance);
+    await notifyPromotion(group, game.record, before, userId);
+  }
+
+  /** D7: grupo do link do jogo, com o papel de quem abre. Convidados desligados ou token de outro tipo → inválido. */
+  async function byGuestLink(
+    userId: string,
+    token: string,
+  ): Promise<{ group: StoredGroup; role: GroupRole }> {
+    const found = await deps.groups.getByToken(token);
+    if (found?.kind !== 'guest' || found.group.guestsOpenHoursBefore == null) {
+      throw appError('GAME_LINK_INVALID');
+    }
+    const role = (await deps.groups.roleOf(found.group.id, userId)) ?? 'guest';
+    return { group: found.group, role };
   }
 
   return {
     async current(userId: string, groupId: string): Promise<Game> {
-      const group = await requireMember(deps, userId, groupId);
-      return view(userId, await load(group, now()));
+      const { group, role } = await requireMember(deps, userId, groupId);
+      return view(userId, await load(group, now()), role);
     },
 
     /** Resumo do jogo atual para "meus grupos" (sem nomes). */
@@ -132,40 +210,45 @@ export function createGameService(deps: GroupsDeps) {
       };
     },
 
-    /** Confirma presença. Já confirmado → mantém a posição (D5). */
+    /** Confirma presença. Já confirmado → mantém a posição (D5 do 003). */
     async confirm(userId: string, groupId: string, date: string): Promise<Game> {
-      const group = await requireMember(deps, userId, groupId);
-      const game = await loadByDate(group, date);
-      assertListWritable(game);
-      const record = await ensureRecord(game);
-      if (!(await deps.games.getAttendance(record.id, userId))) {
-        const attendance = newEntity<AttendanceRecord>(
-          { gameId: record.id, userId, confirmedAt: game.at.toISOString() },
-          game.at,
-        );
-        await deps.games.addAttendance(attendance);
-      }
-      return view(userId, { ...game, record });
+      const { group, role } = await requireMember(deps, userId, groupId);
+      return confirmAs(userId, group, role, date);
     },
 
-    /** Desiste. Sem presença → nada a fazer. Saiu de dentro → promoção (D6). */
+    /** Desiste. Sem presença → nada a fazer. Saiu de dentro → promoção (D6 do 003). */
     async leave(userId: string, groupId: string, date: string): Promise<void> {
-      const group = await requireMember(deps, userId, groupId);
-      const game = await loadByDate(group, date);
-      assertListWritable(game);
-      if (!game.record) return;
-      const attendance = await deps.games.getAttendance(game.record.id, userId);
-      if (!attendance) return;
-      const before = await listOf(game.record);
-      await deps.games.removeAttendance(attendance);
-      await notifyPromotion(group, game.record, before, userId);
+      const { group, role } = await requireMember(deps, userId, groupId);
+      await leaveAs(userId, group, role, date);
+    },
+
+    /** GET /play/{token}: o jogo atual pelo link do jogo (D7). */
+    async guestView(userId: string, token: string): Promise<GuestGame> {
+      const { group, role } = await byGuestLink(userId, token);
+      const game = await view(userId, await load(group, now()), role);
+      const { id, name, sport, weekday, time, timeZone, location } = group;
+      return {
+        group: { id, name, sport, weekday, time, timeZone, ...(location && { location }) },
+        myRole: role,
+        game,
+      };
+    },
+
+    async guestConfirm(userId: string, token: string, date: string): Promise<Game> {
+      const { group, role } = await byGuestLink(userId, token);
+      return confirmAs(userId, group, role, date);
+    },
+
+    async guestLeave(userId: string, token: string, date: string): Promise<void> {
+      const { group, role } = await byGuestLink(userId, token);
+      await leaveAs(userId, group, role, date);
     },
 
     /** Dono cancela o jogo atual. Já cancelado → devolve igual, sem avisar de novo. */
     async cancel(userId: string, groupId: string, date: string): Promise<Game> {
       const group = await requireOwner(deps, userId, groupId);
       const game = await loadByDate(group, date);
-      if (game.record?.cancelledAt) return view(userId, game);
+      if (game.record?.cancelledAt) return view(userId, game, 'member');
       if (timeStatus(game.occurrence, game.at) === 'in_progress') throw appError('GAME_CLOSED');
       const record = await ensureRecord(game);
       const cancelledAt = game.at.toISOString();
@@ -180,12 +263,12 @@ export function createGameService(deps: GroupsDeps) {
           link: `/groups/${group.id}`,
         });
       }
-      return view(userId, { ...game, record: { ...record, cancelledAt } });
+      return view(userId, { ...game, record: { ...record, cancelledAt } }, 'member');
     },
 
     /**
-     * Parte do jogo na remoção de um membro (D12): a presença a apagar junto (só com a lista
-     * `scheduled`/`open`) e a promoção para rodar depois da transação.
+     * Parte do jogo na remoção de um membro ou reserva (D12 do 003): a presença a apagar junto (só com a
+     * lista `scheduled`/`open`) e a promoção para rodar depois da transação.
      */
     async removalPlan(
       group: StoredGroup,

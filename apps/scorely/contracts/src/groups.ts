@@ -18,6 +18,8 @@ export const LocalDateSchema = z.iso.date();
 export const GROUP_LIMITS = {
   slots: { min: 2, max: 50 },
   listOpensHoursBefore: { min: 1, max: 144 },
+  reservesOpenHoursBefore: { min: 0, max: 144 },
+  guestsOpenHoursBefore: { min: 0, max: 144 },
 } as const;
 
 const SlotsSchema = z.number().int().min(GROUP_LIMITS.slots.min).max(GROUP_LIMITS.slots.max);
@@ -27,21 +29,87 @@ const ListOpensHoursBeforeSchema = z
   .min(GROUP_LIMITS.listOpensHoursBefore.min)
   .max(GROUP_LIMITS.listOpensHoursBefore.max);
 
-/** POST /groups. Sem `timeZone`: o do perfil do dono, ou `America/Sao_Paulo`. */
-export const CreateGroupInputSchema = z.object({
-  name: z.string().trim().min(1, 'Name is required').max(80),
-  sport: SportSchema,
-  weekday: WeekdaySchema,
-  time: LocalTimeSchema,
-  timeZone: TimeZoneSchema.optional(),
-  location: z.string().trim().min(1).max(120).optional(),
-  slots: SlotsSchema,
-  listOpensHoursBefore: ListOpensHoursBeforeSchema,
-});
-export type CreateGroupInput = z.infer<typeof CreateGroupInputSchema>;
+const LayerHoursSchema = z.number().int().min(0).max(144);
+
+/** Papel de quem participa do jogo (plano 007): membro e reserva são do grupo; convidado vem pelo link do jogo. */
+export const GroupRoleSchema = z.enum(['member', 'reserve', 'guest']);
+export type GroupRole = z.infer<typeof GroupRoleSchema>;
+export const MemberRoleSchema = GroupRoleSchema.exclude(['guest']);
+export type MemberRole = z.infer<typeof MemberRoleSchema>;
+
+/** Qual link: de membro e de reserva (`/join`) ou do jogo, para convidados (`/play`). */
+export const InviteKindSchema = z.enum(['member', 'reserve', 'guest']);
+export type InviteKind = z.infer<typeof InviteKindSchema>;
+
+/** Camadas da lista (plano 007, D2): membros ≥ reservas ≥ convidados, em horas antes do início. */
+interface Layers {
+  listOpensHoursBefore: number;
+  reservesOpenHoursBefore: number;
+  guestsOpenHoursBefore?: number | null | undefined;
+}
+
+/** O campo que quebra a ordem das camadas, ou `undefined` se está tudo certo. */
+function layersViolation(l: Layers): 'reservesOpenHoursBefore' | 'guestsOpenHoursBefore' | undefined {
+  if (l.reservesOpenHoursBefore > l.listOpensHoursBefore) return 'reservesOpenHoursBefore';
+  if (l.guestsOpenHoursBefore != null && l.guestsOpenHoursBefore > l.reservesOpenHoursBefore) {
+    return 'guestsOpenHoursBefore';
+  }
+  return undefined;
+}
+
+const LAYERS_MESSAGE = 'Layers must open in order: members, reserves, guests';
+
+/** As 3 camadas juntas, já com os valores finais. A api valida com ele o grupo depois de um PATCH. */
+export const GroupLayersSchema = z
+  .object({
+    listOpensHoursBefore: z.number().int(),
+    reservesOpenHoursBefore: z.number().int(),
+    guestsOpenHoursBefore: z.number().int().nullable().optional(),
+  })
+  .superRefine((layers, ctx) => {
+    const field = layersViolation(layers);
+    if (field) ctx.addIssue({ code: 'custom', path: [field], message: LAYERS_MESSAGE });
+  });
 
 /**
- * Grupo como a api devolve. `inviteToken` só vem para o dono.
+ * POST /groups. Sem `timeZone`: o do perfil do dono, ou `America/Sao_Paulo`.
+ * Sem `reservesOpenHoursBefore`: metade da dos membros. Sem `guestsOpenHoursBefore`: convidados desligados.
+ */
+export const CreateGroupInputSchema = z
+  .object({
+    name: z.string().trim().min(1, 'Name is required').max(80),
+    sport: SportSchema,
+    weekday: WeekdaySchema,
+    time: LocalTimeSchema,
+    timeZone: TimeZoneSchema.optional(),
+    location: z.string().trim().min(1).max(120).optional(),
+    slots: SlotsSchema,
+    listOpensHoursBefore: ListOpensHoursBeforeSchema,
+    reservesOpenHoursBefore: LayerHoursSchema.optional(),
+    guestsOpenHoursBefore: LayerHoursSchema.optional(),
+  })
+  .superRefine((input, ctx) => {
+    const field = layersViolation({
+      ...input,
+      // Sem reservas, a api usa a metade da antecedência dos membros (D2), que nunca quebra a ordem das reservas.
+      reservesOpenHoursBefore: input.reservesOpenHoursBefore ?? Math.floor(input.listOpensHoursBefore / 2),
+    });
+    if (field) ctx.addIssue({ code: 'custom', path: [field], message: LAYERS_MESSAGE });
+  });
+export type CreateGroupInput = z.infer<typeof CreateGroupInputSchema>;
+
+/** PATCH /groups/{id} (dono): só as camadas. `guestsOpenHoursBefore: null` desliga os convidados. */
+export const UpdateGroupInputSchema = z
+  .object({
+    listOpensHoursBefore: ListOpensHoursBeforeSchema.optional(),
+    reservesOpenHoursBefore: LayerHoursSchema.optional(),
+    guestsOpenHoursBefore: LayerHoursSchema.nullable().optional(),
+  })
+  .refine((patch) => Object.keys(patch).length > 0, { message: 'Nothing to update' });
+export type UpdateGroupInput = z.infer<typeof UpdateGroupInputSchema>;
+
+/**
+ * Grupo como a api devolve. Os 3 tokens só vêm para o dono; `myRole` é o papel de quem pede.
  * `timeZone` é texto livre na leitura: a api já validou ao gravar (plano 003, D13).
  */
 export const GroupSchema = EntitySchema.extend({
@@ -53,19 +121,29 @@ export const GroupSchema = EntitySchema.extend({
   location: z.string().optional(),
   slots: z.number().int(),
   listOpensHoursBefore: z.number().int(),
+  reservesOpenHoursBefore: z.number().int(),
+  guestsOpenHoursBefore: z.number().int().optional(),
   ownerId: z.uuid(),
   inviteToken: z.string().optional(),
+  reserveInviteToken: z.string().optional(),
+  guestToken: z.string().optional(),
+  myRole: MemberRoleSchema,
 });
 export type Group = z.infer<typeof GroupSchema>;
 
-/** POST /groups/{id}/invite: o link novo (o anterior deixa de valer). */
-export const InviteSchema = z.object({ inviteToken: z.string() });
+/** POST /groups/{id}/invite: body opcional com o tipo do link (padrão `member`). */
+export const RotateInviteInputSchema = z.object({ kind: InviteKindSchema.default('member') });
+export type RotateInviteInput = z.infer<typeof RotateInviteInputSchema>;
+
+/** POST /groups/{id}/invite: o link novo daquele tipo (o anterior deixa de valer). */
+export const InviteSchema = z.object({ kind: InviteKindSchema, token: z.string() });
 export type Invite = z.infer<typeof InviteSchema>;
 
 export const MemberSchema = z.object({
   userId: z.uuid(),
   name: z.string().optional(),
   isOwner: z.boolean(),
+  role: MemberRoleSchema,
 });
 export type Member = z.infer<typeof MemberSchema>;
 
@@ -76,6 +154,7 @@ export const AttendeeSchema = z.object({
   userId: z.uuid(),
   name: z.string().optional(),
   confirmedAt: z.iso.datetime(),
+  role: GroupRoleSchema,
 });
 export type Attendee = z.infer<typeof AttendeeSchema>;
 
@@ -86,12 +165,18 @@ export const MyAttendanceSchema = z.object({
 });
 export type MyAttendance = z.infer<typeof MyAttendanceSchema>;
 
-/** Jogo da semana (pode ser "virtual": ainda sem item no banco, com a lista vazia). Instantes em UTC. */
+/**
+ * Jogo da semana (pode ser "virtual": ainda sem item no banco, com a lista vazia). Instantes em UTC.
+ * `opensAt`/`status`: camada dos membros. `myOpensAt`: quando quem pede pode confirmar (ausente = nunca).
+ */
 export const GameSchema = z.object({
   groupId: z.uuid(),
   date: LocalDateSchema,
   startsAt: z.iso.datetime(),
   opensAt: z.iso.datetime(),
+  reservesOpensAt: z.iso.datetime(),
+  guestsOpensAt: z.iso.datetime().optional(),
+  myOpensAt: z.iso.datetime().optional(),
   status: GameStatusSchema,
   slots: z.number().int(),
   confirmed: z.array(AttendeeSchema),
@@ -107,3 +192,19 @@ export const MyGroupSchema = GroupSchema.extend({
   }),
 });
 export type MyGroup = z.infer<typeof MyGroupSchema>;
+
+/** GET /play/{token}: o jogo atual pelo link do jogo (D7), com o resumo do grupo e o papel de quem pede. */
+export const GuestGameSchema = z.object({
+  group: GroupSchema.pick({
+    id: true,
+    name: true,
+    sport: true,
+    weekday: true,
+    time: true,
+    timeZone: true,
+    location: true,
+  }),
+  myRole: GroupRoleSchema,
+  game: GameSchema,
+});
+export type GuestGame = z.infer<typeof GuestGameSchema>;

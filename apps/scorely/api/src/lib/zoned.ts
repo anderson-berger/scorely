@@ -98,3 +98,8 @@ export function timeStatus(occurrence: Occurrence, now: Date): TimeStatus {
   if (t < Date.parse(occurrence.startsAt)) return 'open';
   return 'in_progress';
 }
+
+/** Abertura de uma camada da lista (plano 007, D2): `hoursBefore` horas antes do início, em UTC. */
+export function layerOpensAt(startsAt: string, hoursBefore: number): string {
+  return new Date(new Date(startsAt).getTime() - hoursBefore * HOUR_MS).toISOString();
+}

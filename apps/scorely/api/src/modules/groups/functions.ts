@@ -10,6 +10,7 @@ export const groupsFunctions: AWS['functions'] = {
   groupsCreate: { handler: handler('create'), events: route('POST', '/groups') },
   groupsMine: { handler: handler('myGroups'), events: route('GET', '/me/groups') },
   groupsGet: { handler: handler('get'), events: route('GET', '/groups/{id}') },
+  groupsUpdate: { handler: handler('update'), events: route('PATCH', '/groups/{id}') },
   groupsRotateInvite: { handler: handler('rotateInvite'), events: route('POST', '/groups/{id}/invite') },
   groupsAcceptInvite: { handler: handler('acceptInvite'), events: route('POST', '/invites/{token}/accept') },
   groupsMembers: { handler: handler('members'), events: route('GET', '/groups/{id}/members') },
@@ -24,4 +25,13 @@ export const groupsFunctions: AWS['functions'] = {
   },
   gamesLeave: { handler: handler('leave'), events: route('DELETE', '/groups/{id}/games/{date}/attendance') },
   gamesCancel: { handler: handler('cancel'), events: route('POST', '/groups/{id}/games/{date}/cancel') },
+  playView: { handler: handler('playView'), events: route('GET', '/play/{token}') },
+  playConfirm: {
+    handler: handler('playConfirm'),
+    events: route('POST', '/play/{token}/games/{date}/attendance'),
+  },
+  playLeave: {
+    handler: handler('playLeave'),
+    events: route('DELETE', '/play/{token}/games/{date}/attendance'),
+  },
 };

@@ -29,11 +29,13 @@ export const ErrorCodeSchema = z.enum([
   'GROUP_INVITE_INVALID',
   'GROUP_MEMBER_NOT_FOUND',
   'GROUP_OWNER_NOT_REMOVABLE',
+  'GROUP_LAYERS_INVALID',
   // games
   'GAME_NOT_FOUND',
   'GAME_LIST_NOT_OPEN',
   'GAME_CLOSED',
   'GAME_CANCELLED',
+  'GAME_LINK_INVALID',
 ]);
 export type ErrorCode = z.infer<typeof ErrorCodeSchema>;
 
@@ -51,6 +53,7 @@ export const ErrorDetailsSchemas = {
   MISSING_PARAM: z.object({ param: z.string() }),
   AUTH_CODE_COOLDOWN: z.object({ retryInSeconds: z.number().int().positive() }),
   GAME_LIST_NOT_OPEN: z.object({ opensAt: z.iso.datetime() }),
+  GROUP_LAYERS_INVALID: z.object({ field: z.enum(['reservesOpenHoursBefore', 'guestsOpenHoursBefore']) }),
 } satisfies Partial<Record<ErrorCode, z.ZodType>>;
 export type ErrorDetails = {
   [C in keyof typeof ErrorDetailsSchemas]: z.infer<(typeof ErrorDetailsSchemas)[C]>;

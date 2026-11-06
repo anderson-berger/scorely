@@ -25,10 +25,13 @@ export const ptBR = {
     GROUP_INVITE_INVALID: 'Este link de convite não vale mais. Peça um novo ao dono do grupo',
     GROUP_MEMBER_NOT_FOUND: 'Essa pessoa não é membro do grupo',
     GROUP_OWNER_NOT_REMOVABLE: 'O dono não pode ser removido do grupo',
+    GROUP_LAYERS_INVALID:
+      'A lista abre primeiro para membros, depois para reservas e por último para convidados',
     GAME_NOT_FOUND: 'Jogo não encontrado',
     GAME_LIST_NOT_OPEN: 'A lista deste jogo ainda não abriu',
     GAME_CLOSED: 'O jogo já começou: a lista está fechada',
     GAME_CANCELLED: 'Este jogo foi cancelado',
+    GAME_LINK_INVALID: 'Este link do jogo não vale mais. Peça um novo ao dono do grupo',
     NETWORK_ERROR: 'Sem conexão com o servidor. Verifique sua internet',
     UNKNOWN_ERROR: 'Algo deu errado. Tente de novo',
   } satisfies Record<ErrorCode | ClientErrorCode, string>,

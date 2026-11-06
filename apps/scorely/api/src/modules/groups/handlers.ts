@@ -1,4 +1,4 @@
-import { CreateGroupInputSchema } from '@scorely/contracts';
+import { CreateGroupInputSchema, RotateInviteInputSchema, UpdateGroupInputSchema } from '@scorely/contracts';
 import { authHandlers } from '../../lib/auth';
 import { created, parseBody, pathParam } from '../../lib/http';
 import { dynamoNotificationRepository } from '../notifications/notification.repository';
@@ -23,6 +23,7 @@ export const {
   create,
   myGroups,
   get,
+  update,
   rotateInvite,
   acceptInvite,
   members,
@@ -31,6 +32,9 @@ export const {
   confirm,
   leave,
   cancel,
+  playView,
+  playConfirm,
+  playLeave,
 } = authHandlers({
   async create(event, auth) {
     return created(await groups.create(auth.userId, parseBody(event, CreateGroupInputSchema)));
@@ -44,8 +48,13 @@ export const {
     return groups.get(auth.userId, pathParam(event, 'id'));
   },
 
+  async update(event, auth) {
+    return groups.update(auth.userId, pathParam(event, 'id'), parseBody(event, UpdateGroupInputSchema));
+  },
+
   async rotateInvite(event, auth) {
-    return groups.rotateInvite(auth.userId, pathParam(event, 'id'));
+    const { kind } = parseBody(event, RotateInviteInputSchema);
+    return groups.rotateInvite(auth.userId, pathParam(event, 'id'), kind);
   },
 
   async acceptInvite(event, auth) {
@@ -74,5 +83,17 @@ export const {
 
   async cancel(event, auth) {
     return games.cancel(auth.userId, pathParam(event, 'id'), pathParam(event, 'date'));
+  },
+
+  async playView(event, auth) {
+    return games.guestView(auth.userId, pathParam(event, 'token'));
+  },
+
+  async playConfirm(event, auth) {
+    return games.guestConfirm(auth.userId, pathParam(event, 'token'), pathParam(event, 'date'));
+  },
+
+  async playLeave(event, auth) {
+    await games.guestLeave(auth.userId, pathParam(event, 'token'), pathParam(event, 'date'));
   },
 });
