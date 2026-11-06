@@ -172,16 +172,27 @@ Tipos internos da api (em `game.repository.ts`): `GameRecord = Entity & { groupI
 - Jogo virtual vira item na primeira escrita (`confirm` ou `cancel`): `create` → se `false`, `findByDate(..., { consistent: true })` (D2).
 - Notificações (`notify(userId, { type, title, body?, link })`): `waitlist_promoted` para quem subiu (D6); `game_cancelled` para confirmados e fila, menos o dono. `link = /groups/<groupId>`. O teste confere o destinatário e o `type`, não o texto.
 
+## Interface do bloco 3 (web; para os testes)
+
+O guard do router vira uma função pura em `web/src/app/guard.ts` (o `router.ts` só faz o `loadMe` e chama a função). Assim o caso 3 (parte web) é testável sem montar o router.
+
+| Export                                                                           | O que faz                                                                                                                                                                                                                                                                                                                                                              |
+| -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `safeRedirect(value: unknown): string`                                           | destino interno seguro: texto que começa com `/` e não com `//` → ele mesmo; qualquer outra coisa (ausente, array, `https://...`, `//evil`) → `/`                                                                                                                                                                                                                      |
+| `guardDecision({ to, isAuthenticated, needsProfile }): true \| RouteLocationRaw` | `to = { name?, fullPath, query, meta: { public? } }`. Regras, nesta ordem: (1) rota pública: login com sessão → `safeRedirect(to.query.redirect)`; senão `true`. (2) sem sessão → `{ name: 'login', query: { redirect: to.fullPath } }`. (3) `needsProfile` e não é o perfil → `{ name: 'profile', query: { welcome: '1', redirect: to.fullPath } }`. (4) senão `true` |
+
+Fluxo do caso 3 na web, de ponta a ponta: `/join/<token>` sem sessão → login com `redirect=/join/<token>` → depois do código, se a conta é nova, perfil com `welcome=1&redirect=/join/<token>` (o `LoginPage` passa o `redirect` adiante) → ao salvar, o `ProfilePage` vai para `safeRedirect(redirect)` → a página do convite aceita e troca para `/groups/<id>`.
+
 ## Status
 
 Execução em 4 blocos; em cada um o dono revisa e commita. Os testes de cada bloco são só dos casos que ele fecha (para o `npm run check` e o pre-commit ficarem verdes).
 
-| Bloco | Tarefas                 | Casos                | Estado |
-| ----- | ----------------------- | -------------------- | ------ |
-| 1     | 1, 2 (+ D13/D14), 4     | 4 (datas), 9, 14, 15 | ✅     |
-| 2     | 5, 6a, 6b, 7, 7b, 8     | 1–8, 10–13           | —      |
-| 3     | 9, 10                   | 3 (web)              | —      |
-| 4     | 11 (roteiro + reviewer) | —                    | —      |
+| Bloco | Tarefas                 | Casos                | Estado                     |
+| ----- | ----------------------- | -------------------- | -------------------------- |
+| 1     | 1, 2 (+ D13/D14), 4     | 4 (datas), 9, 14, 15 | ✅                         |
+| 2     | 5, 6a, 6b, 7, 7b, 8     | 1–8, 10–13           | ✅                         |
+| 3     | 9, 10                   | 3 (web)              | ✅                         |
+| 4     | 11 (roteiro + reviewer) | —                    | ✅ (api; telas com o dono) |
 
 | Passo do `/task` (bloco 1) | Estado |
 | -------------------------- | ------ |
@@ -198,8 +209,18 @@ Execução em 4 blocos; em cada um o dono revisa e commita. Os testes de cada bl
 | 2. Contrato                | ✅ (bloco 1) |
 | 3. Testes                  | ✅           |
 | 4. Implementação           | ✅           |
-| 5. Revisão                 | —            |
-| 6. Entrega                 | —            |
+| 5. Revisão                 | ✅           |
+| 6. Entrega                 | ✅           |
+
+| Passo do `/task` (bloco 3) | Estado |
+| -------------------------- | ------ |
+| 1. Plano (interface)       | ✅     |
+| 3. Testes                  | ✅     |
+| 4. Implementação           | ✅     |
+| 5. Revisão                 | ✅     |
+| 6. Entrega                 | ✅     |
+
+Nota do bloco 4 (2026-11-06): o roteiro manual rodou pela api (serverless offline + DynamoDB do LocalStack, 5 contas, script fora do repo): 9/9 passos ok, inclusive a remoção (B perde o acesso, sai da lista, A sobe e é avisado, o link muda) e o cancelamento (A e C avisados, o dono não). Fica com o dono só a parte visual: as mesmas ações pelas telas.
 
 Nota do bloco 2: a implementação foi escrita em paralelo com o `test-writer` (desvio do `/task`: o passo 4 começou antes do 3 terminar), então os testes não foram vistos falhando. Compensação: 5 sabotagens do código (sem promoção na desistência; cancelamento avisando o dono; `inviteToken` para todos; remoção sem apagar a presença; remoção apagando a presença com o jogo em andamento) e cada uma derrubou de 1 a 2 testes. O `UserRepository` não ganhou `getMany` (quebraria os testes existentes que o implementam): o `UserDirectory` é um objeto à parte, `dynamoUserDirectory`.
 

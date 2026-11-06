@@ -1,7 +1,7 @@
 import '@quasar/extras/material-icons/material-icons.css';
 import 'quasar/src/css/index.sass';
 import { createPinia } from 'pinia';
-import { Notify, Quasar } from 'quasar';
+import { Dialog, Notify, Quasar } from 'quasar';
 import { createApp } from 'vue';
 import App from './App.vue';
 import { router } from './app/router';
@@ -11,7 +11,11 @@ import { applyPreferences } from './lib/preferences';
 import { useAuthStore } from './modules/auth/auth.store';
 import { useNotificationsStore } from './modules/notifications/notifications.store';
 
-const app = createApp(App).use(Quasar, { plugins: { Notify } }).use(createPinia()).use(router).use(i18n);
+const app = createApp(App)
+  .use(Quasar, { plugins: { Notify, Dialog } })
+  .use(createPinia())
+  .use(router)
+  .use(i18n);
 
 // Refresh token inválido/expirado: limpa o estado e volta para o login.
 onSessionExpired(() => {

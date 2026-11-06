@@ -3,6 +3,7 @@ import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 import { applyPreferences } from '@/lib/preferences';
 import { session } from '@/lib/session';
+import { useGroupsStore } from '../groups/groups.store';
 import { usersApi } from '../users/users.api';
 import { authApi } from './auth.api';
 
@@ -36,11 +37,12 @@ export const useAuthStore = defineStore('auth', () => {
     return user.value;
   }
 
-  /** Limpa o estado local (usado também quando a sessão expira). */
+  /** Limpa o estado local (usado também quando a sessão expira), inclusive os grupos da conta. */
   function reset() {
     session.clear();
     hasSession.value = false;
     user.value = undefined;
+    useGroupsStore().reset();
     applyPreferences();
   }
 

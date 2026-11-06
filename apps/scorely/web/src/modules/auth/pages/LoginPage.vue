@@ -1,6 +1,7 @@
 <script lang="ts">
 import { CodeSchema, EmailSchema, ErrorDetailsSchemas } from '@scorely/contracts';
 import { defineComponent } from 'vue';
+import { safeRedirect } from '@/app/guard';
 import { errorMessage, issueMessage } from '@/i18n/errors';
 import { ApiRequestError } from '@/lib/http';
 import { authApi } from '../auth.api';
@@ -80,9 +81,12 @@ export default defineComponent({
       this.loading = true;
       try {
         const result = await this.auth.login(this.email, parsed.data);
-        if (!result.user.name) return this.$router.replace({ name: 'profile', query: { welcome: '1' } });
-        const redirect = typeof this.$route.query.redirect === 'string' ? this.$route.query.redirect : '/';
-        return this.$router.replace(redirect.startsWith('/') ? redirect : '/');
+        const redirect = safeRedirect(this.$route.query.redirect);
+        // Conta nova passa pelo perfil e depois segue para onde ia (ex.: o link de convite).
+        if (!result.user.name) {
+          return this.$router.replace({ name: 'profile', query: { welcome: '1', redirect } });
+        }
+        return this.$router.replace(redirect);
       } catch (err) {
         this.fail(err);
       } finally {

@@ -1,6 +1,7 @@
 <script lang="ts">
 import { type Gender, type Locale, LocaleSchema, UpdateMeInputSchema } from '@scorely/contracts';
 import { defineComponent } from 'vue';
+import { safeRedirect } from '@/app/guard';
 import { errorMessage, issueMessage } from '@/i18n/errors';
 import { detectTimeZone } from '@/lib/datetime';
 import { effectiveTimeZone } from '@/lib/preferences';
@@ -95,7 +96,7 @@ export default defineComponent({
         // O store aplica o idioma e o fuso na hora: a tela já responde no idioma novo.
         await this.auth.updateProfile(parsed.data);
         this.$q.notify({ type: 'positive', message: this.$t('profile.saved') });
-        if (this.welcome) await this.$router.replace({ name: 'home' });
+        if (this.welcome) await this.$router.replace(safeRedirect(this.$route.query.redirect));
       } catch (err) {
         this.$q.notify({ type: 'negative', message: errorMessage(err) });
       } finally {
