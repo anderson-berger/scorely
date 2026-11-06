@@ -3,5 +3,6 @@
 export * from './auth';
 export * from './entity';
 export * from './errors';
+export * from './groups';
 export * from './notifications';
 export * from './users';

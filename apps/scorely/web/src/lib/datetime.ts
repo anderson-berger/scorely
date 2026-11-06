@@ -26,6 +26,15 @@ export function setDisplayTimeZone(timeZone: string): void {
   displayTimeZone.value = timeZone;
 }
 
+/** Formatador no fuso pedido; se o navegador não conhece o fuso, no detectado (plano 003, D14). */
+function formatter(locale: Locale, style: DateTimeStyle, timeZone: string): Intl.DateTimeFormat {
+  try {
+    return new Intl.DateTimeFormat(locale, { ...STYLES[style], timeZone });
+  } catch {
+    return new Intl.DateTimeFormat(locale, { ...STYLES[style], timeZone: detectTimeZone() });
+  }
+}
+
 export function formatDateTime(
   iso: string,
   style: DateTimeStyle = 'dateTime',
@@ -33,5 +42,5 @@ export function formatDateTime(
 ): string {
   const locale = opts.locale ?? i18n.global.locale.value;
   const timeZone = opts.timeZone ?? displayTimeZone.value;
-  return new Intl.DateTimeFormat(locale, { ...STYLES[style], timeZone }).format(new Date(iso));
+  return formatter(locale, style, timeZone).format(new Date(iso));
 }

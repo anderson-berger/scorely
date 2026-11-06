@@ -60,3 +60,40 @@ describe('formatDateTime', () => {
     expect(detectTimeZone()).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
   });
 });
+
+describe('formatDateTime com fuso desconhecido (caso 15)', () => {
+  it("caso 15: setDisplayTimeZone('Mars/Olympus') → não lança e usa o fuso detectado", () => {
+    setDisplayTimeZone('Mars/Olympus');
+    const text = (() => {
+      try {
+        return formatDateTime(ISO);
+      } finally {
+        setDisplayTimeZone(detectTimeZone());
+      }
+    })();
+    expect(text).toBe(formatDateTime(ISO, 'dateTime', { timeZone: detectTimeZone() }));
+  });
+
+  it("caso 15: setDisplayTimeZone('Mars/Olympus') → também nos estilos 'date' e 'time'", () => {
+    setDisplayTimeZone('Mars/Olympus');
+    const texts = (() => {
+      try {
+        return [formatDateTime(ISO, 'date'), formatDateTime(ISO, 'time')];
+      } finally {
+        setDisplayTimeZone(detectTimeZone());
+      }
+    })();
+    expect(texts).toEqual([
+      formatDateTime(ISO, 'date', { timeZone: detectTimeZone() }),
+      formatDateTime(ISO, 'time', { timeZone: detectTimeZone() }),
+    ]);
+  });
+
+  it("caso 15: opts.timeZone 'Mars/Olympus' → não lança e usa o fuso detectado", () => {
+    setDisplayTimeZone(detectTimeZone());
+    expect(() => formatDateTime(ISO, 'dateTime', { timeZone: 'Mars/Olympus' })).not.toThrow();
+    expect(formatDateTime(ISO, 'dateTime', { timeZone: 'Mars/Olympus' })).toBe(
+      formatDateTime(ISO, 'dateTime', { timeZone: detectTimeZone() }),
+    );
+  });
+});

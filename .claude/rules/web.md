@@ -26,7 +26,7 @@ Referência: `apps/scorely/web/src/modules/users/pages/ProfilePage.vue`.
 
 Motivo: [docs/decisions/0006-datas-utc-fuso-do-perfil.md](../../docs/decisions/0006-datas-utc-fuso-do-perfil.md).
 
-- Toda data na tela passa por `formatDateTime(iso, style?)` de `src/lib/datetime.ts`, que usa o idioma e o fuso efetivos. Nunca `toLocale*String` nem `Intl.DateTimeFormat` fora dele. Check: `checks/web.test.ts`.
+- Toda data na tela passa por `formatDateTime(iso, style?)` de `src/lib/datetime.ts`, que usa o idioma e o fuso efetivos. Nunca `toLocale*String` nem `Intl.DateTimeFormat` fora dele. Check: `checks/web.test.ts`. Fuso que o navegador não conhece cai no detectado; não valide fuso na leitura.
 - Idioma e fuso efetivos saem de `src/lib/preferences.ts` (perfil → último idioma do navegador → idioma do navegador; perfil → fuso detectado). O auth store chama `applyPreferences` no login, no `loadMe`, no `updateProfile` e no logout.
 - Texto da interface sempre por `this.$t` (chaves no `pt-BR`, mesmas chaves no `en`).
 

@@ -38,7 +38,8 @@ export const UserSchema = EntitySchema.extend({
   nickname: z.string().min(1).max(40).optional(),
   gender: GenderSchema.optional(),
   locale: LocaleSchema.optional(),
-  timeZone: TimeZoneSchema.optional(),
+  /** Texto livre na leitura: a api valida ao gravar (plano 003, D13). */
+  timeZone: z.string().optional(),
 });
 export type User = z.infer<typeof UserSchema>;
 

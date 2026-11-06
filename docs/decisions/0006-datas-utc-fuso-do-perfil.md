@@ -19,5 +19,6 @@ Decisão do dono (plano 005). Um instante UTC fixo deslocaria a hora local do jo
 
 ## Consequências
 
+- Fuso: o back valida (`TimeZoneSchema`) só ao gravar; quem lê (`User.timeZone`, `Group.timeZone`) aceita o texto. Se o navegador não conhece o fuso, `formatDateTime` usa o detectado (plano 003, D13/D14).
 - Cálculo de ocorrência precisa de conversão hora local + fuso → UTC (`api/src/lib/zoned.ts`, plano 003).
 - Regra: `.claude/rules/web.md`. Check: `checks/web.test.ts` (nenhum `toLocale*String`/`Intl.DateTimeFormat` na web do scorely fora do helper).

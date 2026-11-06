@@ -26,6 +26,17 @@ const CATALOG = {
   },
 
   NOTIFICATION_NOT_FOUND: { status: 404, message: 'Notification not found' },
+
+  GROUP_NOT_FOUND: { status: 404, message: 'Group not found' },
+  GROUP_NOT_OWNER: { status: 403, message: 'Only the group owner can do this' },
+  GROUP_INVITE_INVALID: { status: 404, message: 'Invalid or replaced invite link' },
+  GROUP_MEMBER_NOT_FOUND: { status: 404, message: 'Member not found in this group' },
+  GROUP_OWNER_NOT_REMOVABLE: { status: 409, message: 'The group owner cannot be removed' },
+
+  GAME_NOT_FOUND: { status: 404, message: 'Game not found' },
+  GAME_LIST_NOT_OPEN: { status: 409, message: 'The attendance list is not open yet' },
+  GAME_CLOSED: { status: 409, message: 'The game has started or ended; the list is closed' },
+  GAME_CANCELLED: { status: 409, message: 'The game was cancelled' },
 } as const satisfies Record<ErrorCode, { status: number; message: string }>;
 
 /** Código com `details` obrigatório pede o objeto; os demais não aceitam nada. */

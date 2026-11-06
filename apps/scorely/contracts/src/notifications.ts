@@ -1,8 +1,8 @@
 import { z } from 'zod';
 import { EntitySchema } from './entity';
 
-/** Cresce conforme os módulos passam a notificar (ex.: `waitlist_promoted`, `list_opened`). */
-export const NotificationTypeSchema = z.enum(['welcome']);
+/** Cresce conforme os módulos passam a notificar (ex.: `list_opened` na E2). */
+export const NotificationTypeSchema = z.enum(['welcome', 'waitlist_promoted', 'game_cancelled']);
 export type NotificationType = z.infer<typeof NotificationTypeSchema>;
 
 export const NotificationSchema = EntitySchema.extend({

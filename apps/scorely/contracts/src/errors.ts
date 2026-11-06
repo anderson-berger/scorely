@@ -23,6 +23,17 @@ export const ErrorCodeSchema = z.enum([
   'USER_CREATE_CONFLICT',
   // notifications
   'NOTIFICATION_NOT_FOUND',
+  // groups
+  'GROUP_NOT_FOUND',
+  'GROUP_NOT_OWNER',
+  'GROUP_INVITE_INVALID',
+  'GROUP_MEMBER_NOT_FOUND',
+  'GROUP_OWNER_NOT_REMOVABLE',
+  // games
+  'GAME_NOT_FOUND',
+  'GAME_LIST_NOT_OPEN',
+  'GAME_CLOSED',
+  'GAME_CANCELLED',
 ]);
 export type ErrorCode = z.infer<typeof ErrorCodeSchema>;
 
@@ -39,6 +50,7 @@ export const ErrorDetailsSchemas = {
   VALIDATION_ERROR: z.object({ issues: z.array(ValidationIssueSchema) }),
   MISSING_PARAM: z.object({ param: z.string() }),
   AUTH_CODE_COOLDOWN: z.object({ retryInSeconds: z.number().int().positive() }),
+  GAME_LIST_NOT_OPEN: z.object({ opensAt: z.iso.datetime() }),
 } satisfies Partial<Record<ErrorCode, z.ZodType>>;
 export type ErrorDetails = {
   [C in keyof typeof ErrorDetailsSchemas]: z.infer<(typeof ErrorDetailsSchemas)[C]>;
