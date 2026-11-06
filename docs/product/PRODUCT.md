@@ -15,9 +15,9 @@ A confirmar. Hoje: qualquer pessoa com email (login por código), sem papéis de
 
 ## MVP (scorely)
 
-| Já existe                                     | Próximo                                      |
-| --------------------------------------------- | -------------------------------------------- |
-| login por código, perfil, notificações (sino) | módulo Grupos, começando pela E1 (plano 003) |
+| Já existe                                                | Próximo                                 |
+| -------------------------------------------------------- | --------------------------------------- |
+| login por código, perfil, notificações (sino), Grupos E1 | Grupos E2 (reservas e lista em camadas) |
 
 ## Módulo Grupos (scorely)
 
@@ -33,14 +33,14 @@ Resultado esperado: **"O jogo da semana acontece sem confusão de lista e com ti
 | Fila      | quem confirmou com a lista cheia; sobe se alguém desiste |
 | Jogo      | a ocorrência semanal do grupo                            |
 
-| #   | Entrega                                                                                                                                          | Estado                                                |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------- |
-| E1  | Grupo + link de membro + jogo da semana + confirmação + fila + cancelar jogo + remover membro                                                    | em andamento ([plano 003](../plans/003-grupos-e1.md)) |
-| E2  | Reservas + abertura da lista em camadas (membros → reservas → aberto), configurável                                                              | —                                                     |
-| E3  | Divisão de times: manual, por nível, por nível + função; espalhar gênero; 1 levantador fixo por time                                             | —                                                     |
-| E4  | Resultado por partida, com a escalação de cada partida                                                                                           | —                                                     |
-| E5  | MVP configurável (desligado / votação / escolha do dono)                                                                                         | —                                                     |
-| E6  | Ajuste automático de nível com rating de equipe (OpenSkill/Weng-Lin), só por resultados; MVP não entra no nível; o dono pode corrigir e congelar | —                                                     |
+| #   | Entrega                                                                                                                                          | Estado                                                                                         |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| E1  | Grupo + link de membro + jogo da semana + confirmação + fila + cancelar jogo + remover membro                                                    | concluída ([plano 003](../plans/003-grupos-e1.md), [006](../plans/006-conflitos-transacao.md)) |
+| E2  | Reservas + abertura da lista em camadas (membros → reservas → aberto), configurável                                                              | —                                                                                              |
+| E3  | Divisão de times: manual, por nível, por nível + função; espalhar gênero; 1 levantador fixo por time                                             | —                                                                                              |
+| E4  | Resultado por partida, com a escalação de cada partida                                                                                           | —                                                                                              |
+| E5  | MVP configurável (desligado / votação / escolha do dono)                                                                                         | —                                                                                              |
+| E6  | Ajuste automático de nível com rating de equipe (OpenSkill/Weng-Lin), só por resultados; MVP não entra no nível; o dono pode corrigir e congelar | —                                                                                              |
 
 ### Limites conhecidos (E1)
 

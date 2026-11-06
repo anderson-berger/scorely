@@ -15,14 +15,16 @@ import { AppError } from '../../lib/errors';
 import type { NewNotification } from '../notifications/notification.service';
 import type { AttendanceRecord, GameRecord, GameRepository } from './game.repository';
 import { createGameService } from './game.service';
-import type { GroupRepository } from './group.repository';
+import type { GroupRepository, RemoveMemberResult } from './group.repository';
 import { createGroupService } from './group.service';
 
 // Plano 003, bloco 2: casos 1, 2, 3 (api), 4 (service), 5, 6, 7, 8, 10–13 e a corrida na criação do jogo (tarefa 6a).
+// Plano 006: casos 11–13 (remoção de membro com `not_member`/`stale`), no fim do arquivo.
 
 type ReadOpts = { consistent?: boolean };
 /** Grupo como o repositório guarda: sempre com `inviteToken` (interface do bloco 2). */
 type Stored = Group & { inviteToken: string };
+type RemoveArgs = { group: Group; userId: string; newToken: string; attendance?: AttendanceRecord };
 
 const MINUTE = 60 * 1000;
 const iso = (value: string | Date) => new Date(value).toISOString();
@@ -84,6 +86,10 @@ function memoryStore() {
   const attendance = new Map<string, AttendanceRecord>();
   const race = { stale: false };
   const findByDateReads: (ReadOpts | undefined)[] = [];
+  /** Chamadas ao `removeMember` do repositório (cópia do grupo recebido). */
+  const removeCalls: RemoveArgs[] = [];
+  /** Respostas forçadas do `removeMember`, consumidas na ordem (plano 006); vazia → comportamento normal. */
+  const removeScript: ((args: RemoveArgs) => RemoveMemberResult)[] = [];
 
   const attKey = (gameId: string, userId: string) => `${gameId}#${userId}`;
   const membersOf = (groupId: string) => members.get(groupId) ?? [];
@@ -121,18 +127,18 @@ function memoryStore() {
     async rotateInvite(group: Group, newToken: string) {
       swapInvite(group, newToken);
     },
-    async removeMember(args: {
-      group: Group;
-      userId: string;
-      newToken: string;
-      attendance?: AttendanceRecord;
-    }) {
+    async removeMember(args: RemoveArgs): Promise<RemoveMemberResult> {
+      removeCalls.push({ ...args, group: { ...args.group } });
+      const scripted = removeScript.shift();
+      if (scripted) return scripted(args);
+      if (!membersOf(args.group.id).includes(args.userId)) return 'not_member';
       members.set(
         args.group.id,
         membersOf(args.group.id).filter((id) => id !== args.userId),
       );
       swapInvite(args.group, args.newToken);
       if (args.attendance) dropAttendance(args.attendance);
+      return 'removed';
     },
   };
 
@@ -178,7 +184,16 @@ function memoryStore() {
     },
   };
 
-  return { groups: groupRepo, games: gameRepo, race, findByDateReads, gameCount: () => games.size };
+  return {
+    groups: groupRepo,
+    games: gameRepo,
+    race,
+    findByDateReads,
+    removeCalls,
+    removeScript,
+    swapInvite,
+    gameCount: () => games.size,
+  };
 }
 
 type Sent = { userId: string } & NewNotification;
@@ -804,6 +819,61 @@ describe('remover membro (casos 10–13)', () => {
     expect(game.status).toBe('in_progress');
     expect(ids(game.confirmed)).toEqual([A, B]);
     expect(ids(game.waitlist)).toEqual([C]);
+    expect(t.sent).toEqual([]);
+  });
+});
+
+describe('remover membro: corrida com outra escrita (plano 006, casos 11–13)', () => {
+  it('caso 11: B já foi removido por outra requisição (not_member) → GROUP_MEMBER_NOT_FOUND e ninguém notificado', async () => {
+    const t = await setup({ slots: 2, members: [A, B, C] });
+    await t.confirmInOrder(A, B, C);
+    t.store.removeScript.push(() => 'not_member');
+    await expectAppError(t.groups.removeMember(OWNER, t.group.id, B), 'GROUP_MEMBER_NOT_FOUND', 404);
+    expect(t.store.removeCalls).toHaveLength(1);
+    expect(t.sent).toEqual([]);
+  });
+
+  it('caso 12: convite trocado no meio (stale e depois removed) → remove com o grupo relido e promove uma vez', async () => {
+    const t = await setup({ slots: 2, members: [A, B, C] });
+    await t.confirmInOrder(A, B, C);
+    const rotated = 'rotated-by-another-request';
+    t.store.removeScript.push((args) => {
+      t.store.swapInvite(args.group, rotated);
+      return 'stale';
+    });
+
+    await expect(t.groups.removeMember(OWNER, t.group.id, B)).resolves.toBeUndefined();
+
+    expect(t.store.removeCalls).toHaveLength(2);
+    expect(t.store.removeCalls[0]?.group.inviteToken).toBe(tokenOf(t.group));
+    expect(t.store.removeCalls[1]?.group.inviteToken).toBe(rotated);
+    expect(t.store.removeCalls[1]?.userId).toBe(B);
+    expect(ids(await t.groups.members(OWNER, t.group.id))).not.toContain(B);
+    const game = await t.games.current(OWNER, t.group.id);
+    expect(ids(game.confirmed)).toEqual([A, C]);
+    expect(game.waitlist).toEqual([]);
+    expect(ofType(t.sent, 'waitlist_promoted')).toEqual([C]);
+    expect(t.sent).toHaveLength(1);
+  });
+
+  it('caso 13: stale 3 vezes → erro comum (500), não appError, e nada muda', async () => {
+    const t = await setup({ slots: 2, members: [A, B, C] });
+    await t.confirmInOrder(A, B, C);
+    t.store.removeScript.push(
+      () => 'stale',
+      () => 'stale',
+      () => 'stale',
+    );
+
+    const err = await t.groups.removeMember(OWNER, t.group.id, B).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(AppError);
+    expect(t.store.removeCalls).toHaveLength(3);
+    expect(ids(await t.groups.members(OWNER, t.group.id))).toContain(B);
     expect(t.sent).toEqual([]);
   });
 });

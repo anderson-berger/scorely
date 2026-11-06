@@ -1,12 +1,12 @@
-import { GetCommand, TransactWriteCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import type { UpdateMeInput, User } from '@scorely/contracts';
 import {
   batchGetOrdered,
   dbItem,
   isConditionFailed,
-  isTransactionConflict,
   LOOKUP_ENTITY,
   stripKeys,
+  transactWrite,
 } from '../../lib/db';
 import { dynamo, tableName } from '../../lib/dynamo';
 import { USER_ENTITY, userEmailLookupKey, userKey } from './user.table';
@@ -45,32 +45,23 @@ export const dynamoUserRepository: UserRepository = {
   },
 
   async create(user) {
-    try {
-      await dynamo().send(
-        new TransactWriteCommand({
-          TransactItems: [
-            {
-              Put: {
-                TableName: tableName(),
-                Item: dbItem(userKey(user.id), USER_ENTITY, user),
-                ConditionExpression: 'attribute_not_exists(PK)',
-              },
-            },
-            {
-              Put: {
-                TableName: tableName(),
-                Item: dbItem(userEmailLookupKey(user.email), LOOKUP_ENTITY, { id: user.id }, user.createdAt),
-                ConditionExpression: 'attribute_not_exists(PK)',
-              },
-            },
-          ],
-        }),
-      );
-      return true;
-    } catch (err) {
-      if (isTransactionConflict(err)) return false;
-      throw err;
-    }
+    const result = await transactWrite([
+      {
+        Put: {
+          TableName: tableName(),
+          Item: dbItem(userKey(user.id), USER_ENTITY, user),
+          ConditionExpression: 'attribute_not_exists(PK)',
+        },
+      },
+      {
+        Put: {
+          TableName: tableName(),
+          Item: dbItem(userEmailLookupKey(user.email), LOOKUP_ENTITY, { id: user.id }, user.createdAt),
+          ConditionExpression: 'attribute_not_exists(PK)',
+        },
+      },
+    ]);
+    return result.ok;
   },
 
   async update(id, patch) {

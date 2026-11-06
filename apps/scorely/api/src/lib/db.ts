@@ -1,4 +1,10 @@
-import { BatchGetCommand, type BatchGetCommandOutput, QueryCommand } from '@aws-sdk/lib-dynamodb';
+import {
+  BatchGetCommand,
+  type BatchGetCommandOutput,
+  QueryCommand,
+  TransactWriteCommand,
+  type TransactWriteCommandInput,
+} from '@aws-sdk/lib-dynamodb';
 import { z } from 'zod';
 import { dynamo, tableName } from './dynamo';
 import { appError } from './errors';
@@ -130,10 +136,56 @@ export async function queryLookupIds(
   };
 }
 
-/** Reconhece a falha de condição de uma TransactWriteItems. */
-export function isTransactionConflict(err: unknown) {
-  return err instanceof Error && err.name === 'TransactionCanceledException';
+export type TransactItem = NonNullable<TransactWriteCommandInput['TransactItems']>[number];
+/** `failed`: índices dos itens cuja condição falhou. */
+export type TransactResult = { ok: true } | { ok: false; failed: number[] };
+
+/** Motivos de cancelamento passageiros: nada foi decidido, a escrita pode ser repetida. */
+const RETRYABLE = new Set(['TransactionConflict', 'ThrottlingError', 'ProvisionedThroughputExceeded']);
+
+/**
+ * Classifica o erro de uma TransactWriteItems (plano 006): `condition` = o estado do banco não é o
+ * esperado; `retry` = conflito com outra transação ou throttling; `undefined` = outro erro.
+ */
+export function transactionFailure(
+  err: unknown,
+): { kind: 'condition'; failed: number[] } | { kind: 'retry' } | undefined {
+  if (!(err instanceof Error) || err.name !== 'TransactionCanceledException') return undefined;
+  const reasons = (err as { CancellationReasons?: { Code?: string }[] }).CancellationReasons;
+  if (!reasons) return undefined;
+  const codes = reasons.map((r) => r.Code ?? 'None');
+  if (codes.some((c) => RETRYABLE.has(c))) return { kind: 'retry' };
+  if (!codes.every((c) => c === 'None' || c === 'ConditionalCheckFailed')) return undefined;
+  const failed = codes.flatMap((c, i) => (c === 'ConditionalCheckFailed' ? [i] : []));
+  return failed.length > 0 ? { kind: 'condition', failed } : undefined;
 }
+
+/** Envia a transação; repete os cancelamentos passageiros (até `attempts` envios) e devolve as condições que falharam. */
+export function createTransactWrite(deps: {
+  send: (items: TransactItem[]) => Promise<unknown>;
+  sleep: (ms: number) => Promise<void>;
+  attempts?: number;
+}): (items: TransactItem[]) => Promise<TransactResult> {
+  const attempts = deps.attempts ?? 3;
+  async function attempt(items: TransactItem[], n: number): Promise<TransactResult> {
+    try {
+      await deps.send(items);
+      return { ok: true };
+    } catch (err) {
+      const failure = transactionFailure(err);
+      if (failure?.kind === 'condition') return { ok: false, failed: failure.failed };
+      if (failure?.kind !== 'retry' || n >= attempts) throw err;
+      await deps.sleep((50 + Math.random() * 100) * n);
+      return attempt(items, n + 1);
+    }
+  }
+  return (items) => attempt(items, 1);
+}
+
+export const transactWrite = createTransactWrite({
+  send: (items) => dynamo().send(new TransactWriteCommand({ TransactItems: items })),
+  sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+});
 
 export function isConditionFailed(err: unknown) {
   return err instanceof Error && err.name === 'ConditionalCheckFailedException';

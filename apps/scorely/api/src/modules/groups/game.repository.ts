@@ -1,12 +1,12 @@
-import { GetCommand, TransactWriteCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import type { Entity } from '@scorely/contracts';
 import {
   batchGetOrdered,
   dbItem,
-  isTransactionConflict,
   LOOKUP_ENTITY,
   queryLookupRows,
   stripKeys,
+  transactWrite,
 } from '../../lib/db';
 import { dynamo, tableName } from '../../lib/dynamo';
 import {
@@ -74,37 +74,28 @@ export const dynamoGameRepository: GameRepository = {
   },
 
   async create(game) {
-    try {
-      await dynamo().send(
-        new TransactWriteCommand({
-          TransactItems: [
-            {
-              Put: {
-                TableName: tableName(),
-                Item: dbItem(gameKey(game.id), GAME_ENTITY, game),
-                ConditionExpression: 'attribute_not_exists(PK)',
-              },
-            },
-            {
-              Put: {
-                TableName: tableName(),
-                Item: dbItem(
-                  gameDateLookupKey(game.groupId, game.date),
-                  LOOKUP_ENTITY,
-                  { id: game.id },
-                  game.createdAt,
-                ),
-                ConditionExpression: 'attribute_not_exists(PK)',
-              },
-            },
-          ],
-        }),
-      );
-      return true;
-    } catch (err) {
-      if (isTransactionConflict(err)) return false;
-      throw err;
-    }
+    const result = await transactWrite([
+      {
+        Put: {
+          TableName: tableName(),
+          Item: dbItem(gameKey(game.id), GAME_ENTITY, game),
+          ConditionExpression: 'attribute_not_exists(PK)',
+        },
+      },
+      {
+        Put: {
+          TableName: tableName(),
+          Item: dbItem(
+            gameDateLookupKey(game.groupId, game.date),
+            LOOKUP_ENTITY,
+            { id: game.id },
+            game.createdAt,
+          ),
+          ConditionExpression: 'attribute_not_exists(PK)',
+        },
+      },
+    ]);
+    return result.ok;
   },
 
   async cancel(gameId, cancelledAt) {
@@ -134,51 +125,33 @@ export const dynamoGameRepository: GameRepository = {
   },
 
   async addAttendance(a) {
-    try {
-      await dynamo().send(
-        new TransactWriteCommand({
-          TransactItems: [
-            {
-              Put: {
-                TableName: tableName(),
-                Item: dbItem(attendanceKey(a.id), ATTENDANCE_ENTITY, a),
-                ConditionExpression: 'attribute_not_exists(PK)',
-              },
-            },
-            {
-              Put: {
-                TableName: tableName(),
-                Item: dbItem(attendanceOrderLookupKey(a), LOOKUP_ENTITY, { id: a.id }, a.createdAt),
-              },
-            },
-            {
-              Put: {
-                TableName: tableName(),
-                Item: dbItem(
-                  attendanceUserLookupKey(a.gameId, a.userId),
-                  LOOKUP_ENTITY,
-                  { id: a.id },
-                  a.createdAt,
-                ),
-                ConditionExpression: 'attribute_not_exists(PK)',
-              },
-            },
-          ],
-        }),
-      );
-      return true;
-    } catch (err) {
-      if (isTransactionConflict(err)) return false;
-      throw err;
-    }
+    const result = await transactWrite([
+      {
+        Put: {
+          TableName: tableName(),
+          Item: dbItem(attendanceKey(a.id), ATTENDANCE_ENTITY, a),
+          ConditionExpression: 'attribute_not_exists(PK)',
+        },
+      },
+      {
+        Put: {
+          TableName: tableName(),
+          Item: dbItem(attendanceOrderLookupKey(a), LOOKUP_ENTITY, { id: a.id }, a.createdAt),
+        },
+      },
+      {
+        Put: {
+          TableName: tableName(),
+          Item: dbItem(attendanceUserLookupKey(a.gameId, a.userId), LOOKUP_ENTITY, { id: a.id }, a.createdAt),
+          ConditionExpression: 'attribute_not_exists(PK)',
+        },
+      },
+    ]);
+    return result.ok;
   },
 
   async removeAttendance(a) {
-    try {
-      await dynamo().send(new TransactWriteCommand({ TransactItems: attendanceDeletes(a) }));
-    } catch (err) {
-      // Outra desistência (ou remoção) apagou antes: o resultado é o mesmo.
-      if (!isTransactionConflict(err)) throw err;
-    }
+    // Condição falhou = outra desistência (ou remoção) apagou antes: o resultado é o mesmo.
+    await transactWrite(attendanceDeletes(a));
   },
 };

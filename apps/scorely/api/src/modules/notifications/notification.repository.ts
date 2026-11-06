@@ -1,14 +1,14 @@
-import { GetCommand, TransactWriteCommand } from '@aws-sdk/lib-dynamodb';
+import { GetCommand } from '@aws-sdk/lib-dynamodb';
 import type { Notification } from '@scorely/contracts';
 import {
   batchGetOrdered,
   dbItem,
-  isTransactionConflict,
   LOOKUP_ENTITY,
   type Page,
   queryLookupIds,
   setCreatedAtIfNew,
   stripKeys,
+  transactWrite,
 } from '../../lib/db';
 import { dynamo, tableName } from '../../lib/dynamo';
 import {
@@ -48,26 +48,24 @@ function inboxDelta(userId: string, delta: 1 | -1) {
 
 export const dynamoNotificationRepository: NotificationRepository = {
   async create(n) {
-    await dynamo().send(
-      new TransactWriteCommand({
-        TransactItems: [
-          {
-            Put: {
-              TableName: tableName(),
-              Item: dbItem(notificationKey(n.id), NOTIFICATION_ENTITY, n),
-              ConditionExpression: 'attribute_not_exists(PK)',
-            },
-          },
-          {
-            Put: {
-              TableName: tableName(),
-              Item: dbItem(notificationListLookupKey(n), LOOKUP_ENTITY, { id: n.id }, n.createdAt),
-            },
-          },
-          inboxDelta(n.userId, 1),
-        ],
-      }),
-    );
+    const result = await transactWrite([
+      {
+        Put: {
+          TableName: tableName(),
+          Item: dbItem(notificationKey(n.id), NOTIFICATION_ENTITY, n),
+          ConditionExpression: 'attribute_not_exists(PK)',
+        },
+      },
+      {
+        Put: {
+          TableName: tableName(),
+          Item: dbItem(notificationListLookupKey(n), LOOKUP_ENTITY, { id: n.id }, n.createdAt),
+        },
+      },
+      inboxDelta(n.userId, 1),
+    ]);
+    // Id novo: a condição só falha por bug.
+    if (!result.ok) throw new Error('Notification already exists');
   },
 
   async get(id) {
@@ -91,55 +89,36 @@ export const dynamoNotificationRepository: NotificationRepository = {
   },
 
   async markRead(userId, id, readAt) {
-    try {
-      await dynamo().send(
-        new TransactWriteCommand({
-          TransactItems: [
-            {
-              Update: {
-                TableName: tableName(),
-                Key: notificationKey(id),
-                UpdateExpression: 'SET readAt = :readAt',
-                ConditionExpression:
-                  'attribute_exists(PK) AND userId = :userId AND attribute_not_exists(readAt)',
-                ExpressionAttributeValues: { ':readAt': readAt, ':userId': userId },
-              },
-            },
-            inboxDelta(userId, -1),
-          ],
-        }),
-      );
-      return true;
-    } catch (err) {
-      if (isTransactionConflict(err)) return false;
-      throw err;
-    }
+    const result = await transactWrite([
+      {
+        Update: {
+          TableName: tableName(),
+          Key: notificationKey(id),
+          UpdateExpression: 'SET readAt = :readAt',
+          ConditionExpression: 'attribute_exists(PK) AND userId = :userId AND attribute_not_exists(readAt)',
+          ExpressionAttributeValues: { ':readAt': readAt, ':userId': userId },
+        },
+      },
+      inboxDelta(userId, -1),
+    ]);
+    return result.ok;
   },
 
   async remove(n) {
     // A condição fixa o estado lido como o service viu: o contador nunca cai duas vezes.
     const readCondition = n.readAt ? 'attribute_exists(readAt)' : 'attribute_not_exists(readAt)';
-    try {
-      await dynamo().send(
-        new TransactWriteCommand({
-          TransactItems: [
-            {
-              Delete: {
-                TableName: tableName(),
-                Key: notificationKey(n.id),
-                ConditionExpression: `attribute_exists(PK) AND userId = :userId AND ${readCondition}`,
-                ExpressionAttributeValues: { ':userId': n.userId },
-              },
-            },
-            { Delete: { TableName: tableName(), Key: notificationListLookupKey(n) } },
-            ...(n.readAt ? [] : [inboxDelta(n.userId, -1)]),
-          ],
-        }),
-      );
-      return true;
-    } catch (err) {
-      if (isTransactionConflict(err)) return false;
-      throw err;
-    }
+    const result = await transactWrite([
+      {
+        Delete: {
+          TableName: tableName(),
+          Key: notificationKey(n.id),
+          ConditionExpression: `attribute_exists(PK) AND userId = :userId AND ${readCondition}`,
+          ExpressionAttributeValues: { ':userId': n.userId },
+        },
+      },
+      { Delete: { TableName: tableName(), Key: notificationListLookupKey(n) } },
+      ...(n.readAt ? [] : [inboxDelta(n.userId, -1)]),
+    ]);
+    return result.ok;
   },
 };

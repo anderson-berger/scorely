@@ -1,6 +1,13 @@
-import { GetCommand, TransactWriteCommand } from '@aws-sdk/lib-dynamodb';
+import { GetCommand } from '@aws-sdk/lib-dynamodb';
 import type { Group } from '@scorely/contracts';
-import { dbItem, isTransactionConflict, LOOKUP_ENTITY, queryLookupRows, stripKeys } from '../../lib/db';
+import {
+  dbItem,
+  LOOKUP_ENTITY,
+  queryLookupRows,
+  stripKeys,
+  type TransactItem,
+  transactWrite,
+} from '../../lib/db';
 import { dynamo, tableName } from '../../lib/dynamo';
 import { type AttendanceRecord, attendanceDeletes } from './game.repository';
 import {
@@ -15,6 +22,12 @@ import {
 
 /** O grupo como fica no banco: sempre com o `inviteToken` (o service tira para quem não é dono). */
 export type StoredGroup = Group & { inviteToken: string };
+
+/**
+ * Resultado da remoção (plano 006, D4): `not_member` = outra requisição já tirou o membro;
+ * `stale` = o convite ou a presença mudaram depois da leitura (releia e tente de novo).
+ */
+export type RemoveMemberResult = 'removed' | 'not_member' | 'stale';
 
 export interface GroupRepository {
   get(id: string, opts?: { consistent?: boolean }): Promise<StoredGroup | undefined>;
@@ -34,7 +47,7 @@ export interface GroupRepository {
     userId: string;
     newToken: string;
     attendance?: AttendanceRecord;
-  }): Promise<void>;
+  }): Promise<RemoveMemberResult>;
 }
 
 function memberPuts(groupId: string, userId: string, createdAt: string) {
@@ -79,6 +92,12 @@ function inviteSwap(group: StoredGroup, newToken: string) {
   ];
 }
 
+/** Transação em que nenhuma condição deveria falhar (ids e tokens novos, token conferido): falhou → bug ou corrida, 500. */
+async function mustWrite(items: TransactItem[]): Promise<void> {
+  const result = await transactWrite(items);
+  if (!result.ok) throw new Error(`Transaction condition failed at items ${result.failed.join(',')}`);
+}
+
 export const dynamoGroupRepository: GroupRepository = {
   async get(id, opts) {
     const { Item } = await dynamo().send(
@@ -95,32 +114,28 @@ export const dynamoGroupRepository: GroupRepository = {
   },
 
   async create(group) {
-    await dynamo().send(
-      new TransactWriteCommand({
-        TransactItems: [
-          {
-            Put: {
-              TableName: tableName(),
-              Item: dbItem(groupKey(group.id), GROUP_ENTITY, group),
-              ConditionExpression: 'attribute_not_exists(PK)',
-            },
-          },
-          {
-            Put: {
-              TableName: tableName(),
-              Item: dbItem(
-                groupInviteLookupKey(group.inviteToken),
-                LOOKUP_ENTITY,
-                { id: group.id },
-                group.createdAt,
-              ),
-              ConditionExpression: 'attribute_not_exists(PK)',
-            },
-          },
-          ...memberPuts(group.id, group.ownerId, group.createdAt),
-        ],
-      }),
-    );
+    await mustWrite([
+      {
+        Put: {
+          TableName: tableName(),
+          Item: dbItem(groupKey(group.id), GROUP_ENTITY, group),
+          ConditionExpression: 'attribute_not_exists(PK)',
+        },
+      },
+      {
+        Put: {
+          TableName: tableName(),
+          Item: dbItem(
+            groupInviteLookupKey(group.inviteToken),
+            LOOKUP_ENTITY,
+            { id: group.id },
+            group.createdAt,
+          ),
+          ConditionExpression: 'attribute_not_exists(PK)',
+        },
+      },
+      ...memberPuts(group.id, group.ownerId, group.createdAt),
+    ]);
   },
 
   async isMember(groupId, userId) {
@@ -137,14 +152,8 @@ export const dynamoGroupRepository: GroupRepository = {
   },
 
   async addMember(groupId, userId) {
-    try {
-      await dynamo().send(
-        new TransactWriteCommand({ TransactItems: memberPuts(groupId, userId, new Date().toISOString()) }),
-      );
-    } catch (err) {
-      // Já era membro (aceitou o convite de novo): idempotente.
-      if (!isTransactionConflict(err)) throw err;
-    }
+    // Condição falhou = já era membro (aceitou o convite de novo): idempotente.
+    await transactWrite(memberPuts(groupId, userId, new Date().toISOString()));
   },
 
   async listMembers(groupId) {
@@ -158,25 +167,24 @@ export const dynamoGroupRepository: GroupRepository = {
   },
 
   async rotateInvite(group, newToken) {
-    await dynamo().send(new TransactWriteCommand({ TransactItems: inviteSwap(group, newToken) }));
+    await mustWrite(inviteSwap(group, newToken));
   },
 
   async removeMember({ group, userId, newToken, attendance }) {
-    await dynamo().send(
-      new TransactWriteCommand({
-        TransactItems: [
-          {
-            Delete: {
-              TableName: tableName(),
-              Key: groupMemberLookupKey(group.id, userId),
-              ConditionExpression: 'attribute_exists(PK)',
-            },
-          },
-          { Delete: { TableName: tableName(), Key: userGroupLookupKey(userId, group.id) } },
-          ...inviteSwap(group, newToken),
-          ...(attendance ? attendanceDeletes(attendance) : []),
-        ],
-      }),
-    );
+    // O índice 0 é o lookup do membro: a condição dele falhar = já não é membro.
+    const result = await transactWrite([
+      {
+        Delete: {
+          TableName: tableName(),
+          Key: groupMemberLookupKey(group.id, userId),
+          ConditionExpression: 'attribute_exists(PK)',
+        },
+      },
+      { Delete: { TableName: tableName(), Key: userGroupLookupKey(userId, group.id) } },
+      ...inviteSwap(group, newToken),
+      ...(attendance ? attendanceDeletes(attendance) : []),
+    ]);
+    if (result.ok) return 'removed';
+    return result.failed.includes(0) ? 'not_member' : 'stale';
   },
 };

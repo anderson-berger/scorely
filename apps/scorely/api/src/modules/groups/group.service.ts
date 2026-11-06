@@ -9,6 +9,9 @@ import { type GroupsDeps, requireMember, requireOwner } from './groups.deps';
 /** Fuso do grupo quando nem o pedido nem o perfil do dono trazem um (D7). */
 const DEFAULT_TIME_ZONE = 'America/Sao_Paulo';
 
+/** Tentativas de remover um membro quando o convite ou a presença mudam no meio (plano 006, D4). */
+const REMOVAL_ATTEMPTS = 3;
+
 /** O `inviteToken` só vai para o dono. */
 function forViewer(group: StoredGroup, userId: string): Group {
   if (group.ownerId === userId) return group;
@@ -19,6 +22,23 @@ function forViewer(group: StoredGroup, userId: string): Group {
 export function createGroupService(deps: GroupsDeps) {
   const now = deps.now ?? (() => new Date());
   const games = createGameService(deps);
+
+  /** Uma tentativa da remoção (D12 do 003); `stale` → relê o grupo e o plano e tenta de novo. */
+  async function attemptRemoval(group: StoredGroup, memberId: string, attempt: number): Promise<void> {
+    const plan = await games.removalPlan(group, memberId);
+    const result = await deps.groups.removeMember({
+      group,
+      userId: memberId,
+      newToken: randomToken(),
+      ...(plan.attendance && { attendance: plan.attendance }),
+    });
+    if (result === 'not_member') throw appError('GROUP_MEMBER_NOT_FOUND');
+    if (result === 'removed') return plan.afterRemoval();
+    if (attempt >= REMOVAL_ATTEMPTS) throw new Error('Member removal kept conflicting with other writes');
+    const fresh = await deps.groups.get(group.id, { consistent: true });
+    if (!fresh) throw appError('GROUP_NOT_FOUND');
+    return attemptRemoval(fresh, memberId, attempt + 1);
+  }
 
   return {
     async create(ownerId: string, input: CreateGroupInput): Promise<Group> {
@@ -83,14 +103,7 @@ export function createGroupService(deps: GroupsDeps) {
       const group = await requireOwner(deps, userId, groupId);
       if (memberId === group.ownerId) throw appError('GROUP_OWNER_NOT_REMOVABLE');
       if (!(await deps.groups.isMember(groupId, memberId))) throw appError('GROUP_MEMBER_NOT_FOUND');
-      const plan = await games.removalPlan(group, memberId);
-      await deps.groups.removeMember({
-        group,
-        userId: memberId,
-        newToken: randomToken(),
-        ...(plan.attendance && { attendance: plan.attendance }),
-      });
-      await plan.afterRemoval();
+      await attemptRemoval(group, memberId, 1);
     },
   };
 }
