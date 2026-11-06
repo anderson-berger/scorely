@@ -2,6 +2,7 @@ import type { AWS } from '@serverless/typescript';
 import { devAuthSecret, project, tableNameFor } from './project';
 import { AUTHORIZER } from './src/lib/auth';
 import { authFunctions } from './src/modules/auth/functions';
+import { groupsFunctions } from './src/modules/groups/functions';
 import { healthFunctions } from './src/modules/health/functions';
 import { notificationsFunctions } from './src/modules/notifications/functions';
 import { usersFunctions } from './src/modules/users/functions';
@@ -123,6 +124,7 @@ const config: AWS = {
     ...authFunctions,
     ...usersFunctions,
     ...notificationsFunctions,
+    ...groupsFunctions,
   },
 };
 

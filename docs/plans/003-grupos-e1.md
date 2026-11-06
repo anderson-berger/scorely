@@ -141,6 +141,37 @@ Funções puras, sem relógio próprio (`now` sempre injetado). Datas locais em 
 | `currentOccurrence(schedule, now): Occurrence` | `schedule = { weekday, time, timeZone, listOpensHoursBefore }` (weekday 0 = domingo, no fuso do grupo). Primeira ocorrência com `endsAt > now`. `Occurrence = { date, startsAt, opensAt, endsAt }` (instantes em ISO UTC) |
 | `timeStatus(occurrence, now)`                  | `'scheduled'` (antes de `opensAt`) · `'open'` (de `opensAt` até `startsAt`) · `'in_progress'` (de `startsAt` até `endsAt`). O `cancelled` é do service (tarefa 6a), por cima disso                                        |
 
+## Interface do bloco 2 (api `groups`; para os testes)
+
+Um módulo, `api/src/modules/groups/`, com dois services (`group.service.ts`, `game.service.ts`) e dois repositórios (`group.repository.ts`, `game.repository.ts`). Os testes de service usam repositórios em memória que implementam as interfaces abaixo.
+
+**Dependências** (o mesmo objeto para os dois services): `createGroupService(deps)` e `createGameService(deps)`, com `deps = { groups: GroupRepository, games: GameRepository, users: UserDirectory, notifications: Pick<NotificationService, 'notify'>, now?: () => Date }`.
+
+| Interface         | Métodos                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `UserDirectory`   | `get(id): Promise<User \| undefined>` (fuso do dono na criação) · `getMany(ids): Promise<User[]>` (nomes; ausentes somem). Implementado pelo `UserRepository` (ganha `getMany`)                                                                                                                                                                                                                                                                                                                                    |
+| `GroupRepository` | `get(id, opts?: { consistent? })` → `Group` guardado (sempre com `inviteToken`) · `getByInvite(token)` · `create(group)` (grupo + lookup do convite + dono como membro) · `isMember(groupId, userId): boolean` · `addMember(groupId, userId)` (idempotente) · `listMembers(groupId): string[]` (userIds) · `listGroupsOf(userId): string[]` (groupIds) · `rotateInvite(group, newToken)` · `removeMember({ group, userId, newToken, attendance? })` (D12: uma transação; com `attendance`, apaga a presença junto) |
+| `GameRepository`  | `findByDate(groupId, date, opts?: { consistent? }): GameRecord \| undefined` · `create(game): boolean` (`false` = perdeu a corrida pelo lookup da data) · `cancel(gameId, cancelledAt)` · `listAttendance(gameId, opts?: { consistent? }): AttendanceRecord[]` (ordem de `confirmedAt`, depois `userId`) · `getAttendance(gameId, userId)` · `addAttendance(a): boolean` (`false` = já tinha presença) · `removeAttendance(a)`                                                                                     |
+
+Tipos internos da api (em `game.repository.ts`): `GameRecord = Entity & { groupId, date, cancelledAt? }` e `AttendanceRecord = Entity & { gameId, userId, confirmedAt }`.
+
+| Service | Método                                                                        | Regras que os testes cobram                                                                                                                                                                                                                                                                        |
+| ------- | ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| group   | `create(ownerId, input: CreateGroupInput): Group`                             | `timeZone` ausente → o do perfil do dono, senão `America/Sao_Paulo`. Devolve com `inviteToken`                                                                                                                                                                                                     |
+| group   | `get(userId, groupId): Group`                                                 | não-membro → `GROUP_NOT_FOUND`; `inviteToken` só para o dono                                                                                                                                                                                                                                       |
+| group   | `myGroups(userId): MyGroup[]`                                                 | `game.confirmedCount = min(lista, vagas)`; `game.me` como no `Game`                                                                                                                                                                                                                                |
+| group   | `rotateInvite(userId, groupId): Invite`                                       | não-membro → `GROUP_NOT_FOUND`; membro → `GROUP_NOT_OWNER`                                                                                                                                                                                                                                         |
+| group   | `acceptInvite(userId, token): Group`                                          | token desconhecido → `GROUP_INVITE_INVALID`; idempotente                                                                                                                                                                                                                                           |
+| group   | `members(userId, groupId): Member[]`                                          | o dono primeiro; `name` = `nickname ?? name` do usuário                                                                                                                                                                                                                                            |
+| group   | `removeMember(userId, groupId, memberId): void`                               | ordem dos erros: não-membro → `GROUP_NOT_FOUND`; não-dono → `GROUP_NOT_OWNER`; `memberId` = dono → `GROUP_OWNER_NOT_REMOVABLE`; não é membro → `GROUP_MEMBER_NOT_FOUND`. Depois, D12 + promoção (D6)                                                                                               |
+| game    | `current(userId, groupId): Game`                                              | não-membro → `GROUP_NOT_FOUND`; sem item no banco → jogo virtual com as listas vazias                                                                                                                                                                                                              |
+| game    | `confirm(userId, groupId, date): Game` / `leave(userId, groupId, date): void` | ordem dos erros: não-membro → `GROUP_NOT_FOUND`; `date` ≠ data do jogo atual (ou inválida) → `GAME_NOT_FOUND`; `cancelled` → `GAME_CANCELLED`; `in_progress` → `GAME_CLOSED`; `scheduled` → `GAME_LIST_NOT_OPEN` com `{ opensAt }`. `confirm` repetido mantém a posição; `leave` sem presença é ok |
+| game    | `cancel(userId, groupId, date): Game`                                         | não-membro → `GROUP_NOT_FOUND`; não-dono → `GROUP_NOT_OWNER`; data errada → `GAME_NOT_FOUND`; `in_progress` → `GAME_CLOSED`; já cancelado → devolve igual, sem notificar de novo                                                                                                                   |
+
+- `confirmedAt` = `now()` da confirmação: nos testes, avance o relógio entre uma confirmação e outra.
+- Jogo virtual vira item na primeira escrita (`confirm` ou `cancel`): `create` → se `false`, `findByDate(..., { consistent: true })` (D2).
+- Notificações (`notify(userId, { type, title, body?, link })`): `waitlist_promoted` para quem subiu (D6); `game_cancelled` para confirmados e fila, menos o dono. `link = /groups/<groupId>`. O teste confere o destinatário e o `type`, não o texto.
+
 ## Status
 
 Execução em 4 blocos; em cada um o dono revisa e commita. Os testes de cada bloco são só dos casos que ele fecha (para o `npm run check` e o pre-commit ficarem verdes).
@@ -160,6 +191,17 @@ Execução em 4 blocos; em cada um o dono revisa e commita. Os testes de cada bl
 | 4. Implementação           | ✅     |
 | 5. Revisão                 | ✅     |
 | 6. Entrega                 | ✅     |
+
+| Passo do `/task` (bloco 2) | Estado       |
+| -------------------------- | ------------ |
+| 1. Plano (interface)       | ✅           |
+| 2. Contrato                | ✅ (bloco 1) |
+| 3. Testes                  | ✅           |
+| 4. Implementação           | ✅           |
+| 5. Revisão                 | —            |
+| 6. Entrega                 | —            |
+
+Nota do bloco 2: a implementação foi escrita em paralelo com o `test-writer` (desvio do `/task`: o passo 4 começou antes do 3 terminar), então os testes não foram vistos falhando. Compensação: 5 sabotagens do código (sem promoção na desistência; cancelamento avisando o dono; `inviteToken` para todos; remoção sem apagar a presença; remoção apagando a presença com o jogo em andamento) e cada uma derrubou de 1 a 2 testes. O `UserRepository` não ganhou `getMany` (quebraria os testes existentes que o implementam): o `UserDirectory` é um objeto à parte, `dynamoUserDirectory`.
 
 Nota do bloco 1: `zoned.test.ts:61` esperava `open` às 22h01 de sexta para o jogo da sexta seguinte, cuja lista só abre 48 h antes. O dono aprovou trocar para `scheduled` (D3) em 2026-11-06; foi a única mudança num teste staged.
 

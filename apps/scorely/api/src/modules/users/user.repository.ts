@@ -1,6 +1,13 @@
 import { GetCommand, TransactWriteCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import type { UpdateMeInput, User } from '@scorely/contracts';
-import { dbItem, isConditionFailed, isTransactionConflict, LOOKUP_ENTITY, stripKeys } from '../../lib/db';
+import {
+  batchGetOrdered,
+  dbItem,
+  isConditionFailed,
+  isTransactionConflict,
+  LOOKUP_ENTITY,
+  stripKeys,
+} from '../../lib/db';
 import { dynamo, tableName } from '../../lib/dynamo';
 import { USER_ENTITY, userEmailLookupKey, userKey } from './user.table';
 
@@ -99,5 +106,20 @@ export const dynamoUserRepository: UserRepository = {
       if (isConditionFailed(err)) return undefined;
       throw err;
     }
+  },
+};
+
+/** O que outros módulos leem dos usuários (ex.: nomes na lista do jogo). */
+export interface UserDirectory {
+  get(id: string): Promise<User | undefined>;
+  /** Vários de uma vez (BatchGet), na ordem dos ids; os que não existem somem. */
+  getMany(ids: readonly string[]): Promise<User[]>;
+}
+
+export const dynamoUserDirectory: UserDirectory = {
+  get: (id) => dynamoUserRepository.get(id),
+  async getMany(ids) {
+    const rows = await batchGetOrdered([...new Set(ids)].map(userKey));
+    return rows.map((row) => stripKeys<User>(row));
   },
 };
