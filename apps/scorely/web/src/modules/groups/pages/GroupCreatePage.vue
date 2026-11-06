@@ -30,6 +30,11 @@ export default defineComponent({
       location: '',
       slots: 12 as number | string,
       listOpensHoursBefore: 48 as number | string,
+      reservesOpenHoursBefore: 24 as number | string,
+      /** Enquanto a pessoa não mexe nas reservas, elas seguem a metade dos membros (plano 007, D2). */
+      reservesTouched: false,
+      guestsEnabled: false,
+      guestsOpenHoursBefore: 6 as number | string,
       limits: GROUP_LIMITS,
       saving: false,
     };
@@ -53,6 +58,12 @@ export default defineComponent({
     },
   },
 
+  watch: {
+    listOpensHoursBefore(value: number | string) {
+      if (!this.reservesTouched) this.reservesOpenHoursBefore = Math.floor(Number(value) / 2);
+    },
+  },
+
   methods: {
     async save() {
       const parsed = CreateGroupInputSchema.safeParse({
@@ -64,6 +75,8 @@ export default defineComponent({
         ...(this.location.trim() && { location: this.location }),
         slots: Number(this.slots),
         listOpensHoursBefore: Number(this.listOpensHoursBefore),
+        reservesOpenHoursBefore: Number(this.reservesOpenHoursBefore),
+        ...(this.guestsEnabled && { guestsOpenHoursBefore: Number(this.guestsOpenHoursBefore) }),
       });
       if (!parsed.success) {
         return this.$q.notify({ type: 'warning', message: issueMessage(parsed.error.issues[0]) });
@@ -125,6 +138,27 @@ export default defineComponent({
           :max="limits.listOpensHoursBefore.max"
           :label="$t('groups.listOpensHoursBefore')"
           :hint="$t('groups.listOpensHoursBeforeHint')"
+          outlined
+        />
+        <q-input
+          v-model="reservesOpenHoursBefore"
+          type="number"
+          @update:model-value="reservesTouched = true"
+          :min="limits.reservesOpenHoursBefore.min"
+          :max="limits.reservesOpenHoursBefore.max"
+          :label="$t('groups.reservesOpenHoursBefore')"
+          :hint="$t('groups.reservesOpenHoursBeforeHint')"
+          outlined
+        />
+        <q-toggle v-model="guestsEnabled" :label="$t('groups.guestsEnabled')" />
+        <q-input
+          v-if="guestsEnabled"
+          v-model="guestsOpenHoursBefore"
+          type="number"
+          :min="limits.guestsOpenHoursBefore.min"
+          :max="limits.guestsOpenHoursBefore.max"
+          :label="$t('groups.guestsOpenHoursBefore')"
+          :hint="$t('groups.guestsOpenHoursBeforeHint')"
           outlined
         />
         <q-btn type="submit" color="primary" :label="$t('groups.create')" :loading="saving" />

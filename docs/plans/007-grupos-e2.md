@@ -107,7 +107,16 @@ Regra de quem pode confirmar (`myOpensAt`), com `startsAt` da ocorrência:
 - reserva → `startsAt − reservesOpenHoursBefore`;
 - convidado → `startsAt − guestsOpenHoursBefore`; desligado → sem `myOpensAt` e `GAME_LINK_INVALID`.
 
-Web (`modules/groups`): rota `play/:token` (`PlayPage.vue`), não pública; `groupsApi.play(token)`, `playConfirm`, `playLeave`, `update`, `rotateInvite(id, kind)`. Helper puro `inviteUrl(origin, kind, token)` em `groups/links.ts`: `member`/`reserve` → `/join/<token>`, `guest` → `/play/<token>`.
+Web (`modules/groups`), bloco 2:
+
+- Rota `play/:token` (nome `play`, `PlayPage.vue`), não pública: o guard manda para o login com `redirect`, como o `/join`.
+- `groupsApi`: `play(token)` → `GuestGame`; `playConfirm(token, date)` → `Game`; `playLeave(token, date)`; `update(id, patch: UpdateGroupInput)` → `Group`; `rotateInvite(id, kind)` → `Invite`.
+- `groups/links.ts`, funções puras:
+  - `inviteUrl(origin: string, kind: InviteKind, token: string): string` → `<origin>/join/<token>` para `member`/`reserve`, `<origin>/play/<token>` para `guest` (token com `encodeURIComponent`).
+  - `playRedirect(view: GuestGame): { name: 'group'; params: { id: string } } | undefined` → membro ou reserva vai para a página do grupo; convidado fica (`undefined`).
+  - `listGate(game: Game, now: Date): { kind: 'can_change' } | { kind: 'opens_at'; at: string } | { kind: 'closed' }` → `closed` se o status é `in_progress`/`cancelled` ou não há `myOpensAt`; `opens_at` com `myOpensAt` enquanto `now` < `myOpensAt`; senão `can_change`. A página do grupo e a do link do jogo usam para mostrar os botões ou "você pode confirmar a partir de ...".
+- Página do grupo (dono): os 3 links, cada um com copiar e trocar; o de convidados só aparece com convidados ligados. Configuração das camadas (`PATCH`) num diálogo ou card do dono. Lista com o papel (reserva/convidado) ao lado do nome.
+- "Criar grupo": campos de reservas e convidados (convidados com um interruptor; desligado = sem o campo).
 
 ### Lacunas fechadas na implementação (bloco 1)
 
@@ -134,7 +143,7 @@ Relógio: quinta 2026-11-05 10:00 em São Paulo, jogo sexta 19:00 (33 h depois),
 13. `PATCH` por membro → `GROUP_NOT_OWNER`; `PATCH { listOpensHoursBefore: 20 }` com reservas 24 → `GROUP_LAYERS_INVALID` (`field: reservesOpenHoursBefore`); `PATCH { guestsOpenHoursBefore: null }` desliga convidados.
 14. Grupo sem os campos da E2 (D3): lido com reservas = membros, convidados desligados; o dono gera o link de reserva pela troca (D6) e ele passa a valer.
 15. Reserva vê a página do grupo e a lista, mas não recebe os tokens e `removeMember` dá `GROUP_NOT_OWNER`.
-16. Web: `inviteUrl` monta `/join/<token>` para membro e reserva e `/play/<token>` para convidado; a página do link do jogo, para membro ou reserva, leva para a página do grupo.
+16. Web: `inviteUrl` monta `/join/<token>` para membro e reserva e `/play/<token>` para convidado; `playRedirect` leva membro e reserva para a página do grupo e deixa o convidado; `listGate` dá `opens_at` antes da camada de quem vê, `can_change` depois e `closed` em jogo começado, cancelado ou sem camada.
 
 ## Tarefas
 
@@ -173,11 +182,11 @@ Blocos para commit: **1** = tarefas 1–7 (contrato + api; o `test-writer` escre
 
 ## Status
 
-| Passo            | Estado                                                                                                                                                                                                                                       |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1. Plano         | ✅ aprovado (2026-11-06)                                                                                                                                                                                                                     |
-| 2. Contrato      | ✅ schemas, `GroupLayersSchema`, `GAME_LINK_INVALID` e `GROUP_LAYERS_INVALID` nos 4 lugares; o typecheck só acusa a api e os testes da E1 que mudam neste bloco                                                                              |
-| 3. Testes        | ✅ bloco 1: `test-writer`, casos 1–15 (`groups.service.test.ts`, `zoned.layers.test.ts`; fixture do `timezone.contract.test.ts` ajustada por ele); falhavam antes da implementação                                                           |
-| 4. Implementação | 🔄 bloco 1 (tarefas 1, 3–7) ✅; `npm run check` verde (api 213); repositório conferido no LocalStack (13 cenários: tokens, papéis, reserva→membro, PATCH com REMOVE, grupo antigo, remoção removed/not_member/stale); bloco 2 (web) pendente |
-| 5. Revisão       | 🔄 bloco 1: `reviewer` aprovado com ressalvas, sem ❌ (`007-grupos-e2.bloco1.review.md`)                                                                                                                                                     |
-| 6. Entrega       | —                                                                                                                                                                                                                                            |
+| Passo            | Estado                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. Plano         | ✅ aprovado (2026-11-06)                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| 2. Contrato      | ✅ schemas, `GroupLayersSchema`, `GAME_LINK_INVALID` e `GROUP_LAYERS_INVALID` nos 4 lugares; o typecheck só acusa a api e os testes da E1 que mudam neste bloco                                                                                                                                                                                                                                                                                   |
+| 3. Testes        | ✅ bloco 1: `test-writer`, casos 1–15 (`groups.service.test.ts`, `zoned.layers.test.ts`; fixture do `timezone.contract.test.ts` ajustada por ele); falhavam antes da implementação                                                           ; bloco 2: `test-writer`, caso 16 (`links.test.ts`, 14 testes)                                                                                                                                       |
+| 4. Implementação | bloco 1 (tarefas 1, 3–7) ✅; `npm run check` verde (api 213); repositório conferido no LocalStack (13 cenários: tokens, papéis, reserva→membro, PATCH com REMOVE, grupo antigo, remoção removed/not_member/stale); bloco 2 (tarefas 8–9) ✅: `links.ts`, `GameCard`/`GroupLinksCard`/`LayersCard`, `PlayPage`, campos no criar grupo; `npm run check` verde (web 55)                                                                              |
+| 5. Revisão       | 🔄 bloco 1: `reviewer` aprovado com ressalvas, sem ❌ (`007-grupos-e2.bloco1.review.md`)                                                                                                                                                                                                                                                                             ; bloco 2: aprovado com ressalvas, sem ❌ (`007-grupos-e2.bloco2.review.md`) |
+| 6. Entrega       | —                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
