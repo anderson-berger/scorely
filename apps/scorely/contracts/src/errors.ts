@@ -47,6 +47,7 @@ export const ErrorCodeSchema = z.enum([
   // teams
   'TEAM_PLAYER_NOT_FOUND',
   'TEAM_POSITION_INVALID',
+  'TEAM_EMPTY',
 ]);
 export type ErrorCode = z.infer<typeof ErrorCodeSchema>;
 
@@ -71,6 +72,8 @@ export const ErrorDetailsSchemas = {
   GAME_LIST_NOT_OPEN: z.object({ opensAt: z.iso.datetime() }),
   GROUP_LAYERS_INVALID: z.object({ field: z.enum(['reservesOpenHoursBefore', 'guestsOpenHoursBefore']) }),
   TEAM_POSITION_INVALID: z.object({ position: z.string() }),
+  /** O número do time vazio, a partir de 1 (TIM-08). */
+  TEAM_EMPTY: z.object({ team: z.number().int().positive() }),
 } satisfies Partial<Record<ErrorCode, z.ZodType>>;
 export type ErrorDetails = {
   [C in keyof typeof ErrorDetailsSchemas]: z.infer<(typeof ErrorDetailsSchemas)[C]>;

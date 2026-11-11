@@ -1,7 +1,10 @@
 <script lang="ts">
-import type { GuestGame } from '@scorely/contracts';
+import type { GuestGame, Teams } from '@scorely/contracts';
 import { defineComponent } from 'vue';
 import { errorMessage } from '@/i18n/errors';
+import { useAuthStore } from '../../auth/auth.store';
+import TeamsView from '../../teams/components/TeamsView.vue';
+import { teamsApi } from '../../teams/teams.api';
 import GameCard from '../components/GameCard.vue';
 import { groupsApi } from '../groups.api';
 import { playRedirect } from '../links';
@@ -10,11 +13,17 @@ import { playRedirect } from '../links';
 export default defineComponent({
   name: 'PlayPage',
 
-  components: { GameCard },
+  components: { GameCard, TeamsView },
+
+  setup() {
+    return { auth: useAuthStore() };
+  },
 
   data() {
     return {
       view: undefined as GuestGame | undefined,
+      /** TIM-09 / GRP-09: os times publicados do jogo. */
+      teams: null as Teams | null,
       error: '',
       busy: false,
     };
@@ -41,9 +50,19 @@ export default defineComponent({
           return;
         }
         this.view = view;
+        this.teams = await this.loadTeams();
       } catch (err) {
         this.view = undefined;
         this.error = errorMessage(err);
+      }
+    },
+
+    /** Sem os times a página continua funcionando; eles só não aparecem. */
+    async loadTeams(): Promise<Teams | null> {
+      try {
+        return (await teamsApi.guestTeams(this.token)).teams;
+      } catch {
+        return null;
       }
     },
 
@@ -93,7 +112,14 @@ export default defineComponent({
             ({{ view.group.timeZone }})<span v-if="view.group.location"> · {{ view.group.location }}</span>
           </div>
         </header>
-        <GameCard :game="view.game" :busy="busy" @confirm="confirm" @leave="leave" />
+        <GameCard :game="view.game" :busy="busy" @confirm="confirm" @leave="leave">
+          <template v-if="teams" #teams>
+            <section class="play-teams">
+              <h2 class="sc-section">{{ $t('teams.cardTitle') }}</h2>
+              <TeamsView :teams="teams" :me-id="auth.user?.id ?? ''" />
+            </section>
+          </template>
+        </GameCard>
       </template>
 
       <div v-else class="state"><q-spinner color="primary" size="md" /></div>
@@ -102,6 +128,10 @@ export default defineComponent({
 </template>
 
 <style scoped>
+.play-teams {
+  margin-bottom: 20px;
+}
+
 .cover {
   display: block;
   width: 100%;

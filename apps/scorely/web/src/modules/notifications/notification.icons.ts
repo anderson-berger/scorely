@@ -7,4 +7,5 @@ export const notificationIcon: Record<NotificationType, string> = {
   game_cancelled: 'event_busy',
   game_reopened: 'event_available',
   member_invite: 'how_to_reg',
+  teams_published: 'groups',
 };

@@ -51,7 +51,7 @@ Cada regra tem um id fixo (`GRP-NN`). O id não é reaproveitado: se uma regra s
   - Gerar outro link **invalida o anterior na hora**. O link antigo responde `GROUP_INVITE_INVALID` ou `GAME_LINK_INVALID`.
   - _Por quê:_ é assim que o dono bloqueia alguém sem precisar de lista de bloqueio. O token não é segredo de login, então o dono pode rever o link atual quando quiser.
 - **GRP-08. O link do jogo só funciona com os convidados ligados.** Com eles desligados, abrir, confirmar ou gerar o link responde `GAME_LINK_INVALID`.
-- **GRP-09. O link do jogo leva sempre ao jogo atual.** Qualquer pessoa logada vê o nome do grupo, o horário, o local e a lista com nomes, e pode confirmar quando a camada dos convidados abre.
+- **GRP-09. O link do jogo leva sempre ao jogo atual.** Qualquer pessoa logada vê o nome do grupo, o horário, o local, a lista com nomes e os times publicados ([TIM-09](times.md)), e pode confirmar quando a camada dos convidados abre. _(Alterada em 2026-11-11: entraram os times publicados.)_
   - O convidado não vira membro e não vê os membros nem os links.
   - Um membro ou reserva que abre o link é tratado pelo seu papel no grupo.
   - _Por quê:_ o dono manda um link só no WhatsApp toda semana, sem encher a lista de membros.
@@ -206,14 +206,14 @@ Cada regra tem um id fixo (`GRP-NN`). O id não é reaproveitado: se uma regra s
   5. "abre {data}" (a camada de quem lê ainda não abriu);
   6. vagas que faltam, ou lotado.
 - **GRP-29. A página do grupo tem três abas:**
-  - **Jogo**: placar confirmados:vagas, ação conforme o estado, abertura das camadas, Escalação (uma linha por vaga) e Banco (só com fila). Cada pessoa da lista mostra as suas posições, convidados inclusive, e o dono as muda ali ([TIM-05](times.md));
+  - **Jogo**: placar confirmados:vagas, ação conforme o estado, abertura das camadas, o card **Times** ([TIM-14](times.md)), Escalação (uma linha por vaga) e Banco (só com fila). Cada pessoa da lista mostra as suas posições, convidados inclusive, e o dono as muda ali ([TIM-05](times.md));
   - **Membros**: membros e reservas separados, cada parte com a contagem e o limite ("Membros · 13/14"). Cada pessoa mostra as suas posições, e o dono as muda ali ([TIM-05](times.md)). As ações do dono sobre a pessoa ficam no menu "⋮" da linha: "Remover" e, na reserva, "Convidar para membro" (só com lugar livre) ou, com o convite pendente, a marca "convite enviado" e "Cancelar convite". No fim da aba, quem não é dono tem "Sair do grupo" (GRP-43);
   - **Ajustes**: só para o dono. Tem camadas, **limites** (GRP-38), links, logo e capa (GRP-35) e a zona de perigo, com cancelar o jogo (ou **reabrir o jogo**, quando ele está cancelado, GRP-44) e **arquivar o grupo**.
   - A reserva com convite pendente vê, no topo da página, a faixa "Você foi convidado para ser membro", com Aceitar e Recusar (GRP-41). Ao aceitar, a página recarrega com o papel novo.
   - Arquivar pede confirmação: "O grupo sai da lista de todos, os links param de funcionar e o jogo desta semana é cancelado. Dá para desarquivar depois." Depois de arquivar, a pessoa continua na página, que passa a ser a do grupo arquivado (GRP-37).
   - Reabrir pede confirmação: "Reabrir o jogo de {data}? Quem estava na lista volta na mesma posição e é avisado." Só aparece antes do início. _(Alterada em 2026-11-10: entrou reabrir o jogo.)_
   - Quem não é dono e abre os Ajustes é levado para a aba Jogo. Mesmo assim, a api continua barrando as ações de dono.
-  - _(Alterada em 2026-11-10: antes, a zona de perigo só tinha cancelar o jogo. Depois, entraram os limites, o convite para membro e sair do grupo. Em 2026-11-11, as posições nas abas Jogo e Membros e o menu "⋮" na aba Membros.)_
+  - _(Alterada em 2026-11-10: antes, a zona de perigo só tinha cancelar o jogo. Depois, entraram os limites, o convite para membro e sair do grupo. Em 2026-11-11, as posições nas abas Jogo e Membros, o menu "⋮" na aba Membros e o card Times.)_
 - **GRP-43. Sair do grupo pede confirmação:** "Você perde o acesso ao grupo e a sua vaga no jogo desta semana. Para voltar, vai precisar de um link." Depois de sair, a pessoa vai para `/groups`.
 - **GRP-30. O card e o topo da página do grupo mostram o logo e a capa** (GRP-35). Se o grupo não tiver um deles, aquele lugar usa uma cor fixa calculada do id do grupo, e o logo mostra as iniciais do nome. _(Alterada em 2026-11-10: antes, logo e capa não existiam e todos os grupos usavam a cor.)_
 - **GRP-37. A página de um grupo arquivado é só leitura** (vale a GRP-32):

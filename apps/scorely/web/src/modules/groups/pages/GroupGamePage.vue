@@ -1,6 +1,7 @@
 <script lang="ts">
-import type { Game, PlayerPosition } from '@scorely/contracts';
+import type { Game, Group, PlayerPosition } from '@scorely/contracts';
 import { defineComponent, type PropType } from 'vue';
+import TeamsCard from '../../teams/components/TeamsCard.vue';
 import GameCard from '../components/GameCard.vue';
 
 /**
@@ -11,12 +12,14 @@ import GameCard from '../components/GameCard.vue';
 export default defineComponent({
   name: 'GroupGamePage',
 
-  components: { GameCard },
+  components: { GameCard, TeamsCard },
 
   inheritAttrs: false,
 
   props: {
+    group: { type: Object as PropType<Group>, required: true },
     game: { type: Object as PropType<Game | null>, default: null },
+    isOwner: { type: Boolean, default: false },
     busy: { type: Boolean, default: false },
     /** TIM-05: posições de cada pessoa (ausente = o esporte não tem posições). */
     playerPositions: {
@@ -40,7 +43,11 @@ export default defineComponent({
     @confirm="$emit('confirm')"
     @leave="$emit('leave')"
     @edit-player="$emit('editPlayer', $event)"
-  />
+  >
+    <template #teams>
+      <TeamsCard :group-id="group.id" :game="game" :sport="group.sport" :is-owner="isOwner" />
+    </template>
+  </GameCard>
   <div v-else class="sc-card sc-caption no-game">{{ $t('groups.archivedGame') }}</div>
 </template>
 

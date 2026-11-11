@@ -213,6 +213,8 @@ export default defineComponent({
     </div>
 
     <div v-if="!cancelled" class="lists">
+      <!-- TIM-14: o card Times entra antes da Escalação. -->
+      <slot name="teams" />
       <h2 class="sc-section">{{ lineupTitle }}</h2>
       <div class="sc-card list">
         <template v-for="row in slots.rows" :key="row.position">

@@ -6,11 +6,29 @@ const route = (method: string, path: string) => [
   { httpApi: { method, path, authorizer: { name: AUTHORIZER } } },
 ];
 
-/** Posições de cada pessoa no grupo (TIM-01–04, docs/modules/times.md): todos do grupo veem, só o dono muda. */
+/**
+ * Posições de cada pessoa no grupo (TIM-01–04) e times do jogo atual (TIM-06–13), docs/modules/times.md.
+ * Os times do convidado vêm pelo link do jogo (GRP-09).
+ */
 export const teamsFunctions: AWS['functions'] = {
   teamsPlayers: { handler: handler('listPlayers'), events: route('GET', '/groups/{id}/players') },
   teamsUpdatePlayer: {
     handler: handler('updatePlayer'),
     events: route('PUT', '/groups/{id}/players/{userId}'),
   },
+  teamsGet: { handler: handler('getTeams'), events: route('GET', '/groups/{id}/games/{date}/teams') },
+  teamsSave: { handler: handler('saveTeams'), events: route('PUT', '/groups/{id}/games/{date}/teams') },
+  teamsPublish: {
+    handler: handler('publishTeams'),
+    events: route('POST', '/groups/{id}/games/{date}/teams/publish'),
+  },
+  teamsUnpublish: {
+    handler: handler('unpublishTeams'),
+    events: route('POST', '/groups/{id}/games/{date}/teams/unpublish'),
+  },
+  teamsDiscard: {
+    handler: handler('discardTeams'),
+    events: route('DELETE', '/groups/{id}/games/{date}/teams'),
+  },
+  teamsGuest: { handler: handler('guestTeams'), events: route('GET', '/play/{token}/teams') },
 };

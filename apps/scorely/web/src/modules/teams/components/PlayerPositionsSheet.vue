@@ -3,8 +3,8 @@ import type { Player, PlayerPosition, Sport } from '@scorely/contracts';
 import { defineComponent, type PropType } from 'vue';
 import BottomSheet from '@/components/BottomSheet.vue';
 import { errorMessage } from '@/i18n/errors';
-import { makeMain, sportPositions, togglePosition } from '../players';
 import { teamsApi } from '../teams.api';
+import PositionsPicker from './PositionsPicker.vue';
 
 /**
  * Painel "Posições de {nome}" (TIM-05): o dono marca e desmarca as posições do esporte e escolhe a principal
@@ -13,7 +13,7 @@ import { teamsApi } from '../teams.api';
 export default defineComponent({
   name: 'PlayerPositionsSheet',
 
-  components: { BottomSheet },
+  components: { BottomSheet, PositionsPicker },
 
   props: {
     modelValue: { type: Boolean, required: true },
@@ -32,10 +32,6 @@ export default defineComponent({
   },
 
   computed: {
-    options(): readonly PlayerPosition[] {
-      return sportPositions(this.sport);
-    },
-
     title(): string {
       return this.$t('teams.editPositions', { name: this.player?.name ?? this.$t('groups.unnamed') });
     },
@@ -48,18 +44,6 @@ export default defineComponent({
   },
 
   methods: {
-    label(position: PlayerPosition): string {
-      return this.$t(`teams.positions.${position}`);
-    },
-
-    toggle(position: PlayerPosition, on: boolean) {
-      this.draft = togglePosition(this.draft, position, on);
-    },
-
-    setMain(position: PlayerPosition) {
-      this.draft = makeMain(this.draft, position);
-    },
-
     async save() {
       const player = this.player;
       if (!player) return;
@@ -87,32 +71,7 @@ export default defineComponent({
   >
     <div class="sc-caption q-mt-xs">{{ $t('teams.positionsHint') }}</div>
 
-    <div class="options">
-      <div v-for="position in options" :key="position" class="sc-row option">
-        <q-checkbox
-          :model-value="draft.includes(position)"
-          :label="label(position)"
-          class="check"
-          @update:model-value="toggle(position, $event)"
-        />
-        <template v-if="draft.includes(position)">
-          <span v-if="draft[0] === position" class="sc-label main">
-            <q-icon name="star" size="16px" />
-            {{ $t('teams.main') }}
-          </span>
-          <q-btn
-            v-else
-            flat
-            round
-            dense
-            icon="star_outline"
-            class="star"
-            :aria-label="$t('teams.makeMain', { position: label(position) })"
-            @click="setMain(position)"
-          />
-        </template>
-      </div>
-    </div>
+    <PositionsPicker v-model="draft" :sport="sport" class="picker" />
 
     <div class="actions">
       <q-btn
@@ -136,35 +95,8 @@ export default defineComponent({
 </template>
 
 <style scoped>
-.options {
-  display: flex;
-  flex-direction: column;
+.picker {
   margin-top: 12px;
-}
-
-.option {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  min-height: 48px;
-}
-
-.check {
-  flex-grow: 1;
-}
-
-.main {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  color: var(--sc-accent);
-  padding-right: 8px;
-}
-
-.star {
-  color: var(--sc-muted);
 }
 
 .actions {

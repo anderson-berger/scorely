@@ -1,6 +1,6 @@
 # Módulo Notificações
 
-> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-10.
+> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-11.
 
 Código: `apps/scorely/api/src/modules/notifications/`, `apps/scorely/web/src/modules/notifications/`. Contrato: `apps/scorely/contracts/src/notifications.ts`.
 
@@ -20,6 +20,7 @@ Avisar a pessoa, dentro do app, do que aconteceu sem ela estar olhando: entrou n
   | `game_cancelled`    | o dono cancelou o jogo (GRP-24)                         | grupo         |
   | `game_reopened`     | o dono reabriu o jogo cancelado (GRP-44)                | grupo         |
   | `member_invite`     | o dono convidou a reserva para virar membro (GRP-40)    | grupo         |
+  | `teams_published`   | o dono publicou os times do jogo pela 1ª vez (TIM-10)   | grupo ou jogo |
   - Um tipo novo entra no contrato e ganha um ícone no web (`notification.icons.ts`).
 
 - **NTF-03. O título e o corpo são gravados em pt-BR** já no momento do aviso. O web mostra o texto como está.
