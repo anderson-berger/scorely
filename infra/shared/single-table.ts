@@ -1,6 +1,6 @@
 /**
  * Fonte única da tabela single-table de cada projeto: usada no deploy (infra-service.ts)
- * e no LocalStack (setup-local.ts). Só PK/SK, sem GSI — buscas por outros campos usam lookups.
+ * e no DynamoDB Local (setup-local.ts). Só PK/SK, sem GSI — buscas por outros campos usam lookups.
  */
 export const tableNameFor = (project: string, stage: string) => `${project}-${stage}`;
 

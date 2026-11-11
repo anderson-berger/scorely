@@ -7,7 +7,15 @@
   },
   "files": {
     "ignoreUnknown": true,
-    "includes": ["**", "!**/node_modules", "!**/dist", "!**/.serverless", "!**/.turbo", "!.claude/**/*.md"]
+    "includes": [
+      "**",
+      "!**/node_modules",
+      "!**/dist",
+      "!**/.serverless",
+      "!**/.turbo",
+      "!.claude/**/*.md",
+      "!**/*.scss"
+    ]
   },
   "plugins": ["./biome-plugins/no-let.grit"],
   "formatter": {

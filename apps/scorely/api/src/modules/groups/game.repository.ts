@@ -19,6 +19,7 @@ import {
   gameDateLookupKey,
   gameKey,
 } from './game.table';
+import { groupKey } from './group.table';
 
 /** Jogo materializado (D1): só existe depois da 1ª confirmação ou do cancelamento. */
 export type GameRecord = Entity & { groupId: string; date: string; cancelledAt?: string };
@@ -30,17 +31,28 @@ export interface ReadOptions {
   consistent?: boolean;
 }
 
+export type AddAttendanceResult = 'added' | 'exists' | 'cancelled' | 'archived';
+
+/** GRP-44: `not_cancelled` = o jogo já não estava cancelado; `archived` = o grupo foi arquivado (ganha se os dois falharem). */
+export type ReopenResult = 'reopened' | 'not_cancelled' | 'archived';
+
 export interface GameRepository {
   findByDate(groupId: string, date: string, opts?: ReadOptions): Promise<GameRecord | undefined>;
   /** Jogo + lookup da data numa transação. `false` = outro request criou o jogo dessa data antes. */
   create(game: GameRecord): Promise<boolean>;
   /** Marca como cancelado (a primeira data de cancelamento fica). */
   cancel(gameId: string, cancelledAt: string): Promise<void>;
+  /** Tira o `cancelledAt` numa transação que também confere o grupo não arquivado (GRP-44). Nada é gravado em falha. */
+  reopen(gameId: string, groupId: string): Promise<ReopenResult>;
   /** Lista inteira, na ordem de confirmação (D4). */
   listAttendance(gameId: string, opts?: ReadOptions): Promise<AttendanceRecord[]>;
   getAttendance(gameId: string, userId: string): Promise<AttendanceRecord | undefined>;
-  /** Presença + 2 lookups numa transação. `false` = o usuário já tinha presença. */
-  addAttendance(a: AttendanceRecord): Promise<boolean>;
+  /**
+   * Presença + 2 lookups numa transação, que também confere o jogo e o grupo (GRP-24, GRP-32).
+   * `exists` = o usuário já tinha presença; `cancelled` = o jogo foi cancelado; `archived` = o grupo foi
+   * arquivado (ganha de `cancelled` se os dois falharem). Em qualquer falha nada é gravado.
+   */
+  addAttendance(a: AttendanceRecord, groupId: string): Promise<AddAttendanceResult>;
   /** Apaga a presença e os 2 lookups numa transação. Já apagada → nada a fazer. */
   removeAttendance(a: AttendanceRecord): Promise<void>;
 }
@@ -110,6 +122,30 @@ export const dynamoGameRepository: GameRepository = {
     );
   },
 
+  async reopen(gameId, groupId) {
+    // Índices: 0 jogo cancelado, 1 grupo não arquivado. O ConditionCheck na mesma transação faz um
+    // arquivamento simultâneo vir antes (reabertura falha) ou depois (o arquivamento cancela de novo).
+    const result = await transactWrite([
+      {
+        Update: {
+          TableName: tableName(),
+          Key: gameKey(gameId),
+          UpdateExpression: 'REMOVE cancelledAt',
+          ConditionExpression: 'attribute_exists(cancelledAt)',
+        },
+      },
+      {
+        ConditionCheck: {
+          TableName: tableName(),
+          Key: groupKey(groupId),
+          ConditionExpression: 'attribute_not_exists(archivedAt)',
+        },
+      },
+    ]);
+    if (result.ok) return 'reopened';
+    return result.failed.includes(1) ? 'archived' : 'not_cancelled';
+  },
+
   async listAttendance(gameId, opts) {
     const pointers = await queryLookupRows(attendanceOrderLookupPk(gameId), opts);
     const rows = await batchGetOrdered(
@@ -124,7 +160,10 @@ export const dynamoGameRepository: GameRepository = {
     return pointer ? getItem<AttendanceRecord>(attendanceKey(pointer.id), true) : undefined;
   },
 
-  async addAttendance(a) {
+  async addAttendance(a, groupId) {
+    // Índices: 0 presença, 1 ordem, 2 presença da pessoa, 3 jogo não cancelado, 4 grupo não arquivado.
+    // Os ConditionCheck ficam na mesma transação: um cancelamento ou arquivamento simultâneo sempre vem
+    // antes ou depois da presença, nunca no meio (GRP-24, GRP-32).
     const result = await transactWrite([
       {
         Put: {
@@ -146,8 +185,25 @@ export const dynamoGameRepository: GameRepository = {
           ConditionExpression: 'attribute_not_exists(PK)',
         },
       },
+      {
+        ConditionCheck: {
+          TableName: tableName(),
+          Key: gameKey(a.gameId),
+          ConditionExpression: 'attribute_not_exists(cancelledAt)',
+        },
+      },
+      {
+        ConditionCheck: {
+          TableName: tableName(),
+          Key: groupKey(groupId),
+          ConditionExpression: 'attribute_not_exists(archivedAt)',
+        },
+      },
     ]);
-    return result.ok;
+    if (result.ok) return 'added';
+    if (result.failed.includes(4)) return 'archived';
+    if (result.failed.includes(3)) return 'cancelled';
+    return 'exists';
   },
 
   async removeAttendance(a) {

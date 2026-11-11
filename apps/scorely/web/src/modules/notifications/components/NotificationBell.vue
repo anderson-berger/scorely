@@ -1,16 +1,27 @@
 <script lang="ts">
-import type { Notification } from '@scorely/contracts';
 import { defineComponent } from 'vue';
-import { errorMessage } from '@/i18n/errors';
-import { formatDateTime } from '@/lib/datetime';
-import { notificationIcon } from '../notification.icons';
+import BottomSheet from '@/components/BottomSheet.vue';
 import { useNotificationsStore } from '../notifications.store';
+import NotificationList from './NotificationList.vue';
 
+/** Sino: painel de baixo no celular, menu no resto (plano 008, D10). */
 export default defineComponent({
   name: 'NotificationBell',
 
+  components: { BottomSheet, NotificationList },
+
   setup() {
     return { store: useNotificationsStore() };
+  },
+
+  data() {
+    return { sheet: false };
+  },
+
+  computed: {
+    badge(): string {
+      return this.store.unreadCount > 99 ? '99+' : String(this.store.unreadCount);
+    },
   },
 
   mounted() {
@@ -22,91 +33,89 @@ export default defineComponent({
   },
 
   methods: {
-    icon(n: Notification): string {
-      return notificationIcon[n.type];
-    },
-
-    when(iso: string): string {
-      return formatDateTime(iso);
-    },
-
-    async open(n: Notification) {
-      await this.store.markRead(n).catch(() => undefined);
-      if (n.link) await this.$router.push(n.link);
-    },
-
-    async remove(n: Notification) {
-      try {
-        await this.store.remove(n);
-      } catch (err) {
-        this.$q.notify({ type: 'negative', message: errorMessage(err) });
-      }
+    click() {
+      if (this.$q.screen.xs) this.sheet = true;
     },
   },
 });
 </script>
 
 <template>
-  <q-btn flat round dense icon="notifications" :aria-label="$t('notifications.label')">
-    <q-badge v-if="store.unreadCount > 0" color="red" floating rounded>
-      {{ store.unreadCount > 99 ? '99+' : store.unreadCount }}
-    </q-badge>
+  <button type="button" class="sc-icon-btn bell" :aria-label="$t('notifications.label')" @click="click">
+    <q-icon name="notifications_none" size="22px" />
+    <span v-if="store.unreadCount > 0" class="badge">{{ badge }}</span>
+
     <!-- O menu é teleportado: largura via style inline (CSS scoped não alcança). -->
-    <q-menu anchor="bottom right" self="top right" style="width: 360px; max-width: calc(100vw - 32px)">
-      <q-list separator>
-        <q-item>
-          <q-item-section class="text-subtitle1 text-weight-medium">{{ $t('notifications.title') }}</q-item-section>
-          <q-item-section side>
-            <q-btn
-              v-if="store.unreadCount > 0"
-              flat
-              dense
-              no-caps
-              size="sm"
-              :label="$t('notifications.markAllRead')"
-              @click="store.markAllRead()"
-            />
-          </q-item-section>
-        </q-item>
-
-        <q-item
-          v-for="n in store.items"
-          :key="n.id"
-          v-close-popup
-          clickable
-          :class="{ 'bg-blue-1': !n.readAt }"
-          @click="open(n)"
-        >
-          <q-item-section avatar>
-            <q-icon :name="icon(n)" color="primary" />
-          </q-item-section>
-          <q-item-section>
-            <q-item-label :class="{ 'text-weight-bold': !n.readAt }">{{ n.title }}</q-item-label>
-            <q-item-label v-if="n.body" caption lines="2">{{ n.body }}</q-item-label>
-            <q-item-label caption>{{ when(n.createdAt) }}</q-item-label>
-          </q-item-section>
-          <q-item-section side>
-            <!-- .stop: não abre a notificação; o menu continua aberto (sem v-close-popup no botão) -->
-            <q-btn
-              flat
-              round
-              dense
-              size="sm"
-              icon="delete"
-              :aria-label="$t('notifications.remove')"
-              @click.stop="remove(n)"
-            />
-          </q-item-section>
-        </q-item>
-
-        <q-item v-if="store.items.length === 0">
-          <q-item-section class="text-grey-7">{{ $t('notifications.empty') }}</q-item-section>
-        </q-item>
-
-        <q-item v-if="store.nextCursor" clickable @click="store.loadMore()">
-          <q-item-section class="text-center text-primary">{{ $t('notifications.more') }}</q-item-section>
-        </q-item>
-      </q-list>
+    <q-menu v-if="!$q.screen.xs" anchor="bottom right" self="top right" style="width: 380px; max-width: calc(100vw - 32px)">
+      <div class="menu-head">
+        <span class="sc-display menu-title">{{ $t('notifications.title') }}</span>
+        <q-btn
+          v-if="store.unreadCount > 0"
+          flat
+          dense
+          no-caps
+          color="primary"
+          :label="$t('notifications.markAllRead')"
+          @click="store.markAllRead()"
+        />
+      </div>
+      <NotificationList v-close-popup />
     </q-menu>
-  </q-btn>
+  </button>
+
+  <BottomSheet v-model="sheet" :title="$t('notifications.title')">
+    <template #action>
+      <q-btn
+        v-if="store.unreadCount > 0"
+        flat
+        dense
+        no-caps
+        color="primary"
+        :label="$t('notifications.markAllRead')"
+        @click="store.markAllRead()"
+      />
+    </template>
+    <NotificationList class="sheet-list" @opened="sheet = false" />
+  </BottomSheet>
 </template>
+
+<style scoped>
+.bell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--sc-accent);
+  color: var(--sc-on-accent);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  box-sizing: border-box;
+}
+
+.menu-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 8px 8px 16px;
+}
+
+.menu-title {
+  font-size: 24px;
+}
+
+.sheet-list {
+  margin: 8px -16px 0;
+}
+</style>

@@ -13,3 +13,6 @@ export const devAuthSecret = `${DEV_AUTH_SECRET_PREFIX}local-only-secret-0123456
 
 // Só para o dev local (fallback do param tableName). Mesma convenção de infra/shared/single-table.ts
 export const tableNameFor = (stage: string) => `${project.name}-${stage}`;
+
+// Só para o dev local (fallback do param uploadsBucket). Mesma convenção de infra/shared/uploads-bucket.ts
+export const uploadsBucketFor = (stage: string) => `${project.name}-${stage}-uploads`;

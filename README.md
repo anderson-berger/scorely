@@ -5,7 +5,7 @@ Monorepo com vários projetos web. Cada projeto tem **Vue 3 + Quasar** no front 
 ## Estrutura
 
 ```
-.devcontainer/              Dockerfile (node:24-bookworm-slim) + compose (app + LocalStack)
+.devcontainer/              Dockerfile (node:24-bookworm-slim) + compose (app + DynamoDB Local + dynamodb-admin + S3Mock)
 serverless-compose.ts       orquestra o deploy: infra de cada projeto → api, repassando outputs como params
 infra/
   shared/                   definição da tabela (single-table.ts), stack de infra (infra-service.ts), setup-local
@@ -39,16 +39,16 @@ Tooling: npm workspaces (`apps/*/*`, `infra/*`) + Turborepo · TypeScript strict
    ```
 
 2. Abra no VS Code → **Dev Containers: Reopen in Container** (roda `npm install`). Se o container já existia, use **Rebuild Container** para ele pegar a key.
-3. `npm run dev:<projeto>` sobe a web e a api daquele projeto. Antes, o Turbo roda o `db:setup` do `@<projeto>/infra`, que cria a tabela no LocalStack.
+3. `npm run dev:<projeto>` sobe a web e a api daquele projeto. Antes, o Turbo roda o `db:setup` do `@<projeto>/infra`, que cria a tabela no DynamoDB Local. Para ver e editar as tabelas, abra o **dynamodb-admin** em http://localhost:8001. No scorely, o `db:setup` também cria o bucket de uploads (fotos de perfil) no **S3Mock** (http://localhost:9090/scorely-dev-uploads/...).
 
-| Comando                                            | O quê                                             |
-| -------------------------------------------------- | ------------------------------------------------- |
-| `npm run dev:base` / `npm run dev:scorely`         | web + api de um projeto (serverless offline)      |
-| `npm run dev`                                      | todos os projetos ao mesmo tempo                  |
-| `npm run typecheck` / `npm test` / `npm run build` | via Turbo, em todos os projetos                   |
-| `npx turbo run test --filter='@scorely/*'`         | qualquer tarefa só em um projeto                  |
-| `npm run lint` / `npm run format`                  | Biome                                             |
-| `npm run db:setup`                                 | cria as tabelas `<projeto>-<stage>` no LocalStack |
+| Comando                                            | O quê                                                 |
+| -------------------------------------------------- | ----------------------------------------------------- |
+| `npm run dev:base` / `npm run dev:scorely`         | web + api de um projeto (serverless offline)          |
+| `npm run dev`                                      | todos os projetos ao mesmo tempo                      |
+| `npm run typecheck` / `npm test` / `npm run build` | via Turbo, em todos os projetos                       |
+| `npx turbo run test --filter='@scorely/*'`         | qualquer tarefa só em um projeto                      |
+| `npm run lint` / `npm run format`                  | Biome                                                 |
+| `npm run db:setup`                                 | cria as tabelas `<projeto>-<stage>` no DynamoDB Local |
 
 ## Infra e deploy (Serverless Compose)
 
@@ -66,7 +66,7 @@ Recursos com estado (tabelas e, no futuro, buckets e filas) ficam em `infra/<pro
 | `npx serverless info` / `npx serverless print`                  | outputs/config resolvidos de todos            |
 
 - **Rode o deploy pela raiz**, nunca de dentro de `apps/<projeto>/api`. Fora do compose o param não existe, então a api cai no fallback do dev local.
-- **Dev local não usa o compose.** O compose lê os outputs do _Shared State_ na AWS e exigiria credenciais reais. O `serverless offline` roda dentro da api, e o fallback `custom.localTableName` aponta para a tabela que o `db:setup` criou no LocalStack.
+- **Dev local não usa o compose.** O compose lê os outputs do _Shared State_ na AWS e exigiria credenciais reais. O `serverless offline` roda dentro da api, e o fallback `custom.localTableName` aponta para a tabela que o `db:setup` criou no DynamoDB Local.
 - **Shared State**: no primeiro deploy, o compose cria um bucket S3 versionado na conta para guardar os outputs, e registra o nome dele no SSM, em `us-east-1`, no parâmetro `/serverless-framework/state/s3-bucket`. Quem faz o deploy precisa de permissão para isso.
 - **`DeletionPolicy: Retain`** na tabela: `serverless remove` apaga o stack, mas mantém a tabela e os dados. Para remover um stage de vez, apague a tabela à mão.
 - `serverless package` via compose exige que o infra já esteja deployado. O `npm run build` (Turbo) roda o package em cada pasta, fora do compose, então não depende disso.
@@ -83,7 +83,7 @@ Gere a key em [app.serverless.com](https://app.serverless.com) → Settings → 
 | CI/CD (stage/prod) | **Secret** do GitHub (`SERVERLESS_ACCESS_KEY`), de preferência por Environment (`stage`, `prod`) |
 
 - **Local**: o `docker-compose.yml` lê o `.devcontainer/.env` sozinho e repassa a key para o container, e o Turbo a repassa para as tarefas (`globalPassThroughEnv`). O arquivo fica no workspace, então sobrevive a rebuilds. Alternativas: exportar `SERVERLESS_ACCESS_KEY` no shell do host, ou rodar `npx serverless login` no container. O login fica na home do container e se perde no rebuild. Rode o login **fora** do `npm run dev`, senão cada api abre o próprio prompt.
-- **A key local não dá acesso à AWS.** No dev, as credenciais AWS são `test`/`test` do LocalStack, e a key só autoriza o Framework a rodar. Deploy acontece só pelo CI.
+- **A key local não dá acesso à AWS.** No dev, as credenciais AWS são `test`/`test` (o DynamoDB Local aceita qualquer uma), e a key só autoriza o Framework a rodar. Deploy acontece só pelo CI.
 - **CI**: use uma key exclusiva do CI, criada na org, para poder revogá-la sem afetar ninguém. Guarde em **Secrets**, não em Variables, porque Variables aparecem em texto puro. No workflow:
 
   ```yaml
@@ -163,17 +163,18 @@ Fluxo: `POST /auth/code { email }` envia um código de 6 dígitos → `POST /aut
 
 ## Fluxo com IA (Claude Code)
 
-Plano 002 (`docs/plans/002-fluxo-ia.md`). Índice das docs em [`docs/README.md`](docs/README.md).
+O negócio de cada módulo está em [`docs/modules/`](docs/modules/README.md), que é o guia da IA ([ADR 0010](docs/decisions/0010-documentacao-viva-por-modulo.md)). Índice das docs em [`docs/README.md`](docs/README.md).
 
-| Peça                      | O quê                                                                                                       |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `CLAUDE.md`               | índice curto: mapa, fluxo, onde fica cada regra                                                             |
-| `.claude/rules/<área>.md` | regras por área, com `paths:`; só carregam quando a IA toca arquivos da área                                |
-| `/task <pedido>`          | plano → **você aprova** → contrato → testes (`test-writer`) → implementação → revisão (`reviewer`) → staged |
-| `/rule <correção>`        | grava uma correção como check (`checks/`), decisão (`docs/decisions/`) ou regra de área                     |
-| `npm run check`           | `typecheck` + `test` + `lint` + `check:rules` (os checks de arquitetura em `checks/`)                       |
-| `.githooks/pre-commit`    | roda `npm run check` no **seu** commit; o devcontainer liga com `git config core.hooksPath .githooks`       |
-| `.claude/settings.json`   | a IA não pode `git commit`/`git push` nem ler `.env`; `serverless deploy`/`remove` pedem confirmação        |
+| Peça                       | O quê                                                                                                                |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `CLAUDE.md`                | índice curto: mapa, fluxo, onde fica cada regra                                                                      |
+| `.claude/rules/<área>.md`  | regras por área, com `paths:`; só carregam quando a IA toca arquivos da área                                         |
+| `docs/modules/<modulo>.md` | doc vivo do módulo: regras numeradas e o porquê; é o que você aprova no `/task`                                      |
+| `/task <pedido>`           | mudança no doc → **você aprova** → contrato → testes (`test-writer`) → implementação → revisão (`reviewer`) → staged |
+| `/rule <correção>`         | grava uma correção como check (`checks/`), decisão (`docs/decisions/`) ou regra de área                              |
+| `npm run check`            | `typecheck` + `test` + `lint` + `check:rules` (os checks de arquitetura em `checks/`)                                |
+| `.githooks/pre-commit`     | roda `npm run check` no **seu** commit; o devcontainer liga com `git config core.hooksPath .githooks`                |
+| `.claude/settings.json`    | a IA não pode `git commit`/`git push` nem ler `.env`; `serverless deploy`/`remove` pedem confirmação                 |
 
 - **Quem commita é você.** A IA deixa tudo staged e sugere a mensagem.
 - Clone fora do devcontainer: rode `git config core.hooksPath .githooks` uma vez. `git commit --no-verify` pula o hook (escolha sua).
@@ -186,5 +187,8 @@ Plano 002 (`docs/plans/002-fluxo-ia.md`). Índice das docs em [`docs/README.md`]
 - **Variáveis de ambiente no Turbo**: o Turbo 2 só repassa para as tarefas as variáveis listadas em `turbo.json` (`globalPassThroughEnv` / `globalEnv`). Se criar uma variável nova, acrescente lá.
 - **`serverless.ts`**: variáveis do Serverless (`${sls:stage}`, `${env:...}`) continuam como strings normais (aspas simples/duplas, nunca template literal). Um campo de tipo literal que receba variável precisa de cast.
 - **TypeScript fixado em 6.x**: o vue-tsc/Volar ainda não suporta o TS 7 (nativo).
-- **Porta 4566 ocupada** por outro LocalStack: `LOCALSTACK_PORT=4567` no host antes de subir o compose.
+- **Mudou o `devcontainer.json` ou o compose?** Rode **Dev Containers: Rebuild Container**. O VS Code só lê a configuração ao criar o container: sem rebuild, portas novas não são encaminhadas e os rótulos antigos continuam no painel Ports.
+- **Porta 8000, 8001 ou 9090 ocupada** no host: `DYNAMODB_PORT=8010` / `DYNAMODB_ADMIN_PORT=8011` / `S3_PORT=9091` no host antes de subir o compose (mudou a do S3? ajuste também o `S3_PUBLIC_ENDPOINT` do compose).
+- **Upload no dev local**: a api assina a URL com `S3_PUBLIC_ENDPOINT` (`http://localhost:9090`), o endereço que o navegador alcança. A assinatura inclui o host, então assinar com `http://s3:9090` quebraria o envio. O S3Mock não confere assinatura nem expiração; tamanho e tipo são conferidos pela api na confirmação ([ADR 0008](docs/decisions/0008-s3-local-s3mock.md)).
+- **DynamoDB Local e TTL**: ele aceita a configuração mas não apaga itens vencidos. Não muda nada, porque a validade vem do `expiresAt` ([ADR 0004](docs/decisions/0004-ttl-com-expiresat.md)).
 - **Região fixa `sa-east-1`** em tudo (serverless.ts, setup local, container, `.env.example`). Não depende do `AWS_REGION` do shell.

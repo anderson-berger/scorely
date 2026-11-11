@@ -14,6 +14,7 @@ Motivo: [docs/decisions/0002-single-table-sem-gsi.md](../../docs/decisions/0002-
 **Não crie GSI nem LSI** (check: `checks/dynamodb.test.ts`). Cada projeto tem a própria tabela, `<projeto>-<stage>`, só com `PK`/`SK` (`infra/shared/single-table.ts`). Para buscar por qualquer campo que não seja o id, use **lookups** (itens ponteiro).
 
 - **Entidade**: `PK=<ENTIDADE>#<id>`, `SK=META`, com todos os atributos.
+- **Entidade de relação** (N:N, sem identidade além do par, ex.: `Membership`): chave natural `PK=<ENTIDADE>#<idA>#<idB>`, `SK=META`, sem `id` e sem `newEntity`, mas com `createdAt` e `dbItem`. Cada direção de busca tem o seu lookup. Motivo: [0009](../../docs/decisions/0009-entidade-de-relacao-chave-natural.md).
 - **Lookup**: guarda **só o `id`** da entidade, nunca uma cópia dos dados. Toda busca tem duas etapas: lê o lookup, pega o `id` e busca a entidade pela chave.
 
 | Caso                                     | Chave do lookup                                     | Leitura                                                                                                       |

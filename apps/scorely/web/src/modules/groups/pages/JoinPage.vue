@@ -23,16 +23,33 @@ export default defineComponent({
 </script>
 
 <template>
-  <q-page padding class="flex flex-center">
-    <div class="text-center">
+  <q-page>
+    <div class="sc-page state">
       <template v-if="error">
-        <div class="text-body1 q-mb-md">{{ error }}</div>
-        <q-btn flat color="primary" :label="$t('groups.backHome')" :to="{ name: 'home' }" />
+        <div class="state-text">{{ error }}</div>
+        <q-btn flat no-caps class="sc-btn-outline" :label="$t('groups.backToGroups')" :to="{ name: 'groups' }" />
       </template>
       <template v-else>
-        <q-spinner size="md" class="q-mb-sm" />
-        <div class="text-body2 text-grey-7">{{ $t('groups.joining') }}</div>
+        <q-spinner color="primary" size="md" />
+        <div class="sc-display joining">{{ $t('groups.joining') }}</div>
       </template>
     </div>
   </q-page>
 </template>
+
+<style scoped>
+.state {
+  padding-top: 96px;
+  text-align: center;
+}
+
+.state-text {
+  font-size: 16px;
+  margin-bottom: 16px;
+}
+
+.joining {
+  font-size: 24px;
+  margin-top: 16px;
+}
+</style>

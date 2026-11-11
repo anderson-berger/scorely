@@ -17,7 +17,7 @@ const client = lazy(() => {
   });
 });
 
-/** Document client único por container Lambda. Usa LocalStack quando DYNAMODB_ENDPOINT existe. */
+/** Document client único por container Lambda. Usa o DynamoDB Local quando DYNAMODB_ENDPOINT existe. */
 export function dynamo(): DynamoDBDocumentClient {
   return client();
 }

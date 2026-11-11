@@ -1,5 +1,5 @@
-// Como o Group e os membros são salvos e buscados (single-table, sem GSI). O formato do grupo é o
-// `GroupSchema` de @scorely/contracts. Membro não tem entidade na E1: são dois lookups (plano 003, D8).
+// Como o Group é salvo e buscado (single-table, sem GSI). O formato do grupo é o `GroupSchema` de
+// @scorely/contracts. Quem participa do grupo (membro/reserva) fica em `membership.table.ts` (plano 013).
 import type { Group } from '@scorely/contracts';
 
 export const GROUP_ENTITY = 'Group';
@@ -13,48 +13,22 @@ export function groupKey(id: Group['id']) {
 }
 
 /**
+ * Contagem do grupo (GRP-39): `PK=GROUP#<id>`, `SK=COUNTERS`, `{ memberCount, reserveCount }`.
+ * Nasce na criação do grupo; muda com `ADD` na mesma transação da entrada, da promoção, da remoção e da saída.
+ * A condição do limite fica neste item (`memberCount < :max`), com um `ConditionCheck` no `META` de que o limite
+ * lido não mudou.
+ */
+export function groupCountersKey(id: Group['id']) {
+  return { PK: `GROUP#${id}`, SK: 'COUNTERS' };
+}
+
+/**
  * Lookup único do convite: `PK=LOOKUP#GROUP#INVITE#<token>`, `SK=META`, `{ id }` (D9).
  * Escrita: na criação do grupo e na troca do convite (Delete do antigo + Put do novo + Update do grupo).
  * Leitura: GetItem no lookup → GetItem em `groupKey(id)`.
  */
 export function groupInviteLookupKey(token: string) {
   return { PK: `LOOKUP#GROUP#INVITE#${token}`, SK: 'META' };
-}
-
-/**
- * Membros do grupo: `PK=LOOKUP#GROUP#<groupId>#MEMBER`, `SK=<userId>`, `{ id: userId }`.
- * Leitura: GetItem (é membro?) ou Query em `groupMembersLookupPk(groupId)` (lista).
- */
-export function groupMembersLookupPk(groupId: Group['id']) {
-  return `LOOKUP#GROUP#${groupId}#MEMBER`;
-}
-
-export function groupMemberLookupKey(groupId: Group['id'], userId: string) {
-  return { PK: groupMembersLookupPk(groupId), SK: userId };
-}
-
-/**
- * Grupos do usuário: `PK=LOOKUP#USER#<userId>#GROUP`, `SK=<groupId>`, `{ id: groupId }`.
- * Escrita: sempre junto com `groupMemberLookupKey`. Leitura: Query em `userGroupsLookupPk(userId)`.
- */
-export function userGroupsLookupPk(userId: string) {
-  return `LOOKUP#USER#${userId}#GROUP`;
-}
-
-export function userGroupLookupKey(userId: string, groupId: Group['id']) {
-  return { PK: userGroupsLookupPk(userId), SK: groupId };
-}
-
-/**
- * Reservas do grupo (plano 007, D4): `PK=LOOKUP#GROUP#<groupId>#RESERVE`, `SK=<userId>`, `{ id: userId }`.
- * Escrita: junto com `userGroupLookupKey` (o mesmo de membro). Leitura: GetItem (é reserva?) ou Query (lista).
- */
-export function groupReservesLookupPk(groupId: Group['id']) {
-  return `LOOKUP#GROUP#${groupId}#RESERVE`;
-}
-
-export function groupReserveLookupKey(groupId: Group['id'], userId: string) {
-  return { PK: groupReservesLookupPk(groupId), SK: userId };
 }
 
 /** Lookup único do link de reserva: `PK=LOOKUP#GROUP#RESERVE_INVITE#<token>`, `SK=META`, `{ id }` (D5). */

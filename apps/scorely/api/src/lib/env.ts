@@ -12,6 +12,11 @@ const EnvSchema = z
     TABLE_NAME: z.string().min(1),
     AWS_REGION: z.string().default('sa-east-1'),
     DYNAMODB_ENDPOINT: optional,
+    /** Bucket de uploads (foto de perfil). */
+    UPLOADS_BUCKET: z.string().min(1),
+    /** Só no dev local (S3Mock): endpoint que a api usa e o que o navegador alcança. */
+    S3_ENDPOINT: optional,
+    S3_PUBLIC_ENDPOINT: optional,
     /** Definido pelo serverless-offline. */
     IS_OFFLINE: z
       .string()

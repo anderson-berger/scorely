@@ -31,6 +31,12 @@ const ACTIONS: Record<string, string[]> = {
     'dynamodb:ConditionCheckItem',
   ],
   SendEmailCommand: ['ses:SendEmail'],
+  // S3 (mídia, docs/modules/midia.md). O POST assinado exige s3:PutObject, mas não é um Command.
+  HeadObjectCommand: ['s3:GetObject'],
+  DeleteObjectCommand: ['s3:DeleteObject'],
+  GetObjectCommand: ['s3:GetObject'],
+  // CopyObject lê a origem e grava o destino
+  CopyObjectCommand: ['s3:GetObject', 's3:PutObject'],
 };
 
 const COMMAND = /\bnew\s+([A-Z][A-Za-z]+Command)\b/g;

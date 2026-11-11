@@ -6,12 +6,14 @@ import { i18n } from '@/i18n';
  * Único lugar da web que formata data (ADR 0006; check em `checks/web.test.ts`).
  * A api manda instantes em UTC; aqui eles viram texto no idioma e no fuso efetivos do usuário.
  */
-export type DateTimeStyle = 'dateTime' | 'date' | 'time';
+export type DateTimeStyle = 'dateTime' | 'date' | 'dayMonth' | 'time' | 'weekday';
 
 const STYLES: Record<DateTimeStyle, Intl.DateTimeFormatOptions> = {
   dateTime: { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' },
   date: { day: '2-digit', month: '2-digit', year: 'numeric' },
+  dayMonth: { day: '2-digit', month: '2-digit' },
   time: { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' },
+  weekday: { weekday: 'long' },
 };
 
 /** Fuso do sistema operacional (pode estar errado: só sugere, o perfil manda). */
@@ -21,6 +23,11 @@ export function detectTimeZone(): string {
 
 /** Reativo: trocar o fuso re-renderiza as telas que formatam datas. */
 const displayTimeZone = ref(detectTimeZone());
+
+/** Fuso em que as datas aparecem agora (perfil ou detectado). */
+export function currentTimeZone(): string {
+  return displayTimeZone.value;
+}
 
 export function setDisplayTimeZone(timeZone: string): void {
   displayTimeZone.value = timeZone;

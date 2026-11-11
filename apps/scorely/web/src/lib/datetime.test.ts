@@ -97,3 +97,18 @@ describe('formatDateTime com fuso desconhecido (caso 15)', () => {
     );
   });
 });
+
+// Plano 015 (D5).
+describe("formatDateTime com o estilo 'weekday'", () => {
+  const FRIDAY = '2026-11-13T22:00:00.000Z';
+
+  it('caso 8: pt-BR → "sexta-feira"', () => {
+    expect(formatDateTime(FRIDAY, 'weekday', { timeZone: 'America/Sao_Paulo', locale: 'pt-BR' })).toBe(
+      'sexta-feira',
+    );
+  });
+
+  it('caso 8: en → "Friday"', () => {
+    expect(formatDateTime(FRIDAY, 'weekday', { timeZone: 'America/Sao_Paulo', locale: 'en' })).toBe('Friday');
+  });
+});

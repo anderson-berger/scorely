@@ -1,3 +1,3 @@
 import { createInfraService } from '../shared/infra-service';
 
-export default createInfraService('scorely');
+export default createInfraService('scorely', { uploads: true });

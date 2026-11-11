@@ -73,31 +73,72 @@ export default defineComponent({
 </script>
 
 <template>
-  <q-page padding>
-    <div class="page">
-      <div v-if="error" class="q-mt-lg text-center">
-        <div class="text-body1 q-mb-md">{{ error }}</div>
-        <q-btn flat color="primary" :label="$t('groups.backHome')" :to="{ name: 'home' }" />
+  <q-page>
+    <div class="sc-page">
+      <div v-if="error" class="state">
+        <div class="state-text">{{ error }}</div>
+        <q-btn flat no-caps class="sc-btn-outline" :label="$t('groups.backToGroups')" :to="{ name: 'groups' }" />
       </div>
 
       <template v-else-if="view">
-        <div class="text-h5">{{ $t('groups.playTitle', { name: view.group.name }) }}</div>
-        <div class="text-body2 text-grey-7 q-mb-md">
-          {{ $t(`sports.${view.group.sport}`) }} ·
-          {{ $t('groups.schedule', { weekday: $t(`weekdays.${view.group.weekday}`), time: view.group.time }) }}
-          ({{ view.group.timeZone }})<span v-if="view.group.location"> · {{ view.group.location }}</span>
-        </div>
+        <!-- GRP-36: o convidado também vê a capa e o logo -->
+        <img v-if="view.group.coverUrl" class="cover" :src="view.group.coverUrl" alt="" />
+        <header class="title">
+          <img v-if="view.group.logoUrl" class="logo" :src="view.group.logoUrl" alt="" />
+          <div class="sc-label sc-accent">{{ $t('groups.gameWeek') }}</div>
+          <h1 class="sc-title name">{{ view.group.name }}</h1>
+          <div class="sc-caption meta">
+            {{ $t(`sports.${view.group.sport}`) }} ·
+            {{ $t('groups.schedule', { weekday: $t(`weekdays.${view.group.weekday}`), time: view.group.time }) }}
+            ({{ view.group.timeZone }})<span v-if="view.group.location"> · {{ view.group.location }}</span>
+          </div>
+        </header>
         <GameCard :game="view.game" :busy="busy" @confirm="confirm" @leave="leave" />
       </template>
 
-      <div v-else class="q-mt-lg text-center"><q-spinner size="md" /></div>
+      <div v-else class="state"><q-spinner color="primary" size="md" /></div>
     </div>
   </q-page>
 </template>
 
 <style scoped>
-.page {
-  max-width: 640px;
-  margin: 0 auto;
+.cover {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1600 / 600;
+  object-fit: cover;
+  border-radius: 12px;
+  margin-top: 12px;
+}
+
+.logo {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  object-fit: cover;
+  margin-bottom: 8px;
+}
+
+.state {
+  margin-top: 48px;
+  text-align: center;
+}
+
+.state-text {
+  font-size: 16px;
+  margin-bottom: 16px;
+}
+
+.title {
+  padding: 24px 0 18px;
+}
+
+.name {
+  font-size: 56px;
+  margin-top: 8px;
+}
+
+.meta {
+  margin-top: 10px;
 }
 </style>

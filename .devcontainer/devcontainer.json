@@ -5,13 +5,12 @@
   "workspaceFolder": "/workspace",
   "remoteUser": "node",
   "postCreateCommand": "npm ci && git config core.hooksPath .githooks",
-  "forwardPorts": [5173, 3000, 5174, 3010, 4566],
+  "forwardPorts": [5173, 3000, 5174, 3010],
   "portsAttributes": {
     "5173": { "label": "base · web", "onAutoForward": "notify" },
     "3000": { "label": "base · api", "onAutoForward": "silent" },
     "5174": { "label": "scorely · web", "onAutoForward": "notify" },
-    "3010": { "label": "scorely · api", "onAutoForward": "silent" },
-    "4566": { "label": "LocalStack", "onAutoForward": "silent" }
+    "3010": { "label": "scorely · api", "onAutoForward": "silent" }
   },
   "customizations": {
     "vscode": {

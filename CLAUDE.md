@@ -5,13 +5,13 @@ Monorepo: Vue 3 + Quasar (web) e Serverless v4 + Lambda + DynamoDB single-table 
 ## Mapa
 
 - `apps/<projeto>/{api,web,contracts}`: `base` (template) e `scorely` (grupos esportivos). Contratos só no scorely.
-- `infra/shared/` (tabela, stack, LocalStack) e `infra/<projeto>/` (stack `<projeto>-infra`).
+- `infra/shared/` (tabela, stack, DynamoDB Local) e `infra/<projeto>/` (stack `<projeto>-infra`).
 - `serverless-compose.ts`: liga infra → api. `checks/`: regras verificadas por máquina.
-- `docs/`: índice em `docs/README.md` (produto, decisões, planos, contexto).
+- `docs/`: índice em `docs/README.md`. **`docs/modules/` é a fonte de verdade do negócio**: o que cada módulo faz, as regras numeradas e o porquê.
 
 ## Fluxo de trabalho
 
-- Toda tarefa passa pelo `/task <pedido>`: plano em `docs/plans/NNN-slug.md` → **para e espera aprovação** → contrato → testes (subagente `test-writer`) → implementação → revisão (subagente `reviewer`) → tudo staged + mensagem de commit sugerida.
+- Toda tarefa passa pelo `/task <pedido>`: mudança no doc do módulo (`docs/modules/`) → **para e espera aprovação** → contrato → testes (subagente `test-writer`) → implementação → revisão (subagente `reviewer`) → tudo staged + mensagem de commit sugerida. O andamento fica em `.claude/work/` (fora do git). `docs/plans/` é só histórico.
 - **Quem commita é o dono.** Nunca rode `git commit`/`git push` (bloqueado em `.claude/settings.json`).
 - Proponha antes de implementar: para pergunta de design ("tem como...?"), mande opções e recomendação e pare.
 - Quando o dono corrigir algo, ofereça `/rule <correção>` para gravar a regra no lugar certo.
@@ -33,6 +33,7 @@ As regras de cada área ficam em `.claude/rules/` e carregam sozinhas ao tocar o
 | `contracts.md`   | contrato só em `@scorely/contracts`; no `base`, cópias idênticas          |
 | `web.md`         | Vue em Options API, i18n e tradução de erros                              |
 | `code.md`        | nunca `let`/`var`                                                         |
+| `modulos.md`     | ler o doc do módulo antes de mudar; regra muda primeiro no doc            |
 
 O porquê de cada decisão estrutural está em `docs/decisions/`. Antes de propor mudar uma delas, leia o ADR.
 

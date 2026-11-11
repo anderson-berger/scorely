@@ -18,6 +18,14 @@ paths:
 
 Referência: `apps/scorely/web/src/modules/users/pages/ProfilePage.vue`.
 
+## Regras de negócio ficam na api (scorely)
+
+**Padrões e regras de negócio são decididos pela api. O web só mostra o que a api devolve e envia o que a pessoa escolheu.** Não copie no web um valor padrão, um limite de negócio ou uma regra para "adiantar" a api: se a tela precisa de um número, ele vem na resposta. A exceção é o que o contrato já compartilha para validar o form (`GROUP_LIMITS` e os schemas).
+
+## Forms no painel de baixo
+
+Todo form abre no `BottomSheet` (`src/components/BottomSheet.vue`), no padrão do editor de Abertura da lista (`modules/groups/components/LayersCard.vue`): título, uma dica curta, os campos e, no rodapé, Cancelar e a ação principal. Não crie uma tela própria nem um drawer para um form.
+
 ## Módulo novo
 
 `web/src/modules/<mod>/` (routes, api, store, pages) → registre as rotas em `src/app/router.ts`.

@@ -20,7 +20,17 @@ export const GROUP_LIMITS = {
   listOpensHoursBefore: { min: 1, max: 144 },
   reservesOpenHoursBefore: { min: 0, max: 144 },
   guestsOpenHoursBefore: { min: 0, max: 144 },
+  /** Limites do grupo (GRP-38): membros contando o dono; reservas 0 = não aceita reservas. */
+  maxMembers: { min: 2, max: 30 },
+  maxReserves: { min: 0, max: 30 },
 } as const;
+
+const MaxMembersSchema = z.number().int().min(GROUP_LIMITS.maxMembers.min).max(GROUP_LIMITS.maxMembers.max);
+const MaxReservesSchema = z
+  .number()
+  .int()
+  .min(GROUP_LIMITS.maxReserves.min)
+  .max(GROUP_LIMITS.maxReserves.max);
 
 const SlotsSchema = z.number().int().min(GROUP_LIMITS.slots.min).max(GROUP_LIMITS.slots.max);
 const ListOpensHoursBeforeSchema = z
@@ -84,26 +94,44 @@ export const CreateGroupInputSchema = z
     timeZone: TimeZoneSchema.optional(),
     location: z.string().trim().min(1).max(120).optional(),
     slots: SlotsSchema,
-    listOpensHoursBefore: ListOpensHoursBeforeSchema,
+    /**
+     * Camadas opcionais (GRP-15): quem decide o padrão é a api. Sem nenhuma, membros 48h, reservas 24h e
+     * convidados desligados; com os membros e sem as reservas, reservas na metade dos membros.
+     */
+    listOpensHoursBefore: ListOpensHoursBeforeSchema.optional(),
     reservesOpenHoursBefore: LayerHoursSchema.optional(),
     guestsOpenHoursBefore: LayerHoursSchema.optional(),
   })
   .superRefine((input, ctx) => {
+    // Sem os membros, o contrato não sabe o padrão (é da api): confere só o que veio. A api confere a ordem completa.
+    if (input.listOpensHoursBefore === undefined) {
+      if (input.reservesOpenHoursBefore === undefined) return;
+      const field = layersViolation({
+        listOpensHoursBefore: input.reservesOpenHoursBefore,
+        reservesOpenHoursBefore: input.reservesOpenHoursBefore,
+        guestsOpenHoursBefore: input.guestsOpenHoursBefore,
+      });
+      if (field) ctx.addIssue({ code: 'custom', path: [field], message: LAYERS_MESSAGE });
+      return;
+    }
     const field = layersViolation({
       ...input,
-      // Sem reservas, a api usa a metade da antecedência dos membros (D2), que nunca quebra a ordem das reservas.
+      listOpensHoursBefore: input.listOpensHoursBefore,
+      // Sem reservas, a api usa a metade da antecedência dos membros, que nunca quebra a ordem das reservas.
       reservesOpenHoursBefore: input.reservesOpenHoursBefore ?? Math.floor(input.listOpensHoursBefore / 2),
     });
     if (field) ctx.addIssue({ code: 'custom', path: [field], message: LAYERS_MESSAGE });
   });
 export type CreateGroupInput = z.infer<typeof CreateGroupInputSchema>;
 
-/** PATCH /groups/{id} (dono): só as camadas. `guestsOpenHoursBefore: null` desliga os convidados. */
+/** PATCH /groups/{id} (dono): as camadas e os limites (GRP-16, 38). `guestsOpenHoursBefore: null` desliga os convidados. */
 export const UpdateGroupInputSchema = z
   .object({
     listOpensHoursBefore: ListOpensHoursBeforeSchema.optional(),
     reservesOpenHoursBefore: LayerHoursSchema.optional(),
     guestsOpenHoursBefore: LayerHoursSchema.nullable().optional(),
+    maxMembers: MaxMembersSchema.optional(),
+    maxReserves: MaxReservesSchema.optional(),
   })
   .refine((patch) => Object.keys(patch).length > 0, { message: 'Nothing to update' });
 export type UpdateGroupInput = z.infer<typeof UpdateGroupInputSchema>;
@@ -127,7 +155,16 @@ export const GroupSchema = EntitySchema.extend({
   inviteToken: z.string().optional(),
   reserveInviteToken: z.string().optional(),
   guestToken: z.string().optional(),
+  archivedAt: z.iso.datetime().optional(),
+  /** Logo e capa (GRP-35, GRP-36): URLs públicas das mídias `group.logo` e `group.cover`. */
+  logoUrl: z.url().optional(),
+  coverUrl: z.url().optional(),
+  /** Limites (GRP-38). A contagem sai da lista de membros. */
+  maxMembers: z.number().int(),
+  maxReserves: z.number().int(),
   myRole: MemberRoleSchema,
+  /** Só para a reserva com convite para membro pendente (GRP-40, 41). */
+  myMemberInvite: z.object({ expiresAt: z.iso.datetime() }).optional(),
 });
 export type Group = z.infer<typeof GroupSchema>;
 
@@ -144,8 +181,14 @@ export const MemberSchema = z.object({
   name: z.string().optional(),
   isOwner: z.boolean(),
   role: MemberRoleSchema,
+  /** Só na resposta para o dono: a reserva tem convite para membro pendente até essa data (GRP-40). */
+  memberInviteExpiresAt: z.iso.datetime().optional(),
 });
 export type Member = z.infer<typeof MemberSchema>;
+
+/** POST /groups/{id}/members/{userId}/member-invite: o convite pendente (GRP-40). */
+export const MemberInviteSchema = z.object({ userId: z.uuid(), expiresAt: z.iso.datetime() });
+export type MemberInvite = z.infer<typeof MemberInviteSchema>;
 
 export const GameStatusSchema = z.enum(['scheduled', 'open', 'in_progress', 'cancelled']);
 export type GameStatus = z.infer<typeof GameStatusSchema>;
@@ -203,8 +246,14 @@ export const GuestGameSchema = z.object({
     time: true,
     timeZone: true,
     location: true,
+    logoUrl: true,
+    coverUrl: true,
   }),
   myRole: GroupRoleSchema,
   game: GameSchema,
 });
 export type GuestGame = z.infer<typeof GuestGameSchema>;
+
+/** Qual imagem do grupo (GRP-35): `logo` → mídia `group.logo`; `cover` → `group.cover`. */
+export const GroupImageSlotSchema = z.enum(['logo', 'cover']);
+export type GroupImageSlot = z.infer<typeof GroupImageSlotSchema>;

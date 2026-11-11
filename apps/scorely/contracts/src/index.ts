@@ -4,5 +4,7 @@ export * from './auth';
 export * from './entity';
 export * from './errors';
 export * from './groups';
+export * from './media';
 export * from './notifications';
+export * from './teams';
 export * from './users';

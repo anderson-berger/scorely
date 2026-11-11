@@ -4,7 +4,7 @@ import { appError } from '../../lib/errors';
 import { currentOccurrence, layerOpensAt, type Occurrence, timeStatus } from '../../lib/zoned';
 import type { AttendanceRecord, GameRecord } from './game.repository';
 import type { StoredGroup } from './group.repository';
-import { type GroupsDeps, requireMember, requireOwner, reservesHours } from './groups.deps';
+import { type GroupsDeps, requireActive, requireMember, requireOwner, reservesHours } from './groups.deps';
 
 /** Jogo atual de um grupo num instante: a ocorrência calculada (D1 do 003) e o item, se já existe. */
 interface CurrentGame {
@@ -151,6 +151,38 @@ export function createGameService(deps: GroupsDeps) {
     });
   }
 
+  /** GRP-24: marca o cancelamento e avisa a lista inteira (dentro e fila), menos o dono. Devolve o `cancelledAt`. */
+  async function cancelAndNotify(group: StoredGroup, record: GameRecord, at: Date): Promise<string> {
+    const cancelledAt = at.toISOString();
+    await deps.games.cancel(record.id, cancelledAt);
+    // Leitura consistente depois do cancelamento: quem confirmou antes dele está aqui e é avisado.
+    const list = await listOf(record);
+    for (const a of list) {
+      if (a.userId === group.ownerId) continue;
+      await deps.notifications.notify(a.userId, {
+        type: 'game_cancelled',
+        title: 'Jogo cancelado',
+        body: `O jogo de ${group.name} foi cancelado.`,
+        link: `/groups/${group.id}`,
+      });
+    }
+    return cancelledAt;
+  }
+
+  /** GRP-44: avisa a lista inteira (dentro e fila), menos o dono. Lida depois da reabertura. */
+  async function notifyReopened(group: StoredGroup, record: GameRecord): Promise<void> {
+    const list = await listOf(record);
+    for (const a of list) {
+      if (a.userId === group.ownerId) continue;
+      await deps.notifications.notify(a.userId, {
+        type: 'game_reopened',
+        title: 'Jogo reaberto',
+        body: `O jogo de ${group.name} voltou a valer. Você continua na lista.`,
+        link: `/groups/${group.id}`,
+      });
+    }
+  }
+
   async function confirmAs(userId: string, group: StoredGroup, role: GroupRole, date: string): Promise<Game> {
     const game = await loadByDate(group, date);
     assertListWritable(game, role);
@@ -160,7 +192,10 @@ export function createGameService(deps: GroupsDeps) {
         { gameId: record.id, userId, confirmedAt: game.at.toISOString() },
         game.at,
       );
-      await deps.games.addAttendance(attendance);
+      // A transação confere o jogo e o grupo de novo: cancelado ou arquivado no meio → nada gravado (GRP-24, GRP-32).
+      const result = await deps.games.addAttendance(attendance, group.id);
+      if (result === 'archived') throw appError('GROUP_ARCHIVED');
+      if (result === 'cancelled') throw appError('GAME_CANCELLED');
     }
     return view(userId, { ...game, record }, role);
   }
@@ -192,6 +227,7 @@ export function createGameService(deps: GroupsDeps) {
   return {
     async current(userId: string, groupId: string): Promise<Game> {
       const { group, role } = await requireMember(deps, userId, groupId);
+      requireActive(group);
       return view(userId, await load(group, now()), role);
     },
 
@@ -213,12 +249,14 @@ export function createGameService(deps: GroupsDeps) {
     /** Confirma presença. Já confirmado → mantém a posição (D5 do 003). */
     async confirm(userId: string, groupId: string, date: string): Promise<Game> {
       const { group, role } = await requireMember(deps, userId, groupId);
+      requireActive(group);
       return confirmAs(userId, group, role, date);
     },
 
     /** Desiste. Sem presença → nada a fazer. Saiu de dentro → promoção (D6 do 003). */
     async leave(userId: string, groupId: string, date: string): Promise<void> {
       const { group, role } = await requireMember(deps, userId, groupId);
+      requireActive(group);
       await leaveAs(userId, group, role, date);
     },
 
@@ -226,9 +264,20 @@ export function createGameService(deps: GroupsDeps) {
     async guestView(userId: string, token: string): Promise<GuestGame> {
       const { group, role } = await byGuestLink(userId, token);
       const game = await view(userId, await load(group, now()), role);
-      const { id, name, sport, weekday, time, timeZone, location } = group;
+      const { id, name, sport, weekday, time, timeZone, location, logoUrl, coverUrl } = group;
       return {
-        group: { id, name, sport, weekday, time, timeZone, ...(location && { location }) },
+        // GRP-36: o convidado também vê o logo e a capa
+        group: {
+          id,
+          name,
+          sport,
+          weekday,
+          time,
+          timeZone,
+          ...(location && { location }),
+          ...(logoUrl && { logoUrl }),
+          ...(coverUrl && { coverUrl }),
+        },
         myRole: role,
         game,
       };
@@ -247,28 +296,48 @@ export function createGameService(deps: GroupsDeps) {
     /** Dono cancela o jogo atual. Já cancelado → devolve igual, sem avisar de novo. */
     async cancel(userId: string, groupId: string, date: string): Promise<Game> {
       const group = await requireOwner(deps, userId, groupId);
+      requireActive(group);
       const game = await loadByDate(group, date);
       if (game.record?.cancelledAt) return view(userId, game, 'member');
       if (timeStatus(game.occurrence, game.at) === 'in_progress') throw appError('GAME_CLOSED');
       const record = await ensureRecord(game);
-      const cancelledAt = game.at.toISOString();
-      await deps.games.cancel(record.id, cancelledAt);
-      const list = await listOf(record);
-      for (const a of list) {
-        if (a.userId === group.ownerId) continue;
-        await deps.notifications.notify(a.userId, {
-          type: 'game_cancelled',
-          title: 'Jogo cancelado',
-          body: `O jogo de ${group.name} foi cancelado.`,
-          link: `/groups/${group.id}`,
-        });
-      }
+      const cancelledAt = await cancelAndNotify(group, record, game.at);
       return view(userId, { ...game, record: { ...record, cancelledAt } }, 'member');
     },
 
     /**
-     * Parte do jogo na remoção de um membro ou reserva (D12 do 003): a presença a apagar junto (só com a
-     * lista `scheduled`/`open`) e a promoção para rodar depois da transação.
+     * GRP-31: cancela o jogo atual de um grupo que acabou de ser arquivado. Só `scheduled`/`open` e só com o jogo
+     * gravado (virtual = ninguém confirmou, não há quem avisar). Já cancelado → nada. Idempotente.
+     */
+    async cancelForArchive(group: StoredGroup): Promise<void> {
+      const { occurrence, record, at } = await load(group, now());
+      if (!record || record.cancelledAt) return;
+      if (timeStatus(occurrence, at) === 'in_progress') return;
+      await cancelAndNotify(group, record, at);
+    },
+
+    /**
+     * GRP-44: tira o cancelamento do jogo atual, antes do início. A lista fica como estava e é avisada,
+     * menos o dono. Jogo não cancelado → devolve como está, sem avisar.
+     */
+    async reopen(userId: string, groupId: string, date: string): Promise<Game> {
+      const group = await requireOwner(deps, userId, groupId);
+      requireActive(group);
+      const game = await loadByDate(group, date);
+      const { record } = game;
+      if (!record?.cancelledAt) return view(userId, game, 'member');
+      if (timeStatus(game.occurrence, game.at) === 'in_progress') throw appError('GAME_CLOSED');
+      const result = await deps.games.reopen(record.id, group.id);
+      if (result === 'archived') throw appError('GROUP_ARCHIVED');
+      const { cancelledAt: _c, ...reopened } = record;
+      if (result === 'reopened') await notifyReopened(group, reopened);
+      return view(userId, { ...game, record: reopened }, 'member');
+    },
+
+    /**
+     * Parte do jogo na remoção de um membro ou reserva (D12 do 003): a presença a apagar junto (com a
+     * lista `scheduled`/`open`/`cancelled`, GRP-25) e a promoção para rodar depois da transação (sem promoção
+     * com o jogo cancelado: ninguém joga).
      */
     async removalPlan(
       group: StoredGroup,
@@ -278,9 +347,10 @@ export function createGameService(deps: GroupsDeps) {
       const { occurrence, record, at } = await load(group, now());
       if (!record) return nothing;
       const status = statusOf(occurrence, record, at);
-      if (status !== 'scheduled' && status !== 'open') return nothing;
+      if (status === 'in_progress') return nothing;
       const attendance = await deps.games.getAttendance(record.id, memberId);
       if (!attendance) return nothing;
+      if (status === 'cancelled') return { attendance, afterRemoval: nothing.afterRemoval };
       const before = await listOf(record);
       return { attendance, afterRemoval: () => notifyPromotion(group, record, before, memberId) };
     },

@@ -9,3 +9,6 @@ coverage/
 .env.*
 !.env.example
 .DS_Store
+
+# Andamento do /task (ADR 0010): só para retomar, fora do git
+.claude/work/

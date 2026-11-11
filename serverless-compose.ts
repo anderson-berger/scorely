@@ -18,7 +18,10 @@ export default {
     'scorely-infra': { path: 'infra/scorely' },
     'scorely-api': {
       path: 'apps/scorely/api',
-      params: { tableName: '${service:scorely-infra.TableName}' },
+      params: {
+        tableName: '${service:scorely-infra.TableName}',
+        uploadsBucket: '${service:scorely-infra.UploadsBucketName}',
+      },
     },
   },
 };

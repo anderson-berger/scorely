@@ -2,7 +2,6 @@ import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '@/modules/auth/auth.store';
 import { authRoutes } from '@/modules/auth/routes';
 import { groupsRoutes } from '@/modules/groups/routes';
-import { homeRoutes } from '@/modules/home/routes';
 import { usersRoutes } from '@/modules/users/routes';
 import { guardDecision } from './guard';
 
@@ -18,7 +17,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/',
     component: () => import('@/layouts/MainLayout.vue'),
-    children: [...homeRoutes, ...usersRoutes, ...groupsRoutes],
+    children: [...usersRoutes, ...groupsRoutes],
   },
   { path: '/:pathMatch(.*)*', redirect: '/' },
 ];

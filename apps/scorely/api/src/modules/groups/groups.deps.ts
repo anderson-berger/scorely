@@ -3,7 +3,7 @@ import { appError } from '../../lib/errors';
 import type { NotificationService } from '../notifications/notification.service';
 import type { UserDirectory } from '../users/user.repository';
 import type { GameRepository } from './game.repository';
-import type { GroupRepository, StoredGroup } from './group.repository';
+import { type GroupRepository, limitsOf, type StoredGroup } from './group.repository';
 
 /** O que os services de grupo e de jogo recebem (o mesmo objeto para os dois). */
 export interface GroupsDeps {
@@ -19,9 +19,13 @@ export function reservesHours(group: StoredGroup): number {
   return group.reservesOpenHoursBefore ?? group.listOpensHoursBefore;
 }
 
-/** O grupo para quem pede: com as camadas efetivas e o papel; os 3 tokens só para o dono. */
+/** Ids das mídias do logo e da capa (GRP-35): internos, gravados pela transação da mídia (MID-08). */
+export type GroupImageIds = { logoMediaId?: string; coverMediaId?: string };
+
+/** O grupo para quem pede: com as camadas e os limites efetivos (GRP-15, 38) e o papel; os 3 tokens só para o dono; sem os ids das mídias (GRP-36). */
 export function forViewer(group: StoredGroup, userId: string, myRole: MemberRole): Group {
-  const view = { ...group, reservesOpenHoursBefore: reservesHours(group), myRole };
+  const { logoMediaId: _l, coverMediaId: _c, ...clean } = group as StoredGroup & GroupImageIds;
+  const view = { ...clean, ...limitsOf(clean), reservesOpenHoursBefore: reservesHours(clean), myRole };
   if (group.ownerId === userId) return view;
   const { inviteToken: _i, reserveInviteToken: _r, guestToken: _g, ...rest } = view;
   return rest;
@@ -29,7 +33,7 @@ export function forViewer(group: StoredGroup, userId: string, myRole: MemberRole
 
 /** Grupo de quem é membro ou reserva. Quem não participa (ou grupo inexistente) → `GROUP_NOT_FOUND` (D10 do 003). */
 export async function requireMember(
-  deps: GroupsDeps,
+  deps: Pick<GroupsDeps, 'groups'>,
   userId: string,
   groupId: string,
 ): Promise<{ group: StoredGroup; role: MemberRole }> {
@@ -38,8 +42,17 @@ export async function requireMember(
   return { group, role };
 }
 
+/** GRP-32: grupo arquivado é só leitura. Vem depois do `requireMember`/`requireOwner` (404 e 403 primeiro). */
+export function requireActive(group: StoredGroup): void {
+  if (group.archivedAt) throw appError('GROUP_ARCHIVED');
+}
+
 /** Como `requireMember`, e só o dono passa (`GROUP_NOT_OWNER`, 403 com corpo). */
-export async function requireOwner(deps: GroupsDeps, userId: string, groupId: string): Promise<StoredGroup> {
+export async function requireOwner(
+  deps: Pick<GroupsDeps, 'groups'>,
+  userId: string,
+  groupId: string,
+): Promise<StoredGroup> {
   const { group } = await requireMember(deps, userId, groupId);
   if (group.ownerId !== userId) throw appError('GROUP_NOT_OWNER');
   return group;

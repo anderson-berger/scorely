@@ -25,6 +25,10 @@ const CATALOG = {
     message: 'Could not create the user due to a concurrent request; retry',
   },
 
+  MEDIA_NOT_FOUND: { status: 404, message: 'Media not found or expired' },
+  MEDIA_NOT_UPLOADED: { status: 404, message: 'Media file was not uploaded' },
+  MEDIA_INVALID: { status: 422, message: 'Media file has the wrong size, format or dimensions' },
+
   NOTIFICATION_NOT_FOUND: { status: 404, message: 'Notification not found' },
 
   GROUP_NOT_FOUND: { status: 404, message: 'Group not found' },
@@ -33,12 +37,19 @@ const CATALOG = {
   GROUP_MEMBER_NOT_FOUND: { status: 404, message: 'Member not found in this group' },
   GROUP_OWNER_NOT_REMOVABLE: { status: 409, message: 'The group owner cannot be removed' },
   GROUP_LAYERS_INVALID: { status: 422, message: 'Layers must open in order: members, reserves, guests' },
+  GROUP_ARCHIVED: { status: 409, message: 'Group is archived' },
+  GROUP_MEMBERS_FULL: { status: 409, message: 'The group has reached its member limit' },
+  GROUP_RESERVES_FULL: { status: 409, message: 'The group has reached its reserve limit' },
+  GROUP_MEMBER_INVITE_INVALID: { status: 404, message: 'No pending member invite' },
 
   GAME_NOT_FOUND: { status: 404, message: 'Game not found' },
   GAME_LIST_NOT_OPEN: { status: 409, message: 'The attendance list is not open yet' },
   GAME_CLOSED: { status: 409, message: 'The game has started or ended; the list is closed' },
   GAME_CANCELLED: { status: 409, message: 'The game was cancelled' },
   GAME_LINK_INVALID: { status: 404, message: 'Invalid or replaced game link' },
+
+  TEAM_PLAYER_NOT_FOUND: { status: 404, message: 'Player is not in the group or in the current game list' },
+  TEAM_POSITION_INVALID: { status: 422, message: 'Position does not belong to the group sport' },
 } as const satisfies Record<ErrorCode, { status: number; message: string }>;
 
 /** Código com `details` obrigatório pede o objeto; os demais não aceitam nada. */

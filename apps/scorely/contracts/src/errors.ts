@@ -21,6 +21,10 @@ export const ErrorCodeSchema = z.enum([
   // users
   'USER_NOT_FOUND',
   'USER_CREATE_CONFLICT',
+  // media
+  'MEDIA_NOT_FOUND',
+  'MEDIA_NOT_UPLOADED',
+  'MEDIA_INVALID',
   // notifications
   'NOTIFICATION_NOT_FOUND',
   // groups
@@ -30,12 +34,19 @@ export const ErrorCodeSchema = z.enum([
   'GROUP_MEMBER_NOT_FOUND',
   'GROUP_OWNER_NOT_REMOVABLE',
   'GROUP_LAYERS_INVALID',
+  'GROUP_ARCHIVED',
+  'GROUP_MEMBERS_FULL',
+  'GROUP_RESERVES_FULL',
+  'GROUP_MEMBER_INVITE_INVALID',
   // games
   'GAME_NOT_FOUND',
   'GAME_LIST_NOT_OPEN',
   'GAME_CLOSED',
   'GAME_CANCELLED',
   'GAME_LINK_INVALID',
+  // teams
+  'TEAM_PLAYER_NOT_FOUND',
+  'TEAM_POSITION_INVALID',
 ]);
 export type ErrorCode = z.infer<typeof ErrorCodeSchema>;
 
@@ -52,8 +63,14 @@ export const ErrorDetailsSchemas = {
   VALIDATION_ERROR: z.object({ issues: z.array(ValidationIssueSchema) }),
   MISSING_PARAM: z.object({ param: z.string() }),
   AUTH_CODE_COOLDOWN: z.object({ retryInSeconds: z.number().int().positive() }),
+  MEDIA_INVALID: z.object({
+    maxBytes: z.number().int().positive(),
+    width: z.number().int().positive(),
+    height: z.number().int().positive(),
+  }),
   GAME_LIST_NOT_OPEN: z.object({ opensAt: z.iso.datetime() }),
   GROUP_LAYERS_INVALID: z.object({ field: z.enum(['reservesOpenHoursBefore', 'guestsOpenHoursBefore']) }),
+  TEAM_POSITION_INVALID: z.object({ position: z.string() }),
 } satisfies Partial<Record<ErrorCode, z.ZodType>>;
 export type ErrorDetails = {
   [C in keyof typeof ErrorDetailsSchemas]: z.infer<(typeof ErrorDetailsSchemas)[C]>;

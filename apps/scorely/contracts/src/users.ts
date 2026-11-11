@@ -40,6 +40,8 @@ export const UserSchema = EntitySchema.extend({
   locale: LocaleSchema.optional(),
   /** Texto livre na leitura: a api valida ao gravar (plano 003, D13). */
   timeZone: z.string().optional(),
+  /** URL pública da foto de perfil (USR-08: mídia `avatar`). */
+  avatarUrl: z.url().optional(),
 });
 export type User = z.infer<typeof UserSchema>;
 

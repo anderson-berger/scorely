@@ -14,6 +14,8 @@ const group = (timeZone: string) => ({
   slots: 12,
   listOpensHoursBefore: 48,
   reservesOpenHoursBefore: 24,
+  maxMembers: 30,
+  maxReserves: 30,
   ownerId: '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d',
   myRole: 'member',
 });

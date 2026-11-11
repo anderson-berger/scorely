@@ -11,7 +11,7 @@ paths:
 Motivo: [docs/decisions/0001-infra-separada-da-api.md](../../docs/decisions/0001-infra-separada-da-api.md).
 
 - **Nunca declare recursos (tabela, bucket, fila...) no `serverless.ts` de uma api.** A api só tem lambdas, IAM e config. Check: `checks/infra.test.ts`.
-- `infra/shared/`: definição da tabela (`single-table.ts`, fonte única), stack de infra (`infra-service.ts`) e `setup-local.ts` (LocalStack).
+- `infra/shared/`: definição da tabela (`single-table.ts`, fonte única), stack de infra (`infra-service.ts`) e `setup-local.ts` (DynamoDB Local).
 - `infra/<projeto>/serverless.ts`: stack `<projeto>-infra`. Cria o recurso e o expõe em `resources.Outputs`.
 - `serverless-compose.ts` (raiz): repassa os outputs para a api em `params` (`'${service:<projeto>-infra.<Output>}'`).
 - Na api, leia sempre com fallback para o dev local: `'${param:x, self:custom.localX}'`. O dev local roda fora do compose, e ali o `${param:...}` não existe. Check: `checks/infra.test.ts`.

@@ -13,26 +13,58 @@ services:
     working_dir: /workspace
     command: sleep infinity
     environment:
-      DYNAMODB_ENDPOINT: http://localstack:4566
+      DYNAMODB_ENDPOINT: http://dynamodb:8000
+      # S3 local (S3Mock). A URL assinada usa o endereço que o navegador alcança (docs/plans/010)
+      S3_ENDPOINT: http://s3:9090
+      S3_PUBLIC_ENDPOINT: http://localhost:9090
       AWS_REGION: sa-east-1
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
       # Serverless v4 exige auth: key pessoal em .devcontainer/.env (gitignored) ou exportada no host
       SERVERLESS_ACCESS_KEY: ${SERVERLESS_ACCESS_KEY:-}
     depends_on:
-      - localstack
+      - dynamodb
+      - s3
 
-  localstack:
-    image: localstack/localstack:4.9
+  # DynamoDB Local oficial da AWS: sem conta nem token. -sharedDb = uma base só, qualquer região/credencial.
+  # Não apaga itens por TTL; a validade vem do expiresAt (docs/decisions/0004).
+  dynamodb:
+    image: amazon/dynamodb-local:3.3.2
+    # o volume nomeado nasce com dono root; a imagem roda como dynamodblocal e não conseguiria gravar
+    user: root
+    working_dir: /home/dynamodblocal
+    command: -jar DynamoDBLocal.jar -sharedDb -dbPath ./data
     ports:
-      - "${LOCALSTACK_PORT:-4566}:4566"
-    environment:
-      SERVICES: dynamodb
-      PERSISTENCE: 1
+      - "${DYNAMODB_PORT:-8000}:8000"
     volumes:
-      - localstack-data:/var/lib/localstack
+      - dynamodb-data:/home/dynamodblocal/data
+
+  # Interface web para ver/editar as tabelas: http://localhost:8001
+  dynamodb-admin:
+    image: aaronshaf/dynamodb-admin:5.3.4
+    ports:
+      - "${DYNAMODB_ADMIN_PORT:-8001}:8001"
+    environment:
+      DYNAMO_ENDPOINT: http://dynamodb:8000
+      AWS_REGION: sa-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+    depends_on:
+      - dynamodb
+
+  # S3 local (Adobe S3Mock): sem autenticação; o db:setup cria o bucket e o CORS
+  s3:
+    image: adobe/s3mock:5.2.3
+    ports:
+      - "${S3_PORT:-9090}:9090"
+    environment:
+      COM_ADOBE_TESTING_S3MOCK_STORE_ROOT: /s3mockroot
+      COM_ADOBE_TESTING_S3MOCK_STORE_RETAIN_FILES_ON_EXIT: "true"
+    volumes:
+      - s3-data:/s3mockroot
 
 volumes:
   node_modules:
-  localstack-data:
+  dynamodb-data:
+  s3-data:
   claude-config:

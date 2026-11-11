@@ -37,6 +37,12 @@ export const useAuthStore = defineStore('auth', () => {
     return user.value;
   }
 
+  /** Foto de perfil (plano 010): troca ou remove e atualiza o usuário do store. */
+  async function setAvatar(file: Blob | null) {
+    user.value = file ? await usersApi.uploadAvatar(file) : await usersApi.removeAvatar();
+    return user.value;
+  }
+
   /** Limpa o estado local (usado também quando a sessão expira), inclusive os grupos da conta. */
   function reset() {
     session.clear();
@@ -54,5 +60,5 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  return { user, isAuthenticated, needsProfile, login, loadMe, updateProfile, logout, reset };
+  return { user, isAuthenticated, needsProfile, login, loadMe, updateProfile, setAvatar, logout, reset };
 });

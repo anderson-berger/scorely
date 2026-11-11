@@ -1,13 +1,48 @@
 <script lang="ts">
 import { type Game, GROUP_LIMITS, type Group, UpdateGroupInputSchema } from '@scorely/contracts';
 import { defineComponent, type PropType } from 'vue';
+import BottomSheet from '@/components/BottomSheet.vue';
+import HoursStepper from '@/components/HoursStepper.vue';
 import { errorMessage, issueMessage } from '@/i18n/errors';
 import { formatDateTime } from '@/lib/datetime';
 import { groupsApi } from '../groups.api';
+import {
+  changeLayer,
+  type LayerKey,
+  type LayerStep,
+  type Layers,
+  layerOpensAt,
+  layerTimeline,
+  stepHours,
+} from '../layers';
 
-/** Quando a lista abre para cada camada; o dono configura (plano 007, D2/D11). */
+type LayerState = LayerStep['state'];
+
+interface SummaryRow {
+  key: LayerKey;
+  name: string;
+  state: LayerState;
+  when: string;
+}
+
+interface EditRow {
+  key: LayerKey;
+  name: string;
+  hours: number;
+  hint: string;
+  off: boolean;
+  /** Onde a barra começa na linha do tempo (0–100% de 144h antes até o jogo). */
+  left: string;
+}
+
+const KEYS: LayerKey[] = ['members', 'reserves', 'guests'];
+const GUESTS_DEFAULT = 6;
+
+/** Quando a lista abre para cada camada; o dono ajusta num painel de baixo (planos 007 D2/D11 e 008). */
 export default defineComponent({
   name: 'LayersCard',
+
+  components: { BottomSheet, HoursStepper },
 
   props: {
     group: { type: Object as PropType<Group>, required: true },
@@ -21,33 +56,82 @@ export default defineComponent({
     return {
       editing: false,
       saving: false,
-      limits: GROUP_LIMITS,
-      listOpensHoursBefore: 0 as number | string,
-      reservesOpenHoursBefore: 0 as number | string,
-      guestsEnabled: false,
-      guestsOpenHoursBefore: 0 as number | string,
+      draft: { members: 48, reserves: 24, guests: null } as Layers,
     };
   },
 
+  computed: {
+    summary(): SummaryRow[] {
+      return layerTimeline(this.game, new Date()).map((step) => ({
+        key: step.key,
+        name: this.$t(`groups.layerNames.${step.key}`),
+        state: step.state,
+        when: step.at ? formatDateTime(step.at) : this.$t('groups.guestsOff'),
+      }));
+    },
+
+    rows(): EditRow[] {
+      return KEYS.map((key) => {
+        const off = key === 'guests' && this.draft.guests === null;
+        const hours = this.draft[key] ?? GUESTS_DEFAULT;
+        const max = GROUP_LIMITS.listOpensHoursBefore.max;
+        return {
+          key,
+          name: this.$t(`groups.layerNames.${key}`),
+          hours,
+          off,
+          hint: off ? this.$t('groups.layerState.off') : this.opensHint(hours),
+          left: `${(100 - (hours / max) * 100).toFixed(1)}%`,
+        };
+      });
+    },
+
+    gameLabel(): string {
+      return this.$t('groups.timeline.game', {
+        weekday: this.$t(`weekdaysShort.${this.group.weekday}`),
+        time: this.group.time,
+      });
+    },
+  },
+
   methods: {
-    when(iso: string): string {
-      return formatDateTime(iso);
+    opensHint(hours: number): string {
+      const at = layerOpensAt(this.group.weekday, this.group.time, hours);
+      const opens = this.$t('groups.layerOpensAt', {
+        weekday: this.$t(`weekdaysShort.${at.weekday}`),
+        time: at.time,
+      });
+      return `${opens} · ${this.$t('groups.layerHoursBefore', { hours })}`;
     },
 
     open() {
-      this.listOpensHoursBefore = this.group.listOpensHoursBefore;
-      this.reservesOpenHoursBefore = this.group.reservesOpenHoursBefore;
-      this.guestsEnabled = this.group.guestsOpenHoursBefore !== undefined;
-      this.guestsOpenHoursBefore =
-        this.group.guestsOpenHoursBefore ?? Math.min(6, this.group.reservesOpenHoursBefore);
+      this.draft = {
+        members: this.group.listOpensHoursBefore,
+        reserves: this.group.reservesOpenHoursBefore,
+        guests: this.group.guestsOpenHoursBefore ?? null,
+      };
       this.editing = true;
+    },
+
+    step(key: LayerKey, dir: 1 | -1) {
+      const min = key === 'members' ? GROUP_LIMITS.listOpensHoursBefore.min : 0;
+      const current = this.draft[key] ?? GUESTS_DEFAULT;
+      this.draft = changeLayer(
+        this.draft,
+        key,
+        stepHours(current, dir, min, GROUP_LIMITS.listOpensHoursBefore.max),
+      );
+    },
+
+    toggleGuests(on: boolean) {
+      this.draft = changeLayer(this.draft, 'guests', on ? GUESTS_DEFAULT : null);
     },
 
     async save() {
       const parsed = UpdateGroupInputSchema.safeParse({
-        listOpensHoursBefore: Number(this.listOpensHoursBefore),
-        reservesOpenHoursBefore: Number(this.reservesOpenHoursBefore),
-        guestsOpenHoursBefore: this.guestsEnabled ? Number(this.guestsOpenHoursBefore) : null,
+        listOpensHoursBefore: this.draft.members,
+        reservesOpenHoursBefore: this.draft.reserves,
+        guestsOpenHoursBefore: this.draft.guests,
       });
       if (!parsed.success) {
         return this.$q.notify({ type: 'warning', message: issueMessage(parsed.error.issues[0]) });
@@ -69,67 +153,225 @@ export default defineComponent({
 </script>
 
 <template>
-  <q-card flat bordered>
-    <q-card-section>
-      <div class="row items-center justify-between">
-        <div class="text-subtitle1 text-weight-medium">{{ $t('groups.layers') }}</div>
-        <q-btn v-if="isOwner" flat dense icon="tune" :label="$t('groups.editLayers')" @click="open" />
+  <section>
+    <div class="head">
+      <h2 class="sc-section">{{ $t('groups.settings.layers') }}</h2>
+      <q-btn v-if="isOwner" flat no-caps color="primary" class="adjust" :label="$t('groups.editLayers')" @click="open" />
+    </div>
+    <div class="summary">
+      <div v-for="l in summary" :key="l.key" class="sc-card cell" :class="{ 'cell--soon': l.state !== 'open' }">
+        <div class="sc-label state" :class="{ 'sc-accent': l.state === 'open' }">{{ $t(`groups.layerState.${l.state}`) }}</div>
+        <div class="sc-display name">{{ l.name }}</div>
+        <div class="sc-caption">{{ l.state === 'off' ? '' : l.when }}</div>
       </div>
-      <div class="text-body2">{{ $t('groups.layerMembers', { date: when(game.opensAt) }) }}</div>
-      <div class="text-body2">{{ $t('groups.layerReserves', { date: when(game.reservesOpensAt) }) }}</div>
-      <div class="text-body2">
-        {{ game.guestsOpensAt ? $t('groups.layerGuests', { date: when(game.guestsOpensAt) }) : $t('groups.guestsOff') }}
-      </div>
-    </q-card-section>
+    </div>
 
-    <q-dialog v-model="editing">
-      <q-card class="dialog">
-        <q-card-section>
-          <div class="text-h6">{{ $t('groups.layers') }}</div>
-          <div class="text-caption text-grey-7">{{ $t('groups.layersHint') }}</div>
-        </q-card-section>
-        <q-card-section class="q-gutter-md">
-          <q-input
-            v-model="listOpensHoursBefore"
-            type="number"
-            :min="limits.listOpensHoursBefore.min"
-            :max="limits.listOpensHoursBefore.max"
-            :label="$t('groups.listOpensHoursBefore')"
-            outlined
+    <BottomSheet v-model="editing" :title="$t('groups.layers')" :persistent="saving">
+      <div class="sc-caption q-mt-xs">{{ $t('groups.layersHint') }}</div>
+
+      <div class="timeline" aria-hidden="true">
+        <div class="track">
+          <div class="axis" />
+          <div
+            v-for="(r, i) in rows"
+            :key="r.key"
+            class="bar"
+            :class="[`bar--${r.key}`, { 'bar--off': r.off }]"
+            :style="{ left: r.left, top: `${i * 22 + 4}px` }"
           />
-          <q-input
-            v-model="reservesOpenHoursBefore"
-            type="number"
-            :min="limits.reservesOpenHoursBefore.min"
-            :max="limits.reservesOpenHoursBefore.max"
-            :label="$t('groups.reservesOpenHoursBefore')"
-            :hint="$t('groups.reservesOpenHoursBeforeHint')"
-            outlined
-          />
-          <q-toggle v-model="guestsEnabled" :label="$t('groups.guestsEnabled')" />
-          <q-input
-            v-if="guestsEnabled"
-            v-model="guestsOpenHoursBefore"
-            type="number"
-            :min="limits.guestsOpenHoursBefore.min"
-            :max="limits.guestsOpenHoursBefore.max"
-            :label="$t('groups.guestsOpenHoursBefore')"
-            :hint="$t('groups.guestsOpenHoursBeforeHint')"
-            outlined
-          />
-        </q-card-section>
-        <q-card-actions align="right">
-          <q-btn flat :label="$t('groups.cancel')" @click="editing = false" />
-          <q-btn color="primary" :label="$t('groups.save')" :loading="saving" @click="save" />
-        </q-card-actions>
-      </q-card>
-    </q-dialog>
-  </q-card>
+          <div class="game-line" />
+        </div>
+        <div class="ends sc-label">
+          <span>{{ $t('groups.timeline.start') }}</span>
+          <span class="game-label">{{ gameLabel }}</span>
+        </div>
+      </div>
+
+      <div v-for="r in rows" :key="r.key" class="row" :class="{ 'row--off': r.off }">
+        <div class="row-text">
+          <span class="dot" :class="`bar--${r.key}`" />
+          <div>
+            <div class="sc-display row-name">{{ r.name }}</div>
+            <div class="sc-caption">{{ r.hint }}</div>
+          </div>
+        </div>
+        <HoursStepper
+          :value="r.hours"
+          unit="h"
+          :disable="r.off"
+          :dec-label="$t('groups.lessHours', { layer: r.name })"
+          :inc-label="$t('groups.moreHours', { layer: r.name })"
+          @step="step(r.key, $event)"
+        />
+      </div>
+      <q-toggle
+        :model-value="draft.guests !== null"
+        color="primary"
+        left-label
+        class="toggle"
+        :label="$t('groups.guestsEnabled')"
+        @update:model-value="toggleGuests"
+      />
+
+      <div class="actions">
+        <q-btn flat no-caps class="sc-btn-outline" :label="$t('groups.cancel')" :disable="saving" @click="editing = false" />
+        <q-btn color="primary" unelevated class="sc-btn-main" :label="$t('groups.save')" :loading="saving" @click="save" />
+      </div>
+    </BottomSheet>
+  </section>
 </template>
 
 <style scoped>
-.dialog {
-  width: 420px;
-  max-width: 90vw;
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.head .sc-section {
+  margin: 0;
+}
+
+.adjust {
+  min-height: 44px;
+}
+
+.summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.cell {
+  padding: 12px;
+  border-radius: 12px;
+  min-width: 0;
+}
+
+.cell--soon {
+  border-color: var(--sc-line-strong);
+}
+
+.state {
+  font-size: 11px;
+  color: var(--sc-muted);
+}
+
+.name {
+  font-size: 20px;
+  margin: 4px 0 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.timeline {
+  margin-top: 18px;
+  background: var(--sc-bg);
+  border: 1px solid var(--sc-line);
+  border-radius: 12px;
+  padding: 14px 12px 10px;
+}
+
+.track {
+  position: relative;
+  height: 66px;
+}
+
+.axis {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 30px;
+  height: 2px;
+  background: var(--sc-line);
+}
+
+.bar {
+  position: absolute;
+  right: 0;
+  height: 10px;
+  border-radius: 5px;
+}
+
+.bar--members {
+  background: var(--sc-accent);
+}
+
+.bar--reserves {
+  background: var(--q-secondary);
+}
+
+.bar--guests {
+  background: var(--sc-text);
+}
+
+.bar--off {
+  opacity: 0.15;
+}
+
+.game-line {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--sc-text);
+}
+
+.ends {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--sc-muted);
+  margin-top: 6px;
+}
+
+.game-label {
+  color: var(--sc-text);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--sc-line);
+}
+
+.row--off {
+  opacity: 0.4;
+}
+
+.row-text {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.row-name {
+  font-size: 20px;
+}
+
+.toggle {
+  justify-content: space-between;
+  width: 100%;
+  min-height: 44px;
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 14px;
 }
 </style>

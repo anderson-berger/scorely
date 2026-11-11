@@ -11,6 +11,9 @@ import {
 import { dynamo, tableName } from '../../lib/dynamo';
 import { USER_ENTITY, userEmailLookupKey, userKey } from './user.table';
 
+/** O que o `update` grava: o PATCH /me. A foto de perfil é gravada pela transação da mídia (USR-08, MID-08). */
+export type UserPatch = UpdateMeInput;
+
 /** `consistent`: leitura fortemente consistente (enxerga uma escrita que acabou de acontecer). */
 export interface ReadOptions {
   consistent?: boolean;
@@ -21,7 +24,8 @@ export interface UserRepository {
   getByEmail(email: string, opts?: ReadOptions): Promise<User | undefined>;
   /** Cria o usuário e o lookup de email. Devolve `false` se o email já estiver em uso. */
   create(user: User): Promise<boolean>;
-  update(id: string, patch: UpdateMeInput): Promise<User | undefined>;
+  /** `null` remove o atributo (apelido, foto). */
+  update(id: string, patch: UserPatch): Promise<User | undefined>;
 }
 
 export const dynamoUserRepository: UserRepository = {

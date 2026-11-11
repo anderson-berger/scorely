@@ -16,9 +16,9 @@
 ## 2. Árvore de pastas (3 níveis)
 
 ```
-.devcontainer/            ✅ Dockerfile (node 24 + AWS CLI) + docker-compose (app + LocalStack)
+.devcontainer/            ✅ Dockerfile (node 24 + AWS CLI) + docker-compose (app + DynamoDB Local + dynamodb-admin + S3Mock)
 infra/
-  shared/                 ✅ single-table.ts (schema da tabela), infra-service.ts (stack), setup-local.ts (LocalStack)
+  shared/                 ✅ single-table.ts (schema da tabela), infra-service.ts (stack), setup-local.ts (DynamoDB Local)
   base/                   ✅ stack `base-infra` (tabela + Outputs)
   scorely/                 ✅ stack `scorely-infra` (tabela + Outputs)
 apps/
@@ -99,7 +99,7 @@ Runtime ✅ `nodejs22.x`, 256 MB, 10 s, esbuild (bundle + sourcemap), plugin `se
 
 - ✅ `stage: ${opt:stage, 'dev'}` em todos os serviços. Não há config específica de `stage` ou `prod` (❌ arquivos ou blocos por stage).
 - ✅ Região fixa `sa-east-1`.
-- ✅ Local: `serverless offline` + LocalStack, tabela `<proj>-dev`.
+- ✅ Local: `serverless offline` + DynamoDB Local, tabela `<proj>-dev`.
 
 ### Domínios
 
@@ -196,13 +196,15 @@ Runtime ✅ `nodejs22.x`, 256 MB, 10 s, esbuild (bundle + sourcemap), plugin `se
 
 ### Devcontainer ✅
 
-| Serviço      | Imagem / detalhe                                                                                   |
-| ------------ | -------------------------------------------------------------------------------------------------- |
-| `app`        | node:24-bookworm-slim + AWS CLI + npm 12, usuário `node`. Volumes: `node_modules`, `claude-config` |
-| `localstack` | localstack 4.9, só `dynamodb`, `PERSISTENCE=1`, porta 4566                                         |
-| Postgres     | ❌                                                                                                 |
+| Serviço          | Imagem / detalhe                                                                                   |
+| ---------------- | -------------------------------------------------------------------------------------------------- |
+| `app`            | node:24-bookworm-slim + AWS CLI + npm 12, usuário `node`. Volumes: `node_modules`, `claude-config` |
+| `dynamodb`       | amazon/dynamodb-local 3.3.2, `-sharedDb`, volume `dynamodb-data`, porta 8000                       |
+| `dynamodb-admin` | aaronshaf/dynamodb-admin 5.3.4, interface web, porta 8001                                          |
+| `s3`             | adobe/s3mock 5.2.3, sem autenticação, volume `s3-data`, porta 9090 (bucket de uploads do scorely)  |
+| Postgres         | ❌                                                                                                 |
 
-Portas encaminhadas: 5173, 3000 (base) · 5174, 3010 (scorely) · 4566 (LocalStack). Cada api reserva um bloco de 10 portas (http, +1 websocket, +2 lambda).
+Portas encaminhadas pelo VS Code (só as do container `app`): 5173, 3000 (base) · 5174, 3010 (scorely). Os outros serviços publicam a porta pelo `ports:` do compose: 8000 (DynamoDB Local) · 8001 (dynamodb-admin) · 9090 (S3Mock). Não coloque essas no `forwardPorts`: o VS Code só alcança o `app` e, com a porta já ocupada pelo Docker, cai numa porta aleatória. Cada api reserva um bloco de 10 portas (http, +1 websocket, +2 lambda).
 
 ### Scripts raiz (`package.json`)
 
@@ -216,7 +218,7 @@ Portas encaminhadas: 5173, 3000 (base) · 5174, 3010 (scorely) · 4566 (LocalSta
 | `test`        | turbo test (vitest)                                                |
 | `lint`        | `biome check .`                                                    |
 | `format`      | `biome check --write .`                                            |
-| `db:setup`    | cria as tabelas `<proj>-<stage>` no LocalStack (idempotente)       |
+| `db:setup`    | cria as tabelas `<proj>-<stage>` no DynamoDB Local (idempotente)   |
 | deploy        | ❌ sem script; manual: `npx serverless deploy --stage <s>` na raiz |
 
 ### Variáveis de ambiente (só nomes)
@@ -224,14 +226,14 @@ Portas encaminhadas: 5173, 3000 (base) · 5174, 3010 (scorely) · 4566 (LocalSta
 | Variável                                                                        | Onde                                                      |
 | ------------------------------------------------------------------------------- | --------------------------------------------------------- |
 | `SERVERLESS_ACCESS_KEY`                                                         | `.devcontainer/.env` (gitignored) / CI                    |
-| `DYNAMODB_ENDPOINT`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | api local (LocalStack)                                    |
+| `DYNAMODB_ENDPOINT`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | api local (DynamoDB Local)                                |
 | `STAGE`                                                                         | `setup-local.ts` (padrão `dev`)                           |
 | `TABLE_NAME`                                                                    | api (injetada pelo serverless.ts)                         |
 | `AUTH_SECRET`                                                                   | scorely api (SSM no deploy; valor fixo de dev no offline) |
 | `EMAIL_MODE`, `EMAIL_FROM`                                                      | scorely api                                               |
 | `IS_OFFLINE`                                                                    | scorely api (definida pelo serverless-offline)            |
 | `VITE_API_URL`                                                                  | web (opcional)                                            |
-| `LOCALSTACK_PORT`                                                               | docker-compose (opcional)                                 |
+| `DYNAMODB_PORT`, `DYNAMODB_ADMIN_PORT`, `S3_PORT`                               | docker-compose (opcional)                                 |
 | `AWS_SESSION_TOKEN`, `AWS_PROFILE`, `SERVERLESS_LICENSE_KEY`                    | repassadas pelo turbo.json                                |
 
 ## 11. Docs e pasta de agentes
