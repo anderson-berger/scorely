@@ -6,6 +6,7 @@ import {
   type PlayerPosition,
   type SaveTeamsInput,
   SPORT_POSITIONS,
+  TEAM_COUNT,
   type TeamPlayer,
   type Teams,
   type TeamsResponse,
@@ -15,6 +16,7 @@ import type { GroupRepository, StoredGroup } from '../groups/group.repository';
 import { requireActive, requireMember } from '../groups/groups.deps';
 import type { NotificationService } from '../notifications/notification.service';
 import type { UserDirectory } from '../users/user.repository';
+import { draw } from './engine/draw';
 import type { PlayerRepository } from './player.repository';
 import { canManageTeams } from './player.service';
 import type { StoredTeams, TeamsRepository } from './teams.repository';
@@ -35,6 +37,8 @@ export interface TeamsServiceDeps {
   notifications: Pick<NotificationService, 'notify'>;
   teams: TeamsRepository;
   now?: () => Date;
+  /** Acaso do sorteio (TIM-15), em [0, 1). Não é de segurança. */
+  random?: () => number;
 }
 
 const NONE: TeamsResponse = { teams: null };
@@ -47,6 +51,7 @@ function dayMonth(date: string): string {
 
 export function createTeamsService(deps: TeamsServiceDeps) {
   const now = deps.now ?? (() => new Date());
+  const random = deps.random ?? Math.random;
 
   /** TIM-07: só o dono escreve (404 para quem não participa, 403 para quem não é dono), e o grupo ativo (TIM-11). */
   async function requireManager(userId: string, groupId: string): Promise<StoredGroup> {
@@ -82,6 +87,7 @@ export function createTeamsService(deps: TeamsServiceDeps) {
       ...game.waitlist.map((a) => [a.userId, { attendee: a, bench: true }] as const),
     ]);
     const placed = new Set(stored.teams.flat());
+    const pinned = new Set(forOwner ? (stored.pinned ?? []) : []);
     const unassigned = forOwner ? game.confirmed.map((a) => a.userId).filter((id) => !placed.has(id)) : [];
     const everyone = [...placed, ...unassigned];
     const missing = everyone.filter((id) => !inList.has(id));
@@ -107,6 +113,7 @@ export function createTeamsService(deps: TeamsServiceDeps) {
         adjusted: adjusted !== undefined,
         inList: listed !== undefined,
         bench: listed?.bench ?? false,
+        pinned: pinned.has(userId),
       };
     };
 
@@ -182,6 +189,36 @@ export function createTeamsService(deps: TeamsServiceDeps) {
         status: existing?.status ?? 'draft',
         teams: input.teams,
         positions: input.positions,
+        pinned: input.pinned ?? [],
+        ...(existing?.publishedAt && { publishedAt: existing.publishedAt }),
+        createdAt: existing?.createdAt ?? at,
+        updatedAt: at,
+      };
+      await deps.teams.put(next);
+      return { teams: await view(group.id, game, next, true) };
+    },
+
+    /** TIM-15, 16: sorteia quem está dentro e quem veio do Banco para um time; os fixados ficam. Publicado volta para rascunho. */
+    async draw(userId: string, groupId: string, date: string): Promise<TeamsResponse> {
+      const group = await requireManager(userId, groupId);
+      const game = await writableGame(userId, groupId, date);
+      const existing = await deps.teams.get(group.id, date);
+      const current = existing?.teams ?? Array.from({ length: TEAM_COUNT.min }, (): string[] => []);
+      const placed = new Set(current.flat());
+      const pinned = (existing?.pinned ?? []).filter((id) => placed.has(id));
+      const fixed = new Set(pinned);
+      const pool = [
+        ...game.confirmed.map((a) => a.userId),
+        ...game.waitlist.map((a) => a.userId).filter((id) => placed.has(id)),
+      ].filter((id) => !fixed.has(id));
+      const at = now().toISOString();
+      const next: StoredTeams = {
+        groupId: group.id,
+        date,
+        status: 'draft',
+        teams: draw({ teams: current, pinned, pool, random }),
+        positions: existing?.positions ?? {},
+        pinned,
         ...(existing?.publishedAt && { publishedAt: existing.publishedAt }),
         createdAt: existing?.createdAt ?? at,
         updatedAt: at,

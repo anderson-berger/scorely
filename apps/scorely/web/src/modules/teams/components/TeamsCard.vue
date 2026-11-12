@@ -9,6 +9,7 @@ import {
   everyone,
   moveTo,
   setGamePositions,
+  setPinned,
   setTeamCount,
   type TeamPlayerChange,
   type TeamsDraft,
@@ -20,7 +21,7 @@ import TeamsView from './TeamsView.vue';
 
 /**
  * Card "Times" da aba Jogo (TIM-14). O dono monta, move por toque, muda a quantidade, publica, volta para rascunho
- * e descarta; cada mudança é salva na hora (TIM-09). Quem não é dono só vê os times publicados.
+ * e descarta; sorteia (TIM-15) com quem está fixo (TIM-16); cada mudança é salva na hora (TIM-09). Quem não é dono só vê os times publicados.
  * Recarrega quando o jogo muda (qualquer ação da página recarrega o jogo).
  */
 export default defineComponent({
@@ -75,6 +76,11 @@ export default defineComponent({
 
     canMore(): boolean {
       return this.count < TEAM_COUNT.max;
+    },
+
+    /** Já há alguém num time: o botão vira "Sortear de novo". */
+    anyPlaced(): boolean {
+      return Boolean(this.teams?.teams.some((team) => team.length > 0));
     },
 
     /** Sem times publicados, quem não é dono não vê o card (TIM-14). */
@@ -133,8 +139,26 @@ export default defineComponent({
     async onChange(change: TeamPlayerChange) {
       if (!this.draft) return;
       const moved = moveTo(this.draft, change.userId, change.team);
-      const ok = await this.save(setGamePositions(moved, change.userId, change.positions));
+      const pinned = setPinned(moved, change.userId, change.pinned);
+      const ok = await this.save(setGamePositions(pinned, change.userId, change.positions));
       if (ok) this.sheetOpen = false;
+    },
+
+    /** TIM-15: com os times publicados, confirma antes (eles voltam para rascunho). */
+    draw() {
+      const run = () => this.run(() => teamsApi.drawTeams(this.groupId, this.game.date));
+      if (this.teams?.status !== 'published') return run();
+      this.$q
+        .dialog({
+          message: this.$t('teams.drawConfirm'),
+          cancel: { label: this.$t('groups.no'), flat: true },
+          ok: { label: this.$t('groups.yes'), color: 'primary' },
+          persistent: true,
+        })
+        .onOk(() => {
+          void run();
+        });
+      return undefined;
     },
 
     publish() {
@@ -215,16 +239,27 @@ export default defineComponent({
 
     <div v-if="isOwner && !teams" class="sc-card empty">
       <div class="sc-caption">{{ $t('teams.buildHint') }}</div>
-      <q-btn
-        color="primary"
-        unelevated
-        no-caps
-        class="sc-btn-outline build"
-        icon="groups"
-        :label="$t('teams.build')"
-        :loading="busy"
-        @click="build"
-      />
+      <div class="empty-actions">
+        <q-btn
+          color="primary"
+          unelevated
+          no-caps
+          class="sc-btn-main build"
+          icon="shuffle"
+          :label="$t('teams.draw')"
+          :loading="busy"
+          @click="draw"
+        />
+        <q-btn
+          flat
+          no-caps
+          class="sc-btn-outline build"
+          icon="groups"
+          :label="$t('teams.build')"
+          :disable="busy"
+          @click="build"
+        />
+      </div>
     </div>
 
     <template v-else-if="teams">
@@ -232,6 +267,15 @@ export default defineComponent({
       <TeamsView :teams="teams" :editable="isOwner" :me-id="meId" @select="select" />
 
       <div v-if="isOwner" class="actions">
+        <q-btn
+          flat
+          no-caps
+          class="sc-btn-outline full-width"
+          icon="shuffle"
+          :label="anyPlaced ? $t('teams.drawAgain') : $t('teams.draw')"
+          :disable="busy"
+          @click="draw"
+        />
         <q-btn
           v-if="teams.status === 'draft'"
           color="primary"
@@ -328,7 +372,16 @@ export default defineComponent({
   margin-top: -4px;
 }
 
+.empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   margin-top: 4px;
 }
 </style>

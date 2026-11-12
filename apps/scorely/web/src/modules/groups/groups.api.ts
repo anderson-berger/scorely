@@ -11,6 +11,7 @@ import {
   MemberInviteSchema,
   MemberSchema,
   MyGroupSchema,
+  type UpdateGameInput,
   type UpdateGroupInput,
 } from '@scorely/contracts';
 import { request, send } from '@/lib/http';
@@ -28,6 +29,9 @@ export const groupsApi = {
   get: (id: string) => request({ url: `/groups/${id}` }, GroupSchema),
   update: (id: string, patch: UpdateGroupInput) =>
     request({ url: `/groups/${id}`, method: 'PATCH', data: patch }, GroupSchema),
+  /** Vagas e mínimo só do jogo atual (GRP-45, 46); `null` = volta ao padrão do grupo. */
+  updateGame: (id: string, date: string, patch: UpdateGameInput) =>
+    request({ url: `/groups/${id}/games/${date}`, method: 'PATCH', data: patch }, GameSchema),
   rotateInvite: (id: string, kind: InviteKind) =>
     request({ url: `/groups/${id}/invite`, method: 'POST', data: { kind } }, InviteSchema),
   acceptInvite: (token: string) =>

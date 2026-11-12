@@ -2,6 +2,7 @@
 import type { Game, Group, InviteKind } from '@scorely/contracts';
 import { defineComponent, type PropType } from 'vue';
 import { formatDateTime } from '@/lib/datetime';
+import CapacityCard from '../components/CapacityCard.vue';
 import GroupImagesCard from '../components/GroupImagesCard.vue';
 import GroupLinksCard from '../components/GroupLinksCard.vue';
 import LayersCard from '../components/LayersCard.vue';
@@ -15,7 +16,7 @@ import LimitsCard from '../components/LimitsCard.vue';
 export default defineComponent({
   name: 'GroupSettingsPage',
 
-  components: { GroupImagesCard, GroupLinksCard, LayersCard, LimitsCard },
+  components: { CapacityCard, GroupImagesCard, GroupLinksCard, LayersCard, LimitsCard },
 
   inheritAttrs: false,
 
@@ -65,6 +66,8 @@ export default defineComponent({
 
   <div v-else-if="isOwner && game" class="sections">
     <LayersCard :group="group" :game="game" :is-owner="isOwner" @saved="$emit('saved')" />
+
+    <CapacityCard :group="group" @saved="$emit('saved')" />
 
     <LimitsCard :group="group" @saved="$emit('saved')" />
 

@@ -14,6 +14,7 @@ import {
   type MemberRole,
   MyGroupSchema,
   type Notification,
+  UpdateGameInputSchema,
   UpdateGroupInputSchema,
   type User,
 } from '@scorely/contracts';
@@ -155,16 +156,26 @@ function memoryStore(now: () => Date = () => new Date()) {
      * como se outra entrada, a troca do limite ou o arquivamento tivesse sido gravado depois da leitura do service.
      */
     beforeAddMember: ((groupId: string, userId: string) => void)[];
+    /** Corrida do aviso de jogo confirmado (GRP-47): roda uma vez dentro do `markMinReached`, antes da condição. */
+    beforeMarkMinReached: ((gameId: string) => void)[];
   } = {
     beforeAddAttendance: [],
     beforeReopen: [],
     beforeAddMember: [],
+    beforeMarkMinReached: [],
   };
   /** Chamadas ao `addMember` e ao `acceptMemberInvite` do repositório (cópia do grupo recebido). */
   const addCalls: { group: Stored; userId: string; role: MemberRole }[] = [];
   const acceptCalls: { group: Stored; userId: string; now: string }[] = [];
   /** Chamadas ao `reopen` do repositório (GRP-44). */
   const reopenCalls: { gameId: string; groupId: string }[] = [];
+  /** Chamadas ao `markMinReached` do repositório (GRP-47). */
+  const markMinReachedCalls: { gameId: string; at: string }[] = [];
+  /** Grava o `minReachedAt` direto no item do jogo (outra escrita avisou antes, GRP-47). */
+  const forceMinReached = (gameId: string, at: string) => {
+    const g = games.get(gameId);
+    if (g) games.set(gameId, { ...g, minReachedAt: at });
+  };
 
   const attKey = (gameId: string, userId: string) => `${gameId}#${userId}`;
   const byKey = (a: string, b: string) => a.localeCompare(b);
@@ -451,6 +462,26 @@ function memoryStore(now: () => Date = () => new Date()) {
       dropAttendance(a);
     },
     /** Como a transação do Dynamo (GRP-44): `REMOVE cancelledAt` + `ConditionCheck` do grupo; as duas falhando → `archived`. */
+    /** Vagas e mínimo só do jogo (GRP-45, 46): `undefined` não mexe, `null` remove o campo. */
+    async updateSettings(gameId: string, patch: { slots?: number | null; minPlayers?: number | null }) {
+      const stored = games.get(gameId);
+      if (!stored) throw new Error('game not found in memory store');
+      const given = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
+      const merged = Object.fromEntries(
+        Object.entries({ ...stored, ...given }).filter(([, v]) => v !== null && v !== undefined),
+      ) as GameRecord;
+      games.set(gameId, merged);
+      return { ...merged };
+    },
+    /** Como o Update condicional do Dynamo (`attribute_not_exists(minReachedAt)`): `true` só para quem gravou. */
+    async markMinReached(gameId: string, at: string) {
+      markMinReachedCalls.push({ gameId, at });
+      for (const hook of hooks.beforeMarkMinReached.splice(0)) hook(gameId);
+      const g = games.get(gameId);
+      if (!g || g.minReachedAt !== undefined) return false;
+      games.set(gameId, { ...g, minReachedAt: at });
+      return true;
+    },
     async reopen(gameId: string, groupId: string) {
       reopenCalls.push({ gameId, groupId });
       for (const hook of hooks.beforeReopen.splice(0)) hook(gameId, groupId);
@@ -502,6 +533,13 @@ function memoryStore(now: () => Date = () => new Date()) {
       return g && { ...g };
     },
     gameCount: () => games.size,
+    markMinReachedCalls,
+    forceMinReached,
+    storedGame: (groupId: string, date: string) => {
+      const id = gameByDate.get(`${groupId}#${date}`);
+      const g = id === undefined ? undefined : games.get(id);
+      return g && { ...g };
+    },
   };
 }
 
@@ -2938,7 +2976,7 @@ describe('limites do grupo (GRP-38, GRP-16)', () => {
       expect(UpdateGroupInputSchema.safeParse(bad).success).toBe(false);
   });
 
-  it('GRP-16: o PATCH aceita os dois limites, e nome, horário e vagas continuam fora', () => {
+  it('GRP-16: o PATCH aceita os limites, as vagas e o mínimo; nome e horário continuam fora', () => {
     expect(
       UpdateGroupInputSchema.parse({
         maxMembers: 14,
@@ -2946,8 +2984,10 @@ describe('limites do grupo (GRP-38, GRP-16)', () => {
         name: 'Outro',
         time: '20:00',
         slots: 20,
+        minPlayers: 10,
       }),
-    ).toEqual({ maxMembers: 14, maxReserves: 5 });
+    ).toEqual({ maxMembers: 14, maxReserves: 5, slots: 20, minPlayers: 10 });
+    expect(UpdateGroupInputSchema.parse({ minPlayers: null })).toEqual({ minPlayers: null });
   });
 
   it('GRP-16: o dono muda os limites → o grupo devolve os novos para todos', async () => {
@@ -3431,5 +3471,502 @@ describe('grupo arquivado barra limites, convite e saída (GRP-32)', () => {
     expect(inviteOfIn(list, D)).toBe(IN_7_DAYS);
     expect(t.store.removeCalls).toEqual([]);
     expect(t.sent).toEqual([]);
+  });
+});
+
+const CONFIRMED_TITLE = 'Jogo confirmado';
+const CONFIRMED_BODY = `O jogo de ${INPUT.name} de 06/11 vai acontecer: a lista chegou ao mínimo.`;
+
+describe('vagas padrão e por jogo (GRP-45, GRP-16)', () => {
+  it('GRP-45 (contrato): vagas do jogo de 2 a 50 ou null; mínimo de 2 a 50 ou null; pedido vazio é recusado', () => {
+    for (const ok of [{ slots: 2 }, { slots: 50 }, { slots: null }, { minPlayers: 2 }, { minPlayers: null }])
+      expect(UpdateGameInputSchema.safeParse(ok).success).toBe(true);
+    for (const bad of [{}, { slots: 1 }, { slots: 51 }, { minPlayers: 1 }, { minPlayers: 51 }])
+      expect(UpdateGameInputSchema.safeParse(bad).success).toBe(false);
+  });
+
+  it('GRP-45: o dono muda as vagas só do jogo → o jogo marca slotsCustom e o padrão do grupo não muda', async () => {
+    const t = await setup({ members: [A] });
+    const game = await t.games.updateGame(OWNER, t.group.id, DATE, { slots: 14 });
+    expect(GameSchema.parse(game)).toBeTruthy();
+    expect(game).toMatchObject({ date: DATE, slots: 14, slotsCustom: true });
+    expect((await t.games.current(A, t.group.id)).slots).toBe(14);
+    expect((await t.groups.get(OWNER, t.group.id)).slots).toBe(12);
+    expect(t.store.storedGroup(t.group.id)?.slots).toBe(12);
+  });
+
+  it('GRP-45: mudar as vagas do jogo virtual (sem ninguém) grava o jogo e devolve as vagas novas', async () => {
+    const t = await setup({ members: [A] });
+    expect(t.store.gameCount()).toBe(0);
+    const game = await t.games.updateGame(OWNER, t.group.id, DATE, { slots: 14 });
+    expect(game.slots).toBe(14);
+    expect(t.store.gameCount()).toBe(1);
+    expect(t.store.storedGame(t.group.id, DATE)?.slots).toBe(14);
+  });
+
+  it('GRP-45: sem valor próprio, o jogo segue o padrão do grupo, inclusive quando ele muda depois', async () => {
+    const t = await setup({ members: [A] });
+    await t.confirmInOrder(A);
+    const updated = await t.groups.update(OWNER, t.group.id, { slots: 14 });
+    expect(updated.slots).toBe(14);
+    const game = await t.games.current(A, t.group.id);
+    expect(game.slots).toBe(14);
+    expect(game.slotsCustom).not.toBe(true);
+  });
+
+  it('GRP-45: com valor próprio, o padrão do grupo muda sem mexer no jogo; "Usar o padrão" volta ao do grupo', async () => {
+    const t = await setup({ members: [A] });
+    await t.games.updateGame(OWNER, t.group.id, DATE, { slots: 16 });
+    await t.groups.update(OWNER, t.group.id, { slots: 14 });
+    expect((await t.games.current(A, t.group.id)).slots).toBe(16);
+    const back = await t.games.updateGame(OWNER, t.group.id, DATE, { slots: null });
+    expect(back.slots).toBe(14);
+    expect(back.slotsCustom).not.toBe(true);
+    expect(t.store.storedGame(t.group.id, DATE)?.slots).toBeUndefined();
+  });
+
+  it('GRP-22: aumentar as vagas do jogo → quem estava na fila sobe na ordem e recebe waitlist_promoted', async () => {
+    const t = await setup({ slots: 2, members: [A, B, C, D] });
+    await t.confirmInOrder(A, B, C, D);
+    const game = await t.games.updateGame(OWNER, t.group.id, DATE, { slots: 3 });
+    expect(ids(game.confirmed)).toEqual([A, B, C]);
+    expect(ids(game.waitlist)).toEqual([D]);
+    expect(ofType(t.sent, 'waitlist_promoted')).toEqual([C]);
+    expect(t.sent[0]).toMatchObject({ userId: C, type: 'waitlist_promoted', link: `/groups/${t.group.id}` });
+  });
+
+  it('GRP-22: aumentar duas vagas → os dois primeiros da fila sobem e são avisados', async () => {
+    const t = await setup({ slots: 2, members: [A, B, C, D] });
+    await t.confirmInOrder(A, B, C, D);
+    const game = await t.games.updateGame(OWNER, t.group.id, DATE, { slots: 4 });
+    expect(ids(game.confirmed)).toEqual([A, B, C, D]);
+    expect(game.waitlist).toEqual([]);
+    expect(ofType(t.sent, 'waitlist_promoted').sort()).toEqual([C, D].sort());
+  });
+
+  it('GRP-22: o convidado que sobe com mais vagas recebe o link do jogo', async () => {
+    const t = await setup({
+      slots: 2,
+      members: [A, B],
+      reservesOpenHoursBefore: 48,
+      guestsOpenHoursBefore: 48,
+    });
+    await t.confirmInOrder(A, B);
+    await t.guestConfirmInOrder(G);
+    await t.games.updateGame(OWNER, t.group.id, DATE, { slots: 3 });
+    expect(t.sent).toHaveLength(1);
+    expect(t.sent[0]).toMatchObject({
+      userId: G,
+      type: 'waitlist_promoted',
+      link: `/play/${guestTokenOf(t.group)}`,
+    });
+  });
+
+  it('GRP-22: aumentar o padrão do grupo (jogo sem valor próprio) → a fila sobe com aviso', async () => {
+    const t = await setup({ slots: 2, members: [A, B, C, D] });
+    await t.confirmInOrder(A, B, C, D);
+    await t.groups.update(OWNER, t.group.id, { slots: 3 });
+    const game = await t.games.current(A, t.group.id);
+    expect(ids(game.confirmed)).toEqual([A, B, C]);
+    expect(ids(game.waitlist)).toEqual([D]);
+    expect(ofType(t.sent, 'waitlist_promoted')).toEqual([C]);
+  });
+
+  it('GRP-45: diminuir as vagas do jogo abaixo de quem está dentro → GAME_SLOTS_BELOW_CONFIRMED com confirmed e nada muda', async () => {
+    const t = await setup({ members: [A, B, C] });
+    await t.confirmInOrder(A, B, C);
+    const err = await expectAppError(
+      t.games.updateGame(OWNER, t.group.id, DATE, { slots: 2 }),
+      'GAME_SLOTS_BELOW_CONFIRMED',
+      409,
+    );
+    expect(err.details).toEqual({ confirmed: 3 });
+    const game = await t.games.current(A, t.group.id);
+    expect(game.slots).toBe(12);
+    expect(ids(game.confirmed)).toEqual([A, B, C]);
+  });
+
+  it('GRP-45: confirmed conta só quem está dentro (a fila não entra)', async () => {
+    const t = await setup({ slots: 3, members: [A, B, C, D] });
+    await t.confirmInOrder(A, B, C, D);
+    const err = await expectAppError(
+      t.games.updateGame(OWNER, t.group.id, DATE, { slots: 2 }),
+      'GAME_SLOTS_BELOW_CONFIRMED',
+      409,
+    );
+    expect(err.details).toEqual({ confirmed: 3 });
+  });
+
+  it('GRP-45: diminuir até o número de quem está dentro é aceito', async () => {
+    const t = await setup({ members: [A, B, C] });
+    await t.confirmInOrder(A, B, C);
+    const game = await t.games.updateGame(OWNER, t.group.id, DATE, { slots: 3 });
+    expect(game.slots).toBe(3);
+    expect(ids(game.confirmed)).toEqual([A, B, C]);
+  });
+
+  it('GRP-45: "Usar o padrão" com menos vagas do que quem está dentro → GAME_SLOTS_BELOW_CONFIRMED', async () => {
+    const t = await setup({ slots: 2, members: [A, B, C] });
+    await t.games.updateGame(OWNER, t.group.id, DATE, { slots: 4 });
+    await t.confirmInOrder(A, B, C);
+    const err = await expectAppError(
+      t.games.updateGame(OWNER, t.group.id, DATE, { slots: null }),
+      'GAME_SLOTS_BELOW_CONFIRMED',
+      409,
+    );
+    expect(err.details).toEqual({ confirmed: 3 });
+    expect((await t.games.current(A, t.group.id)).slots).toBe(4);
+  });
+
+  it('GRP-45: diminuir o padrão do grupo abaixo de quem está dentro (jogo sem valor próprio) → erro e nada gravado', async () => {
+    const t = await setup({ members: [A, B, C] });
+    await t.confirmInOrder(A, B, C);
+    const err = await expectAppError(
+      t.groups.update(OWNER, t.group.id, { slots: 2 }),
+      'GAME_SLOTS_BELOW_CONFIRMED',
+      409,
+    );
+    expect(err.details).toEqual({ confirmed: 3 });
+    expect(t.store.storedGroup(t.group.id)?.slots).toBe(12);
+  });
+
+  it('GRP-45: com vagas próprias no jogo, diminuir o padrão do grupo não confere o jogo nem promove', async () => {
+    const t = await setup({ slots: 2, members: [A, B, C, D] });
+    await t.games.updateGame(OWNER, t.group.id, DATE, { slots: 3 });
+    await t.confirmInOrder(A, B, C, D);
+    const updated = await t.groups.update(OWNER, t.group.id, { slots: 2 });
+    expect(updated.slots).toBe(2);
+    await t.groups.update(OWNER, t.group.id, { slots: 10 });
+    const game = await t.games.current(A, t.group.id);
+    expect(game.slots).toBe(3);
+    expect(ids(game.waitlist)).toEqual([D]);
+    expect(ofType(t.sent, 'waitlist_promoted')).toEqual([]);
+  });
+
+  it('GRP-45: com o jogo cancelado, mudar o padrão do grupo não confere o jogo', async () => {
+    const t = await setup({ members: [A, B, C] });
+    await t.confirmInOrder(A, B, C);
+    await t.games.cancel(OWNER, t.group.id, DATE);
+    const updated = await t.groups.update(OWNER, t.group.id, { slots: 2 });
+    expect(updated.slots).toBe(2);
+  });
+
+  it('GRP-45: as vagas do jogo valem em toda conta (jogo, link do jogo, meus grupos, posição e promoção ao desistir)', async () => {
+    const t = await setup({
+      slots: 2,
+      members: [A, B, C, D],
+      reservesOpenHoursBefore: 48,
+      guestsOpenHoursBefore: 48,
+    });
+    await t.games.updateGame(OWNER, t.group.id, DATE, { slots: 3 });
+    await t.confirmInOrder(A, B, C, D);
+    const seen = await t.games.current(C, t.group.id);
+    expect(seen.slots).toBe(3);
+    expect(seen.me).toEqual({ list: 'confirmed', position: 3 });
+    expect((await t.games.current(D, t.group.id)).me).toEqual({ list: 'waitlist', position: 1 });
+    const mine = (await t.groups.myGroups(A)).find((g) => g.id === t.group.id);
+    expect(mine?.game).toMatchObject({ slots: 3, confirmedCount: 3 });
+    const view = await t.games.guestView(G, guestTokenOf(t.group));
+    expect(view.game.slots).toBe(3);
+    expect(ids(view.game.confirmed)).toEqual([A, B, C]);
+    await t.games.leave(A, t.group.id, DATE);
+    expect(ofType(t.sent, 'waitlist_promoted')).toEqual([D]);
+  });
+
+  it('GRP-45: remover alguém de dentro usa as vagas do jogo para promover', async () => {
+    const t = await setup({ slots: 2, members: [A, B, C, D] });
+    await t.games.updateGame(OWNER, t.group.id, DATE, { slots: 3 });
+    await t.confirmInOrder(A, B, C, D);
+    await t.groups.removeMember(OWNER, t.group.id, B);
+    expect(ofType(t.sent, 'waitlist_promoted')).toEqual([D]);
+  });
+
+  it('GRP-45: mudar o jogo em andamento → GAME_CLOSED', async () => {
+    const t = await setup({ members: [A] });
+    await t.confirmInOrder(A);
+    t.clock.now = FRIDAY_20H;
+    await expectAppError(t.games.updateGame(OWNER, t.group.id, DATE, { slots: 14 }), 'GAME_CLOSED', 409);
+  });
+
+  it('GRP-45: mudar o jogo cancelado → GAME_CANCELLED', async () => {
+    const t = await setup({ members: [A] });
+    await t.games.cancel(OWNER, t.group.id, DATE);
+    await expectAppError(t.games.updateGame(OWNER, t.group.id, DATE, { slots: 14 }), 'GAME_CANCELLED', 409);
+  });
+
+  it('GRP-45: outra data que não a do jogo atual → GAME_NOT_FOUND', async () => {
+    const t = await setup({ members: [A] });
+    await expectAppError(
+      t.games.updateGame(OWNER, t.group.id, NEXT_DATE, { slots: 14 }),
+      'GAME_NOT_FOUND',
+      404,
+    );
+  });
+
+  it('GRP-45: membro ou reserva muda o jogo → GROUP_NOT_OWNER; quem não participa → GROUP_NOT_FOUND', async () => {
+    const t = await setup({ members: [A], reserves: [R] });
+    for (const who of [A, R])
+      await expectAppError(t.games.updateGame(who, t.group.id, DATE, { slots: 14 }), 'GROUP_NOT_OWNER', 403);
+    await expectAppError(
+      t.games.updateGame(OUTSIDER, t.group.id, DATE, { slots: 14 }),
+      'GROUP_NOT_FOUND',
+      404,
+    );
+    expect((await t.games.current(A, t.group.id)).slots).toBe(12);
+  });
+
+  it('GRP-45: grupo arquivado → GROUP_ARCHIVED', async () => {
+    const t = await setup({ members: [A] });
+    await t.groups.archive(OWNER, t.group.id);
+    await expectAppError(t.games.updateGame(OWNER, t.group.id, DATE, { slots: 14 }), 'GROUP_ARCHIVED', 409);
+  });
+
+  it('GRP-16: quem não é dono muda as vagas ou o mínimo do grupo → GROUP_NOT_OWNER e nada muda', async () => {
+    const t = await setup({ members: [A], reserves: [R] });
+    for (const who of [A, R]) {
+      await expectAppError(t.groups.update(who, t.group.id, { slots: 14 }), 'GROUP_NOT_OWNER', 403);
+      await expectAppError(t.groups.update(who, t.group.id, { minPlayers: 4 }), 'GROUP_NOT_OWNER', 403);
+    }
+    expect(t.store.storedGroup(t.group.id)?.slots).toBe(12);
+    expect(t.store.storedGroup(t.group.id)?.minPlayers).toBeUndefined();
+  });
+});
+
+describe('mínimo para o jogo acontecer (GRP-46)', () => {
+  it('GRP-46: grupo novo nasce sem mínimo, e o jogo também', async () => {
+    const t = await setup({ members: [A] });
+    expect(t.group.minPlayers).toBeUndefined();
+    expect((await t.games.current(A, t.group.id)).minPlayers).toBeUndefined();
+  });
+
+  it('GRP-46: o dono liga o mínimo do grupo → o grupo, o jogo e "meus grupos" mostram o mínimo', async () => {
+    const t = await setup({ members: [A] });
+    const updated = await t.groups.update(OWNER, t.group.id, { minPlayers: 10 });
+    expect(updated.minPlayers).toBe(10);
+    expect(GroupSchema.parse(updated)).toBeTruthy();
+    const game = await t.games.current(A, t.group.id);
+    expect(game.minPlayers).toBe(10);
+    expect(game.minPlayersCustom).not.toBe(true);
+    const mine = (await t.groups.myGroups(A)).find((g) => g.id === t.group.id);
+    expect(mine?.game.minPlayers).toBe(10);
+    expect(MyGroupSchema.parse(mine)).toBeTruthy();
+  });
+
+  it('GRP-46: mínimo null desliga o mínimo do grupo', async () => {
+    const t = await setup({ members: [A] });
+    await t.groups.update(OWNER, t.group.id, { minPlayers: 10 });
+    const updated = await t.groups.update(OWNER, t.group.id, { minPlayers: null });
+    expect(updated.minPlayers).toBeUndefined();
+    expect(t.store.storedGroup(t.group.id)?.minPlayers).toBeUndefined();
+    expect((await t.games.current(A, t.group.id)).minPlayers).toBeUndefined();
+  });
+
+  it('GRP-46: mínimo do grupo acima das vagas → GROUP_MIN_PLAYERS_INVALID com max = vagas e nada gravado', async () => {
+    const t = await setup();
+    const err = await expectAppError(
+      t.groups.update(OWNER, t.group.id, { minPlayers: 13 }),
+      'GROUP_MIN_PLAYERS_INVALID',
+      422,
+    );
+    expect(err.details).toEqual({ max: 12 });
+    expect(t.store.storedGroup(t.group.id)?.minPlayers).toBeUndefined();
+  });
+
+  it('GRP-46: vagas e mínimo no mesmo pedido → confere contra as vagas novas', async () => {
+    const t = await setup();
+    const err = await expectAppError(
+      t.groups.update(OWNER, t.group.id, { slots: 8, minPlayers: 10 }),
+      'GROUP_MIN_PLAYERS_INVALID',
+      422,
+    );
+    expect(err.details).toEqual({ max: 8 });
+    expect(t.store.storedGroup(t.group.id)?.slots).toBe(12);
+    const ok = await t.groups.update(OWNER, t.group.id, { slots: 14, minPlayers: 14 });
+    expect(ok).toMatchObject({ slots: 14, minPlayers: 14 });
+  });
+
+  it('GRP-46: baixar as vagas do grupo abaixo do mínimo gravado → GROUP_MIN_PLAYERS_INVALID', async () => {
+    const t = await setup();
+    await t.groups.update(OWNER, t.group.id, { minPlayers: 10 });
+    const err = await expectAppError(
+      t.groups.update(OWNER, t.group.id, { slots: 8 }),
+      'GROUP_MIN_PLAYERS_INVALID',
+      422,
+    );
+    expect(err.details).toEqual({ max: 8 });
+    expect(t.store.storedGroup(t.group.id)?.slots).toBe(12);
+  });
+
+  it('GRP-46: o dono muda o mínimo só do jogo → minPlayersCustom e o grupo não muda', async () => {
+    const t = await setup({ members: [A] });
+    await t.groups.update(OWNER, t.group.id, { minPlayers: 10 });
+    const game = await t.games.updateGame(OWNER, t.group.id, DATE, { minPlayers: 8 });
+    expect(game).toMatchObject({ minPlayers: 8, minPlayersCustom: true });
+    expect(t.store.storedGroup(t.group.id)?.minPlayers).toBe(10);
+    await t.groups.update(OWNER, t.group.id, { minPlayers: 6 });
+    expect((await t.games.current(A, t.group.id)).minPlayers).toBe(8);
+  });
+
+  it('GRP-46: mínimo do jogo null volta ao mínimo do grupo', async () => {
+    const t = await setup({ members: [A] });
+    await t.groups.update(OWNER, t.group.id, { minPlayers: 10 });
+    await t.games.updateGame(OWNER, t.group.id, DATE, { minPlayers: 8 });
+    const back = await t.games.updateGame(OWNER, t.group.id, DATE, { minPlayers: null });
+    expect(back.minPlayers).toBe(10);
+    expect(back.minPlayersCustom).not.toBe(true);
+    expect(t.store.storedGame(t.group.id, DATE)?.minPlayers).toBeUndefined();
+  });
+
+  it('GRP-46: mínimo do jogo acima das vagas do jogo → GROUP_MIN_PLAYERS_INVALID com max = vagas', async () => {
+    const t = await setup({ members: [A] });
+    const err = await expectAppError(
+      t.games.updateGame(OWNER, t.group.id, DATE, { minPlayers: 13 }),
+      'GROUP_MIN_PLAYERS_INVALID',
+      422,
+    );
+    expect(err.details).toEqual({ max: 12 });
+    await t.games.updateGame(OWNER, t.group.id, DATE, { slots: 6 });
+    const err2 = await expectAppError(
+      t.games.updateGame(OWNER, t.group.id, DATE, { minPlayers: 8 }),
+      'GROUP_MIN_PLAYERS_INVALID',
+      422,
+    );
+    expect(err2.details).toEqual({ max: 6 });
+    expect((await t.games.current(A, t.group.id)).minPlayers).toBeUndefined();
+  });
+
+  it('GRP-46: vagas e mínimo do jogo no mesmo pedido → confere contra as vagas novas do jogo', async () => {
+    const t = await setup({ members: [A] });
+    const err = await expectAppError(
+      t.games.updateGame(OWNER, t.group.id, DATE, { slots: 6, minPlayers: 8 }),
+      'GROUP_MIN_PLAYERS_INVALID',
+      422,
+    );
+    expect(err.details).toEqual({ max: 6 });
+    expect((await t.games.current(A, t.group.id)).slots).toBe(12);
+  });
+
+  it('GRP-46: baixar as vagas do jogo abaixo do mínimo que vale → GROUP_MIN_PLAYERS_INVALID', async () => {
+    const t = await setup({ members: [A] });
+    await t.groups.update(OWNER, t.group.id, { minPlayers: 10 });
+    const err = await expectAppError(
+      t.games.updateGame(OWNER, t.group.id, DATE, { slots: 8 }),
+      'GROUP_MIN_PLAYERS_INVALID',
+      422,
+    );
+    expect(err.details).toEqual({ max: 8 });
+  });
+
+  it('GRP-46: o jogo não é cancelado sozinho por não chegar ao mínimo', async () => {
+    const t = await setup({ members: [A, B] });
+    await t.groups.update(OWNER, t.group.id, { minPlayers: 10 });
+    await t.confirmInOrder(A, B);
+    t.clock.now = FRIDAY_20H;
+    const game = await t.games.current(A, t.group.id);
+    expect(game.status).toBe('in_progress');
+    expect(ids(game.confirmed)).toEqual([A, B]);
+    expect(ofType(t.sent, 'game_cancelled')).toEqual([]);
+  });
+});
+
+describe('aviso de jogo confirmado (GRP-47)', () => {
+  it('GRP-47: a confirmação que chega ao mínimo avisa todos da lista com game_confirmed, menos o dono', async () => {
+    const t = await setup({ members: [A, B] });
+    await t.groups.update(OWNER, t.group.id, { minPlayers: 3 });
+    await t.confirmInOrder(OWNER, A);
+    expect(ofType(t.sent, 'game_confirmed')).toEqual([]);
+    await t.confirmInOrder(B);
+    expect(ofType(t.sent, 'game_confirmed').sort()).toEqual([A, B].sort());
+    for (const n of t.sent.filter((x) => x.type === 'game_confirmed'))
+      expect(n).toMatchObject({
+        title: CONFIRMED_TITLE,
+        body: CONFIRMED_BODY,
+        link: `/groups/${t.group.id}`,
+      });
+  });
+
+  it('GRP-47: só na primeira vez: cair e voltar ao mínimo não avisa de novo', async () => {
+    const t = await setup({ members: [A, B, C] });
+    await t.groups.update(OWNER, t.group.id, { minPlayers: 2 });
+    await t.confirmInOrder(A, B);
+    expect(ofType(t.sent, 'game_confirmed').sort()).toEqual([A, B].sort());
+    await t.games.leave(B, t.group.id, DATE);
+    t.tick();
+    await t.confirmInOrder(B, C);
+    expect(ofType(t.sent, 'game_confirmed')).toHaveLength(2);
+  });
+
+  it('GRP-47: quem confirma depois de o jogo já ter chegado ao mínimo não recebe o aviso', async () => {
+    const t = await setup({ slots: 2, members: [A, B, C] });
+    await t.groups.update(OWNER, t.group.id, { minPlayers: 2 });
+    await t.confirmInOrder(A, B, C);
+    expect(ofType(t.sent, 'game_confirmed').sort()).toEqual([A, B].sort());
+  });
+
+  it('GRP-47: ligar um mínimo que a lista já atinge avisa todos, dentro e fila', async () => {
+    const t = await setup({ slots: 2, members: [A, B, C] });
+    await t.confirmInOrder(A, B, C);
+    expect(ofType(t.sent, 'game_confirmed')).toEqual([]);
+    await t.groups.update(OWNER, t.group.id, { minPlayers: 2 });
+    expect(ofType(t.sent, 'game_confirmed').sort()).toEqual([A, B, C].sort());
+  });
+
+  it('GRP-47: baixar o mínimo do jogo até a lista avisa', async () => {
+    const t = await setup({ members: [A, B, C] });
+    await t.groups.update(OWNER, t.group.id, { minPlayers: 4 });
+    await t.confirmInOrder(A, B, C);
+    expect(ofType(t.sent, 'game_confirmed')).toEqual([]);
+    await t.games.updateGame(OWNER, t.group.id, DATE, { minPlayers: 3 });
+    expect(ofType(t.sent, 'game_confirmed').sort()).toEqual([A, B, C].sort());
+  });
+
+  it('GRP-47: mais vagas que fazem chegar ao mínimo avisam (e quem subiu também recebe a promoção)', async () => {
+    const t = await setup({ slots: 2, members: [A, B, C, D] });
+    await t.confirmInOrder(A, B, C, D);
+    await t.games.updateGame(OWNER, t.group.id, DATE, { slots: 4, minPlayers: 4 });
+    expect(ofType(t.sent, 'game_confirmed').sort()).toEqual([A, B, C, D].sort());
+    expect(ofType(t.sent, 'waitlist_promoted').sort()).toEqual([C, D].sort());
+  });
+
+  it('GRP-47: o convidado recebe o link do jogo', async () => {
+    const t = await setup({ members: [A], reservesOpenHoursBefore: 48, guestsOpenHoursBefore: 48 });
+    await t.groups.update(OWNER, t.group.id, { minPlayers: 2 });
+    await t.confirmInOrder(A);
+    await t.guestConfirmInOrder(G);
+    const toGuest = t.sent.find((n) => n.type === 'game_confirmed' && n.userId === G);
+    expect(toGuest).toMatchObject({ link: `/play/${guestTokenOf(t.group)}` });
+    const toMember = t.sent.find((n) => n.type === 'game_confirmed' && n.userId === A);
+    expect(toMember).toMatchObject({ link: `/groups/${t.group.id}` });
+  });
+
+  it('GRP-47: sem mínimo, a lista cheia não avisa', async () => {
+    const t = await setup({ slots: 2, members: [A, B, C] });
+    await t.confirmInOrder(A, B, C);
+    expect(ofType(t.sent, 'game_confirmed')).toEqual([]);
+  });
+
+  it('GRP-47: jogo sem ninguém (virtual) não tem a quem avisar', async () => {
+    const t = await setup({ members: [A] });
+    await t.groups.update(OWNER, t.group.id, { minPlayers: 2 });
+    expect(t.sent).toEqual([]);
+  });
+
+  it('GRP-47: mudar o mínimo do grupo com mínimo próprio no jogo não avisa', async () => {
+    const t = await setup({ members: [A, B, C] });
+    await t.games.updateGame(OWNER, t.group.id, DATE, { minPlayers: 4 });
+    await t.confirmInOrder(A, B, C);
+    await t.groups.update(OWNER, t.group.id, { minPlayers: 2 });
+    expect(ofType(t.sent, 'game_confirmed')).toEqual([]);
+    expect((await t.games.current(A, t.group.id)).minPlayers).toBe(4);
+  });
+
+  it('GRP-47: se outra escrita já marcou o jogo como confirmado, esta não avisa', async () => {
+    const t = await setup({ members: [A, B] });
+    await t.groups.update(OWNER, t.group.id, { minPlayers: 2 });
+    await t.confirmInOrder(A);
+    t.store.hooks.beforeMarkMinReached.push((gameId) => t.store.forceMinReached(gameId, iso(t.clock.now)));
+    await t.confirmInOrder(B);
+    expect(t.store.markMinReachedCalls).toHaveLength(1);
+    expect(ofType(t.sent, 'game_confirmed')).toEqual([]);
   });
 });

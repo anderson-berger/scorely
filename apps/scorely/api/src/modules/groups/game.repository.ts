@@ -3,6 +3,7 @@ import type { Entity } from '@scorely/contracts';
 import {
   batchGetOrdered,
   dbItem,
+  isConditionFailed,
   LOOKUP_ENTITY,
   queryLookupRows,
   stripKeys,
@@ -22,7 +23,23 @@ import {
 import { groupKey } from './group.table';
 
 /** Jogo materializado (D1): só existe depois da 1ª confirmação ou do cancelamento. */
-export type GameRecord = Entity & { groupId: string; date: string; cancelledAt?: string };
+export type GameRecord = Entity & {
+  groupId: string;
+  date: string;
+  cancelledAt?: string;
+  /** Vagas só deste jogo (GRP-45). Ausente = as do grupo. */
+  slots?: number;
+  /** Mínimo só deste jogo (GRP-46). Ausente = o do grupo. */
+  minPlayers?: number;
+  /** Quando o jogo chegou ao mínimo pela 1ª vez (GRP-47): o aviso sai uma vez só. */
+  minReachedAt?: string;
+};
+
+/** Vagas e mínimo só do jogo: número grava, `null` remove (volta ao padrão do grupo), ausente não muda. */
+export interface GameSettingsPatch {
+  slots?: number | null;
+  minPlayers?: number | null;
+}
 
 /** Presença de um jogador num jogo (D5). */
 export type AttendanceRecord = Entity & { gameId: string; userId: string; confirmedAt: string };
@@ -44,6 +61,10 @@ export interface GameRepository {
   cancel(gameId: string, cancelledAt: string): Promise<void>;
   /** Tira o `cancelledAt` numa transação que também confere o grupo não arquivado (GRP-44). Nada é gravado em falha. */
   reopen(gameId: string, groupId: string): Promise<ReopenResult>;
+  /** GRP-45, 46: grava ou remove as vagas e o mínimo do jogo; devolve o item novo. */
+  updateSettings(gameId: string, patch: GameSettingsPatch): Promise<GameRecord>;
+  /** GRP-47: grava `minReachedAt` só se ainda não existe. `true` = esta chamada gravou (é quem avisa). */
+  markMinReached(gameId: string, at: string): Promise<boolean>;
   /** Lista inteira, na ordem de confirmação (D4). */
   listAttendance(gameId: string, opts?: ReadOptions): Promise<AttendanceRecord[]>;
   getAttendance(gameId: string, userId: string): Promise<AttendanceRecord | undefined>;
@@ -120,6 +141,48 @@ export const dynamoGameRepository: GameRepository = {
         ExpressionAttributeValues: { ':at': cancelledAt },
       }),
     );
+  },
+
+  async updateSettings(gameId, patch) {
+    const entries = Object.entries(patch).filter(([, v]) => v !== undefined);
+    const set = entries.filter(([, v]) => v !== null);
+    const remove = entries.filter(([, v]) => v === null);
+    const clauses = [
+      ...(set.length > 0 ? [`SET ${set.map(([k]) => `#${k} = :${k}`).join(', ')}`] : []),
+      ...(remove.length > 0 ? [`REMOVE ${remove.map(([k]) => `#${k}`).join(', ')}`] : []),
+    ];
+    const { Attributes } = await dynamo().send(
+      new UpdateCommand({
+        TableName: tableName(),
+        Key: gameKey(gameId),
+        UpdateExpression: clauses.join(' '),
+        ConditionExpression: 'attribute_exists(PK)',
+        ExpressionAttributeNames: Object.fromEntries(entries.map(([k]) => [`#${k}`, k])),
+        ...(set.length > 0 && {
+          ExpressionAttributeValues: Object.fromEntries(set.map(([k, v]) => [`:${k}`, v])),
+        }),
+        ReturnValues: 'ALL_NEW',
+      }),
+    );
+    return stripKeys<GameRecord>(Attributes ?? {});
+  },
+
+  async markMinReached(gameId, at) {
+    try {
+      await dynamo().send(
+        new UpdateCommand({
+          TableName: tableName(),
+          Key: gameKey(gameId),
+          UpdateExpression: 'SET minReachedAt = :at',
+          ConditionExpression: 'attribute_exists(PK) AND attribute_not_exists(minReachedAt)',
+          ExpressionAttributeValues: { ':at': at },
+        }),
+      );
+      return true;
+    } catch (err) {
+      if (isConditionFailed(err)) return false;
+      throw err;
+    }
   },
 
   async reopen(gameId, groupId) {

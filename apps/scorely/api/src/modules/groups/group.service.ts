@@ -267,11 +267,18 @@ export function createGroupService(deps: GroupsDeps) {
             : patch.guestsOpenHoursBefore,
       };
       assertLayers(layers);
+      // GRP-45, 46: o mínimo não passa das vagas; o jogo atual que segue o grupo também é conferido.
+      const slots = patch.slots ?? group.slots;
+      const min = patch.minPlayers === undefined ? group.minPlayers : (patch.minPlayers ?? undefined);
+      if (min !== undefined && min > slots) throw appError('GROUP_MIN_PLAYERS_INVALID', { max: slots });
+      const capacityChanged = patch.slots !== undefined || patch.minPlayers !== undefined;
+      const plan = capacityChanged ? await games.defaultsPlan(group, slots) : undefined;
       // Grava as reservas efetivas: grupo de antes da E2 deixa de depender do padrão (D3).
       const updated = await deps.groups.update(groupId, {
         ...patch,
         reservesOpenHoursBefore: layers.reservesOpenHoursBefore,
       });
+      await plan?.afterUpdate(updated);
       return forViewer(updated, userId, 'member');
     },
 

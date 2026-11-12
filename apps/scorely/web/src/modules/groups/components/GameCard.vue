@@ -11,6 +11,8 @@ import {
   initials,
   type LineupSlot,
   lineupSlots,
+  type Minimum,
+  minimum,
   type Score,
   score,
 } from '../scoreboard';
@@ -38,9 +40,16 @@ export default defineComponent({
       default: undefined,
     },
     canEditPositions: { type: Boolean, default: false },
+    /** GRP-45, 46: o dono muda as vagas e o mínimo só deste jogo. */
+    canEditCapacity: { type: Boolean, default: false },
   },
 
-  emits: { confirm: () => true, leave: () => true, editPlayer: (_userId: string) => true },
+  emits: {
+    confirm: () => true,
+    leave: () => true,
+    editPlayer: (_userId: string) => true,
+    editCapacity: () => true,
+  },
 
   data() {
     return {
@@ -64,6 +73,24 @@ export default defineComponent({
       const weekday = formatDateTime(at, 'weekday');
       const day = `${weekday.charAt(0).toUpperCase()}${weekday.slice(1)}, ${formatDateTime(at, 'dayMonth')}`;
       return `${day} · ${formatDateTime(at, 'time')}`;
+    },
+
+    /** GRP-46: o mínimo embaixo do placar. */
+    minimum(): Minimum | undefined {
+      return minimum(this.game);
+    },
+
+    minimumLine(): string {
+      const m = this.minimum;
+      if (!m) return '';
+      return m.reached
+        ? this.$t('groups.capacity.reached')
+        : this.$t('groups.capacity.missing', { count: m.missing, min: m.min }, m.missing);
+    },
+
+    /** O jogo tem vagas ou mínimo próprios (GRP-45). */
+    customCapacity(): boolean {
+      return Boolean(this.game.slotsCustom || this.game.minPlayersCustom);
     },
 
     legend(): string {
@@ -163,6 +190,21 @@ export default defineComponent({
             ><span class="colon">:</span>{{ score.slots }}
           </div>
           <div class="legend">{{ legend }}</div>
+          <div v-if="minimumLine" class="minimum" :class="{ 'minimum--reached': minimum?.reached }">
+            {{ minimumLine }}
+          </div>
+          <div v-if="customCapacity" class="sc-label custom">{{ $t('groups.capacity.custom') }}</div>
+          <q-btn
+            v-if="canEditCapacity"
+            flat
+            dense
+            no-caps
+            color="primary"
+            icon="tune"
+            class="capacity"
+            :label="$t('groups.capacity.editGame')"
+            @click="$emit('editCapacity')"
+          />
         </div>
 
         <div class="action">
@@ -340,6 +382,28 @@ export default defineComponent({
 
 .colon {
   color: var(--sc-dim);
+}
+
+.minimum {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--sc-muted);
+}
+
+.minimum--reached {
+  color: var(--sc-accent);
+  font-weight: 700;
+}
+
+.custom {
+  margin-top: 4px;
+  font-size: 10px;
+  color: var(--sc-muted);
+}
+
+.capacity {
+  margin-top: 6px;
+  min-height: 36px;
 }
 
 .legend {

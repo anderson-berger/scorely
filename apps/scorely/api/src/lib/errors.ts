@@ -41,6 +41,11 @@ const CATALOG = {
   GROUP_MEMBERS_FULL: { status: 409, message: 'The group has reached its member limit' },
   GROUP_RESERVES_FULL: { status: 409, message: 'The group has reached its reserve limit' },
   GROUP_MEMBER_INVITE_INVALID: { status: 404, message: 'No pending member invite' },
+  GROUP_MIN_PLAYERS_INVALID: { status: 422, message: 'The minimum cannot be greater than the slots' },
+  GAME_SLOTS_BELOW_CONFIRMED: {
+    status: 409,
+    message: 'The slots cannot be fewer than the people already in',
+  },
 
   GAME_NOT_FOUND: { status: 404, message: 'Game not found' },
   GAME_LIST_NOT_OPEN: { status: 409, message: 'The attendance list is not open yet' },

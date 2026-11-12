@@ -4,6 +4,7 @@ import {
   GroupImageSlotSchema,
   MediaUploadInputSchema,
   RotateInviteInputSchema,
+  UpdateGameInputSchema,
   UpdateGroupInputSchema,
 } from '@scorely/contracts';
 import { authHandlers } from '../../lib/auth';
@@ -58,6 +59,7 @@ export const {
   leave,
   cancel,
   reopen,
+  updateGame,
   playView,
   playConfirm,
   playLeave,
@@ -159,6 +161,11 @@ export const {
 
   async reopen(event, auth) {
     return games.reopen(auth.userId, pathParam(event, 'id'), pathParam(event, 'date'));
+  },
+
+  async updateGame(event, auth) {
+    const patch = parseBody(event, UpdateGameInputSchema);
+    return games.updateGame(auth.userId, pathParam(event, 'id'), pathParam(event, 'date'), patch);
   },
 
   async playView(event, auth) {

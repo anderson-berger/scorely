@@ -38,6 +38,8 @@ export const ErrorCodeSchema = z.enum([
   'GROUP_MEMBERS_FULL',
   'GROUP_RESERVES_FULL',
   'GROUP_MEMBER_INVITE_INVALID',
+  'GROUP_MIN_PLAYERS_INVALID',
+  'GAME_SLOTS_BELOW_CONFIRMED',
   // games
   'GAME_NOT_FOUND',
   'GAME_LIST_NOT_OPEN',
@@ -74,6 +76,10 @@ export const ErrorDetailsSchemas = {
   TEAM_POSITION_INVALID: z.object({ position: z.string() }),
   /** O número do time vazio, a partir de 1 (TIM-08). */
   TEAM_EMPTY: z.object({ team: z.number().int().positive() }),
+  /** As vagas que valem (GRP-46): o mínimo não passa delas. */
+  GROUP_MIN_PLAYERS_INVALID: z.object({ max: z.number().int().positive() }),
+  /** Quantos já estão dentro (GRP-45): as vagas não descem abaixo disso. */
+  GAME_SLOTS_BELOW_CONFIRMED: z.object({ confirmed: z.number().int().nonnegative() }),
 } satisfies Partial<Record<ErrorCode, z.ZodType>>;
 export type ErrorDetails = {
   [C in keyof typeof ErrorDetailsSchemas]: z.infer<(typeof ErrorDetailsSchemas)[C]>;

@@ -84,6 +84,10 @@ export interface GroupPatch {
   /** GRP-38 */
   maxMembers?: number | undefined;
   maxReserves?: number | undefined;
+  /** GRP-45 */
+  slots?: number | undefined;
+  /** GRP-46: `null` remove o campo (sem mínimo). */
+  minPlayers?: number | null | undefined;
 }
 
 /** Participante do grupo; `createdAt` é a data de entrada (plano 013, D9: o service ordena por ela). */

@@ -66,6 +66,8 @@ export const TeamPlayerSchema = z.object({
   inList: z.boolean(),
   /** Está na fila (o Banco), não dentro da lista (TIM-08). */
   bench: z.boolean(),
+  /** O dono fixou a pessoa no time: o sorteio não a move (TIM-16). Sempre `false` para quem não é dono. */
+  pinned: z.boolean(),
 });
 export type TeamPlayer = z.infer<typeof TeamPlayerSchema>;
 
@@ -85,16 +87,24 @@ export type Teams = z.infer<typeof TeamsSchema>;
 export const TeamsResponseSchema = z.object({ teams: TeamsSchema.nullable() });
 export type TeamsResponse = z.infer<typeof TeamsResponseSchema>;
 
-/** PUT dos times: ids por time, na ordem, e os ajustes de posição só do jogo (TIM-08, 13). Não muda o status. */
-export const SaveTeamsInputSchema = z.object({
-  teams: z
-    .array(z.array(z.uuid()))
-    .min(TEAM_COUNT.min)
-    .max(TEAM_COUNT.max)
-    .refine((teams) => {
-      const ids = teams.flat();
-      return new Set(ids).size === ids.length;
-    }, 'A person must be in one team only'),
-  positions: z.record(z.uuid(), PlayerPositionsSchema),
-});
-export type SaveTeamsInput = z.infer<typeof SaveTeamsInputSchema>;
+/** PUT dos times: ids por time, na ordem, os ajustes de posição só do jogo e quem está fixo (TIM-08, 13, 16). Não muda o status. */
+export const SaveTeamsInputSchema = z
+  .object({
+    teams: z
+      .array(z.array(z.uuid()))
+      .min(TEAM_COUNT.min)
+      .max(TEAM_COUNT.max)
+      .refine((teams) => {
+        const ids = teams.flat();
+        return new Set(ids).size === ids.length;
+      }, 'A person must be in one team only'),
+    positions: z.record(z.uuid(), PlayerPositionsSchema),
+    /** Quem está fixo no time em que está (TIM-16). */
+    pinned: z.array(z.uuid()).default([]),
+  })
+  .refine((input) => {
+    const placed = new Set(input.teams.flat());
+    return input.pinned.every((id) => placed.has(id));
+  }, 'Only a person in a team can be pinned');
+/** Tipo de entrada: `pinned` pode faltar (vale `[]`). */
+export type SaveTeamsInput = z.input<typeof SaveTeamsInputSchema>;

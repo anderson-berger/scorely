@@ -88,7 +88,7 @@ Cada regra tem um id fixo (`GRP-NN`). O id não é reaproveitado: se uma regra s
   - Na criação, com os membros e sem as reservas: reservas na metade das horas dos membros (arredondando para baixo).
   - Grupo antigo sem o campo das reservas: elas abrem junto com os membros.
   - _Por quê:_ quem cria o grupo não precisa decidir as camadas na hora (ver GRP-34), e o padrão é uma regra de negócio, então fica na api. O web não conhece esses números: ele só mostra o que a api gravou.
-- **GRP-16. Só o dono muda as camadas e os limites.** O `PATCH /groups/{id}` só aceita as três camadas (e `null` desliga os convidados) e os dois limites (GRP-38). Nome, horário e vagas ainda não podem ser mudados. _(Alterada em 2026-11-10: antes, só as camadas.)_
+- **GRP-16. Só o dono muda as camadas, os limites, as vagas e o mínimo.** O `PATCH /groups/{id}` só aceita as três camadas (e `null` desliga os convidados), os dois limites (GRP-38), as vagas (GRP-45) e o mínimo (GRP-46, `null` desliga). Nome e horário ainda não podem ser mudados. _(Alterada em 2026-11-10: antes, só as camadas. Alterada em 2026-11-11: entraram as vagas e o mínimo.)_
 - **GRP-17. Cada um confirma a partir da sua camada.** Quem tenta confirmar antes recebe `GAME_LIST_NOT_OPEN`, com `details.opensAt` (o horário da camada de quem pede).
   - O `status` do jogo é sempre o da camada dos membros.
   - O `myOpensAt` diz quando quem pede pode confirmar.
@@ -104,9 +104,29 @@ Cada regra tem um id fixo (`GRP-NN`). O id não é reaproveitado: se uma regra s
   - Com o jogo em andamento, a resposta é `GAME_CLOSED`.
   - Com o jogo cancelado, é `GAME_CANCELLED`.
   - Desistir sem estar na lista não faz nada.
-- **GRP-22. Aviso de promoção.** Quando alguém de dentro sai (porque desistiu ou foi removido), quem passou a ocupar a última vaga vindo da fila recebe a notificação `waitlist_promoted`.
+- **GRP-22. Aviso de promoção.** Quando alguém de dentro sai (porque desistiu ou foi removido), quem passou a ocupar a última vaga vindo da fila recebe a notificação `waitlist_promoted`. Quando as vagas aumentam (GRP-45), cada pessoa que subiu da fila recebe o mesmo aviso.
   - O convidado recebe o link do jogo, e o membro ou a reserva, o link do grupo.
+  - _Alterada em 2026-11-11:_ entrou o aviso quando as vagas aumentam.
 - **GRP-23. O papel mostrado na lista é o papel atual,** calculado na leitura. Se uma reserva virar membro, a lista já mostra o novo papel.
+
+### Vagas e mínimo
+
+- **GRP-45. As vagas têm um padrão do grupo e podem mudar em cada jogo.**
+  - As **vagas** são quantos ficam dentro da lista (GRP-19), de 2 a 50. Com as vagas cheias, quem confirma vai para o Banco, como sempre (GRP-18).
+  - O padrão vem da criação do grupo, e o dono muda nos Ajustes. O dono também muda as vagas **só do jogo atual** (`PATCH /groups/{id}/games/{date}`), e o padrão do grupo não muda. Sem valor próprio, o jogo usa o padrão, inclusive se ele mudar depois.
+  - **Aumentar** as vagas faz quem está no Banco subir na ordem da fila, com o aviso de promoção (GRP-22).
+  - **Diminuir** não pode deixar menos vagas do que quem já está dentro: a resposta é `GAME_SLOTS_BELOW_CONFIRMED` (409, `details.confirmed` = quantos estão dentro). Vale também para o padrão do grupo, quando o jogo atual não tem valor próprio.
+  - O jogo pode voltar a usar o padrão do grupo ("Usar o padrão do grupo"), com as mesmas regras de aumentar e diminuir.
+  - Mudar o jogo segue o prazo de confirmar (GRP-21): em andamento, `GAME_CLOSED`; cancelado, `GAME_CANCELLED`. Outra data, `GAME_NOT_FOUND` (GRP-11).
+  - _Por quê:_ tem semana em que o grupo chama 14 em vez de 12. Não diminuir abaixo de quem está dentro mantém a GRP-18: quem confirmou dentro não é tirado da lista depois.
+- **GRP-46. O mínimo para o jogo acontecer é opcional,** de 2 até as vagas. Também tem o padrão do grupo (nos Ajustes, desligado em grupo novo e nos antigos) e um valor só do jogo atual, como as vagas (GRP-45).
+  - Com o mínimo, o jogo está **confirmado** quando o número de quem está dentro chega ao mínimo. Se alguém desiste e o número cai, ele volta a não estar confirmado.
+  - Mínimo acima das vagas responde `GROUP_MIN_PLAYERS_INVALID` (422, `details.max` = as vagas). Isso vale ao mudar qualquer um dos dois.
+  - O jogo não é cancelado sozinho por não chegar ao mínimo: quem decide cancelar é o dono (GRP-24).
+  - _Por quê:_ com 10 de 12 já dá jogo. A lista precisa saber se o jogo vai acontecer, sem esperar fechar as 12. Cancelar sozinho precisaria de um horário de corte e de um agendador, que o jogo calculado não tem (GRP-10).
+- **GRP-47. Aviso de jogo confirmado:** na **primeira** vez que o jogo atinge o mínimo (por uma confirmação, por mais vagas ou por um mínimo menor), o aviso `game_confirmed` vai para todos da lista (dentro e fila), menos o dono. Se o número cair e voltar ao mínimo, não avisa de novo.
+  - O link é o grupo; para o convidado, o link do jogo (como o GRP-22).
+  - _Por quê:_ é a notícia que todos esperam ("vai ter jogo"). Repetir a cada sobe e desce seria barulho.
 
 ### Cancelar e remover
 
@@ -204,11 +224,11 @@ Cada regra tem um id fixo (`GRP-NN`). O id não é reaproveitado: se uma regra s
   3. "você joga · Nº";
   4. "na fila · Nº";
   5. "abre {data}" (a camada de quem lê ainda não abriu);
-  6. vagas que faltam, ou lotado.
+  6. vagas que faltam, ou lotado. Com o mínimo (GRP-46), "faltam N para fechar" até chegar nele, e "jogo confirmado" depois. _(Alterada em 2026-11-11.)_
 - **GRP-29. A página do grupo tem três abas:**
-  - **Jogo**: placar confirmados:vagas, ação conforme o estado, abertura das camadas, o card **Times** ([TIM-14](times.md)), Escalação (uma linha por vaga) e Banco (só com fila). Cada pessoa da lista mostra as suas posições, convidados inclusive, e o dono as muda ali ([TIM-05](times.md));
+  - **Jogo**: placar confirmados:vagas, com o mínimo embaixo ("faltam 2 para fechar · mínimo 10" ou "Jogo confirmado ✓", GRP-46). Para o dono, antes do início e com o jogo valendo, o botão "Vagas deste jogo" embaixo do placar abre o painel (vagas, mínimo e "Usar o padrão do grupo", GRP-45), e um valor só do jogo aparece marcado ("só neste jogo"). Depois, ação conforme o estado, abertura das camadas, o card **Times** ([TIM-14](times.md)), Escalação (uma linha por vaga) e Banco (só com fila). Cada pessoa da lista mostra as suas posições, convidados inclusive, e o dono as muda ali ([TIM-05](times.md));
   - **Membros**: membros e reservas separados, cada parte com a contagem e o limite ("Membros · 13/14"). Cada pessoa mostra as suas posições, e o dono as muda ali ([TIM-05](times.md)). As ações do dono sobre a pessoa ficam no menu "⋮" da linha: "Remover" e, na reserva, "Convidar para membro" (só com lugar livre) ou, com o convite pendente, a marca "convite enviado" e "Cancelar convite". No fim da aba, quem não é dono tem "Sair do grupo" (GRP-43);
-  - **Ajustes**: só para o dono. Tem camadas, **limites** (GRP-38), links, logo e capa (GRP-35) e a zona de perigo, com cancelar o jogo (ou **reabrir o jogo**, quando ele está cancelado, GRP-44) e **arquivar o grupo**.
+  - **Ajustes**: só para o dono. Tem camadas, **vagas e mínimo** padrão (GRP-45, 46), **limites** (GRP-38), links, logo e capa (GRP-35) e a zona de perigo, com cancelar o jogo (ou **reabrir o jogo**, quando ele está cancelado, GRP-44) e **arquivar o grupo**.
   - A reserva com convite pendente vê, no topo da página, a faixa "Você foi convidado para ser membro", com Aceitar e Recusar (GRP-41). Ao aceitar, a página recarrega com o papel novo.
   - Arquivar pede confirmação: "O grupo sai da lista de todos, os links param de funcionar e o jogo desta semana é cancelado. Dá para desarquivar depois." Depois de arquivar, a pessoa continua na página, que passa a ser a do grupo arquivado (GRP-37).
   - Reabrir pede confirmação: "Reabrir o jogo de {data}? Quem estava na lista volta na mesma posição e é avisado." Só aparece antes do início. _(Alterada em 2026-11-10: entrou reabrir o jogo.)_
@@ -238,7 +258,7 @@ Cada regra tem um id fixo (`GRP-NN`). O id não é reaproveitado: se uma regra s
 | Participação           | `MEMBERSHIP#<groupId>#<userId>` / `META`                      | papel, data de entrada e `memberInviteExpiresAt`, o prazo do convite para membro pendente, conferido na leitura (GRP-40) ([ADR 0009](../decisions/0009-entidade-de-relacao-chave-natural.md))        |
 | Participantes do grupo | `LOOKUP#GROUP#<groupId>#MEMBERSHIP` / `<userId>`              | lista de membros                                                                                                                                                                                     |
 | Grupos da pessoa       | `LOOKUP#USER#<userId>#GROUP` / `<groupId>`                    | "meus grupos"                                                                                                                                                                                        |
-| Jogo                   | `GAME#<id>` / `META`                                          | existe só depois da 1ª escrita (GRP-10); `cancelledAt`                                                                                                                                               |
+| Jogo                   | `GAME#<id>` / `META`                                          | existe só depois da 1ª escrita (GRP-10); `cancelledAt`; `slots` e `minPlayers` só do jogo (GRP-45, 46); `minReachedAt` (o 1º aviso, GRP-47)                                                          |
 | Jogo pela data         | `LOOKUP#GAME#<groupId>#<data>` / `META`                       | duas confirmações simultâneas não criam 2 jogos                                                                                                                                                      |
 | Presença               | `ATTENDANCE#<id>` / `META`                                    | `{ gameId, userId, confirmedAt }`                                                                                                                                                                    |
 | Ordem da lista         | `LOOKUP#GAME#<gameId>#ATTENDANCE` / `<confirmedAt>#<userId>`  | a posição na Query é a posição na lista (GRP-19)                                                                                                                                                     |
@@ -269,7 +289,7 @@ Os detalhes de cada chave e transação estão nos comentários de `group.table.
 | `POST /groups/{id}/archive`                                                                                      | dono           | GRP-31             |
 | `POST /groups/{id}/unarchive`                                                                                    | dono           | GRP-33             |
 | `GET /groups/{id}`                                                                                               | membro/reserva | GRP-04, 05         |
-| `PATCH /groups/{id}`                                                                                             | dono           | GRP-14, 16         |
+| `PATCH /groups/{id}`                                                                                             | dono           | GRP-14, 16, 45–47  |
 | `POST /groups/{id}/invite` `{ kind }`                                                                            | dono           | GRP-07, 08         |
 | `POST /groups/{id}/images/{slot}/upload`, `PUT`/`DELETE /groups/{id}/images/{slot}` (`slot` = `logo` ou `cover`) | dono           | GRP-35 (MID-03–11) |
 | `POST /invites/{token}/accept`                                                                                   | logado         | GRP-02             |
@@ -282,14 +302,17 @@ Os detalhes de cada chave e transação estão nos comentários de `group.table.
 | `POST`/`DELETE /groups/{id}/games/{date}/attendance`                                                             | membro/reserva | GRP-17–22          |
 | `POST /groups/{id}/games/{date}/cancel`                                                                          | dono           | GRP-24             |
 | `POST /groups/{id}/games/{date}/reopen`                                                                          | dono           | GRP-44             |
+| `PATCH /groups/{id}/games/{date}`                                                                                | dono           | GRP-45–47          |
 | `GET /play/{token}`, `POST`/`DELETE /play/{token}/games/{date}/attendance`                                       | logado         | GRP-08, 09, 17–22  |
 
-Erros: `GROUP_NOT_FOUND`, `GROUP_NOT_OWNER`, `GROUP_INVITE_INVALID`, `GROUP_MEMBER_NOT_FOUND`, `GROUP_OWNER_NOT_REMOVABLE`, `GROUP_LAYERS_INVALID`, `GAME_NOT_FOUND`, `GAME_LIST_NOT_OPEN`, `GAME_CLOSED`, `GAME_CANCELLED`, `GAME_LINK_INVALID`, `GROUP_ARCHIVED`, `GROUP_MEMBERS_FULL`, `GROUP_RESERVES_FULL`, `GROUP_MEMBER_INVITE_INVALID` (catálogo em `api/src/lib/errors.ts`). Os erros do logo e da capa vêm da mídia (`MEDIA_*`).
+Erros: `GROUP_NOT_FOUND`, `GROUP_NOT_OWNER`, `GROUP_INVITE_INVALID`, `GROUP_MEMBER_NOT_FOUND`, `GROUP_OWNER_NOT_REMOVABLE`, `GROUP_LAYERS_INVALID`, `GAME_NOT_FOUND`, `GAME_LIST_NOT_OPEN`, `GAME_CLOSED`, `GAME_CANCELLED`, `GAME_LINK_INVALID`, `GROUP_ARCHIVED`, `GROUP_MEMBERS_FULL`, `GROUP_RESERVES_FULL`, `GROUP_MEMBER_INVITE_INVALID`, `GAME_SLOTS_BELOW_CONFIRMED`, `GROUP_MIN_PLAYERS_INVALID` (catálogo em `api/src/lib/errors.ts`). Os erros do logo e da capa vêm da mídia (`MEDIA_*`).
 
 ## 4. Limites conhecidos
 
 - Se duas pessoas de dentro saem ao mesmo tempo, o aviso de promoção pode ir duas vezes para a mesma pessoa da fila e pular outra. A lista fica certa; só o aviso falha.
-- Não há histórico de jogos (GRP-11) nem como editar nome, horário ou vagas (GRP-16).
+- Não há histórico de jogos (GRP-11) nem como editar nome e horário (GRP-16).
+- Um jogo não fica sem mínimo se o grupo tem um: dá para mudar o mínimo do jogo, não desligar só nele (GRP-46).
+- O aviso de jogo confirmado vem de quem gravou a mudança. Duas confirmações ao mesmo tempo que chegam juntas ao mínimo podem avisar duas vezes (como o aviso de promoção).
 - O dono não é avisado quando alguém sai, aceita ou recusa o convite para membro (GRP-41, 42). Ele vê a mudança na lista de membros.
 - Não dá para rebaixar um membro a reserva. O dono teria que remover e mandar o link de reserva.
 - Arquivar faz duas escritas: primeiro arquiva o grupo, depois cancela o jogo. Se a segunda falhar, o grupo fica arquivado com o jogo aberto, mas ninguém consegue confirmar (GRP-32), e arquivar de novo completa o cancelamento (GRP-31).
@@ -306,9 +329,9 @@ Erros: `GROUP_NOT_FOUND`, `GROUP_NOT_OWNER`, `GROUP_INVITE_INVALID`, `GROUP_MEMB
 - **Agenda** (decidido em 2026-11-10, vira tarefa própria depois do GRP-44): horários fixos mais exceções, como num calendário.
   - O grupo passa a ter 1 ou mais horários semanais, e os jogos desses horários continuam calculados (GRP-10).
   - O dono cria **jogo avulso**, que é um jogo a mais (não substitui o da semana), com vagas próprias; e **remarca** um jogo específico.
-  - Vagas e camadas são as do grupo para todos os horários. Só o avulso tem vagas próprias.
+  - Vagas e camadas são as do grupo para todos os horários, e cada jogo pode ter as suas vagas e o seu mínimo (GRP-45, 46).
   - Com mais de um jogo aberto, o "jogo atual" vira "Próximos jogos", e o jogo ganha id estável em vez da data. Mudam GRP-10, 11, 12 e 16.
-  - Fases: (1) vários horários e "Próximos jogos"; (2) avulso; (3) remarcar; (4) editar horários, vagas e nome.
+  - Fases: (1) vários horários e "Próximos jogos"; (2) avulso; (3) remarcar; (4) editar horários e nome.
 
 ## Histórico
 

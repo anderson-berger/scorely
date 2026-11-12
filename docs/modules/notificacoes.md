@@ -21,6 +21,7 @@ Avisar a pessoa, dentro do app, do que aconteceu sem ela estar olhando: entrou n
   | `game_reopened`     | o dono reabriu o jogo cancelado (GRP-44)                | grupo         |
   | `member_invite`     | o dono convidou a reserva para virar membro (GRP-40)    | grupo         |
   | `teams_published`   | o dono publicou os times do jogo pela 1ª vez (TIM-10)   | grupo ou jogo |
+  | `game_confirmed`    | o jogo chegou ao mínimo pela 1ª vez (GRP-47)            | grupo ou jogo |
   - Um tipo novo entra no contrato e ganha um ícone no web (`notification.icons.ts`).
 
 - **NTF-03. O título e o corpo são gravados em pt-BR** já no momento do aviso. O web mostra o texto como está.

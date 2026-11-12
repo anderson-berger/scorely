@@ -10,7 +10,7 @@ Montar os times do jogo da semana (ver [grupos.md](grupos.md)). O módulo é um 
 
 Caso de referência: vôlei misto de sexta, 12 vagas, 2 times de 6, 2 levantadores (um em cada time).
 
-Hoje o módulo guarda as **posições de cada pessoa no grupo** e os **times do jogo**, montados à mão pelo dono. O sorteio e as regras vêm nas próximas etapas (seção 5).
+Hoje o módulo guarda as **posições de cada pessoa no grupo** e os **times do jogo**, montados à mão ou sorteados pelo dono. As regras do sorteio vêm nas próximas etapas (seção 5).
 
 | Termo     | Significado                                                                                                            |
 | --------- | ---------------------------------------------------------------------------------------------------------------------- |
@@ -70,6 +70,19 @@ Hoje o módulo guarda as **posições de cada pessoa no grupo** e os **times do 
   - _Por quê:_ os times não mudam sozinhos pelas costas do dono; ele vê o que mudou e decide.
 - **TIM-13. Posição só no jogo:** cada pessoa nos times mostra as posições do grupo (TIM-04). O dono pode mudar as posições dela **só naquele jogo**, e o padrão do grupo não muda. Sem esse ajuste, vale o padrão do grupo, inclusive se ele mudar depois.
   - _Por quê:_ hoje faltou levantador e o Fulano vai levantar; na semana que vem ele volta a ser ponteiro.
+- **TIM-15. Sortear:** o dono sorteia os times do jogo, com as mesmas permissões e o mesmo prazo de mexer nos times (TIM-07, TIM-11).
+  - **Entra no sorteio:** todos de dentro da lista (incluindo os "sem time") e quem o dono já pôs num time vindo do Banco (TIM-08). Quem está no Banco e não está em nenhum time fica de fora, e quem saiu da lista (TIM-12) sai dos times.
+  - **Fica onde está:** quem o dono fixou (TIM-16). O resto é distribuído ao acaso.
+  - **Tamanhos:** a diferença entre o maior e o menor time é de no máximo 1, contando os fixados. Se os fixados já passam disso (ex.: 4 fixados no Time 1 com 6 pessoas e 2 times), o sorteio completa primeiro os times menores.
+  - Usa a quantidade de times atual. Sem times salvos, sorteia em 2 times (como "Montar times", TIM-14).
+  - Sortear de novo dá outro resultado (sem garantia de ser diferente, é sorte). As posições só do jogo (TIM-13) continuam valendo.
+  - Com os times publicados, sortear **volta para rascunho**: os outros deixam de ver até o dono publicar de novo, e essa publicação não avisa outra vez (TIM-10).
+  - _Por quê:_ sortear resolve "quem fica com quem" sem discussão; voltar para rascunho evita que a lista veja um sorteio que o dono ainda não conferiu. As regras do grupo (ex.: 1 levantador por time) entram no sorteio nas próximas etapas (seção 5).
+- **TIM-16. Fixar alguém num time:** o dono marca uma pessoa que está num time como **fixa**. Ela fica nesse time em todo sorteio (TIM-15), mesmo se tiver saído da lista, até o dono desafixar.
+  - Mover uma pessoa fixa para outro time mantém a pessoa fixa, agora no novo time. Mover para "sem time" ou tirar dos times desafixa.
+  - Só quem está num time pode ser fixo: fixar alguém fora dos times responde `VALIDATION_ERROR` (422).
+  - Todos veem os times como sempre; a marca de fixo aparece só para o dono.
+  - _Por quê:_ o dono já sabe que os dois levantadores ficam em times diferentes, ou que um casal joga junto, e quer sortear só o resto. Fixar é uma ação do dono no jogo, não uma regra do grupo (seção 5).
 
 ### Telas
 
@@ -82,11 +95,12 @@ Hoje o módulo guarda as **posições de cada pessoa no grupo** e os **times do 
   - Com o grupo arquivado, as posições aparecem, mas sem "+ Posição" e sem abrir o painel (GRP-37).
   - _Alterada em 2026-11-11:_ antes só o dono via, a função ficava ao lado do nome, e nada indicava que tocar abria o painel.
 - **TIM-14. Card "Times" na aba Jogo,** entre a abertura da lista e a Escalação (some com o jogo cancelado):
-  - **dono, sem times:** "Montar times", que cria o rascunho com 2 times vazios e todos de dentro em "sem time";
-  - **dono, com times:** cada time com o número de pessoas e, em cada pessoa, o nome e a posição principal no jogo (TIM-13). Uma marca "Rascunho" ou "Publicado", "sem time: N" quando houver, e a marca "saiu da lista" (TIM-12);
-  - **mover alguém:** o dono toca na pessoa e escolhe no painel de baixo: Time 1, Time 2..., Sem time ou, para quem veio do Banco, Tirar dos times. O mesmo painel muda as posições só no jogo (TIM-13). Sem arrastar: tocar funciona igual no celular;
-  - "Times: − 2 +" muda a quantidade. Ao diminuir, quem estava no time que sumiu vai para "sem time";
-  - ações: Publicar (ou Voltar para rascunho) e, num menu "⋮", Descartar times, com confirmação;
+  - **dono, sem times:** "Sortear" (TIM-15) e "Montar à mão", que cria o rascunho com 2 times vazios e todos de dentro em "sem time";
+  - **dono, com times:** cada time com o número de pessoas e, em cada pessoa, o nome e a posição principal no jogo (TIM-13). Uma marca "Rascunho" ou "Publicado", "sem time: N" quando houver, a marca "saiu da lista" (TIM-12) e um alfinete em quem está fixo (TIM-16);
+  - **mover alguém:** o dono toca na pessoa e escolhe no painel de baixo: Time 1, Time 2..., Sem time ou, para quem veio do Banco, Tirar dos times. O mesmo painel tem "Fixar neste time" (TIM-16) e muda as posições só no jogo (TIM-13). Sem arrastar: tocar funciona igual no celular;
+  - "Times: − 2 +" muda a quantidade. Ao diminuir, quem estava no time que sumiu vai para "sem time" (e deixa de ser fixo);
+  - ações: "Sortear" (ou "Sortear de novo", quando já há alguém num time), Publicar (ou Voltar para rascunho) e, num menu "⋮", Descartar times, com confirmação. Sortear com os times publicados pede confirmação ("os times voltam para rascunho");
+  - _Alterada em 2026-11-11:_ antes não havia sortear nem fixar;
   - **quem não é dono:** só os times publicados, sem ações, com o próprio time em destaque. Sem times publicados, o card não aparece;
   - **convidado, pela página do link do jogo:** os times publicados, como os outros veem.
   - Grupo arquivado não tem jogo (GRP-37), então não tem card.
@@ -95,20 +109,21 @@ Hoje o módulo guarda as **posições de cada pessoa no grupo** e os **times do 
 
 ### Dados (single-table, sem GSI, ver [`dynamodb.md`](../../.claude/rules/dynamodb.md))
 
-| Item             | Chave                                | Para quê                                                                                                                                                                                                                                                          |
-| ---------------- | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Jogador no grupo | `PLAYER#<groupId>#<userId>` / `META` | `positions`, na ordem (a primeira é a principal, TIM-02). Entidade de relação com chave natural ([ADR 0009](../decisions/0009-entidade-de-relacao-chave-natural.md)), separada da participação para valer também para convidados (TIM-01)                         |
-| Times do jogo    | `TEAMS#<groupId>#<data>` / `META`    | `status` (`draft`/`published`), `teams` (ids por time, na ordem), `positions` (só os ajustes do jogo, TIM-13), `publishedAt` (a 1ª publicação, TIM-10). Chave natural pelo jogo (grupo + data, como o `LOOKUP#GAME`), sem depender de o jogo já ter item (GRP-10) |
+| Item             | Chave                                | Para quê                                                                                                                                                                                                                                                                                                    |
+| ---------------- | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Jogador no grupo | `PLAYER#<groupId>#<userId>` / `META` | `positions`, na ordem (a primeira é a principal, TIM-02). Entidade de relação com chave natural ([ADR 0009](../decisions/0009-entidade-de-relacao-chave-natural.md)), separada da participação para valer também para convidados (TIM-01)                                                                   |
+| Times do jogo    | `TEAMS#<groupId>#<data>` / `META`    | `status` (`draft`/`published`), `teams` (ids por time, na ordem), `positions` (só os ajustes do jogo, TIM-13), `pinned` (ids de quem está fixo, TIM-16), `publishedAt` (a 1ª publicação, TIM-10). Chave natural pelo jogo (grupo + data, como o `LOOKUP#GAME`), sem depender de o jogo já ter item (GRP-10) |
 
 Não há lookup: quem aparece na lista já vem dos membros e do jogo atual (módulo de grupos), e as chaves se montam pelo par ou pela data.
 
 ### Onde está cada regra
 
-| Arquivo                           | O que tem                                                            |
-| --------------------------------- | -------------------------------------------------------------------- |
-| `contracts/src/teams.ts`          | posições e o catálogo de posições por esporte (TIM-02)               |
-| `api/.../teams/player.service.ts` | permissão e quem pode ser classificado (TIM-02, 03, 04)              |
-| `api/.../teams/teams.service.ts`  | times do jogo: montar, publicar, aviso, prazo, quem saiu (TIM-06–13) |
+| Arquivo                           | O que tem                                                                     |
+| --------------------------------- | ----------------------------------------------------------------------------- |
+| `contracts/src/teams.ts`          | posições e o catálogo de posições por esporte (TIM-02)                        |
+| `api/.../teams/player.service.ts` | permissão e quem pode ser classificado (TIM-02, 03, 04)                       |
+| `api/.../teams/teams.service.ts`  | times do jogo: montar, publicar, aviso, prazo, quem saiu, sortear (TIM-06–16) |
+| `api/.../teams/engine/draw.ts`    | sorteio puro: fixados, tamanhos (TIM-15, 16)                                  |
 
 ### Rotas
 
@@ -117,14 +132,15 @@ Não há lookup: quem aparece na lista já vem dos membros e do jogo atual (mód
 | `GET /groups/{id}/players`                                   | membros e reservas    | TIM-01–04                               |
 | `PUT /groups/{id}/players/{userId}`                          | dono                  | TIM-02–04                               |
 | `GET /groups/{id}/games/{date}/teams`                        | membros e reservas    | TIM-06, 09, 12, 13                      |
-| `PUT /groups/{id}/games/{date}/teams`                        | dono                  | TIM-06–08, 11, 13                       |
+| `PUT /groups/{id}/games/{date}/teams`                        | dono                  | TIM-06–08, 11, 13, 16                   |
 | `POST /groups/{id}/games/{date}/teams/publish`, `/unpublish` | dono                  | TIM-08–11                               |
+| `POST /groups/{id}/games/{date}/teams/draw`                  | dono                  | TIM-11, 15, 16                          |
 | `DELETE /groups/{id}/games/{date}/teams`                     | dono                  | TIM-06, 11                              |
 | `GET /play/{token}/teams`                                    | logado (link do jogo) | TIM-09: só os times publicados (GRP-09) |
 
 O `GET /players` devolve todos os membros, reservas e convidados da lista atual, cada um com as suas posições. O `PUT /players` recebe `{ positions }` (a primeira é a principal) e devolve o jogador.
 
-O `GET /teams` devolve os times (ou que não há times), com cada pessoa marcada se saiu da lista e as posições valendo no jogo. O `PUT /teams` recebe `{ teams, positions }` e salva sem mudar o estado (rascunho continua rascunho, publicado continua publicado).
+O `GET /teams` devolve os times (ou que não há times), com cada pessoa marcada se saiu da lista e as posições valendo no jogo. O `PUT /teams` recebe `{ teams, positions, pinned }` e salva sem mudar o estado (rascunho continua rascunho, publicado continua publicado).
 
 Erros: `TEAM_PLAYER_NOT_FOUND`, `TEAM_POSITION_INVALID`, `TEAM_EMPTY`, e os do grupo (`GROUP_NOT_FOUND`, `GROUP_NOT_OWNER`, `GROUP_ARCHIVED`, `GAME_NOT_FOUND`, `GAME_CANCELLED`).
 
@@ -137,9 +153,8 @@ Erros: `TEAM_PLAYER_NOT_FOUND`, `TEAM_POSITION_INVALID`, `TEAM_EMPTY`, e os do g
 
 ## 5. Em discussão (ainda não é regra)
 
-Roteiro aprovado em 2026-11-10, em etapas que o dono testa no app antes da próxima (as etapas 1 e 2 já são regra, seção 2):
+Roteiro aprovado em 2026-11-10, em etapas que o dono testa no app antes da próxima (as etapas 1 a 3 já são regra, seção 2):
 
-3. **Sortear (sem regras):** tamanhos com diferença de no máximo 1; quem o dono fixou à mão fica e o resto é sorteado; sortear de novo dá outro resultado.
 4. **Regras obrigatórias do grupo, quantidade por time:** mínimo/máximo por posição ou gênero (ex.: 1 levantador por time, contando primeiro a posição principal), nos Ajustes; conflito explicado antes de sortear (`TEAM_RULES_CONFLICT`); configuração do grupo "permitir salvar times manuais fora das regras".
 5. **Regra obrigatória, times opostos:** estas pessoas sempre em times diferentes. Também serve para separar quem joga melhor, sem precisar de nível.
 6. **Preferência de gênero e avulsos:** espalhar homens e mulheres, com as métricas por time no resultado (uma preferência nunca quebra uma obrigatória); pessoa sem conta só no sorteio (fora do ranking) com as posições só naquele jogo.

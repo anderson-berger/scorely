@@ -43,6 +43,7 @@ export const {
   saveTeams,
   publishTeams,
   unpublishTeams,
+  drawTeams,
   discardTeams,
   guestTeams,
 } = authHandlers({
@@ -66,6 +67,10 @@ export const {
 
   async publishTeams(event, auth) {
     return teams.publish(auth.userId, pathParam(event, 'id'), pathParam(event, 'date'));
+  },
+
+  async drawTeams(event, auth) {
+    return teams.draw(auth.userId, pathParam(event, 'id'), pathParam(event, 'date'));
   },
 
   async unpublishTeams(event, auth) {

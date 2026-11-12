@@ -1,4 +1,12 @@
-import type { Game, GameStatus, GroupRole, GuestGame, MyAttendance, MyGroup } from '@scorely/contracts';
+import type {
+  Game,
+  GameStatus,
+  GroupRole,
+  GuestGame,
+  MyAttendance,
+  MyGroup,
+  UpdateGameInput,
+} from '@scorely/contracts';
 import { newEntity } from '../../lib/entity';
 import { appError } from '../../lib/errors';
 import { currentOccurrence, layerOpensAt, type Occurrence, timeStatus } from '../../lib/zoned';
@@ -32,6 +40,22 @@ function layersOf(group: StoredGroup, occurrence: Occurrence): LayerTimes {
     reserve: layerOpensAt(occurrence.startsAt, reservesHours(group)),
     ...(guests != null && { guest: layerOpensAt(occurrence.startsAt, guests) }),
   };
+}
+
+/** GRP-45: as vagas que valem no jogo (as do jogo ou, sem elas, as do grupo). */
+function slotsOf(group: StoredGroup, record: GameRecord | undefined): number {
+  return record?.slots ?? group.slots;
+}
+
+/** GRP-46: o mínimo que vale no jogo, ou `undefined` sem mínimo. */
+function minOf(group: StoredGroup, record: GameRecord | undefined): number | undefined {
+  return record?.minPlayers ?? group.minPlayers;
+}
+
+/** "06/11" a partir de "2026-11-06" (texto do aviso em pt-BR, NTF-03). */
+function dayMonth(date: string): string {
+  const [, month, day] = date.split('-');
+  return `${day}/${month}`;
 }
 
 /** Posição do usuário na lista (D4 do 003): antes de `slots` = dentro; o resto = fila. */
@@ -108,7 +132,9 @@ export function createGameService(deps: GroupsDeps) {
     });
     const layers = layersOf(group, occurrence);
     const myOpensAt = layers[role];
-    const me = myAttendance(list, group.slots, userId);
+    const slots = slotsOf(group, record);
+    const minPlayers = minOf(group, record);
+    const me = myAttendance(list, slots, userId);
     return {
       groupId: group.id,
       date: occurrence.date,
@@ -118,9 +144,12 @@ export function createGameService(deps: GroupsDeps) {
       ...(layers.guest && { guestsOpensAt: layers.guest }),
       ...(myOpensAt && { myOpensAt }),
       status: statusOf(occurrence, record, at),
-      slots: group.slots,
-      confirmed: attendees.slice(0, group.slots),
-      waitlist: attendees.slice(group.slots),
+      slots,
+      ...(minPlayers !== undefined && { minPlayers }),
+      ...(record?.slots !== undefined && { slotsCustom: true }),
+      ...(record?.minPlayers !== undefined && { minPlayersCustom: true }),
+      confirmed: attendees.slice(0, slots),
+      waitlist: attendees.slice(slots),
       ...(me && { me }),
     };
   }
@@ -135,20 +164,52 @@ export function createGameService(deps: GroupsDeps) {
     before: AttendanceRecord[],
     leftUserId: string,
   ): Promise<void> {
+    const slots = slotsOf(group, record);
     const leftIndex = before.findIndex((a) => a.userId === leftUserId);
-    if (leftIndex < 0 || leftIndex >= group.slots) return;
+    if (leftIndex < 0 || leftIndex >= slots) return;
     const after = await deps.games.listAttendance(record.id, { consistent: true });
-    const promoted = after[group.slots - 1];
+    const promoted = after[slots - 1];
     if (!promoted) return;
-    if (before.findIndex((a) => a.userId === promoted.userId) < group.slots) return;
-    const role = await deps.groups.roleOf(group.id, promoted.userId);
-    const link = !role && group.guestToken ? `/play/${group.guestToken}` : `/groups/${group.id}`;
-    await deps.notifications.notify(promoted.userId, {
+    if (before.findIndex((a) => a.userId === promoted.userId) < slots) return;
+    await notifyPromoted(group, promoted.userId);
+  }
+
+  /** O link do aviso: convidado (não participa do grupo) recebe o link do jogo; membro e reserva, o do grupo. */
+  async function linkFor(group: StoredGroup, userId: string): Promise<string> {
+    const role = await deps.groups.roleOf(group.id, userId);
+    return !role && group.guestToken ? `/play/${group.guestToken}` : `/groups/${group.id}`;
+  }
+
+  async function notifyPromoted(group: StoredGroup, userId: string): Promise<void> {
+    await deps.notifications.notify(userId, {
       type: 'waitlist_promoted',
       title: 'Você entrou na lista',
       body: `Abriu uma vaga no jogo de ${group.name}.`,
-      link,
+      link: await linkFor(group, userId),
     });
+  }
+
+  /** GRP-22: as vagas passaram de `from` para `to`: quem estava nessas posições da lista subiu da fila. */
+  async function notifyMoreSlots(group: StoredGroup, list: AttendanceRecord[], from: number, to: number) {
+    for (const a of list.slice(from, Math.max(from, to))) await notifyPromoted(group, a.userId);
+  }
+
+  /** GRP-47: na 1ª vez que quem está dentro chega ao mínimo, avisa a lista (dentro e fila), menos o dono. */
+  async function checkMinReached(group: StoredGroup, record: GameRecord, at: Date): Promise<void> {
+    const min = minOf(group, record);
+    if (min === undefined || record.minReachedAt) return;
+    const list = await listOf(record);
+    if (Math.min(list.length, slotsOf(group, record)) < min) return;
+    if (!(await deps.games.markMinReached(record.id, at.toISOString()))) return;
+    for (const a of list) {
+      if (a.userId === group.ownerId) continue;
+      await deps.notifications.notify(a.userId, {
+        type: 'game_confirmed',
+        title: 'Jogo confirmado',
+        body: `O jogo de ${group.name} de ${dayMonth(record.date)} vai acontecer: a lista chegou ao mínimo.`,
+        link: await linkFor(group, a.userId),
+      });
+    }
   }
 
   /** GRP-24: marca o cancelamento e avisa a lista inteira (dentro e fila), menos o dono. Devolve o `cancelledAt`. */
@@ -196,6 +257,7 @@ export function createGameService(deps: GroupsDeps) {
       const result = await deps.games.addAttendance(attendance, group.id);
       if (result === 'archived') throw appError('GROUP_ARCHIVED');
       if (result === 'cancelled') throw appError('GAME_CANCELLED');
+      await checkMinReached(group, record, game.at);
     }
     return view(userId, { ...game, record }, role);
   }
@@ -235,13 +297,16 @@ export function createGameService(deps: GroupsDeps) {
     async summary(userId: string, group: StoredGroup): Promise<MyGroup['game']> {
       const { occurrence, record, at } = await load(group, now());
       const list = await listOf(record);
-      const me = myAttendance(list, group.slots, userId);
+      const slots = slotsOf(group, record);
+      const minPlayers = minOf(group, record);
+      const me = myAttendance(list, slots, userId);
       return {
         date: occurrence.date,
         startsAt: occurrence.startsAt,
         status: statusOf(occurrence, record, at),
-        slots: group.slots,
-        confirmedCount: Math.min(list.length, group.slots),
+        slots,
+        ...(minPlayers !== undefined && { minPlayers }),
+        confirmedCount: Math.min(list.length, slots),
         ...(me && { me }),
       };
     },
@@ -332,6 +397,59 @@ export function createGameService(deps: GroupsDeps) {
       const { cancelledAt: _c, ...reopened } = record;
       if (result === 'reopened') await notifyReopened(group, reopened);
       return view(userId, { ...game, record: reopened }, 'member');
+    },
+
+    /**
+     * GRP-45, 46: vagas e mínimo só do jogo atual (`null` = volta ao padrão do grupo). Não desce abaixo de quem
+     * está dentro; mais vagas promovem a fila (GRP-22); chegar ao mínimo avisa (GRP-47).
+     */
+    async updateGame(userId: string, groupId: string, date: string, patch: UpdateGameInput): Promise<Game> {
+      const group = await requireOwner(deps, userId, groupId);
+      requireActive(group);
+      const game = await loadByDate(group, date);
+      const status = statusOf(game.occurrence, game.record, game.at);
+      if (status === 'cancelled') throw appError('GAME_CANCELLED');
+      if (status === 'in_progress') throw appError('GAME_CLOSED');
+      const current = slotsOf(group, game.record);
+      const slots = patch.slots === undefined ? current : (patch.slots ?? group.slots);
+      const min =
+        patch.minPlayers === undefined ? minOf(group, game.record) : (patch.minPlayers ?? group.minPlayers);
+      const list = await listOf(game.record);
+      const inside = Math.min(list.length, current);
+      if (slots < inside) throw appError('GAME_SLOTS_BELOW_CONFIRMED', { confirmed: inside });
+      if (min !== undefined && min > slots) throw appError('GROUP_MIN_PLAYERS_INVALID', { max: slots });
+      const created = await ensureRecord(game);
+      const record = await deps.games.updateSettings(created.id, {
+        ...(patch.slots !== undefined && { slots: patch.slots }),
+        ...(patch.minPlayers !== undefined && { minPlayers: patch.minPlayers }),
+      });
+      await notifyMoreSlots(group, list, current, slots);
+      await checkMinReached(group, record, game.at);
+      return view(userId, { ...game, record }, 'member');
+    },
+
+    /**
+     * GRP-45, 46: o dono vai mudar o padrão do grupo para `slots`. Se o jogo atual existe, não está cancelado e
+     * segue as vagas do grupo, as vagas não descem abaixo de quem está dentro (lança antes de gravar). O
+     * `afterUpdate` roda com o grupo gravado: promove a fila e confere o mínimo (GRP-22, 47).
+     */
+    async defaultsPlan(
+      group: StoredGroup,
+      slots: number,
+    ): Promise<{ afterUpdate: (updated: StoredGroup) => Promise<void> }> {
+      const { occurrence, record, at } = await load(group, now());
+      if (!record || statusOf(occurrence, record, at) === 'cancelled')
+        return { afterUpdate: async () => undefined };
+      const list = await listOf(record);
+      const followsGroup = record.slots === undefined;
+      const inside = Math.min(list.length, group.slots);
+      if (followsGroup && slots < inside) throw appError('GAME_SLOTS_BELOW_CONFIRMED', { confirmed: inside });
+      return {
+        afterUpdate: async (updated) => {
+          if (followsGroup) await notifyMoreSlots(updated, list, group.slots, slots);
+          await checkMinReached(updated, record, at);
+        },
+      };
     },
 
     /**

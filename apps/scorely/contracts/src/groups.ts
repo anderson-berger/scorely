@@ -17,6 +17,8 @@ export const LocalDateSchema = z.iso.date();
 
 export const GROUP_LIMITS = {
   slots: { min: 2, max: 50 },
+  /** Mínimo para o jogo acontecer (GRP-46): de 2 até as vagas (a api confere contra as vagas). */
+  minPlayers: { min: 2, max: 50 },
   listOpensHoursBefore: { min: 1, max: 144 },
   reservesOpenHoursBefore: { min: 0, max: 144 },
   guestsOpenHoursBefore: { min: 0, max: 144 },
@@ -33,6 +35,7 @@ const MaxReservesSchema = z
   .max(GROUP_LIMITS.maxReserves.max);
 
 const SlotsSchema = z.number().int().min(GROUP_LIMITS.slots.min).max(GROUP_LIMITS.slots.max);
+const MinPlayersSchema = z.number().int().min(GROUP_LIMITS.minPlayers.min).max(GROUP_LIMITS.minPlayers.max);
 const ListOpensHoursBeforeSchema = z
   .number()
   .int()
@@ -124,7 +127,10 @@ export const CreateGroupInputSchema = z
   });
 export type CreateGroupInput = z.infer<typeof CreateGroupInputSchema>;
 
-/** PATCH /groups/{id} (dono): as camadas e os limites (GRP-16, 38). `guestsOpenHoursBefore: null` desliga os convidados. */
+/**
+ * PATCH /groups/{id} (dono): as camadas, os limites, as vagas e o mínimo padrão (GRP-16, 38, 45, 46).
+ * `guestsOpenHoursBefore: null` desliga os convidados; `minPlayers: null` desliga o mínimo.
+ */
 export const UpdateGroupInputSchema = z
   .object({
     listOpensHoursBefore: ListOpensHoursBeforeSchema.optional(),
@@ -132,6 +138,8 @@ export const UpdateGroupInputSchema = z
     guestsOpenHoursBefore: LayerHoursSchema.nullable().optional(),
     maxMembers: MaxMembersSchema.optional(),
     maxReserves: MaxReservesSchema.optional(),
+    slots: SlotsSchema.optional(),
+    minPlayers: MinPlayersSchema.nullable().optional(),
   })
   .refine((patch) => Object.keys(patch).length > 0, { message: 'Nothing to update' });
 export type UpdateGroupInput = z.infer<typeof UpdateGroupInputSchema>;
@@ -148,6 +156,8 @@ export const GroupSchema = EntitySchema.extend({
   timeZone: z.string(),
   location: z.string().optional(),
   slots: z.number().int(),
+  /** Mínimo padrão para o jogo acontecer (GRP-46). Ausente = sem mínimo. */
+  minPlayers: z.number().int().optional(),
   listOpensHoursBefore: z.number().int(),
   reservesOpenHoursBefore: z.number().int(),
   guestsOpenHoursBefore: z.number().int().optional(),
@@ -221,16 +231,41 @@ export const GameSchema = z.object({
   guestsOpensAt: z.iso.datetime().optional(),
   myOpensAt: z.iso.datetime().optional(),
   status: GameStatusSchema,
+  /** Vagas que valem no jogo: as do jogo ou, sem elas, as do grupo (GRP-45). */
   slots: z.number().int(),
+  /** Mínimo que vale no jogo (GRP-46). Ausente = sem mínimo. */
+  minPlayers: z.number().int().optional(),
+  /** `true` = as vagas / o mínimo são só deste jogo (GRP-45, 46). */
+  slotsCustom: z.boolean().optional(),
+  minPlayersCustom: z.boolean().optional(),
   confirmed: z.array(AttendeeSchema),
   waitlist: z.array(AttendeeSchema),
   me: MyAttendanceSchema.optional(),
 });
 export type Game = z.infer<typeof GameSchema>;
 
+/**
+ * PATCH /groups/{id}/games/{date} (dono): vagas e mínimo só do jogo atual (GRP-45, 46).
+ * `null` = voltar ao padrão do grupo.
+ */
+export const UpdateGameInputSchema = z
+  .object({
+    slots: SlotsSchema.nullable().optional(),
+    minPlayers: MinPlayersSchema.nullable().optional(),
+  })
+  .refine((patch) => Object.keys(patch).length > 0, { message: 'Nothing to update' });
+export type UpdateGameInput = z.infer<typeof UpdateGameInputSchema>;
+
 /** GET /me/groups: cada grupo com o resumo do jogo atual. */
 export const MyGroupSchema = GroupSchema.extend({
-  game: GameSchema.pick({ date: true, startsAt: true, status: true, slots: true, me: true }).extend({
+  game: GameSchema.pick({
+    date: true,
+    startsAt: true,
+    status: true,
+    slots: true,
+    minPlayers: true,
+    me: true,
+  }).extend({
     confirmedCount: z.number().int().nonnegative(),
   }),
 });

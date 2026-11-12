@@ -42,7 +42,10 @@ export type CardLine =
   | { kind: 'waiting'; position: number }
   | { kind: 'opens'; at: string }
   | { kind: 'spots'; count: number }
-  | { kind: 'full' };
+  | { kind: 'full' }
+  /** GRP-28 com o mínimo (GRP-46): quantos faltam para o jogo acontecer, ou o jogo já confirmado. */
+  | { kind: 'needs'; count: number }
+  | { kind: 'confirmed' };
 
 const HOUR_MS = 3_600_000;
 
@@ -65,7 +68,10 @@ export function cardLine(
   const opensAt = Date.parse(game.startsAt) - hours * HOUR_MS;
   if (now.getTime() < opensAt) return { kind: 'opens', at: new Date(opensAt).toISOString() };
   const left = game.slots - game.confirmedCount;
-  return left > 0 ? { kind: 'spots', count: left } : { kind: 'full' };
+  if (left <= 0) return { kind: 'full' };
+  if (game.minPlayers === undefined) return { kind: 'spots', count: left };
+  const missing = game.minPlayers - game.confirmedCount;
+  return missing > 0 ? { kind: 'needs', count: missing } : { kind: 'confirmed' };
 }
 
 /** Cor fixa do grupo (1–6) a partir do id, até existir logo e capa (D5). */

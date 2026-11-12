@@ -4,7 +4,7 @@ import { defineComponent, type PropType } from 'vue';
 
 /**
  * Os times, um bloco por time (TIM-14): nome e posição principal no jogo (TIM-13), com as marcas "saiu da lista"
- * (TIM-12) e "do banco" (TIM-08). Para o dono (`editable`), tocar na pessoa emite `select`, e "sem time" aparece.
+ * (TIM-12), "do banco" (TIM-08) e, só para o dono, o alfinete de quem está fixo (TIM-16). Para o dono (`editable`), tocar na pessoa emite `select`, e "sem time" aparece.
  */
 export default defineComponent({
   name: 'TeamsView',
@@ -61,6 +61,13 @@ export default defineComponent({
         :class="{ 'person--editable': editable, 'person--left': !p.inList }"
         @click="select(p)"
       >
+        <q-icon
+          v-if="editable && p.pinned"
+          name="push_pin"
+          size="16px"
+          class="pin"
+          :aria-label="$t('teams.pinned')"
+        />
         <span class="pname">{{ name(p) }}</span>
         <span v-if="!p.inList" class="sc-label left">{{ $t('teams.leftList') }}</span>
         <span v-else-if="p.bench" class="sc-label bench">{{ $t('teams.fromBench') }}</span>
@@ -149,6 +156,11 @@ export default defineComponent({
 
 .person--editable:hover {
   background: var(--sc-surface-2);
+}
+
+.pin {
+  color: var(--sc-accent);
+  flex-shrink: 0;
 }
 
 .person--left .pname {

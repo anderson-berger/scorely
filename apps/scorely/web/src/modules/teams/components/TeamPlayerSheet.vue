@@ -8,7 +8,7 @@ import PositionsPicker from './PositionsPicker.vue';
 
 /**
  * Painel de uma pessoa nos times (TIM-14): em que time ela fica (ou sem time / fora dos times) e as posições
- * só neste jogo (TIM-13). Quem está dentro da lista fica "sem time"; quem é do Banco ou saiu da lista sai dos times.
+ * só neste jogo (TIM-13) e se fica fixa no time (TIM-16). Quem está dentro da lista fica "sem time"; quem é do Banco ou saiu da lista sai dos times.
  */
 export default defineComponent({
   name: 'TeamPlayerSheet',
@@ -35,6 +35,7 @@ export default defineComponent({
       choice: -1,
       positions: [] as PlayerPosition[],
       adjusted: false,
+      pinned: false,
     };
   },
 
@@ -68,6 +69,7 @@ export default defineComponent({
       this.choice = this.team ?? -1;
       this.positions = [...(this.player?.positions ?? [])];
       this.adjusted = this.player?.adjusted ?? false;
+      this.pinned = this.player?.pinned ?? false;
     },
   },
 
@@ -84,6 +86,7 @@ export default defineComponent({
         userId: player.userId,
         team: this.choice >= 0 ? this.choice : undefined,
         positions: this.adjusted ? this.positions : undefined,
+        pinned: this.choice >= 0 && this.pinned,
       });
     },
   },
@@ -99,6 +102,10 @@ export default defineComponent({
   >
     <div class="sc-label section">{{ $t('teams.moveTo') }}</div>
     <q-option-group v-model="choice" :options="options" type="radio" class="choices" />
+    <template v-if="choice >= 0">
+      <q-toggle v-model="pinned" :label="$t('teams.pin')" class="pin" />
+      <div class="sc-caption">{{ $t('teams.pinHint') }}</div>
+    </template>
 
     <template v-if="hasPositions">
       <div class="sc-label section">{{ $t('teams.gamePositions') }}</div>
@@ -146,6 +153,10 @@ export default defineComponent({
 
 .choices {
   margin-top: 4px;
+}
+
+.pin {
+  margin-top: 8px;
 }
 
 .reset {

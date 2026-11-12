@@ -22,6 +22,10 @@ export const teamsFunctions: AWS['functions'] = {
     handler: handler('publishTeams'),
     events: route('POST', '/groups/{id}/games/{date}/teams/publish'),
   },
+  teamsDraw: {
+    handler: handler('drawTeams'),
+    events: route('POST', '/groups/{id}/games/{date}/teams/draw'),
+  },
   teamsUnpublish: {
     handler: handler('unpublishTeams'),
     events: route('POST', '/groups/{id}/games/{date}/teams/unpublish'),

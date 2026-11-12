@@ -8,4 +8,5 @@ export const notificationIcon: Record<NotificationType, string> = {
   game_reopened: 'event_available',
   member_invite: 'how_to_reg',
   teams_published: 'groups',
+  game_confirmed: 'check_circle',
 };

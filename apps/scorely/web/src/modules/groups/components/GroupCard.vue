@@ -69,13 +69,17 @@ export default defineComponent({
           return this.$t('groups.card.spots', { count: l.count }, l.count);
         case 'full':
           return this.$t('groups.card.full');
+        case 'needs':
+          return this.$t('groups.card.needs', { count: l.count }, l.count);
+        case 'confirmed':
+          return this.$t('groups.card.confirmed');
       }
     },
 
     lineTone(): LineTone {
       const kind = this.line.kind;
       if (kind === 'cancelled') return 'danger';
-      return kind === 'playing' ? 'accent' : 'neutral';
+      return kind === 'playing' || kind === 'confirmed' ? 'accent' : 'neutral';
     },
   },
 });

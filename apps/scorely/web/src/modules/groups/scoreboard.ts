@@ -12,6 +12,15 @@ export function score(game: Pick<Game, 'confirmed' | 'waitlist' | 'slots'>): Sco
   };
 }
 
+/** GRP-46: o mínimo do jogo, quantos faltam e se já chegou. `undefined` = o jogo não tem mínimo. */
+export type Minimum = { min: number; missing: number; reached: boolean };
+
+export function minimum(game: Pick<Game, 'confirmed' | 'minPlayers'>): Minimum | undefined {
+  if (game.minPlayers === undefined) return undefined;
+  const missing = Math.max(0, game.minPlayers - game.confirmed.length);
+  return { min: game.minPlayers, missing, reached: missing === 0 };
+}
+
 export type StatusTone = 'accent' | 'neutral' | 'danger';
 
 const TONES: Record<GameStatus, StatusTone> = {

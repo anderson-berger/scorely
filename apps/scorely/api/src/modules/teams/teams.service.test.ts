@@ -16,6 +16,7 @@ import {
 } from '@scorely/contracts';
 import { describe, expect, it } from 'vitest';
 import { AppError, appError } from '../../lib/errors';
+import { range } from '../../lib/fn';
 import type { GroupRepository, StoredGroup } from '../groups/group.repository';
 import type { NewNotification } from '../notifications/notification.service';
 import type { PlayerRepository, StoredPlayer } from './player.repository';
@@ -123,7 +124,18 @@ const GAME = gameOf(CONFIRMED, WAITLIST);
 
 const unused = () => Promise.reject(new Error('not used by the teams module'));
 
-function setup(opts: { group?: Partial<StoredGroup>; game?: Game } = {}) {
+/** Gerador determinístico em [0, 1) (mulberry32), para o sorteio (TIM-15). */
+function seeded(seed: number): () => number {
+  const s = { v: seed >>> 0 };
+  return () => {
+    s.v = (s.v + 0x6d2b79f5) | 0;
+    const a = Math.imul(s.v ^ (s.v >>> 15), 1 | s.v);
+    const b = (a + Math.imul(a ^ (a >>> 7), 61 | a)) ^ a;
+    return ((b ^ (b >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function setup(opts: { group?: Partial<StoredGroup>; game?: Game; random?: () => number } = {}) {
   const clock = { now: NOW };
   const state = {
     group: storedGroup(opts.group),
@@ -228,6 +240,7 @@ function setup(opts: { group?: Partial<StoredGroup>; game?: Game } = {}) {
     notifications,
     teams,
     now: () => clock.now,
+    random: opts.random ?? seeded(42),
   });
 
   /** Posições do grupo (TIM-04), gravadas direto. */
@@ -303,6 +316,7 @@ describe('times do jogo: uma divisão por jogo, só o jogo atual (TIM-06)', () =
       status: 'draft',
       teams: [[A], []],
       positions: {},
+      pinned: [],
       createdAt: NOW.toISOString(),
       updatedAt: NOW.toISOString(),
     });
@@ -895,5 +909,312 @@ describe('times do jogo: posição só no jogo (TIM-13)', () => {
       'TEAM_PLAYER_NOT_FOUND',
       404,
     );
+  });
+});
+
+// E3 etapa 3 (`.claude/work/e3-times-3.md`): sortear (TIM-15) e fixar (TIM-16).
+
+/** Convidados extras dentro da lista, para jogos maiores. */
+const EXTRA = range(8).map((i) => `dddddddd-dddd-4ddd-8ddd-00000000000${i}`);
+const sortedIds = (xs: string[]) => [...xs].sort();
+const sizesOf = (t: Teams | null) => (t ? t.teams.map((team) => team.length) : []);
+
+describe('times do jogo: sortear (TIM-15)', () => {
+  it('TIM-15: sem times salvos → sorteia em 2 times, rascunho, com todos de dentro (2 e 2) e ninguém do Banco', async () => {
+    const t = setup();
+    const res = await t.service.draw(OWNER, GROUP_ID, DATE);
+
+    expect(TeamsResponseSchema.parse(res)).toEqual(res);
+    expect(res.teams).toMatchObject({ groupId: GROUP_ID, date: DATE, status: 'draft' });
+    expect(res.teams?.publishedAt).toBeUndefined();
+    expect(res.teams?.teams).toHaveLength(2);
+    expect(sortedIds(res.teams?.teams.flat().map((p) => p.userId) ?? [])).toEqual(
+      sortedIds([OWNER, A, G, R]),
+    );
+    expect(sizesOf(res.teams)).toEqual([2, 2]);
+    expect(res.teams?.unassigned).toEqual([]);
+    expect(find(res.teams, B)).toBeUndefined();
+    expect(find(res.teams, H)).toBeUndefined();
+    expect(t.stored()).toMatchObject({
+      status: 'draft',
+      positions: {},
+      pinned: [],
+      createdAt: NOW.toISOString(),
+      updatedAt: NOW.toISOString(),
+    });
+    expect(t.stored()?.publishedAt).toBeUndefined();
+  });
+
+  it('TIM-15: entram os "sem time" de dentro e quem o dono já pôs num time vindo do Banco; quem está só no Banco fica de fora', async () => {
+    const t = setup();
+    t.seedTeams({ teams: [[OWNER, B], [G]] });
+    const res = await t.service.draw(OWNER, GROUP_ID, DATE);
+
+    expect(sortedIds(res.teams?.teams.flat().map((p) => p.userId) ?? [])).toEqual(
+      sortedIds([OWNER, A, G, R, B]),
+    );
+    expect(find(res.teams, B)).toMatchObject({ bench: true, inList: true });
+    expect(find(res.teams, H)).toBeUndefined();
+    expect(sizesOf(res.teams).sort()).toEqual([2, 3]);
+    expect(res.teams?.unassigned).toEqual([]);
+  });
+
+  it('TIM-15: quem saiu da lista (TIM-12) e não está fixo sai dos times', async () => {
+    const t = setup();
+    t.seedTeams({
+      teams: [
+        [OWNER, A],
+        [G, R],
+      ],
+    });
+    // Ana desiste.
+    t.state.game = gameOf(
+      [attendee(OWNER, 'member', 0), attendee(G, 'guest', 2), attendee(R, 'reserve', 3)],
+      WAITLIST,
+    );
+    const res = await t.service.draw(OWNER, GROUP_ID, DATE);
+
+    expect(find(res.teams, A)).toBeUndefined();
+    expect(sortedIds(t.stored()?.teams.flat() ?? [])).toEqual(sortedIds([OWNER, G, R]));
+  });
+
+  it('TIM-15: usa a quantidade de times atual', async () => {
+    const t = setup();
+    t.seedTeams({ teams: [[OWNER], [A], []] });
+    const res = await t.service.draw(OWNER, GROUP_ID, DATE);
+    expect(res.teams?.teams).toHaveLength(3);
+    expect(sizesOf(res.teams).sort()).toEqual([1, 1, 2]);
+  });
+
+  it('TIM-15: 12 dentro e 3 no Banco, 2 times → 6 e 6; com 3 times → 4, 4 e 4', async () => {
+    const twelve = [...CONFIRMED, ...EXTRA.map((id, i) => attendee(id, 'guest', 10 + i))];
+    const t = setup({ game: gameOf(twelve, [...WAITLIST, attendee(C, 'member', 30)], { slots: 12 }) });
+    const two = await t.service.draw(OWNER, GROUP_ID, DATE);
+    expect(sizesOf(two.teams)).toEqual([6, 6]);
+    for (const who of [B, H, C]) expect(find(two.teams, who)).toBeUndefined();
+
+    t.seedTeams({ teams: [[], [], []] });
+    const three = await t.service.draw(OWNER, GROUP_ID, DATE);
+    expect(sizesOf(three.teams)).toEqual([4, 4, 4]);
+  });
+
+  it('TIM-15: sortear de novo pode dar outro resultado (com o random do serviço)', async () => {
+    const twelve = [...CONFIRMED, ...EXTRA.map((id, i) => attendee(id, 'guest', 10 + i))];
+    const t = setup({ game: gameOf(twelve, [], { slots: 12 }), random: seeded(7) });
+    const results = new Set<string>();
+    for (const _ of range(10)) {
+      const res = await t.service.draw(OWNER, GROUP_ID, DATE);
+      results.add(JSON.stringify(res.teams?.teams.map((team) => sortedIds(ids(team)))));
+    }
+    expect(results.size).toBeGreaterThan(1);
+  });
+
+  it('TIM-15: as posições só do jogo (TIM-13) continuam valendo depois do sorteio', async () => {
+    const t = setup();
+    t.seedPositions(A, ['outside']);
+    t.seedTeams({
+      teams: [
+        [OWNER, A],
+        [G, R],
+      ],
+      positions: { [A]: ['setter'] },
+    });
+    const res = await t.service.draw(OWNER, GROUP_ID, DATE);
+
+    expect(find(res.teams, A)).toMatchObject({ positions: ['setter'], adjusted: true });
+    expect(t.stored()?.positions).toEqual({ [A]: ['setter'] });
+  });
+
+  it('TIM-15: rascunho continua rascunho, mantém o createdAt e atualiza o updatedAt', async () => {
+    const t = setup();
+    t.seedTeams();
+    t.clock.now = LATER;
+    t.state.game = gameOf(CONFIRMED, WAITLIST, { status: 'in_progress' });
+    const res = await t.service.draw(OWNER, GROUP_ID, DATE);
+
+    expect(res.teams?.status).toBe('draft');
+    expect(t.stored()).toMatchObject({
+      status: 'draft',
+      createdAt: '2026-11-04T00:00:00.000Z',
+      updatedAt: LATER.toISOString(),
+    });
+  });
+
+  it('TIM-15: com os times publicados, sortear volta para rascunho (os outros deixam de ver) e mantém o publishedAt', async () => {
+    const t = setup();
+    await t.service.save(OWNER, GROUP_ID, DATE, { teams: [[OWNER], [A]], positions: {} });
+    await t.service.publish(OWNER, GROUP_ID, DATE);
+    t.clock.now = LATER;
+    t.state.game = gameOf(CONFIRMED, WAITLIST, { status: 'in_progress' });
+
+    const res = await t.service.draw(OWNER, GROUP_ID, DATE);
+    expect(res.teams?.status).toBe('draft');
+    expect(t.stored()).toMatchObject({ status: 'draft', publishedAt: NOW.toISOString() });
+    for (const who of [A, R]) expect(await t.service.get(who, GROUP_ID, DATE)).toEqual({ teams: null });
+    expect(await t.service.guestGet(OUTSIDER, 'tok-guest')).toEqual({ teams: null });
+  });
+
+  it('TIM-15 / TIM-10: sortear não avisa ninguém, e publicar de novo depois do sorteio não avisa outra vez', async () => {
+    const t = setup();
+    await t.service.draw(OWNER, GROUP_ID, DATE);
+    expect(t.sent).toEqual([]);
+
+    await t.service.publish(OWNER, GROUP_ID, DATE);
+    const first = t.sent.length;
+    expect(first).toBeGreaterThan(0);
+    await t.service.draw(OWNER, GROUP_ID, DATE);
+    const again = await t.service.publish(OWNER, GROUP_ID, DATE);
+
+    expect(t.sent.length).toBe(first);
+    expect(again.teams).toMatchObject({ status: 'published', publishedAt: NOW.toISOString() });
+  });
+
+  it('TIM-15 / TIM-07: quem não é dono → GROUP_NOT_OWNER (403); quem não participa ou grupo inexistente → GROUP_NOT_FOUND (404), sem gravar', async () => {
+    const t = setup();
+    t.seedTeams();
+    for (const who of [A, B, R])
+      await expectAppError(t.service.draw(who, GROUP_ID, DATE), 'GROUP_NOT_OWNER', 403);
+    for (const who of [OUTSIDER, G, H])
+      await expectAppError(t.service.draw(who, GROUP_ID, DATE), 'GROUP_NOT_FOUND', 404);
+    await expectAppError(t.service.draw(OWNER, OTHER_GROUP_ID, DATE), 'GROUP_NOT_FOUND', 404);
+    expect(t.puts).toEqual([]);
+  });
+
+  it('TIM-15 / TIM-07: a permissão vem antes do arquivado e da data', async () => {
+    const t = setup({ group: { archivedAt: '2026-11-01T00:00:00.000Z' } });
+    await expectAppError(t.service.draw(A, GROUP_ID, OTHER_DATE), 'GROUP_NOT_OWNER', 403);
+  });
+
+  it('TIM-15 / TIM-11: grupo arquivado → GROUP_ARCHIVED (409), antes da data', async () => {
+    const t = setup({ group: { archivedAt: '2026-11-01T00:00:00.000Z' } });
+    await expectAppError(t.service.draw(OWNER, GROUP_ID, DATE), 'GROUP_ARCHIVED', 409);
+    await expectAppError(t.service.draw(OWNER, GROUP_ID, OTHER_DATE), 'GROUP_ARCHIVED', 409);
+    expect(t.puts).toEqual([]);
+  });
+
+  it('TIM-15 / TIM-06: outra data que não a do jogo atual → GAME_NOT_FOUND (404)', async () => {
+    const t = setup();
+    await expectAppError(t.service.draw(OWNER, GROUP_ID, OTHER_DATE), 'GAME_NOT_FOUND', 404);
+    expect(t.puts).toEqual([]);
+  });
+
+  it('TIM-15 / TIM-11: jogo cancelado → GAME_CANCELLED (409), sem gravar', async () => {
+    const t = setup({ game: gameOf(CONFIRMED, WAITLIST, { status: 'cancelled' }) });
+    t.seedTeams();
+    await expectAppError(t.service.draw(OWNER, GROUP_ID, DATE), 'GAME_CANCELLED', 409);
+    expect(t.puts).toEqual([]);
+  });
+});
+
+describe('times do jogo: fixar alguém num time (TIM-16)', () => {
+  it('TIM-16: salvar grava quem está fixo, e o dono vê a marca (pinned = true) só em quem está fixo', async () => {
+    const t = setup();
+    const res = await t.service.save(OWNER, GROUP_ID, DATE, {
+      teams: [[OWNER, A], [G]],
+      positions: {},
+      pinned: [A, G],
+    });
+
+    expect(TeamsResponseSchema.parse(res)).toEqual(res);
+    expect(t.stored()?.pinned).toEqual([A, G]);
+    expect(find(res.teams, A)?.pinned).toBe(true);
+    expect(find(res.teams, G)?.pinned).toBe(true);
+    expect(find(res.teams, OWNER)?.pinned).toBe(false);
+    expect(find(res.teams, R)?.pinned).toBe(false);
+    expect(find((await t.service.get(OWNER, GROUP_ID, DATE)).teams, A)?.pinned).toBe(true);
+  });
+
+  it('TIM-16: salvar sem pinned → ninguém fixo', async () => {
+    const t = setup();
+    await t.service.save(OWNER, GROUP_ID, DATE, { teams: [[OWNER, A], [G]], positions: {}, pinned: [A] });
+    const res = await t.service.save(OWNER, GROUP_ID, DATE, { teams: [[OWNER, A], [G]], positions: {} });
+    expect(t.stored()?.pinned).toEqual([]);
+    expect(find(res.teams, A)?.pinned).toBe(false);
+  });
+
+  it('TIM-16: a marca de fixo aparece só para o dono (membros e link do jogo veem pinned = false)', async () => {
+    const t = setup();
+    await t.service.save(OWNER, GROUP_ID, DATE, { teams: [[OWNER, A], [G]], positions: {}, pinned: [A, G] });
+    await t.service.publish(OWNER, GROUP_ID, DATE);
+
+    for (const res of [
+      await t.service.get(A, GROUP_ID, DATE),
+      await t.service.guestGet(OUTSIDER, 'tok-guest'),
+    ]) {
+      expect(teamIds(res.teams)).toEqual([[OWNER, A], [G]]);
+      for (const p of res.teams?.teams.flat() ?? []) expect(p.pinned).toBe(false);
+    }
+  });
+
+  it('TIM-16: item antigo sem pinned → ninguém fixo', async () => {
+    const t = setup();
+    t.seedTeams();
+    const res = await t.service.get(OWNER, GROUP_ID, DATE);
+    for (const p of [...(res.teams?.teams.flat() ?? []), ...(res.teams?.unassigned ?? [])])
+      expect(p.pinned).toBe(false);
+  });
+
+  it('TIM-16: só quem está num time pode ser fixo: o contrato recusa fixado fora dos times (VALIDATION_ERROR)', () => {
+    expect(SaveTeamsInputSchema.safeParse({ teams: [[A], [G]], positions: {}, pinned: [A] }).success).toBe(
+      true,
+    );
+    expect(SaveTeamsInputSchema.safeParse({ teams: [[A], [G]], positions: {}, pinned: [R] }).success).toBe(
+      false,
+    );
+    expect(SaveTeamsInputSchema.parse({ teams: [[A], [G]], positions: {} }).pinned).toEqual([]);
+  });
+
+  it('TIM-16: os fixados ficam no time deles em todo sorteio, e continuam fixos', async () => {
+    const twelve = [...CONFIRMED, ...EXTRA.map((id, i) => attendee(id, 'guest', 10 + i))];
+    const t = setup({ game: gameOf(twelve, [], { slots: 12 }), random: seeded(11) });
+    t.seedTeams({
+      teams: [
+        [OWNER, A],
+        [G, R],
+      ],
+      pinned: [OWNER, G],
+    });
+
+    for (const _ of range(10)) {
+      const res = await t.service.draw(OWNER, GROUP_ID, DATE);
+      expect(ids(res.teams?.teams[0] ?? [])).toContain(OWNER);
+      expect(ids(res.teams?.teams[1] ?? [])).toContain(G);
+      expect(find(res.teams, OWNER)?.pinned).toBe(true);
+      expect(find(res.teams, G)?.pinned).toBe(true);
+      expect(sizesOf(res.teams)).toEqual([6, 6]);
+      expect(sortedIds(t.stored()?.pinned ?? [])).toEqual(sortedIds([OWNER, G]));
+    }
+  });
+
+  it('TIM-16: fixado que saiu da lista continua fixo no time depois do sorteio (marcado "saiu da lista")', async () => {
+    const t = setup();
+    t.seedTeams({
+      teams: [
+        [OWNER, A],
+        [G, R],
+      ],
+      pinned: [A],
+    });
+    // Ana desiste.
+    t.state.game = gameOf(
+      [attendee(OWNER, 'member', 0), attendee(G, 'guest', 2), attendee(R, 'reserve', 3)],
+      WAITLIST,
+    );
+    const res = await t.service.draw(OWNER, GROUP_ID, DATE);
+
+    expect(ids(res.teams?.teams[0] ?? [])).toContain(A);
+    expect(find(res.teams, A)).toMatchObject({ inList: false, pinned: true });
+    expect(t.stored()?.pinned).toEqual([A]);
+    expect(sortedIds(t.stored()?.teams.flat() ?? [])).toEqual(sortedIds([OWNER, A, G, R]));
+  });
+
+  it('TIM-16 / TIM-15: fixados que passam do equilíbrio → o sorteio completa primeiro o time menor', async () => {
+    const six = [...CONFIRMED, attendee(EXTRA[0] ?? '', 'guest', 10), attendee(EXTRA[1] ?? '', 'guest', 11)];
+    const t = setup({ game: gameOf(six, [], { slots: 6 }) });
+    t.seedTeams({ teams: [[OWNER, A, G, R], []], pinned: [OWNER, A, G, R] });
+    const res = await t.service.draw(OWNER, GROUP_ID, DATE);
+
+    expect(sortedIds(ids(res.teams?.teams[0] ?? []))).toEqual(sortedIds([OWNER, A, G, R]));
+    expect(sortedIds(ids(res.teams?.teams[1] ?? []))).toEqual(sortedIds([EXTRA[0] ?? '', EXTRA[1] ?? '']));
   });
 });

@@ -19,6 +19,9 @@ export const teamsApi = {
     request({ url: teamsUrl(groupId, date), method: 'PUT', data: input }, TeamsResponseSchema),
   publishTeams: (groupId: string, date: string) =>
     request({ url: `${teamsUrl(groupId, date)}/publish`, method: 'POST' }, TeamsResponseSchema),
+  /** Sorteia (TIM-15); com os times publicados, eles voltam para rascunho. */
+  drawTeams: (groupId: string, date: string) =>
+    request({ url: `${teamsUrl(groupId, date)}/draw`, method: 'POST' }, TeamsResponseSchema),
   unpublishTeams: (groupId: string, date: string) =>
     request({ url: `${teamsUrl(groupId, date)}/unpublish`, method: 'POST' }, TeamsResponseSchema),
   discardTeams: (groupId: string, date: string) => send({ url: teamsUrl(groupId, date), method: 'DELETE' }),

@@ -56,6 +56,7 @@ export const groupsFunctions: AWS['functions'] = {
   },
   gamesLeave: { handler: handler('leave'), events: route('DELETE', '/groups/{id}/games/{date}/attendance') },
   gamesCancel: { handler: handler('cancel'), events: route('POST', '/groups/{id}/games/{date}/cancel') },
+  gamesUpdate: { handler: handler('updateGame'), events: route('PATCH', '/groups/{id}/games/{date}') },
   gamesReopen: { handler: handler('reopen'), events: route('POST', '/groups/{id}/games/{date}/reopen') },
   playView: { handler: handler('playView'), events: route('GET', '/play/{token}') },
   playConfirm: {

@@ -14,6 +14,8 @@ export interface StoredTeams {
   teams: string[][];
   /** Só os ajustes de posição deste jogo (TIM-13). */
   positions: Record<string, PlayerPosition[]>;
+  /** Quem está fixo no time em que está (TIM-16). Item antigo sem o campo = ninguém. */
+  pinned?: string[];
   /** A 1ª publicação (TIM-10). */
   publishedAt?: string;
   createdAt: string;
