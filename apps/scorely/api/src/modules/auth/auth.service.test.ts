@@ -1,14 +1,14 @@
-import type { User } from '@scorely/contracts';
+import type { EmailMessage, Mailer } from '@scorely/api/src/lib/email';
+import type { AppError } from '@scorely/api/src/lib/errors';
+import { range } from '@scorely/api/src/lib/fn';
+import { verifyJwt } from '@scorely/api/src/lib/jwt';
+import type { AuthRepository } from '@scorely/api/src/modules/auth/auth.repository';
+import { AUTH_LIMITS, createAuthService } from '@scorely/api/src/modules/auth/auth.service';
+import type { LoginCode, Session } from '@scorely/api/src/modules/auth/auth.table';
+import type { UserRepository } from '@scorely/api/src/modules/users/user.repository';
+import { createUserService } from '@scorely/api/src/modules/users/user.service';
+import type { Me, Preferences, UpdateMeInput, User } from '@scorely/contracts';
 import { describe, expect, it } from 'vitest';
-import type { EmailMessage, Mailer } from '../../lib/email';
-import type { AppError } from '../../lib/errors';
-import { range } from '../../lib/fn';
-import { verifyJwt } from '../../lib/jwt';
-import type { UserRepository } from '../users/user.repository';
-import { createUserService } from '../users/user.service';
-import type { AuthRepository } from './auth.repository';
-import { AUTH_LIMITS, createAuthService } from './auth.service';
-import type { LoginCode, Session } from './auth.table';
 
 const SECRET = 'test-secret-with-at-least-32-characters!!';
 const EMAIL = 'ana@example.com';
@@ -42,23 +42,46 @@ function memoryAuthRepo(): AuthRepository {
   };
 }
 
+type ReadOpts = { consistent?: boolean };
+
+/** Repositório de usuários em memória com as três partes da pessoa (usuarios.md, seção 3). */
 function memoryUserRepo(): UserRepository {
-  const users = new Map<string, User>();
-  return {
-    get: async (id) => users.get(id),
-    getByEmail: async (email) => [...users.values()].find((u) => u.email === email),
-    async create(user) {
-      if ([...users.values()].some((u) => u.email === user.email)) return false;
-      users.set(user.id, user);
+  const profiles = new Map<string, User>();
+  const emails = new Map<string, string>();
+  const prefs = new Map<string, Preferences>();
+  const me = (id: string): Me | undefined => {
+    const profile = profiles.get(id);
+    const email = emails.get(id);
+    if (!profile || email === undefined) return undefined;
+    return structuredClone({ ...profile, email, preferences: prefs.get(id) ?? {} });
+  };
+  const idOf = (email: string) => [...emails.entries()].find(([, e]) => e === email)?.[0];
+  const impl = {
+    get: async (id: string, _opts?: ReadOpts) => structuredClone(profiles.get(id)),
+    getMe: async (id: string, _opts?: ReadOpts) => me(id),
+    getByEmail: async (email: string, _opts?: ReadOpts) => {
+      const id = idOf(email);
+      return id === undefined ? undefined : me(id);
+    },
+    getPreferences: async (id: string): Promise<Preferences> => structuredClone(prefs.get(id) ?? {}),
+    async create(user: User, email: string) {
+      if (idOf(email) !== undefined) return false;
+      profiles.set(user.id, structuredClone(user));
+      emails.set(user.id, email);
+      prefs.set(user.id, {});
       return true;
     },
-    async update(id, patch) {
-      const user = users.get(id);
-      if (!user) return undefined;
-      Object.assign(user, patch);
-      return user;
+    async update(id: string, patch: UpdateMeInput) {
+      const profile = profiles.get(id);
+      const preferences = prefs.get(id);
+      if (!profile || !preferences) return undefined;
+      const { locale, timeZone, ...rest } = patch;
+      Object.assign(preferences, { ...(locale && { locale }), ...(timeZone && { timeZone }) });
+      Object.assign(profile, rest);
+      return me(id);
     },
   };
+  return impl;
 }
 
 function setup() {
@@ -66,9 +89,10 @@ function setup() {
   const sent: EmailMessage[] = [];
   const notified: string[] = [];
   const mailer: Mailer = { send: async (m) => void sent.push(m) };
+  const users = createUserService(memoryUserRepo(), () => clock.now);
   const service = createAuthService({
     repo: memoryAuthRepo(),
-    users: createUserService(memoryUserRepo(), () => clock.now),
+    users,
     notifications: {
       async notify(userId, n) {
         notified.push(`${userId}:${n.type}`);
@@ -81,6 +105,7 @@ function setup() {
   });
   return {
     service,
+    users,
     sent,
     notified,
     advance: (seconds: number) => {
@@ -270,5 +295,52 @@ describe('auth: idioma do email do código', () => {
     const strip = (s: string | undefined) => (s ?? '').replace(/\d{6}/g, '######');
     expect(strip(b.sent[0]?.subject)).toBe(strip(a.sent[0]?.subject));
     expect(strip(b.sent[0]?.text)).toBe(strip(a.sent[0]?.text));
+  });
+});
+
+/** Mais um login de EMAIL no mesmo contexto (outro aparelho): espera o intervalo, pede e confere um código novo. */
+async function loginAgain(t: ReturnType<typeof setup>) {
+  t.advance(AUTH_LIMITS.resendCooldownSeconds);
+  await t.service.requestCode(EMAIL);
+  return t.service.verifyCode(EMAIL, t.lastCode());
+}
+
+describe('auth: a pessoa e as preferências no login e na renovação (USR-14)', () => {
+  it('AUTH-06: o login devolve a pessoa com o email e as preferências (vazias numa conta nova)', async () => {
+    const t = await withCode();
+    const result = await t.service.verifyCode(EMAIL, t.lastCode());
+    expect(result.user).toMatchObject({ email: EMAIL, preferences: {} });
+    expect(result.user).not.toHaveProperty('locale');
+    expect(result.user).not.toHaveProperty('timeZone');
+  });
+
+  it('AUTH-06: o login traz o idioma e o fuso guardados nas preferências', async () => {
+    const t = await loggedIn();
+    await t.users.update(t.tokens.user.id, { locale: 'en', timeZone: 'Asia/Tokyo' });
+    const again = await loginAgain(t);
+    expect(again.user.preferences).toEqual({ locale: 'en', timeZone: 'Asia/Tokyo' });
+    expect(again.user.email).toBe(EMAIL);
+  });
+
+  it('AUTH-07: a renovação devolve as preferências atuais da pessoa', async () => {
+    const t = await loggedIn();
+    const next = await t.service.refresh(t.tokens.refreshToken);
+    expect(next.preferences).toEqual({});
+  });
+
+  it('AUTH-07: mudou num aparelho → a renovação do outro já traz as preferências novas', async () => {
+    const t = await loggedIn();
+    const other = await loginAgain(t);
+    await t.users.update(t.tokens.user.id, { locale: 'en', timeZone: 'Europe/Lisbon' });
+    const next = await t.service.refresh(other.refreshToken);
+    expect(next.preferences).toEqual({ locale: 'en', timeZone: 'Europe/Lisbon' });
+    expect(next.refreshToken).not.toBe(other.refreshToken);
+    expect(verifyJwt(next.accessToken, SECRET, t.nowSeconds())?.sub).toBe(t.tokens.user.id);
+  });
+
+  it('AUTH-07: a renovação não traz o perfil nem o email, só os tokens e as preferências', async () => {
+    const t = await loggedIn();
+    const next = await t.service.refresh(t.tokens.refreshToken);
+    expect(Object.keys(next).sort()).toEqual(['accessToken', 'expiresIn', 'preferences', 'refreshToken']);
   });
 });

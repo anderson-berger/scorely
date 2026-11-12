@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { MEDIA_PURPOSES, type User } from '@scorely/contracts';
+import { appError } from '@scorely/api/src/lib/errors';
+import type { MediaService } from '@scorely/api/src/modules/media/media.service';
+import type { UserRepository } from '@scorely/api/src/modules/users/user.repository';
+import { createUserService } from '@scorely/api/src/modules/users/user.service';
+import { userKey } from '@scorely/api/src/modules/users/user.table';
+import { MEDIA_PURPOSES, type Preferences, type UpdateMeInput, type User } from '@scorely/contracts';
 import { describe, expect, it } from 'vitest';
-import { appError } from '../../lib/errors';
-import type { MediaService } from '../media/media.service';
-import type { UserRepository } from './user.repository';
-import { createUserService } from './user.service';
-import { userKey } from './user.table';
 
 // USR-08 (docs/modules/usuarios.md): a foto é a mídia `avatar`, e só a própria pessoa mexe nela.
 // As regras do arquivo (MID-02 a MID-13) são testadas em media/media.service.test.ts; aqui a mídia é um dublê
@@ -18,28 +18,54 @@ type MediaCall<K extends keyof MediaService> = Parameters<MediaService[K]>[0];
 /** O usuário como fica no banco: o `avatarMediaId` é interno e não sai na resposta. */
 type StoredUser = User & { avatarMediaId?: string };
 
-/** Repositório em memória; `null` no patch remove o atributo. O `get` devolve o item como foi gravado. */
+type ReadOpts = { consistent?: boolean };
+
+/**
+ * Repositório em memória com as três partes da pessoa (usuarios.md, seção 3): perfil (`META`), email e
+ * preferências. `null` no patch remove o atributo. O `get` devolve o perfil como foi gravado.
+ */
 function memoryUserRepo() {
   const users = new Map<string, StoredUser>();
-  const repo: UserRepository = {
-    get: async (id) => structuredClone(users.get(id)),
-    getByEmail: async (email) => structuredClone([...users.values()].find((u) => u.email === email)),
-    async create(user) {
-      if ([...users.values()].some((u) => u.email === user.email)) return false;
+  const emails = new Map<string, string>();
+  const prefs = new Map<string, Preferences>();
+  const me = (id: string) => {
+    const profile = users.get(id);
+    const email = emails.get(id);
+    if (!profile || email === undefined) return undefined;
+    return structuredClone({ ...profile, email, preferences: prefs.get(id) ?? {} });
+  };
+  const idOf = (email: string) => [...emails.entries()].find(([, e]) => e === email)?.[0];
+  const write = (target: Record<string, unknown>, part: Record<string, unknown>) =>
+    Object.entries(part).forEach(([k, v]) => {
+      if (v === null) delete target[k];
+      else if (v !== undefined) target[k] = v;
+    });
+  const impl = {
+    get: async (id: string, _opts?: ReadOpts) => structuredClone(users.get(id)),
+    getMe: async (id: string, _opts?: ReadOpts) => me(id),
+    getByEmail: async (email: string, _opts?: ReadOpts) => {
+      const id = idOf(email);
+      return id === undefined ? undefined : me(id);
+    },
+    getPreferences: async (id: string): Promise<Preferences> => structuredClone(prefs.get(id) ?? {}),
+    async create(user: User, email: string) {
+      if (idOf(email) !== undefined) return false;
       users.set(user.id, structuredClone(user));
+      emails.set(user.id, email);
+      prefs.set(user.id, {});
       return true;
     },
-    async update(id, patch) {
+    async update(id: string, patch: UpdateMeInput) {
       const user = users.get(id);
-      if (!user) return undefined;
-      const record = user as Record<string, unknown>;
-      Object.entries(patch).forEach(([k, v]) => {
-        if (v === null) delete record[k];
-        else record[k] = v;
-      });
-      return structuredClone(user);
+      const preferences = prefs.get(id);
+      if (!user || !preferences) return undefined;
+      const { locale, timeZone, ...rest } = patch;
+      write(preferences, { locale, timeZone });
+      write(user, rest);
+      return me(id);
     },
   };
+  const repo: UserRepository = impl;
   /** O que a transação da mídia grava no item do usuário (`key` = `userKey(id)`). */
   const link = (key: { PK: string; SK: string }, value: { mediaId: string; url: string } | null) => {
     const user = [...users.values()].find((u) => userKey(u.id).PK === key.PK && key.SK === 'META');
@@ -118,7 +144,7 @@ describe('foto de perfil pela mídia (USR-08)', () => {
     expect(upload).toMatchObject({ width: 512, height: 512, maxBytes: 2 * 1024 * 1024 });
   });
 
-  it('USR-08: confirmar → liga a mídia no item da própria pessoa (`avatar`) e devolve o User com `avatarUrl`', async () => {
+  it('USR-08: confirmar → liga a mídia no item da própria pessoa (`avatar`) e devolve a pessoa (com email e preferências) com `avatarUrl`', async () => {
     const t = await withUser();
     const mediaId = randomUUID();
     const user = await t.service.setAvatar(t.user.id, { mediaId });
@@ -126,7 +152,7 @@ describe('foto de perfil pela mídia (USR-08)', () => {
     expect(t.calls.attach[0]).toMatchObject({ mediaId, purpose: 'avatar', ownerId: t.user.id });
     expect(t.calls.attach[0]?.target).toMatchObject({ key: userKey(t.user.id), field: 'avatar' });
     const url = `${BASE}/public/user/${t.user.id}/avatar/${mediaId}.webp`;
-    expect(user).toMatchObject({ id: t.user.id, email: EMAIL, avatarUrl: url });
+    expect(user).toMatchObject({ id: t.user.id, email: EMAIL, preferences: {}, avatarUrl: url });
     expect((await t.service.get(t.user.id)).avatarUrl).toBe(url);
   });
 
@@ -170,7 +196,7 @@ describe('foto de perfil pela mídia (USR-08)', () => {
   it('USR-08: remover sem foto → devolve o User sem foto', async () => {
     const t = await withUser();
     const user = await t.service.clearAvatar(t.user.id);
-    expect(user).toMatchObject({ id: t.user.id, email: EMAIL });
+    expect(user).toMatchObject({ id: t.user.id, email: EMAIL, preferences: {} });
     expect(user.avatarUrl).toBeUndefined();
   });
 });

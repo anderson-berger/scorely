@@ -7,10 +7,10 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
+import { env } from '@scorely/api/src/lib/env';
+import { lazy } from '@scorely/api/src/lib/fn';
 import type { ImageContentType } from '@scorely/contracts';
 import { imageSize } from 'image-size';
-import { env } from './env';
-import { lazy } from './fn';
 
 /**
  * Prefixos do bucket (MID-12, MID-13). Mesma convenção de `infra/shared/uploads-bucket.ts`, que monta a

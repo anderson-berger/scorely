@@ -1,6 +1,6 @@
+import { en } from '@scorely/web/src/i18n/locales/en';
+import { ptBR } from '@scorely/web/src/i18n/locales/pt-BR';
 import { describe, expect, it } from 'vitest';
-import { en } from './locales/en';
-import { ptBR } from './locales/pt-BR';
 
 /** Caminhos de todas as folhas (`a.b.c`) de um objeto de mensagens; arrays contam como folha. */
 function leafPaths(value: unknown, prefix = ''): string[] {

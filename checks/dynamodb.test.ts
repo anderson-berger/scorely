@@ -1,7 +1,8 @@
 // Regras de DynamoDB (.claude/rules/dynamodb.md): sem GSI/LSI, e todo `*Command` usado no código
 // tem a ação correspondente no IAM do serverless.ts da api.
+
+import { apiSources, filesUnder, loadConfig, projects, read } from '@checks/lib';
 import { describe, expect, it } from 'vitest';
-import { apiSources, filesUnder, loadConfig, projects, read } from './lib';
 
 const INDEX = /GlobalSecondaryIndexes|LocalSecondaryIndexes|IndexName/;
 

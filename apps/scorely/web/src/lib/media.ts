@@ -1,5 +1,5 @@
 import { ImageContentTypeSchema, type MediaUpload } from '@scorely/contracts';
-import { ApiRequestError } from './http';
+import { ApiRequestError } from '@scorely/web/src/lib/http';
 
 interface Size {
   width: number;

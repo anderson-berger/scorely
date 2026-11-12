@@ -1,10 +1,10 @@
 <script lang="ts">
 import type { Group, MyGroup } from '@scorely/contracts';
+import StatusChip from '@scorely/web/src/components/StatusChip.vue';
+import { formatDateTime } from '@scorely/web/src/lib/datetime';
+import { type CardLine, cardLine, groupColor } from '@scorely/web/src/modules/groups/groups';
+import { initials, type StatusTone, statusTone } from '@scorely/web/src/modules/groups/scoreboard';
 import { defineComponent, type PropType } from 'vue';
-import StatusChip from '@/components/StatusChip.vue';
-import { formatDateTime } from '@/lib/datetime';
-import { type CardLine, cardLine, groupColor } from '../groups';
-import { initials, type StatusTone, statusTone } from '../scoreboard';
 
 type LineTone = 'accent' | 'neutral' | 'danger';
 

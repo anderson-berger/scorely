@@ -1,11 +1,10 @@
 <script lang="ts">
 import { type Game, GROUP_LIMITS, type Group, UpdateGroupInputSchema } from '@scorely/contracts';
-import { defineComponent, type PropType } from 'vue';
-import BottomSheet from '@/components/BottomSheet.vue';
-import HoursStepper from '@/components/HoursStepper.vue';
-import { errorMessage, issueMessage } from '@/i18n/errors';
-import { formatDateTime } from '@/lib/datetime';
-import { groupsApi } from '../groups.api';
+import BottomSheet from '@scorely/web/src/components/BottomSheet.vue';
+import HoursStepper from '@scorely/web/src/components/HoursStepper.vue';
+import { errorMessage, issueMessage } from '@scorely/web/src/i18n/errors';
+import { formatDateTime } from '@scorely/web/src/lib/datetime';
+import { groupsApi } from '@scorely/web/src/modules/groups/groups.api';
 import {
   changeLayer,
   type LayerKey,
@@ -14,7 +13,8 @@ import {
   layerOpensAt,
   layerTimeline,
   stepHours,
-} from '../layers';
+} from '@scorely/web/src/modules/groups/layers';
+import { defineComponent, type PropType } from 'vue';
 
 type LayerState = LayerStep['state'];
 

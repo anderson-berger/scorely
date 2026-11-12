@@ -1,9 +1,9 @@
 <script lang="ts">
 import type { Group } from '@scorely/contracts';
+import { errorMessage } from '@scorely/web/src/i18n/errors';
+import CapacitySheet from '@scorely/web/src/modules/groups/components/CapacitySheet.vue';
+import { groupsApi } from '@scorely/web/src/modules/groups/groups.api';
 import { defineComponent, type PropType } from 'vue';
-import { errorMessage } from '@/i18n/errors';
-import { groupsApi } from '../groups.api';
-import CapacitySheet from './CapacitySheet.vue';
 
 /** Vagas e mínimo padrão do grupo, nos Ajustes (GRP-45, 46). */
 export default defineComponent({

@@ -1,8 +1,8 @@
 import { UpdateMeInputSchema } from '@scorely/contracts';
+import { errorMessage, issueMessage } from '@scorely/web/src/i18n/errors';
+import { i18n } from '@scorely/web/src/i18n/index';
+import { ApiRequestError } from '@scorely/web/src/lib/http';
 import { describe, expect, it } from 'vitest';
-import { ApiRequestError } from '@/lib/http';
-import { errorMessage, issueMessage } from './errors';
-import { i18n } from './index';
 
 describe('errorMessage', () => {
   it('traduz pelo código, nunca usa a message (inglês) da api', () => {

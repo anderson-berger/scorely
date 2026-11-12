@@ -1,5 +1,5 @@
+import { CreateItemInputSchema } from '@base/api/src/modules/items/item.schema';
 import { describe, expect, it } from 'vitest';
-import { CreateItemInputSchema } from './item.schema';
 
 describe('CreateItemInputSchema', () => {
   it('aceita input válido', () => {

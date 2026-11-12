@@ -1,3 +1,3 @@
-import { createInfraService } from '../shared/infra-service';
+import { createInfraService } from '@infra/shared/infra-service';
 
 export default createInfraService('base');

@@ -1,9 +1,9 @@
 <script lang="ts">
 import { GROUP_LIMITS } from '@scorely/contracts';
+import BottomSheet from '@scorely/web/src/components/BottomSheet.vue';
+import HoursStepper from '@scorely/web/src/components/HoursStepper.vue';
+import { type CapacityField, stepCapacity } from '@scorely/web/src/modules/groups/capacity';
 import { defineComponent, type PropType } from 'vue';
-import BottomSheet from '@/components/BottomSheet.vue';
-import HoursStepper from '@/components/HoursStepper.vue';
-import { type CapacityField, stepCapacity } from '../capacity';
 
 /**
  * Painel de vagas e mínimo (GRP-45, 46), usado nos Ajustes (padrão do grupo) e no jogo (só aquele jogo).

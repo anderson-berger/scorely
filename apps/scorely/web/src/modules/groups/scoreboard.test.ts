@@ -1,6 +1,13 @@
 import type { Attendee, Game } from '@scorely/contracts';
+import {
+  countdown,
+  formatCountdown,
+  initials,
+  lineupSlots,
+  score,
+  statusTone,
+} from '@scorely/web/src/modules/groups/scoreboard';
 import { describe, expect, it } from 'vitest';
-import { countdown, formatCountdown, initials, lineupSlots, score, statusTone } from './scoreboard';
 
 function attendees(n: number): Attendee[] {
   return Array.from({ length: n }, (_, i) => ({

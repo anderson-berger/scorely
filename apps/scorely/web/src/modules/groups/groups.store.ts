@@ -1,7 +1,7 @@
 import type { Group, MyGroup } from '@scorely/contracts';
+import { groupsApi } from '@scorely/web/src/modules/groups/groups.api';
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
-import { groupsApi } from './groups.api';
 
 /** Os grupos da tela de Grupos: os ativos, cada um com o resumo do jogo atual, e os arquivados (GRP-27), na ordem da api. */
 export const useGroupsStore = defineStore('groups', () => {

@@ -1,6 +1,6 @@
 # Módulo Grupos
 
-> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Se o código e este doc discordarem, um dos dois está errado. Conferido com o código em 2026-11-11.
+> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Se o código e este doc discordarem, um dos dois está errado. Conferido com o código em 2026-11-12.
 
 Código: `apps/scorely/api/src/modules/groups/`, `apps/scorely/web/src/modules/groups/`, contrato em `apps/scorely/contracts/src/groups.ts`.
 
@@ -70,7 +70,7 @@ Cada regra tem um id fixo (`GRP-NN`). O id não é reaproveitado: se uma regra s
   - depois disso, o jogo atual passa a ser o da semana seguinte;
   - `cancelled`: vale até o fim da mesma janela.
   - _Por quê do máximo de 144 h:_ a lista do jogo seguinte abre no mínimo 24 h depois do início do atual, então nunca há dois jogos atuais.
-- **GRP-13. Fuso do grupo:** é o que vem no pedido. Se não vier, é o do perfil do dono, e se ele não tiver, `America/Sao_Paulo`.
+- **GRP-13. Fuso do grupo:** é o que vem no pedido. Se não vier, é o das preferências do dono (USR-07 em [usuarios.md](usuarios.md)), e se ele não tiver, `America/Sao_Paulo`.
   - A api devolve os instantes em UTC, e o web mostra no fuso de quem lê ([ADR 0006](../decisions/0006-datas-utc-fuso-do-perfil.md)).
   - O fuso do grupo só aparece na tela quando é diferente do fuso de quem lê.
 
@@ -228,7 +228,7 @@ Cada regra tem um id fixo (`GRP-NN`). O id não é reaproveitado: se uma regra s
 - **GRP-29. A página do grupo tem três abas:**
   - **Jogo**: placar confirmados:vagas, com o mínimo embaixo ("faltam 2 para fechar · mínimo 10" ou "Jogo confirmado ✓", GRP-46). Para o dono, antes do início e com o jogo valendo, o botão "Vagas deste jogo" embaixo do placar abre o painel (vagas, mínimo e "Usar o padrão do grupo", GRP-45), e um valor só do jogo aparece marcado ("só neste jogo"). Depois, ação conforme o estado, abertura das camadas, o card **Times** ([TIM-14](times.md)), Escalação (uma linha por vaga) e Banco (só com fila). Cada pessoa da lista mostra as suas posições, convidados inclusive, e o dono as muda ali ([TIM-05](times.md));
   - **Membros**: membros e reservas separados, cada parte com a contagem e o limite ("Membros · 13/14"). Cada pessoa mostra as suas posições, e o dono as muda ali ([TIM-05](times.md)). As ações do dono sobre a pessoa ficam no menu "⋮" da linha: "Remover" e, na reserva, "Convidar para membro" (só com lugar livre) ou, com o convite pendente, a marca "convite enviado" e "Cancelar convite". No fim da aba, quem não é dono tem "Sair do grupo" (GRP-43);
-  - **Ajustes**: só para o dono. Tem camadas, **vagas e mínimo** padrão (GRP-45, 46), **limites** (GRP-38), links, logo e capa (GRP-35) e a zona de perigo, com cancelar o jogo (ou **reabrir o jogo**, quando ele está cancelado, GRP-44) e **arquivar o grupo**.
+  - **Ajustes**: só para o dono. Tem camadas, **vagas e mínimo** padrão (GRP-45, 46), **times** (quantidade padrão e regras, [TIM-21](times.md)), **limites** (GRP-38), links, logo e capa (GRP-35) e a zona de perigo, com cancelar o jogo (ou **reabrir o jogo**, quando ele está cancelado, GRP-44) e **arquivar o grupo**.
   - A reserva com convite pendente vê, no topo da página, a faixa "Você foi convidado para ser membro", com Aceitar e Recusar (GRP-41). Ao aceitar, a página recarrega com o papel novo.
   - Arquivar pede confirmação: "O grupo sai da lista de todos, os links param de funcionar e o jogo desta semana é cancelado. Dá para desarquivar depois." Depois de arquivar, a pessoa continua na página, que passa a ser a do grupo arquivado (GRP-37).
   - Reabrir pede confirmação: "Reabrir o jogo de {data}? Quem estava na lista volta na mesma posição e é avisado." Só aparece antes do início. _(Alterada em 2026-11-10: entrou reabrir o jogo.)_

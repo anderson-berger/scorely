@@ -1,5 +1,5 @@
+import { EntitySchema } from '@scorely/contracts/src/entity';
 import { z } from 'zod';
-import { EntitySchema } from './entity';
 
 /** Cresce conforme os módulos passam a notificar (ex.: `list_opened` na E2). */
 export const NotificationTypeSchema = z.enum([

@@ -1,5 +1,5 @@
+import { AUTHORIZER } from '@scorely/api/src/lib/auth';
 import type { AWS } from '@serverless/typescript';
-import { AUTHORIZER } from '../../lib/auth';
 
 const handler = (name: string) => `src/modules/teams/handlers.${name}`;
 const route = (method: string, path: string) => [
@@ -21,6 +21,14 @@ export const teamsFunctions: AWS['functions'] = {
   teamsPublish: {
     handler: handler('publishTeams'),
     events: route('POST', '/groups/{id}/games/{date}/teams/publish'),
+  },
+  teamSettingsGet: {
+    handler: handler('getTeamSettings'),
+    events: route('GET', '/groups/{id}/team-settings'),
+  },
+  teamSettingsUpdate: {
+    handler: handler('updateTeamSettings'),
+    events: route('PUT', '/groups/{id}/team-settings'),
   },
   teamsDraw: {
     handler: handler('drawTeams'),

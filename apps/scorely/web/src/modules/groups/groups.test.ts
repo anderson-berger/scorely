@@ -1,5 +1,5 @@
+import { memberSections, splitGroups } from '@scorely/web/src/modules/groups/groups';
 import { describe, expect, it } from 'vitest';
-import { memberSections, splitGroups } from './groups';
 
 const me = 'u-me';
 const other = 'u-other';

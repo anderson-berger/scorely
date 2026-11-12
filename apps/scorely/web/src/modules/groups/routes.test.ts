@@ -1,6 +1,6 @@
+import { groupsRoutes } from '@scorely/web/src/modules/groups/routes';
 import { describe, expect, it } from 'vitest';
 import { createMemoryHistory, createRouter } from 'vue-router';
-import { groupsRoutes } from './routes';
 
 /** Mesmo encaixe do `app/router.ts`: as rotas de grupos são filhas de `/`. */
 function makeRouter() {

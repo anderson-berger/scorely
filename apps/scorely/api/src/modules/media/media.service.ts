@@ -1,14 +1,14 @@
+import { newEntity } from '@scorely/api/src/lib/entity';
+import { appError } from '@scorely/api/src/lib/errors';
+import { MEDIA_PREFIXES, type MediaStorage, s3MediaStorage } from '@scorely/api/src/lib/storage';
+import { dynamoMediaRepository, type MediaRepository } from '@scorely/api/src/modules/media/media.repository';
+import type { MediaRecord, MediaTarget } from '@scorely/api/src/modules/media/media.table';
 import {
   type ImageContentType,
   MEDIA_PURPOSES,
   type MediaPurpose,
   type MediaUpload,
 } from '@scorely/contracts';
-import { newEntity } from '../../lib/entity';
-import { appError } from '../../lib/errors';
-import { MEDIA_PREFIXES, type MediaStorage, s3MediaStorage } from '../../lib/storage';
-import { dynamoMediaRepository, type MediaRepository } from './media.repository';
-import type { MediaRecord, MediaTarget } from './media.table';
 
 /** Uma mídia pendente vence em 1 h (MID-04). */
 const PENDING_TTL_MS = 60 * 60 * 1000;

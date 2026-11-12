@@ -1,9 +1,9 @@
+import { guardDecision } from '@scorely/web/src/app/guard';
+import { useAuthStore } from '@scorely/web/src/modules/auth/auth.store';
+import { authRoutes } from '@scorely/web/src/modules/auth/routes';
+import { groupsRoutes } from '@scorely/web/src/modules/groups/routes';
+import { usersRoutes } from '@scorely/web/src/modules/users/routes';
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router';
-import { useAuthStore } from '@/modules/auth/auth.store';
-import { authRoutes } from '@/modules/auth/routes';
-import { groupsRoutes } from '@/modules/groups/routes';
-import { usersRoutes } from '@/modules/users/routes';
-import { guardDecision } from './guard';
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -16,7 +16,7 @@ const routes: RouteRecordRaw[] = [
   ...authRoutes,
   {
     path: '/',
-    component: () => import('@/layouts/MainLayout.vue'),
+    component: () => import('@scorely/web/src/layouts/MainLayout.vue'),
     children: [...usersRoutes, ...groupsRoutes],
   },
   { path: '/:pathMatch(.*)*', redirect: '/' },

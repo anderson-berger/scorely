@@ -1,3 +1,7 @@
+import { appError } from '@scorely/api/src/lib/errors';
+import type { GroupRepository, StoredGroup } from '@scorely/api/src/modules/groups/group.repository';
+import { requireActive, requireMember } from '@scorely/api/src/modules/groups/groups.deps';
+import type { PlayerRepository } from '@scorely/api/src/modules/teams/player.repository';
 import {
   type Game,
   type Member,
@@ -6,10 +10,6 @@ import {
   SPORT_POSITIONS,
   type UpdatePlayerInput,
 } from '@scorely/contracts';
-import { appError } from '../../lib/errors';
-import type { GroupRepository, StoredGroup } from '../groups/group.repository';
-import { requireActive, requireMember } from '../groups/groups.deps';
-import type { PlayerRepository } from './player.repository';
 
 /** O que o módulo de times usa do módulo de grupos e o próprio repositório. */
 export interface TeamsDeps {
@@ -31,6 +31,28 @@ export function canManageTeams(group: StoredGroup, userId: string): boolean {
 
 type Person = Omit<Player, 'positions'>;
 
+/**
+ * TIM-04: quem o dono pode classificar (e pôr em times opostos, TIM-22): membros (GRP-06) e depois os convidados da
+ * lista do jogo (dentro e fila). Arquivado: sem jogo, só os membros.
+ */
+export async function classifiablePeople(
+  roster: TeamsDeps['roster'],
+  userId: string,
+  group: StoredGroup,
+): Promise<Person[]> {
+  const members = await roster.members(userId, group.id);
+  const fromMembers = members.map(
+    ({ userId: id, name, role }): Person => ({ userId: id, ...(name && { name }), role }),
+  );
+  if (group.archivedAt) return fromMembers;
+  const game = await roster.currentGame(userId, group.id);
+  const known = new Set(members.map((m) => m.userId));
+  const guests = [...game.confirmed, ...game.waitlist]
+    .filter((a) => !known.has(a.userId))
+    .map(({ userId: id, name }): Person => ({ userId: id, ...(name && { name }), role: 'guest' }));
+  return [...fromMembers, ...guests];
+}
+
 export function createPlayerService(deps: TeamsDeps) {
   const now = deps.now ?? (() => new Date());
 
@@ -41,20 +63,7 @@ export function createPlayerService(deps: TeamsDeps) {
     return group;
   }
 
-  /** TIM-04: membros (GRP-06) e depois os convidados da lista do jogo (dentro e fila). Arquivado: sem jogo. */
-  async function people(userId: string, group: StoredGroup): Promise<Person[]> {
-    const members = await deps.roster.members(userId, group.id);
-    const fromMembers = members.map(
-      ({ userId: id, name, role }): Person => ({ userId: id, ...(name && { name }), role }),
-    );
-    if (group.archivedAt) return fromMembers;
-    const game = await deps.roster.currentGame(userId, group.id);
-    const known = new Set(members.map((m) => m.userId));
-    const guests = [...game.confirmed, ...game.waitlist]
-      .filter((a) => !known.has(a.userId))
-      .map(({ userId: id, name }): Person => ({ userId: id, ...(name && { name }), role: 'guest' }));
-    return [...fromMembers, ...guests];
-  }
+  const people = (userId: string, group: StoredGroup) => classifiablePeople(deps.roster, userId, group);
 
   async function withPositions(groupId: string, list: Person[]): Promise<Player[]> {
     const stored = await deps.players.getMany(

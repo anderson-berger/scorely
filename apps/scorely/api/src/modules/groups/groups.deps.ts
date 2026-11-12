@@ -1,9 +1,13 @@
+import { appError } from '@scorely/api/src/lib/errors';
+import type { GameRepository } from '@scorely/api/src/modules/groups/game.repository';
+import {
+  type GroupRepository,
+  limitsOf,
+  type StoredGroup,
+} from '@scorely/api/src/modules/groups/group.repository';
+import type { NotificationService } from '@scorely/api/src/modules/notifications/notification.service';
+import type { UserDirectory } from '@scorely/api/src/modules/users/user.repository';
 import type { Group, MemberRole } from '@scorely/contracts';
-import { appError } from '../../lib/errors';
-import type { NotificationService } from '../notifications/notification.service';
-import type { UserDirectory } from '../users/user.repository';
-import type { GameRepository } from './game.repository';
-import { type GroupRepository, limitsOf, type StoredGroup } from './group.repository';
 
 /** O que os services de grupo e de jogo recebem (o mesmo objeto para os dois). */
 export interface GroupsDeps {

@@ -1,7 +1,7 @@
+import { newEntity } from '@scorely/api/src/lib/entity';
+import { appError } from '@scorely/api/src/lib/errors';
+import type { NotificationRepository } from '@scorely/api/src/modules/notifications/notification.repository';
 import type { Notification, NotificationPage } from '@scorely/contracts';
-import { newEntity } from '../../lib/entity';
-import { appError } from '../../lib/errors';
-import type { NotificationRepository } from './notification.repository';
 
 /** O que outro módulo passa para `notify`. */
 export type NewNotification = Pick<Notification, 'type' | 'title'> &

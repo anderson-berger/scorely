@@ -1,4 +1,18 @@
 import { randomUUID } from 'node:crypto';
+import { AppError } from '@scorely/api/src/lib/errors';
+import type {
+  AttendanceRecord,
+  GameRecord,
+  GameRepository,
+} from '@scorely/api/src/modules/groups/game.repository';
+import { createGameService } from '@scorely/api/src/modules/groups/game.service';
+import type {
+  GroupRepository,
+  RemoveMemberResult,
+  StoredGroup,
+} from '@scorely/api/src/modules/groups/group.repository';
+import { createGroupService } from '@scorely/api/src/modules/groups/group.service';
+import type { NewNotification } from '@scorely/api/src/modules/notifications/notification.service';
 import {
   type CreateGroupInput,
   CreateGroupInputSchema,
@@ -14,17 +28,12 @@ import {
   type MemberRole,
   MyGroupSchema,
   type Notification,
+  type Preferences,
   UpdateGameInputSchema,
   UpdateGroupInputSchema,
   type User,
 } from '@scorely/contracts';
 import { describe, expect, it } from 'vitest';
-import { AppError } from '../../lib/errors';
-import type { NewNotification } from '../notifications/notification.service';
-import type { AttendanceRecord, GameRecord, GameRepository } from './game.repository';
-import { createGameService } from './game.service';
-import type { GroupRepository, RemoveMemberResult, StoredGroup } from './group.repository';
-import { createGroupService } from './group.service';
 
 // Plano 003, bloco 2: casos 1, 2, 3 (api), 4 (service), 5, 6, 7, 8, 10–13 e a corrida na criação do jogo (tarefa 6a).
 // Plano 006: casos 11–13 (remoção de membro com `not_member`/`stale`).
@@ -83,7 +92,6 @@ const G = '99999999-9999-4999-8999-999999999999';
 
 const user = (id: string, extra: Partial<User> = {}): User => ({
   id,
-  email: `${id.slice(0, 4)}@example.com`,
   createdAt: '2026-01-01T00:00:00.000Z',
   ...extra,
 });
@@ -95,10 +103,15 @@ const USERS: User[] = [
   user(C, { name: 'Caio' }),
   user(D, { name: 'Duda' }),
   user(OUTSIDER, { name: 'Fora' }),
-  user(LISBON_OWNER, { name: 'Lis', timeZone: 'Europe/Lisbon' }),
+  user(LISBON_OWNER, { name: 'Lis' }),
   user(R, { name: 'Rafa' }),
   user(G, { name: 'Gabi' }),
 ];
+
+/** Preferências de cada pessoa (USR-07): o fuso fica fora do perfil (usuarios.md, seção 3). */
+const PREFERENCES = new Map<string, Preferences>([
+  [LISBON_OWNER, { locale: 'pt-BR', timeZone: 'Europe/Lisbon' }],
+]);
 
 const BASE_INPUT: CreateGroupInput = {
   name: 'Vôlei de sexta',
@@ -556,6 +569,7 @@ function setupServices(now: Date = THURSDAY_10H) {
     users: {
       get: async (id: string) => byId.get(id),
       getMany: async (ids: string[]) => ids.flatMap((id) => byId.get(id) ?? []),
+      getPreferences: async (id: string): Promise<Preferences> => PREFERENCES.get(id) ?? {},
     },
     notifications: {
       async notify(userId: string, input: NewNotification): Promise<Notification> {
@@ -682,19 +696,19 @@ describe('grupos: criar (caso 1)', () => {
     expect(mine?.game.confirmedCount).toBe(0);
   });
 
-  it('caso 1: sem timeZone → o fuso do perfil do dono', async () => {
+  it('GRP-13: sem timeZone → o fuso das preferências do dono', async () => {
     const s = setupServices();
     const group = await s.groups.create(LISBON_OWNER, BASE_INPUT);
     expect(group.timeZone).toBe('Europe/Lisbon');
   });
 
-  it('caso 1: sem timeZone e dono sem fuso no perfil → America/Sao_Paulo', async () => {
+  it('GRP-13: sem timeZone e dono sem fuso nas preferências → America/Sao_Paulo', async () => {
     const s = setupServices();
     const group = await s.groups.create(OWNER, BASE_INPUT);
     expect(group.timeZone).toBe('America/Sao_Paulo');
   });
 
-  it('caso 1: timeZone informado vence o do perfil', async () => {
+  it('GRP-13: timeZone informado vence o das preferências', async () => {
     const s = setupServices();
     const group = await s.groups.create(LISBON_OWNER, { ...BASE_INPUT, timeZone: 'America/Sao_Paulo' });
     expect(group.timeZone).toBe('America/Sao_Paulo');

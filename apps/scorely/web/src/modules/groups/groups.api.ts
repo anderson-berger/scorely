@@ -14,8 +14,8 @@ import {
   type UpdateGameInput,
   type UpdateGroupInput,
 } from '@scorely/contracts';
-import { request, send } from '@/lib/http';
-import { contentTypeOf, uploadMedia } from '@/lib/media';
+import { request, send } from '@scorely/web/src/lib/http';
+import { contentTypeOf, uploadMedia } from '@scorely/web/src/lib/media';
 
 const game = (groupId: string, date: string) => `/groups/${groupId}/games/${date}`;
 const play = (token: string) => `/play/${encodeURIComponent(token)}`;

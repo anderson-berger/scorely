@@ -1,12 +1,12 @@
+import { created, HttpError, HttpResponse, route } from '@base/api/src/lib/http';
 import type { APIGatewayProxyEventV2 } from 'aws-lambda';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { created, HttpError, HttpResponse, handler, handlers } from './http';
 
 const event = {} as APIGatewayProxyEventV2;
-const run = (fn: () => Promise<unknown>) => handler(fn)(event);
+const run = (fn: () => Promise<unknown>) => route(event, fn);
 
-describe('handler', () => {
+describe('route', () => {
   it('dados → 200 com JSON', async () => {
     expect(await run(async () => ({ ok: true }))).toEqual({
       statusCode: 200,
@@ -53,18 +53,5 @@ describe('handler', () => {
     console.error = spy;
     expect(res).toMatchObject({ statusCode: 500 });
     expect(JSON.stringify(res)).not.toContain('segredo interno');
-  });
-});
-
-describe('handlers', () => {
-  it('envelopa cada método com o handler', async () => {
-    const { a, b } = handlers({
-      async a() {
-        return { from: 'a' };
-      },
-      async b() {},
-    });
-    expect(await a(event)).toMatchObject({ statusCode: 200, body: '{"from":"a"}' });
-    expect(await b(event)).toEqual({ statusCode: 204 });
   });
 });

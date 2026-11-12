@@ -1,7 +1,7 @@
 <script lang="ts">
+import { CreateItemInputSchema } from '@base/web/src/modules/items/item.schema';
+import { useItemsStore } from '@base/web/src/modules/items/items.store';
 import { defineComponent } from 'vue';
-import { CreateItemInputSchema } from '../item.schema';
-import { useItemsStore } from '../items.store';
 
 export default defineComponent({
   name: 'ItemsPage',

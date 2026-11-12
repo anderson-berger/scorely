@@ -28,11 +28,11 @@ As regras de cada área ficam em `.claude/rules/` e carregam sozinhas ao tocar o
 | ---------------- | ------------------------------------------------------------------------- |
 | `infra.md`       | recursos só no stack de infra, params com fallback, IAM por ARN montado   |
 | `dynamodb.md`    | single-table sem GSI, lookups, transações, `createdAt`, TTL + `expiresAt` |
-| `api.md`         | handlers como métodos de `handlers`/`authHandlers`, devolvem só os dados  |
+| `api.md`         | handlers como `export function` com `route`/`authRoute`, só os dados      |
 | `scorely-api.md` | erros por código do catálogo, back em inglês, authorizer, notificações    |
 | `contracts.md`   | contrato só em `@scorely/contracts`; no `base`, cópias idênticas          |
 | `web.md`         | Vue em Options API, i18n e tradução de erros                              |
-| `code.md`        | nunca `let`/`var`                                                         |
+| `code.md`        | nunca `let`/`var`; imports só pelo alias do pacote (sem `./`/`../`)       |
 | `modulos.md`     | ler o doc do módulo antes de mudar; regra muda primeiro no doc            |
 
 O porquê de cada decisão estrutural está em `docs/decisions/`. Antes de propor mudar uma delas, leia o ADR.

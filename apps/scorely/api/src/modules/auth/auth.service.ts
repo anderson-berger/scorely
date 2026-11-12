@@ -1,14 +1,14 @@
-import type { Locale, LoginResult, RequestCodeResult, Tokens } from '@scorely/contracts';
-import { hmac, randomCode, randomToken, safeEqual } from '../../lib/crypto';
-import type { Mailer } from '../../lib/email';
-import { newEntity } from '../../lib/entity';
-import { appError } from '../../lib/errors';
-import { signJwt } from '../../lib/jwt';
-import type { NotificationService } from '../notifications/notification.service';
-import type { UserService } from '../users/user.service';
-import type { AuthRepository } from './auth.repository';
-import type { LoginCode, Session } from './auth.table';
-import { loginCodeEmail } from './login-code.email';
+import { hmac, randomCode, randomToken, safeEqual } from '@scorely/api/src/lib/crypto';
+import type { Mailer } from '@scorely/api/src/lib/email';
+import { newEntity } from '@scorely/api/src/lib/entity';
+import { appError } from '@scorely/api/src/lib/errors';
+import { signJwt } from '@scorely/api/src/lib/jwt';
+import type { AuthRepository } from '@scorely/api/src/modules/auth/auth.repository';
+import type { LoginCode, Session } from '@scorely/api/src/modules/auth/auth.table';
+import { loginCodeEmail } from '@scorely/api/src/modules/auth/login-code.email';
+import type { NotificationService } from '@scorely/api/src/modules/notifications/notification.service';
+import type { UserService } from '@scorely/api/src/modules/users/user.service';
+import type { Locale, LoginResult, RefreshResult, RequestCodeResult, Tokens } from '@scorely/contracts';
 
 export const AUTH_LIMITS = {
   codeTtlSeconds: 10 * 60,
@@ -126,8 +126,11 @@ export function createAuthService({
       return { ...(await startSession(user.id)), user, isNewUser: created };
     },
 
-    /** Troca o refresh token por um novo par (rotação). Reuso de um token antigo derruba a sessão. */
-    async refresh(refreshToken: string): Promise<Tokens> {
+    /**
+     * Troca o refresh token por um novo par (rotação). Reuso de um token antigo derruba a sessão.
+     * Devolve também as preferências atuais (AUTH-07, USR-14): é assim que a mudança feita em outro aparelho chega.
+     */
+    async refresh(refreshToken: string): Promise<RefreshResult> {
       const [sessionId, tokenSecret, ...rest] = refreshToken.split('.');
       if (!sessionId || !tokenSecret || rest.length > 0) throw appError('SESSION_INVALID');
 
@@ -149,6 +152,7 @@ export function createAuthService({
         accessToken: accessToken(session.userId, sessionId, at),
         refreshToken: `${sessionId}.${nextSecret}`,
         expiresIn: AUTH_LIMITS.accessTtlSeconds,
+        preferences: await users.preferences(session.userId),
       };
     },
 

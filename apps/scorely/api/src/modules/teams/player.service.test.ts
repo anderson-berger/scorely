@@ -1,3 +1,7 @@
+import { AppError, appError } from '@scorely/api/src/lib/errors';
+import type { GroupRepository, StoredGroup } from '@scorely/api/src/modules/groups/group.repository';
+import type { PlayerRepository, StoredPlayer } from '@scorely/api/src/modules/teams/player.repository';
+import { canManageTeams, createPlayerService } from '@scorely/api/src/modules/teams/player.service';
 import {
   type Attendee,
   type ErrorCode,
@@ -11,10 +15,6 @@ import {
   UpdatePlayerInputSchema,
 } from '@scorely/contracts';
 import { describe, expect, it } from 'vitest';
-import { AppError, appError } from '../../lib/errors';
-import type { GroupRepository, StoredGroup } from '../groups/group.repository';
-import type { PlayerRepository, StoredPlayer } from './player.repository';
-import { canManageTeams, createPlayerService } from './player.service';
 
 // E3 etapa 1 (`.claude/work/e3-times-1.md`, retrabalho 1): posições por pessoa no grupo, TIM-01 a TIM-04.
 // O roster (membros e jogo atual) é um fake: quem confere participação e permissão é o service (`requireMember` no list, dono no update).

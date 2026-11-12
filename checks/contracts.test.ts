@@ -2,8 +2,8 @@
 // cada `<mod>.schema.ts` da api tem uma cópia idêntica no web, e vice-versa.
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { filesUnder, ROOT, read } from '@checks/lib';
 import { describe, expect, it } from 'vitest';
-import { filesUnder, ROOT, read } from './lib';
 
 interface Copy {
   module: string;

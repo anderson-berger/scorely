@@ -1,5 +1,5 @@
+import { signJwt, verifyJwt } from '@scorely/api/src/lib/jwt';
 import { describe, expect, it } from 'vitest';
-import { signJwt, verifyJwt } from './jwt';
 
 const SECRET = 'test-secret-with-at-least-32-characters!!';
 const claims = { sub: 'user-1', sid: 'session-1', iat: 1_000, exp: 2_000 };

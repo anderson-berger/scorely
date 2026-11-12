@@ -1,6 +1,6 @@
 # Módulo Auth
 
-> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-10.
+> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-12.
 
 Código: `apps/scorely/api/src/modules/auth/`, `apps/scorely/api/src/lib/auth.ts`, `apps/scorely/web/src/modules/auth/`, `apps/scorely/web/src/app/guard.ts`. Contrato: `apps/scorely/contracts/src/auth.ts`.
 
@@ -38,8 +38,10 @@ Entrar no scorely **sem senha**. A pessoa digita o email, recebe um código de 6
 
 - **AUTH-06. O login abre uma sessão** e devolve um access token (1 h) e um refresh token (30 dias).
   - O banco guarda só o hash do segredo, nunca o segredo.
+  - Junto vêm a pessoa (perfil e email) e as preferências dela (idioma e fuso, USR-14).
 - **AUTH-07. Renovar troca o refresh token por um novo** (rotação) e estende a sessão por mais 30 dias.
   - O token antigo deixa de valer.
+  - A resposta também traz as preferências atuais da pessoa (USR-14): é assim que uma mudança feita em outro aparelho chega a este.
 - **AUTH-08. Reusar um refresh token antigo derruba a sessão.** Isso responde `SESSION_INVALID` (401).
   - _Por quê:_ se o token antigo aparece de novo, provavelmente vazou, e encerrar a sessão protege o dono da conta.
 - **AUTH-09. Sessão vencida** responde `SESSION_EXPIRED` (401).

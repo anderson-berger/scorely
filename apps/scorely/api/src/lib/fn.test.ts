@@ -1,5 +1,5 @@
+import { chunk, lazy, range } from '@scorely/api/src/lib/fn';
 import { describe, expect, it } from 'vitest';
-import { chunk, lazy, range } from './fn';
 
 describe('fn', () => {
   it('lazy cria uma vez só, mesmo quando o valor é undefined', () => {

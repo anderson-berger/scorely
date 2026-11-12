@@ -1,7 +1,8 @@
 // Regras de infra (.claude/rules/infra.md): a api não declara recursos, todo `${param:}` tem fallback
 // para o dev local e o IAM não usa `Fn::GetAtt` (o recurso está em outro stack).
+
+import { type ApiConfig, loadConfig, projects } from '@checks/lib';
 import { describe, expect, it } from 'vitest';
-import { type ApiConfig, loadConfig, projects } from './lib';
 
 function resourcesViolations(config: Pick<ApiConfig, 'resources'>): string[] {
   return config.resources === undefined ? [] : ['serverless.ts da api declara `resources`'];

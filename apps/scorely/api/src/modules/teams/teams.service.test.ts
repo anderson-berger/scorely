@@ -1,4 +1,11 @@
 import { randomUUID } from 'node:crypto';
+import { AppError, appError } from '@scorely/api/src/lib/errors';
+import { range } from '@scorely/api/src/lib/fn';
+import type { GroupRepository, StoredGroup } from '@scorely/api/src/modules/groups/group.repository';
+import type { NewNotification } from '@scorely/api/src/modules/notifications/notification.service';
+import type { PlayerRepository, StoredPlayer } from '@scorely/api/src/modules/teams/player.repository';
+import type { StoredTeams, TeamsRepository } from '@scorely/api/src/modules/teams/teams.repository';
+import { createTeamsService } from '@scorely/api/src/modules/teams/teams.service';
 import {
   type Attendee,
   type ErrorCode,
@@ -15,13 +22,6 @@ import {
   type User,
 } from '@scorely/contracts';
 import { describe, expect, it } from 'vitest';
-import { AppError, appError } from '../../lib/errors';
-import { range } from '../../lib/fn';
-import type { GroupRepository, StoredGroup } from '../groups/group.repository';
-import type { NewNotification } from '../notifications/notification.service';
-import type { PlayerRepository, StoredPlayer } from './player.repository';
-import type { StoredTeams, TeamsRepository } from './teams.repository';
-import { createTeamsService } from './teams.service';
 
 // E3 etapa 2 (`.claude/work/e3-times-2.md`): times manuais, rascunho e publicação, TIM-06 a TIM-13 e GRP-09.
 // O roster (jogo atual e link do jogo) é um fake: o jogo atual é o que o módulo de grupos devolve.
@@ -239,6 +239,8 @@ function setup(opts: { group?: Partial<StoredGroup>; game?: Game; random?: () =>
     users,
     notifications,
     teams,
+    /** Sem configuração salva: o padrão do grupo (2 times, sem regras, TIM-17). As regras ficam em `teams.rules.test.ts`. */
+    settings: { get: async () => undefined },
     now: () => clock.now,
     random: opts.random ?? seeded(42),
   });
@@ -297,10 +299,10 @@ const writes = (t: ReturnType<typeof setup>, who: string, groupId = GROUP_ID, da
 ];
 
 describe('times do jogo: uma divisão por jogo, só o jogo atual (TIM-06)', () => {
-  it('TIM-06: sem times salvos, o GET responde { teams: null } (para o dono e para os outros)', async () => {
+  it('TIM-06 / TIM-14: sem times salvos, o GET responde { teams: null } (o dono recebe também a quantidade padrão)', async () => {
     const t = setup();
-    for (const who of [OWNER, A, R])
-      expect(await t.service.get(who, GROUP_ID, DATE)).toEqual({ teams: null });
+    expect(await t.service.get(OWNER, GROUP_ID, DATE)).toEqual({ teams: null, defaultTeamCount: 2 });
+    for (const who of [A, R]) expect(await t.service.get(who, GROUP_ID, DATE)).toEqual({ teams: null });
   });
 
   it('TIM-06: o primeiro save cria o rascunho do jogo atual, com createdAt/updatedAt = agora', async () => {
@@ -352,7 +354,7 @@ describe('times do jogo: uma divisão por jogo, só o jogo atual (TIM-06)', () =
 
     expect(t.deletes).toEqual([{ groupId: GROUP_ID, date: DATE }]);
     expect(t.stored()).toBeUndefined();
-    for (const who of [OWNER, A]) expect(await t.service.get(who, GROUP_ID, DATE)).toEqual({ teams: null });
+    for (const who of [OWNER, A]) expect((await t.service.get(who, GROUP_ID, DATE)).teams).toBeNull();
   });
 
   it('TIM-06: descartar sem times não muda nada (sem erro)', async () => {
@@ -594,7 +596,7 @@ describe('times do jogo: rascunho e publicação (TIM-09)', () => {
     const t = setup();
     const err = await expectAppError(t.service.publish(OWNER, GROUP_ID, DATE), 'TEAM_EMPTY', 422);
     expect(err.details).toEqual({ team: 1 });
-    expect(await t.service.unpublish(OWNER, GROUP_ID, DATE)).toEqual({ teams: null });
+    expect((await t.service.unpublish(OWNER, GROUP_ID, DATE)).teams).toBeNull();
     expect(t.puts).toEqual([]);
     expect(t.sent).toEqual([]);
   });
@@ -716,7 +718,7 @@ describe('times do jogo: até quando dá para mexer (TIM-11)', () => {
     await t.service.publish(OWNER, GROUP_ID, DATE);
 
     t.state.game = gameOf(CONFIRMED, WAITLIST, { status: 'cancelled' });
-    for (const who of [OWNER, A]) expect(await t.service.get(who, GROUP_ID, DATE)).toEqual({ teams: null });
+    for (const who of [OWNER, A]) expect((await t.service.get(who, GROUP_ID, DATE)).teams).toBeNull();
     expect(await t.service.guestGet(OUTSIDER, 'tok-guest')).toEqual({ teams: null });
 
     t.state.game = GAME;

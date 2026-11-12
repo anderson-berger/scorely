@@ -56,6 +56,8 @@ const CATALOG = {
   TEAM_PLAYER_NOT_FOUND: { status: 404, message: 'Player is not in the group or in the current game list' },
   TEAM_POSITION_INVALID: { status: 422, message: 'Position does not belong to the group sport' },
   TEAM_EMPTY: { status: 422, message: 'Every team needs at least one person to publish' },
+  TEAM_RULES_CONFLICT: { status: 422, message: 'The group team rules cannot be met by this draw' },
+  TEAM_RULES_VIOLATED: { status: 422, message: 'Some teams are outside the group team rules' },
 } as const satisfies Record<ErrorCode, { status: number; message: string }>;
 
 /** Código com `details` obrigatório pede o objeto; os demais não aceitam nada. */

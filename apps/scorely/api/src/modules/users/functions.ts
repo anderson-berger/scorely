@@ -1,5 +1,5 @@
+import { AUTHORIZER } from '@scorely/api/src/lib/auth';
 import type { AWS } from '@serverless/typescript';
-import { AUTHORIZER } from '../../lib/auth';
 
 const handler = (name: string) => `src/modules/users/handlers.${name}`;
 

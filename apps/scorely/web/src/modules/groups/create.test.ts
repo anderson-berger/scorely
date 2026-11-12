@@ -1,8 +1,8 @@
+import { en } from '@scorely/web/src/i18n/locales/en';
+import { ptBR } from '@scorely/web/src/i18n/locales/pt-BR';
+import { groupsRoutes } from '@scorely/web/src/modules/groups/routes';
 import { describe, expect, it } from 'vitest';
 import { createMemoryHistory, createRouter } from 'vue-router';
-import { en } from '@/i18n/locales/en';
-import { ptBR } from '@/i18n/locales/pt-BR';
-import { groupsRoutes } from './routes';
 
 /** Mesmo encaixe do `app/router.ts`: as rotas de grupos são filhas de `/`. */
 function makeRouter() {

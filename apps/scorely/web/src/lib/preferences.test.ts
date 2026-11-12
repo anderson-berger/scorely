@@ -1,11 +1,11 @@
-import { describe, expect, it } from 'vitest';
 import {
   effectiveLocale,
   effectiveTimeZone,
   localeFromLanguages,
   readStoredLocale,
   storeLocale,
-} from './preferences';
+} from '@scorely/web/src/lib/preferences';
+import { describe, expect, it } from 'vitest';
 
 /** `localStorage` em memória. */
 function memoryStorage() {

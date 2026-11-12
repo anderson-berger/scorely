@@ -1,14 +1,14 @@
 <script lang="ts">
 import { CreateGroupInputSchema, type Sport, SportSchema } from '@scorely/contracts';
+import BottomSheet from '@scorely/web/src/components/BottomSheet.vue';
+import HoursStepper from '@scorely/web/src/components/HoursStepper.vue';
+import { errorMessage, issueMessage } from '@scorely/web/src/i18n/errors';
+import { detectTimeZone } from '@scorely/web/src/lib/datetime';
+import { effectiveTimeZone } from '@scorely/web/src/lib/preferences';
+import { useAuthStore } from '@scorely/web/src/modules/auth/auth.store';
+import { groupsApi } from '@scorely/web/src/modules/groups/groups.api';
+import { stepSlots } from '@scorely/web/src/modules/groups/layers';
 import { defineComponent } from 'vue';
-import BottomSheet from '@/components/BottomSheet.vue';
-import HoursStepper from '@/components/HoursStepper.vue';
-import { errorMessage, issueMessage } from '@/i18n/errors';
-import { detectTimeZone } from '@/lib/datetime';
-import { effectiveTimeZone } from '@/lib/preferences';
-import { useAuthStore } from '../../auth/auth.store';
-import { groupsApi } from '../groups.api';
-import { stepSlots } from '../layers';
 
 interface Option<T> {
   label: string;
@@ -58,10 +58,10 @@ export default defineComponent({
       }));
     },
 
-    /** Fuso do grupo: o do perfil, ou o detectado. Vai no pedido, para o aviso mostrar o que vale (GRP-13). */
+    /** Fuso do grupo: o das preferências, ou o detectado. Vai no pedido, para o aviso mostrar o que vale (GRP-13). */
     timeZone(): string {
       return effectiveTimeZone({
-        ...(this.auth.user && { user: this.auth.user }),
+        ...(this.auth.user && { user: this.auth.user.preferences }),
         detected: detectTimeZone(),
       });
     },

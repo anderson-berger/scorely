@@ -1,12 +1,12 @@
+import { devAuthSecret, project, tableNameFor, uploadsBucketFor } from '@scorely/api/project';
+import { AUTHORIZER } from '@scorely/api/src/lib/auth';
+import { authFunctions } from '@scorely/api/src/modules/auth/functions';
+import { groupsFunctions } from '@scorely/api/src/modules/groups/functions';
+import { healthFunctions } from '@scorely/api/src/modules/health/functions';
+import { notificationsFunctions } from '@scorely/api/src/modules/notifications/functions';
+import { teamsFunctions } from '@scorely/api/src/modules/teams/functions';
+import { usersFunctions } from '@scorely/api/src/modules/users/functions';
 import type { AWS } from '@serverless/typescript';
-import { devAuthSecret, project, tableNameFor, uploadsBucketFor } from './project';
-import { AUTHORIZER } from './src/lib/auth';
-import { authFunctions } from './src/modules/auth/functions';
-import { groupsFunctions } from './src/modules/groups/functions';
-import { healthFunctions } from './src/modules/health/functions';
-import { notificationsFunctions } from './src/modules/notifications/functions';
-import { teamsFunctions } from './src/modules/teams/functions';
-import { usersFunctions } from './src/modules/users/functions';
 
 // A tabela é criada pelo stack infra/<projeto> (não aqui).
 // Deploy via serverless-compose.ts → param tableName = output TableName do <projeto>-infra.

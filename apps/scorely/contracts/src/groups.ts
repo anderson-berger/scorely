@@ -1,6 +1,6 @@
+import { EntitySchema } from '@scorely/contracts/src/entity';
+import { TimeZoneSchema } from '@scorely/contracts/src/users';
 import { z } from 'zod';
-import { EntitySchema } from './entity';
-import { TimeZoneSchema } from './users';
 
 /** Esportes do grupo. O web traduz o nome (`sports.<valor>`). */
 export const SportSchema = z.enum(['volleyball', 'soccer', 'basketball', 'other']);

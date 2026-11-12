@@ -1,3 +1,14 @@
+import { appError } from '@scorely/api/src/lib/errors';
+import { groupKey } from '@scorely/api/src/modules/groups/group.table';
+import {
+  forViewer,
+  type GroupImageIds,
+  type GroupsDeps,
+  requireActive,
+  requireOwner,
+} from '@scorely/api/src/modules/groups/groups.deps';
+import type { MediaService } from '@scorely/api/src/modules/media/media.service';
+import type { MediaTarget } from '@scorely/api/src/modules/media/media.table';
 import type {
   AttachMediaInput,
   Group,
@@ -6,11 +17,6 @@ import type {
   MediaUpload,
   MediaUploadInput,
 } from '@scorely/contracts';
-import { appError } from '../../lib/errors';
-import type { MediaService } from '../media/media.service';
-import type { MediaTarget } from '../media/media.table';
-import { groupKey } from './group.table';
-import { forViewer, type GroupImageIds, type GroupsDeps, requireActive, requireOwner } from './groups.deps';
 
 /** Cada imagem do grupo é uma finalidade da mídia (GRP-35, MID-02). */
 const PURPOSES: Record<GroupImageSlot, MediaPurpose> = { logo: 'group.logo', cover: 'group.cover' };

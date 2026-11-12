@@ -1,7 +1,7 @@
 import type { Notification } from '@scorely/contracts';
+import { notificationsApi } from '@scorely/web/src/modules/notifications/notifications.api';
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
-import { notificationsApi } from './notifications.api';
 
 /** NTF-09: sem push por enquanto, o sino consulta a cada 5 min com a aba visível. */
 const POLL_MS = 300_000;

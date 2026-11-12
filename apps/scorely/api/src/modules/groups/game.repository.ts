@@ -1,5 +1,4 @@
 import { GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
-import type { Entity } from '@scorely/contracts';
 import {
   batchGetOrdered,
   dbItem,
@@ -8,8 +7,8 @@ import {
   queryLookupRows,
   stripKeys,
   transactWrite,
-} from '../../lib/db';
-import { dynamo, tableName } from '../../lib/dynamo';
+} from '@scorely/api/src/lib/db';
+import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
 import {
   ATTENDANCE_ENTITY,
   attendanceKey,
@@ -19,8 +18,9 @@ import {
   GAME_ENTITY,
   gameDateLookupKey,
   gameKey,
-} from './game.table';
-import { groupKey } from './group.table';
+} from '@scorely/api/src/modules/groups/game.table';
+import { groupKey } from '@scorely/api/src/modules/groups/group.table';
+import type { Entity } from '@scorely/contracts';
 
 /** Jogo materializado (D1): só existe depois da 1ª confirmação ou do cancelamento. */
 export type GameRecord = Entity & {

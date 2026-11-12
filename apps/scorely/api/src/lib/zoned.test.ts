@@ -1,5 +1,11 @@
+import {
+  currentOccurrence,
+  GAME_DURATION_HOURS,
+  localDate,
+  timeStatus,
+  zonedToUtc,
+} from '@scorely/api/src/lib/zoned';
 import { describe, expect, it } from 'vitest';
-import { currentOccurrence, GAME_DURATION_HOURS, localDate, timeStatus, zonedToUtc } from './zoned';
 
 /** Normaliza o ISO (com ou sem milissegundos) para comparar instantes. */
 const iso = (value: string | Date) => new Date(value).toISOString();

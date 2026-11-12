@@ -1,5 +1,5 @@
 import { NotificationPageSchema } from '@scorely/contracts';
-import { request, send } from '@/lib/http';
+import { request, send } from '@scorely/web/src/lib/http';
 
 export const notificationsApi = {
   list: (cursor?: string) =>

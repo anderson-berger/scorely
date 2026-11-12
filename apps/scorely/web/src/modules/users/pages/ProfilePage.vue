@@ -6,16 +6,16 @@ import {
   MEDIA_PURPOSES,
   UpdateMeInputSchema,
 } from '@scorely/contracts';
+import { safeRedirect } from '@scorely/web/src/app/guard';
+import BottomSheet from '@scorely/web/src/components/BottomSheet.vue';
+import { errorMessage, issueMessage } from '@scorely/web/src/i18n/errors';
+import { detectTimeZone } from '@scorely/web/src/lib/datetime';
+import { prepareImage } from '@scorely/web/src/lib/media';
+import { effectiveTimeZone } from '@scorely/web/src/lib/preferences';
+import { useAuthStore } from '@scorely/web/src/modules/auth/auth.store';
+import { initials } from '@scorely/web/src/modules/groups/scoreboard';
+import { displayName } from '@scorely/web/src/modules/users/user.display';
 import { defineComponent } from 'vue';
-import { safeRedirect } from '@/app/guard';
-import BottomSheet from '@/components/BottomSheet.vue';
-import { errorMessage, issueMessage } from '@/i18n/errors';
-import { detectTimeZone } from '@/lib/datetime';
-import { prepareImage } from '@/lib/media';
-import { effectiveTimeZone } from '@/lib/preferences';
-import { initials } from '@/modules/groups/scoreboard';
-import { useAuthStore } from '../../auth/auth.store';
-import { displayName } from '../user.display';
 
 interface Option<T> {
   label: string;
@@ -85,11 +85,13 @@ export default defineComponent({
     },
 
     localeLabel(): string {
-      return this.$t(`locales.${this.auth.user?.locale ?? (this.$i18n.locale as Locale)}`);
+      return this.$t(`locales.${this.auth.user?.preferences.locale ?? (this.$i18n.locale as Locale)}`);
     },
 
     timeZoneLabel(): string {
-      return this.auth.user ? effectiveTimeZone({ user: this.auth.user, detected: detectTimeZone() }) : '';
+      return this.auth.user
+        ? effectiveTimeZone({ user: this.auth.user.preferences, detected: detectTimeZone() })
+        : '';
     },
 
     youOpen: {
@@ -129,9 +131,9 @@ export default defineComponent({
       this.name = u.name ?? '';
       this.nickname = u.nickname ?? '';
       this.gender = u.gender;
-      // Sem idioma/fuso no perfil: o painel mostra os efetivos (o idioma atual e o fuso detectado).
-      this.locale = u.locale ?? (this.$i18n.locale as Locale);
-      this.timeZone = effectiveTimeZone({ user: u, detected: detectTimeZone() });
+      // Sem idioma/fuso nas preferências: o painel mostra os efetivos (o idioma atual e o fuso detectado).
+      this.locale = u.preferences.locale ?? (this.$i18n.locale as Locale);
+      this.timeZone = effectiveTimeZone({ user: u.preferences, detected: detectTimeZone() });
       this.timeZoneOptions = TIME_ZONES;
       this.editor = editor;
     },

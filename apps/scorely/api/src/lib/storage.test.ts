@@ -1,5 +1,5 @@
+import { publicBaseUrl } from '@scorely/api/src/lib/storage';
 import { describe, expect, it } from 'vitest';
-import { publicBaseUrl } from './storage';
 
 const BUCKET = 'scorely-dev-uploads';
 

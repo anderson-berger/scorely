@@ -6,17 +6,17 @@ import '@fontsource/barlow-condensed/700.css';
 import '@fontsource/barlow-condensed/800.css';
 import '@quasar/extras/material-icons/material-icons.css';
 import 'quasar/src/css/index.sass';
-import './css/app.scss';
+import '@scorely/web/src/css/app.scss';
+import App from '@scorely/web/src/App.vue';
+import { router } from '@scorely/web/src/app/router';
+import { i18n } from '@scorely/web/src/i18n';
+import { onSessionExpired } from '@scorely/web/src/lib/http';
+import { applyPreferences } from '@scorely/web/src/lib/preferences';
+import { useAuthStore } from '@scorely/web/src/modules/auth/auth.store';
+import { useNotificationsStore } from '@scorely/web/src/modules/notifications/notifications.store';
 import { createPinia } from 'pinia';
 import { Dialog, Notify, Quasar } from 'quasar';
 import { createApp } from 'vue';
-import App from './App.vue';
-import { router } from './app/router';
-import { i18n } from './i18n';
-import { onSessionExpired } from './lib/http';
-import { applyPreferences } from './lib/preferences';
-import { useAuthStore } from './modules/auth/auth.store';
-import { useNotificationsStore } from './modules/notifications/notifications.store';
 
 const app = createApp(App)
   .use(Quasar, {

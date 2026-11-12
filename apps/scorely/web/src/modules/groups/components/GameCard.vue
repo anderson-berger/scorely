@@ -1,10 +1,9 @@
 <script lang="ts">
 import type { Attendee, Game, PlayerPosition } from '@scorely/contracts';
-import { defineComponent, type PropType } from 'vue';
-import { formatDateTime } from '@/lib/datetime';
-import PlayerPositions from '../../teams/components/PlayerPositions.vue';
-import { nextLayer } from '../layers';
-import { type ListGate, listGate } from '../links';
+import { formatDateTime } from '@scorely/web/src/lib/datetime';
+import LayersTimeline from '@scorely/web/src/modules/groups/components/LayersTimeline.vue';
+import { nextLayer } from '@scorely/web/src/modules/groups/layers';
+import { type ListGate, listGate } from '@scorely/web/src/modules/groups/links';
 import {
   countdown,
   formatCountdown,
@@ -15,8 +14,9 @@ import {
   minimum,
   type Score,
   score,
-} from '../scoreboard';
-import LayersTimeline from './LayersTimeline.vue';
+} from '@scorely/web/src/modules/groups/scoreboard';
+import PlayerPositions from '@scorely/web/src/modules/teams/components/PlayerPositions.vue';
+import { defineComponent, type PropType } from 'vue';
 
 /** Intervalo da contagem regressiva (plano 008, D9). */
 const TICK_MS = 30_000;

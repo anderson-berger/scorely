@@ -26,7 +26,7 @@ Você revisa **intenção e regras**, não estilo. Você começa sem contexto e 
   - `createdAt` vem de `newEntity`/`dbItem`;
   - `stripKeys` roda antes de devolver.
 - **API:**
-  - rota com login usa `authHandlers`, e o `userId` vem de `auth.userId`;
+  - rota com login usa `authRoute`, e o `userId` vem de `auth.userId`;
   - erro esperado sai por `appError`, com código do catálogo e traduzido em todos os locales;
   - nada de dado pessoal em mensagem ou log.
 - **Web:** Options API, e erro traduzido por `errorMessage`, nunca `err.message`.

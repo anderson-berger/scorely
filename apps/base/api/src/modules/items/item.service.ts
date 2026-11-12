@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { notFound } from '../../lib/http';
-import type { ItemRepository } from './item.repository';
-import type { CreateItemInput, Item } from './item.schema';
+import { notFound } from '@base/api/src/lib/http';
+import type { ItemRepository } from '@base/api/src/modules/items/item.repository';
+import type { CreateItemInput, Item } from '@base/api/src/modules/items/item.schema';
 
 export function createItemService(repo: ItemRepository, now: () => Date = () => new Date()) {
   return {

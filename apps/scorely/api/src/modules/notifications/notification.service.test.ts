@@ -1,9 +1,9 @@
+import type { AppError } from '@scorely/api/src/lib/errors';
+import { range } from '@scorely/api/src/lib/fn';
+import type { NotificationRepository } from '@scorely/api/src/modules/notifications/notification.repository';
+import { createNotificationService } from '@scorely/api/src/modules/notifications/notification.service';
 import type { Notification } from '@scorely/contracts';
 import { describe, expect, it } from 'vitest';
-import type { AppError } from '../../lib/errors';
-import { range } from '../../lib/fn';
-import type { NotificationRepository } from './notification.repository';
-import { createNotificationService } from './notification.service';
 
 type MemoryOptions = {
   /** Roda antes de cada `remove` (simula escrita concorrente entre o `get` e o `remove`). */

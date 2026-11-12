@@ -1,8 +1,8 @@
 <script lang="ts">
+import BottomSheet from '@scorely/web/src/components/BottomSheet.vue';
+import NotificationList from '@scorely/web/src/modules/notifications/components/NotificationList.vue';
+import { useNotificationsStore } from '@scorely/web/src/modules/notifications/notifications.store';
 import { defineComponent } from 'vue';
-import BottomSheet from '@/components/BottomSheet.vue';
-import { useNotificationsStore } from '../notifications.store';
-import NotificationList from './NotificationList.vue';
 
 /** Sino: painel de baixo no celular, menu no resto (plano 008, D10). */
 export default defineComponent({

@@ -1,5 +1,5 @@
 import type { Member, MyGroup } from '@scorely/contracts';
-import { ApiRequestError } from '@/lib/http';
+import { ApiRequestError } from '@scorely/web/src/lib/http';
 
 /** Separa os grupos em "Sou dono" e "Participo", mantendo a ordem da api (plano 013, D4). */
 export function splitGroups<T extends Pick<MyGroup, 'ownerId'>>(

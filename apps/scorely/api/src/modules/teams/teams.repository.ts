@@ -1,8 +1,8 @@
 import { DeleteCommand, GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
-import type { PlayerPosition, TeamsStatus } from '@scorely/contracts';
-import { dbItem, stripKeys } from '../../lib/db';
-import { dynamo, tableName } from '../../lib/dynamo';
-import { TEAMS_ENTITY, teamsKey } from './teams.table';
+import { dbItem, stripKeys } from '@scorely/api/src/lib/db';
+import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
+import { TEAMS_ENTITY, teamsKey } from '@scorely/api/src/modules/teams/teams.table';
+import type { PlayerPosition, TeamApartRule, TeamExtra, TeamRule, TeamsStatus } from '@scorely/contracts';
 
 /** Os times do jogo como ficam no banco (a resposta é o `Teams` de @scorely/contracts, montado pelo service). */
 export interface StoredTeams {
@@ -18,6 +18,12 @@ export interface StoredTeams {
   pinned?: string[];
   /** A 1ª publicação (TIM-10). */
   publishedAt?: string;
+  /** Cópia das regras do último sorteio (TIM-19). Salvar à mão mantém a cópia. */
+  rules?: TeamRule[];
+  /** Cópia dos times opostos do último sorteio (TIM-19, 22). */
+  apart?: TeamApartRule[];
+  /** Os avulsos do jogo (TIM-24). Item antigo sem o campo = nenhum. */
+  extras?: TeamExtra[];
   createdAt: string;
   updatedAt: string;
 }

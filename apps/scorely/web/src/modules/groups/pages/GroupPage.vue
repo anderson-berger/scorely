@@ -1,16 +1,21 @@
 <script lang="ts">
 import type { Game, Group, InviteKind, Member, Player, PlayerPosition } from '@scorely/contracts';
+import { errorMessage } from '@scorely/web/src/i18n/errors';
+import { currentTimeZone, formatDateTime } from '@scorely/web/src/lib/datetime';
+import { useAuthStore } from '@scorely/web/src/modules/auth/auth.store';
+import GroupHero from '@scorely/web/src/modules/groups/components/GroupHero.vue';
+import { gameUnlessArchived } from '@scorely/web/src/modules/groups/groups';
+import { groupsApi } from '@scorely/web/src/modules/groups/groups.api';
+import {
+  type GroupTab,
+  groupTabs,
+  showGroupTimeZone,
+  tabRedirect,
+} from '@scorely/web/src/modules/groups/tabs';
+import PlayerPositionsSheet from '@scorely/web/src/modules/teams/components/PlayerPositionsSheet.vue';
+import { positionsByUser, sportPositions } from '@scorely/web/src/modules/teams/players';
+import { teamsApi } from '@scorely/web/src/modules/teams/teams.api';
 import { defineComponent } from 'vue';
-import { errorMessage } from '@/i18n/errors';
-import { currentTimeZone, formatDateTime } from '@/lib/datetime';
-import { useAuthStore } from '../../auth/auth.store';
-import PlayerPositionsSheet from '../../teams/components/PlayerPositionsSheet.vue';
-import { positionsByUser, sportPositions } from '../../teams/players';
-import { teamsApi } from '../../teams/teams.api';
-import GroupHero from '../components/GroupHero.vue';
-import { gameUnlessArchived } from '../groups';
-import { groupsApi } from '../groups.api';
-import { type GroupTab, groupTabs, showGroupTimeZone, tabRedirect } from '../tabs';
 
 const TAB_LABELS: Record<GroupTab, string> = {
   group: 'groups.tabs.game',

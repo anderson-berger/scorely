@@ -1,12 +1,13 @@
 <script lang="ts">
 import type { Game, Group, InviteKind } from '@scorely/contracts';
+import { formatDateTime } from '@scorely/web/src/lib/datetime';
+import CapacityCard from '@scorely/web/src/modules/groups/components/CapacityCard.vue';
+import GroupImagesCard from '@scorely/web/src/modules/groups/components/GroupImagesCard.vue';
+import GroupLinksCard from '@scorely/web/src/modules/groups/components/GroupLinksCard.vue';
+import LayersCard from '@scorely/web/src/modules/groups/components/LayersCard.vue';
+import LimitsCard from '@scorely/web/src/modules/groups/components/LimitsCard.vue';
+import TeamSettingsCard from '@scorely/web/src/modules/teams/components/TeamSettingsCard.vue';
 import { defineComponent, type PropType } from 'vue';
-import { formatDateTime } from '@/lib/datetime';
-import CapacityCard from '../components/CapacityCard.vue';
-import GroupImagesCard from '../components/GroupImagesCard.vue';
-import GroupLinksCard from '../components/GroupLinksCard.vue';
-import LayersCard from '../components/LayersCard.vue';
-import LimitsCard from '../components/LimitsCard.vue';
 
 /**
  * Aba Ajustes, só do dono (GRP-29): Abertura da lista, Limites (GRP-38), Links de convite, Logo e capa (GRP-35),
@@ -16,7 +17,7 @@ import LimitsCard from '../components/LimitsCard.vue';
 export default defineComponent({
   name: 'GroupSettingsPage',
 
-  components: { CapacityCard, GroupImagesCard, GroupLinksCard, LayersCard, LimitsCard },
+  components: { CapacityCard, GroupImagesCard, GroupLinksCard, LayersCard, LimitsCard, TeamSettingsCard },
 
   inheritAttrs: false,
 
@@ -68,6 +69,8 @@ export default defineComponent({
     <LayersCard :group="group" :game="game" :is-owner="isOwner" @saved="$emit('saved')" />
 
     <CapacityCard :group="group" @saved="$emit('saved')" />
+
+    <TeamSettingsCard :group="group" />
 
     <LimitsCard :group="group" @saved="$emit('saved')" />
 

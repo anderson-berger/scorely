@@ -5,34 +5,33 @@ paths:
 
 # API: handlers (base e scorely)
 
-## Handlers como métodos de um objeto
+## Handlers como funções
 
-Nos `handlers.ts`, as rotas são métodos de um objeto passado a `handlers({...})` (rota pública) ou `authHandlers({...})` (rota com authorizer, só no scorely). Nunca um `export const x = handler(async () => ...)` por rota. A única linha `export const` do arquivo é a desestruturação que a Lambda usa para achar cada função pelo nome do `functions.ts`. Check: `checks/api.test.ts` (rota ↔ export; authorizer ⇔ `authHandlers`).
+Nos `handlers.ts`, cada rota é uma `export async function <nome>(event: HttpEvent)` que responde por `route(event, async () => ...)` (rota pública) ou `authRoute(event, async (auth) => ...)` (rota com authorizer, só no scorely). **Nenhuma `export const` no `handlers.ts`**: nem `export const { a, b } = handlers({...})`, nem `export const x = handler(...)`. Check: `checks/api.test.ts` (rota ↔ `export function`; authorizer ⇔ `authRoute`; sem `export const`).
 
 ```ts
 const users = createUserService(dynamoUserRepository);
 
-export const { me, updateMe } = authHandlers({
-  async me(_event, auth) {
-    return users.get(auth.userId);
-  },
+export async function me(event: HttpEvent) {
+  return authRoute(event, async (auth) => users.get(auth.userId));
+}
 
-  async updateMe(event, auth) {
+export async function updateMe(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
     const patch = parseBody(event, UpdateMeInputSchema);
     return users.update(auth.userId, patch);
-  },
-});
+  });
+}
 ```
 
-- Um objeto por tipo de rota. Módulo com rotas públicas e protegidas tem um `handlers({...})` e um `authHandlers({...})` (veja `apps/scorely/api/src/modules/auth/handlers.ts`).
-- Os nomes desestruturados são exatamente as chaves do objeto e os nomes do `functions.ts` (`handler('me')` → `handlers.me`).
-- Não anote os tipos de `event` e `auth`: eles vêm do `handlers`/`authHandlers`.
-- **Não use `this` nos métodos.** Cada um vira uma função solta; helper compartilhado é função do módulo, fora do objeto.
-- Fora dos handlers, função exportada é **declaração** (`export function x() {}`), não arrow em const. Factories que devolvem objeto (`createUserService`) e valores (`const users = ...`) continuam como estão.
+- O nome da função é exatamente o do `functions.ts` (`handler('me')` → `export async function me`).
+- Só o `event` é anotado (`HttpEvent`); o `auth` vem tipado pelo callback do `authRoute`.
+- Helper compartilhado entre rotas é função do módulo, sem `export`.
+- Fora dos handlers, função exportada também é **declaração** (`export function x() {}`), não arrow em const. Factories que devolvem objeto (`createUserService`) e valores (`const users = ...`) continuam como estão.
 
 ## Handlers devolvem só os dados
 
-`handlers`/`authHandlers` (`src/lib/http.ts` / `src/lib/auth.ts`) envolvem cada método com `handler()`/`authHandler()`, que monta a resposta HTTP. O handler escreve só o caminho feliz.
+`route`/`authRoute` (`src/lib/http.ts` / `src/lib/auth.ts`) rodam o callback e montam a resposta HTTP. O handler escreve só o caminho feliz.
 
 - Devolva os dados: valor → **200** com JSON; nada (`undefined`) → **204**. Não monte `{ statusCode, body }` nem chame `JSON.stringify`.
 - Status diferente: `created(body)` (201) ou `new HttpResponse(status, body?)`.

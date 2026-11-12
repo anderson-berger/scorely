@@ -1,12 +1,12 @@
 <script lang="ts">
 import type { Game, Group, PlayerPosition } from '@scorely/contracts';
+import { errorMessage } from '@scorely/web/src/i18n/errors';
+import { gameCapacityPatch } from '@scorely/web/src/modules/groups/capacity';
+import CapacitySheet from '@scorely/web/src/modules/groups/components/CapacitySheet.vue';
+import GameCard from '@scorely/web/src/modules/groups/components/GameCard.vue';
+import { groupsApi } from '@scorely/web/src/modules/groups/groups.api';
+import TeamsCard from '@scorely/web/src/modules/teams/components/TeamsCard.vue';
 import { defineComponent, type PropType } from 'vue';
-import { errorMessage } from '@/i18n/errors';
-import TeamsCard from '../../teams/components/TeamsCard.vue';
-import { gameCapacityPatch } from '../capacity';
-import CapacitySheet from '../components/CapacitySheet.vue';
-import GameCard from '../components/GameCard.vue';
-import { groupsApi } from '../groups.api';
 
 /**
  * Aba Jogo (plano 012): o jogo da semana. Os times (E3) e as partidas (E4) entram aqui como seções.

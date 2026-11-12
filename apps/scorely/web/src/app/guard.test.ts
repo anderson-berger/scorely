@@ -1,5 +1,5 @@
+import { guardDecision, safeRedirect } from '@scorely/web/src/app/guard';
 import { describe, expect, it } from 'vitest';
-import { guardDecision, safeRedirect } from './guard';
 
 /** Rota de destino mínima, como o guard recebe do router. */
 function route(

@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto';
+import { AppError } from '@scorely/api/src/lib/errors';
+import { createGroupImages } from '@scorely/api/src/modules/groups/group.images';
+import type { GroupRepository, StoredGroup } from '@scorely/api/src/modules/groups/group.repository';
+import { groupKey } from '@scorely/api/src/modules/groups/group.table';
+import type { GroupsDeps } from '@scorely/api/src/modules/groups/groups.deps';
+import type { MediaService } from '@scorely/api/src/modules/media/media.service';
 import { type ErrorCode, type GroupImageSlot, MEDIA_PURPOSES, type MemberRole } from '@scorely/contracts';
 import { describe, expect, it } from 'vitest';
-import { AppError } from '../../lib/errors';
-import type { MediaService } from '../media/media.service';
-import { createGroupImages } from './group.images';
-import type { GroupRepository, StoredGroup } from './group.repository';
-import { groupKey } from './group.table';
-import type { GroupsDeps } from './groups.deps';
 
 // GRP-35 (docs/modules/grupos.md) e MID-01 (docs/modules/midia.md): só o dono troca e remove o logo e a capa,
 // conferido nos dois passos. A mídia é um dublê que grava `<slot>MediaId`/`<slot>Url` no item do grupo, como a

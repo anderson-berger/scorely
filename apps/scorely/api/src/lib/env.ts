@@ -1,6 +1,6 @@
+import { DEV_AUTH_SECRET_PREFIX } from '@scorely/api/project';
+import { lazy } from '@scorely/api/src/lib/fn';
 import { z } from 'zod';
-import { DEV_AUTH_SECRET_PREFIX } from '../../project';
-import { lazy } from './fn';
 
 const optional = z
   .string()

@@ -1,5 +1,4 @@
 import { GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
-import { GROUP_LIMITS, type Group, type InviteKind, type MemberRole } from '@scorely/contracts';
 import {
   batchGetOrdered,
   dbItem,
@@ -10,9 +9,9 @@ import {
   stripKeys,
   type TransactItem,
   transactWrite,
-} from '../../lib/db';
-import { dynamo, tableName } from '../../lib/dynamo';
-import { type AttendanceRecord, attendanceDeletes } from './game.repository';
+} from '@scorely/api/src/lib/db';
+import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
+import { type AttendanceRecord, attendanceDeletes } from '@scorely/api/src/modules/groups/game.repository';
 import {
   GROUP_ENTITY,
   groupCountersKey,
@@ -20,7 +19,7 @@ import {
   groupInviteLookupKey,
   groupKey,
   groupReserveInviteLookupKey,
-} from './group.table';
+} from '@scorely/api/src/modules/groups/group.table';
 import {
   groupMembershipLookupKey,
   groupMembershipsLookupPk,
@@ -29,7 +28,8 @@ import {
   membershipKey,
   userGroupLookupKey,
   userGroupsLookupPk,
-} from './membership.table';
+} from '@scorely/api/src/modules/groups/membership.table';
+import { GROUP_LIMITS, type Group, type InviteKind, type MemberRole } from '@scorely/contracts';
 
 /**
  * O grupo como fica no banco (o service tira os tokens para quem não é dono). Ativo, tem os 3 tokens;

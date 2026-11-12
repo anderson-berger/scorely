@@ -1,5 +1,5 @@
 // Como o Item é salvo e buscado (single-table, sem GSI). O formato da entidade é o `ItemSchema` de ./item.schema.
-import type { Item } from './item.schema';
+import type { Item } from '@base/api/src/modules/items/item.schema';
 
 export const ITEM_ENTITY = 'Item';
 export const LOOKUP_ENTITY = 'Lookup';

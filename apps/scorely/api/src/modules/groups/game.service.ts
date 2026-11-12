@@ -1,3 +1,15 @@
+import { newEntity } from '@scorely/api/src/lib/entity';
+import { appError } from '@scorely/api/src/lib/errors';
+import { currentOccurrence, layerOpensAt, type Occurrence, timeStatus } from '@scorely/api/src/lib/zoned';
+import type { AttendanceRecord, GameRecord } from '@scorely/api/src/modules/groups/game.repository';
+import type { StoredGroup } from '@scorely/api/src/modules/groups/group.repository';
+import {
+  type GroupsDeps,
+  requireActive,
+  requireMember,
+  requireOwner,
+  reservesHours,
+} from '@scorely/api/src/modules/groups/groups.deps';
 import type {
   Game,
   GameStatus,
@@ -7,12 +19,6 @@ import type {
   MyGroup,
   UpdateGameInput,
 } from '@scorely/contracts';
-import { newEntity } from '../../lib/entity';
-import { appError } from '../../lib/errors';
-import { currentOccurrence, layerOpensAt, type Occurrence, timeStatus } from '../../lib/zoned';
-import type { AttendanceRecord, GameRecord } from './game.repository';
-import type { StoredGroup } from './group.repository';
-import { type GroupsDeps, requireActive, requireMember, requireOwner, reservesHours } from './groups.deps';
 
 /** Jogo atual de um grupo num instante: a ocorrência calculada (D1 do 003) e o item, se já existe. */
 interface CurrentGame {

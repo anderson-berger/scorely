@@ -1,5 +1,5 @@
+import { lazy } from '@base/api/src/lib/fn';
 import { z } from 'zod';
-import { lazy } from './fn';
 
 const EnvSchema = z.object({
   TABLE_NAME: z.string().min(1),

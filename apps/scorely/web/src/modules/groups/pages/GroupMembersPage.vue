@@ -1,11 +1,11 @@
 <script lang="ts">
 import type { Group, Member, PlayerPosition } from '@scorely/contracts';
+import BottomSheet from '@scorely/web/src/components/BottomSheet.vue';
+import GroupLinksCard from '@scorely/web/src/modules/groups/components/GroupLinksCard.vue';
+import { memberSections } from '@scorely/web/src/modules/groups/groups';
+import { initials } from '@scorely/web/src/modules/groups/scoreboard';
+import PlayerPositions from '@scorely/web/src/modules/teams/components/PlayerPositions.vue';
 import { defineComponent, type PropType } from 'vue';
-import BottomSheet from '@/components/BottomSheet.vue';
-import PlayerPositions from '../../teams/components/PlayerPositions.vue';
-import GroupLinksCard from '../components/GroupLinksCard.vue';
-import { memberSections } from '../groups';
-import { initials } from '../scoreboard';
 
 interface Section {
   key: 'members' | 'reserves';

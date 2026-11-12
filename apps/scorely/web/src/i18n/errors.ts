@@ -1,6 +1,6 @@
 import { ErrorDetailsSchemas } from '@scorely/contracts';
-import { ApiRequestError } from '@/lib/http';
-import { i18n, t } from './index';
+import { i18n, t } from '@scorely/web/src/i18n/index';
+import { ApiRequestError } from '@scorely/web/src/lib/http';
 
 /**
  * Mensagem traduzida para um issue de validação do Zod:

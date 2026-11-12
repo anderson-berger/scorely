@@ -1,5 +1,5 @@
+import { groupTabs, showGroupTimeZone, tabRedirect } from '@scorely/web/src/modules/groups/tabs';
 import { describe, expect, it } from 'vitest';
-import { groupTabs, showGroupTimeZone, tabRedirect } from './tabs';
 
 describe('groupTabs', () => {
   it('caso 1: membro vê Jogo e Membros', () => {

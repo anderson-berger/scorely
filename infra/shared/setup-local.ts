@@ -17,8 +17,8 @@ import {
   PutBucketLifecycleConfigurationCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
-import { singleTableSchema, tableNameFor, ttlAttribute } from './single-table';
-import { MEDIA_PREFIXES, TMP_EXPIRATION_DAYS, uploadsBucketFor } from './uploads-bucket';
+import { singleTableSchema, tableNameFor, ttlAttribute } from '@infra/shared/single-table';
+import { MEDIA_PREFIXES, TMP_EXPIRATION_DAYS, uploadsBucketFor } from '@infra/shared/uploads-bucket';
 
 const project = process.argv[2];
 if (!project) throw new Error('Uso: tsx setup-local.ts <projeto>');

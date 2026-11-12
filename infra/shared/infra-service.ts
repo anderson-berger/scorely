@@ -1,6 +1,6 @@
+import { singleTableSchema, tableNameFor, ttlAttribute } from '@infra/shared/single-table';
+import { MEDIA_PREFIXES, TMP_EXPIRATION_DAYS, uploadsBucketFor } from '@infra/shared/uploads-bucket';
 import type { AWS } from '@serverless/typescript';
-import { singleTableSchema, tableNameFor, ttlAttribute } from './single-table';
-import { MEDIA_PREFIXES, TMP_EXPIRATION_DAYS, uploadsBucketFor } from './uploads-bucket';
 
 export interface InfraOptions {
   /** Bucket de uploads com leitura pública em `public/*` (módulo de mídia). */

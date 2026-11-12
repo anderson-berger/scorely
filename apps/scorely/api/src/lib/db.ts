@@ -5,10 +5,10 @@ import {
   TransactWriteCommand,
   type TransactWriteCommandInput,
 } from '@aws-sdk/lib-dynamodb';
+import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
+import { appError } from '@scorely/api/src/lib/errors';
+import { chunk } from '@scorely/api/src/lib/fn';
 import { z } from 'zod';
-import { dynamo, tableName } from './dynamo';
-import { appError } from './errors';
-import { chunk } from './fn';
 
 export interface Key {
   PK: string;

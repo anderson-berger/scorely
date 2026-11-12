@@ -2,8 +2,8 @@
 // infra do scorely, leitura pública só em `public/*`, limpeza do `tmp/`, outputs; IAM da api só em `tmp/*` e
 // `public/*`, no ARN montado; prefixos da api iguais aos da infra; S3Mock local.
 import { join } from 'node:path';
+import { ROOT, read } from '@checks/lib';
 import { describe, expect, it } from 'vitest';
-import { ROOT, read } from './lib';
 
 interface CfnResource {
   Type?: string;

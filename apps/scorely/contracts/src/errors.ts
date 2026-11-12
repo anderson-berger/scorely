@@ -1,3 +1,4 @@
+import { TeamRuleConflictSchema, TeamViolationSchema } from '@scorely/contracts/src/teams';
 import { z } from 'zod';
 
 /**
@@ -50,6 +51,8 @@ export const ErrorCodeSchema = z.enum([
   'TEAM_PLAYER_NOT_FOUND',
   'TEAM_POSITION_INVALID',
   'TEAM_EMPTY',
+  'TEAM_RULES_CONFLICT',
+  'TEAM_RULES_VIOLATED',
 ]);
 export type ErrorCode = z.infer<typeof ErrorCodeSchema>;
 
@@ -76,6 +79,10 @@ export const ErrorDetailsSchemas = {
   TEAM_POSITION_INVALID: z.object({ position: z.string() }),
   /** O número do time vazio, a partir de 1 (TIM-08). */
   TEAM_EMPTY: z.object({ team: z.number().int().positive() }),
+  /** O que impede o sorteio (TIM-19). */
+  TEAM_RULES_CONFLICT: z.object({ conflicts: z.array(TeamRuleConflictSchema).min(1) }),
+  /** O que está fora das regras ao publicar (TIM-20). */
+  TEAM_RULES_VIOLATED: z.object({ violations: z.array(TeamViolationSchema).min(1) }),
   /** As vagas que valem (GRP-46): o mínimo não passa delas. */
   GROUP_MIN_PLAYERS_INVALID: z.object({ max: z.number().int().positive() }),
   /** Quantos já estão dentro (GRP-45): as vagas não descem abaixo disso. */

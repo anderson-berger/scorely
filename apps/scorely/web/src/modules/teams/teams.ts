@@ -2,6 +2,7 @@ import {
   type PlayerPosition,
   type SaveTeamsInput,
   TEAM_COUNT,
+  type TeamExtra,
   type TeamPlayer,
   type Teams,
 } from '@scorely/contracts';
@@ -17,12 +18,12 @@ export interface TeamPlayerChange {
   pinned: boolean;
 }
 
-/** O que o dono edita e manda no PUT (TIM-08, 13, 16). */
+/** O que o dono edita e manda no PUT (TIM-08, 13, 16, 24). */
 export type TeamsDraft = SaveTeamsInput & { pinned: string[] };
 
-/** "Montar à mão" (TIM-14): 2 times vazios, sem ajustes nem fixados. */
-export function emptyDraft(): TeamsDraft {
-  return { teams: Array.from({ length: TEAM_COUNT.min }, () => []), positions: {}, pinned: [] };
+/** "Montar à mão" (TIM-14): `count` times vazios (a quantidade padrão do grupo, TIM-17, que vem da api), sem ajustes nem fixados. */
+export function emptyDraft(count: number = TEAM_COUNT.min): TeamsDraft {
+  return { teams: Array.from({ length: count }, () => []), positions: {}, pinned: [] };
 }
 
 /** Todas as pessoas que a resposta mostra: nos times e sem time. */
@@ -39,6 +40,39 @@ export function draftOf(teams: Teams): TeamsDraft {
     pinned: everyone(teams)
       .filter((p) => p.pinned)
       .map((p) => p.userId),
+    extras: everyone(teams)
+      .filter((p) => p.extra)
+      .map((p) => ({
+        id: p.userId,
+        name: p.name ?? '',
+        ...(p.gender && { gender: p.gender }),
+        positions: [...p.positions],
+      })),
+  };
+}
+
+/** O avulso de quem está na resposta (TIM-24), para editar. */
+export function extraOf(draft: TeamsDraft, id: string): TeamExtra | undefined {
+  return (draft.extras ?? []).find((e) => e.id === id);
+}
+
+/** Acrescenta o avulso (fica "sem time") ou substitui o de mesmo id, sem mudar o time dele (TIM-24). */
+export function putExtra(draft: TeamsDraft, extra: TeamExtra): TeamsDraft {
+  const extras = draft.extras ?? [];
+  const exists = extras.some((e) => e.id === extra.id);
+  return {
+    ...draft,
+    extras: exists ? extras.map((e) => (e.id === extra.id ? extra : e)) : [...extras, extra],
+  };
+}
+
+/** Remove o avulso dos times, dos fixados e do jogo (TIM-24). */
+export function removeExtra(draft: TeamsDraft, id: string): TeamsDraft {
+  return {
+    ...draft,
+    teams: draft.teams.map((team) => team.filter((x) => x !== id)),
+    pinned: draft.pinned.filter((x) => x !== id),
+    extras: (draft.extras ?? []).filter((e) => e.id !== id),
   };
 }
 

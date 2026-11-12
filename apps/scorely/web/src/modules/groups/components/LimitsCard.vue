@@ -1,10 +1,10 @@
 <script lang="ts">
 import { GROUP_LIMITS, type Group, UpdateGroupInputSchema } from '@scorely/contracts';
+import BottomSheet from '@scorely/web/src/components/BottomSheet.vue';
+import HoursStepper from '@scorely/web/src/components/HoursStepper.vue';
+import { errorMessage, issueMessage } from '@scorely/web/src/i18n/errors';
+import { groupsApi } from '@scorely/web/src/modules/groups/groups.api';
 import { defineComponent, type PropType } from 'vue';
-import BottomSheet from '@/components/BottomSheet.vue';
-import HoursStepper from '@/components/HoursStepper.vue';
-import { errorMessage, issueMessage } from '@/i18n/errors';
-import { groupsApi } from '../groups.api';
 
 type LimitKey = 'maxMembers' | 'maxReserves';
 

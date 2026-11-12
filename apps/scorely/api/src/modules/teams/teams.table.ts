@@ -6,7 +6,7 @@ export const TEAMS_ENTITY = 'Teams';
 
 /**
  * Entidade: `PK=TEAMS#<groupId>#<date>`, `SK=META`,
- * `{ groupId, date, status, teams, positions, publishedAt?, createdAt, updatedAt }`.
+ * `{ groupId, date, status, teams, positions, pinned?, publishedAt?, rules?, createdAt, updatedAt }`.
  * Leitura: GetItem. Escrita: Put do item inteiro (um dono só, vale o último, ver "Limites" do doc). Descartar: Delete.
  */
 export function teamsKey(groupId: string, date: string) {

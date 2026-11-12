@@ -1,9 +1,9 @@
 <script lang="ts">
 import { type Group, type GroupImageSlot, MEDIA_PURPOSES } from '@scorely/contracts';
+import { errorMessage } from '@scorely/web/src/i18n/errors';
+import { prepareImage } from '@scorely/web/src/lib/media';
+import { removeGroupImage, uploadGroupImage } from '@scorely/web/src/modules/groups/groups.api';
 import { defineComponent, type PropType } from 'vue';
-import { errorMessage } from '@/i18n/errors';
-import { prepareImage } from '@/lib/media';
-import { removeGroupImage, uploadGroupImage } from '../groups.api';
 
 const PURPOSES = { logo: 'group.logo', cover: 'group.cover' } as const;
 

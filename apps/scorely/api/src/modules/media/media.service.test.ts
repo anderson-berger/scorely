@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto';
+import { AppError } from '@scorely/api/src/lib/errors';
+import type { InspectedFile, MediaStorage } from '@scorely/api/src/lib/storage';
+import type { MediaRepository } from '@scorely/api/src/modules/media/media.repository';
+import { createMediaService } from '@scorely/api/src/modules/media/media.service';
+import type { MediaRecord, MediaTarget } from '@scorely/api/src/modules/media/media.table';
 import { type ErrorCode, MEDIA_PURPOSES, type MediaPurpose } from '@scorely/contracts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AppError } from '../../lib/errors';
-import type { InspectedFile, MediaStorage } from '../../lib/storage';
-import type { MediaRepository } from './media.repository';
-import { createMediaService } from './media.service';
-import type { MediaRecord, MediaTarget } from './media.table';
 
 // docs/modules/midia.md: MID-01, MID-02, MID-04 a MID-13. MID-03 (preparo no navegador) fica em web/src/lib/media.test.ts.
 

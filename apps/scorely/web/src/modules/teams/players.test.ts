@@ -1,5 +1,5 @@
+import { makeMain, sportPositions, togglePosition } from '@scorely/web/src/modules/teams/players';
 import { describe, expect, it } from 'vitest';
-import { makeMain, sportPositions, togglePosition } from './players';
 
 describe('posições do esporte', () => {
   it('TIM-02: o painel mostra todas as posições do esporte do grupo', () => {

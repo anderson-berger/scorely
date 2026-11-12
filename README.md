@@ -133,7 +133,7 @@ Fluxo: `POST /auth/code { email }` envia um código de 6 dígitos → `POST /aut
 - **Rotas protegidas**: quem valida o access token é um **Lambda authorizer do HTTP API**. A rota se declara protegida no próprio `functions.ts` do módulo:
 
   ```ts
-  import { AUTHORIZER } from '../../lib/auth';
+  import { AUTHORIZER } from '@scorely/api/src/lib/auth';
 
   usersUpdateMe: {
     handler: handler('updateMe'),

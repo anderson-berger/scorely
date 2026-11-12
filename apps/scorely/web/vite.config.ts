@@ -8,6 +8,6 @@ export default defineConfig({
     vue({ template: { transformAssetUrls } }),
     quasar({ sassVariables: fileURLToPath(new URL('./src/css/quasar.variables.sass', import.meta.url)) }),
   ],
-  resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
+  resolve: { tsconfigPaths: true },
   server: { port: 5174, strictPort: true },
 });

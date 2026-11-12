@@ -1,9 +1,9 @@
 import type { Attendee, MyGroup } from '@scorely/contracts';
 import { GROUP_LIMITS } from '@scorely/contracts';
+import { gameCapacityPatch, stepCapacity } from '@scorely/web/src/modules/groups/capacity';
+import { cardLine } from '@scorely/web/src/modules/groups/groups';
+import { minimum } from '@scorely/web/src/modules/groups/scoreboard';
 import { describe, expect, it } from 'vitest';
-import { gameCapacityPatch, stepCapacity } from './capacity';
-import { cardLine } from './groups';
-import { minimum } from './scoreboard';
 
 // Vagas e mínimo por jogo (GRP-45, 46) no web: placar, frase do card e painel "Vagas deste jogo".
 

@@ -5,8 +5,8 @@
 // `src/lib/datetime.ts`. Nenhum `toLocale*String` nem `Intl.DateTimeFormat` fora dele.
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { filesUnder, ROOT, read } from '@checks/lib';
 import { describe, expect, it } from 'vitest';
-import { filesUnder, ROOT, read } from './lib';
 
 const HELPER = 'src/lib/datetime.ts';
 const FORBIDDEN = /\.toLocale(Date|Time)?String\s*\(|Intl\.DateTimeFormat\b/;

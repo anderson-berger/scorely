@@ -1,3 +1,20 @@
+import { randomToken } from '@scorely/api/src/lib/crypto';
+import { newEntity } from '@scorely/api/src/lib/entity';
+import { appError } from '@scorely/api/src/lib/errors';
+import { createGameService } from '@scorely/api/src/modules/groups/game.service';
+import {
+  type GroupMember,
+  limitsOf,
+  type StoredGroup,
+} from '@scorely/api/src/modules/groups/group.repository';
+import {
+  forViewer,
+  type GroupsDeps,
+  requireActive,
+  requireMember,
+  requireOwner,
+  reservesHours,
+} from '@scorely/api/src/modules/groups/groups.deps';
 import {
   type CreateGroupInput,
   type Group,
@@ -10,19 +27,6 @@ import {
   type MyGroup,
   type UpdateGroupInput,
 } from '@scorely/contracts';
-import { randomToken } from '../../lib/crypto';
-import { newEntity } from '../../lib/entity';
-import { appError } from '../../lib/errors';
-import { createGameService } from './game.service';
-import { type GroupMember, limitsOf, type StoredGroup } from './group.repository';
-import {
-  forViewer,
-  type GroupsDeps,
-  requireActive,
-  requireMember,
-  requireOwner,
-  reservesHours,
-} from './groups.deps';
 
 /** Fuso do grupo quando nem o pedido nem o perfil do dono trazem um (D7 do 003). */
 const DEFAULT_TIME_ZONE = 'America/Sao_Paulo';
@@ -177,13 +181,15 @@ export function createGroupService(deps: GroupsDeps) {
     async create(ownerId: string, input: CreateGroupInput): Promise<Group> {
       const layers = createLayers(input);
       assertLayers({ ...input, ...layers });
-      const owner = await deps.users.get(ownerId);
+      // GRP-13: sem fuso no pedido, o das preferências do dono (USR-07).
+      const timeZone =
+        input.timeZone ?? (await deps.users.getPreferences(ownerId)).timeZone ?? DEFAULT_TIME_ZONE;
       const group = newEntity<StoredGroup>(
         {
           ...input,
           ...layers,
           ...CREATE_LIMITS,
-          timeZone: input.timeZone ?? owner?.timeZone ?? DEFAULT_TIME_ZONE,
+          timeZone,
           ownerId,
           inviteToken: randomToken(),
           reserveInviteToken: randomToken(),

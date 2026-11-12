@@ -1,6 +1,14 @@
 import type { TeamPlayer, Teams } from '@scorely/contracts';
+import {
+  draftOf,
+  emptyDraft,
+  moveTo,
+  setPinned,
+  setTeamCount,
+  type TeamsDraft,
+  teamIndexOf,
+} from '@scorely/web/src/modules/teams/teams';
 import { describe, expect, it } from 'vitest';
-import { draftOf, emptyDraft, moveTo, setPinned, setTeamCount, type TeamsDraft, teamIndexOf } from './teams';
 
 const ANA = 'a0000000-0000-4000-8000-000000000001';
 const BIA = 'a0000000-0000-4000-8000-000000000002';
@@ -86,6 +94,7 @@ const player = (userId: string, pinned: boolean): TeamPlayer => ({
   inList: true,
   bench: false,
   pinned,
+  extra: false,
 });
 
 describe('Fixar neste time', () => {

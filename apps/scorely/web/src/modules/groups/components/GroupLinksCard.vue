@@ -1,8 +1,8 @@
 <script lang="ts">
 import type { Group, InviteKind } from '@scorely/contracts';
+import { inviteUrl } from '@scorely/web/src/modules/groups/links';
 import { copyToClipboard } from 'quasar';
 import { defineComponent, type PropType } from 'vue';
-import { inviteUrl } from '../links';
 
 interface LinkRow {
   kind: InviteKind;

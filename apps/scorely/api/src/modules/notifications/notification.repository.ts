@@ -1,5 +1,4 @@
 import { GetCommand } from '@aws-sdk/lib-dynamodb';
-import type { Notification } from '@scorely/contracts';
 import {
   batchGetOrdered,
   dbItem,
@@ -9,8 +8,8 @@ import {
   setCreatedAtIfNew,
   stripKeys,
   transactWrite,
-} from '../../lib/db';
-import { dynamo, tableName } from '../../lib/dynamo';
+} from '@scorely/api/src/lib/db';
+import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
 import {
   INBOX_ENTITY,
   inboxKey,
@@ -18,7 +17,8 @@ import {
   notificationKey,
   notificationListLookupKey,
   notificationListLookupPk,
-} from './notification.table';
+} from '@scorely/api/src/modules/notifications/notification.table';
+import type { Notification } from '@scorely/contracts';
 
 export interface NotificationRepository {
   create(notification: Notification): Promise<void>;

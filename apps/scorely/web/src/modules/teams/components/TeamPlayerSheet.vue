@@ -1,10 +1,10 @@
 <script lang="ts">
 import type { PlayerPosition, Sport, TeamPlayer } from '@scorely/contracts';
+import BottomSheet from '@scorely/web/src/components/BottomSheet.vue';
+import PositionsPicker from '@scorely/web/src/modules/teams/components/PositionsPicker.vue';
+import { sportPositions } from '@scorely/web/src/modules/teams/players';
+import type { TeamPlayerChange } from '@scorely/web/src/modules/teams/teams';
 import { defineComponent, type PropType } from 'vue';
-import BottomSheet from '@/components/BottomSheet.vue';
-import { sportPositions } from '../players';
-import type { TeamPlayerChange } from '../teams';
-import PositionsPicker from './PositionsPicker.vue';
 
 /**
  * Painel de uma pessoa nos times (TIM-14): em que time ela fica (ou sem time / fora dos times) e as posições
@@ -27,6 +27,10 @@ export default defineComponent({
   emits: {
     'update:modelValue': (_open: boolean) => true,
     save: (_change: TeamPlayerChange) => true,
+    /** TIM-24: o dono quer editar o avulso (abre o painel do avulso). */
+    editExtra: () => true,
+    /** TIM-24: o dono remove o avulso do jogo. */
+    removeExtra: () => true,
   },
 
   data() {
@@ -58,8 +62,9 @@ export default defineComponent({
       return [...teams, { label: this.noneLabel, value: -1 }];
     },
 
+    /** As posições do avulso são dele (TIM-24): editam pelo painel do avulso, não aqui. */
     hasPositions(): boolean {
-      return sportPositions(this.sport).length > 0;
+      return sportPositions(this.sport).length > 0 && !this.player?.extra;
     },
   },
 
@@ -106,6 +111,30 @@ export default defineComponent({
       <q-toggle v-model="pinned" :label="$t('teams.pin')" class="pin" />
       <div class="sc-caption">{{ $t('teams.pinHint') }}</div>
     </template>
+
+    <q-btn
+      v-if="player?.extra"
+      flat
+      no-caps
+      dense
+      color="primary"
+      icon="edit"
+      class="reset"
+      :label="$t('teams.extra.edit')"
+      :disable="saving"
+      @click="$emit('editExtra')"
+    />
+    <q-btn
+      v-if="player?.extra"
+      flat
+      no-caps
+      dense
+      class="sc-danger reset"
+      icon="delete_outline"
+      :label="$t('teams.extra.remove')"
+      :disable="saving"
+      @click="$emit('removeExtra')"
+    />
 
     <template v-if="hasPositions">
       <div class="sc-label section">{{ $t('teams.gamePositions') }}</div>

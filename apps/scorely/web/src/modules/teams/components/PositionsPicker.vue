@@ -1,7 +1,7 @@
 <script lang="ts">
 import type { PlayerPosition, Sport } from '@scorely/contracts';
+import { makeMain, sportPositions, togglePosition } from '@scorely/web/src/modules/teams/players';
 import { defineComponent, type PropType } from 'vue';
-import { makeMain, sportPositions, togglePosition } from '../players';
 
 /** As posições do esporte para marcar, com a estrela da principal (TIM-02, 05, 13). A primeira marcada já é a principal. */
 export default defineComponent({

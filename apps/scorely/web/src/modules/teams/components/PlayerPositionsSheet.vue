@@ -1,10 +1,10 @@
 <script lang="ts">
 import type { Player, PlayerPosition, Sport } from '@scorely/contracts';
+import BottomSheet from '@scorely/web/src/components/BottomSheet.vue';
+import { errorMessage } from '@scorely/web/src/i18n/errors';
+import PositionsPicker from '@scorely/web/src/modules/teams/components/PositionsPicker.vue';
+import { teamsApi } from '@scorely/web/src/modules/teams/teams.api';
 import { defineComponent, type PropType } from 'vue';
-import BottomSheet from '@/components/BottomSheet.vue';
-import { errorMessage } from '@/i18n/errors';
-import { teamsApi } from '../teams.api';
-import PositionsPicker from './PositionsPicker.vue';
 
 /**
  * Painel "Posições de {nome}" (TIM-05): o dono marca e desmarca as posições do esporte e escolhe a principal

@@ -1,9 +1,9 @@
 <script lang="ts">
 import type { Game, Group } from '@scorely/contracts';
+import StatusChip from '@scorely/web/src/components/StatusChip.vue';
+import { groupColor } from '@scorely/web/src/modules/groups/groups';
+import { initials, type StatusTone, statusTone } from '@scorely/web/src/modules/groups/scoreboard';
 import { defineComponent, type PropType } from 'vue';
-import StatusChip from '@/components/StatusChip.vue';
-import { groupColor } from '../groups';
-import { initials, type StatusTone, statusTone } from '../scoreboard';
 
 /**
  * Topo da página do grupo (plano 015, D1): capa, logo, nome, esporte e horário e o estado do jogo.
