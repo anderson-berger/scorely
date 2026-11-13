@@ -1,25 +1,22 @@
 <script lang="ts">
-import { TEAM_APART_LIMITS, type TeamApartRule } from '@scorely/contracts';
-import BottomSheet from '@scorely/web/src/components/BottomSheet.vue';
+import { type PublicUserId, TEAM_APART_LIMITS, type TeamApartRule } from '@scorely/contracts';
 import { defineComponent, type PropType } from 'vue';
 
-/** Quem dá para marcar numa regra de times opostos: id e nome. */
+/** Quem dá para marcar numa regra de times opostos: id público (USR-16) e nome. */
 export interface ApartOption {
-  userId: string;
+  userId: PublicUserId;
   name: string;
 }
 
 /**
- * Painel de uma regra de times opostos (TIM-21, 22): marcar de 2 a 8 pessoas entre as que o dono pode classificar
- * (TIM-04), mais quem já está na regra. Numa regra que já existe, também Remover. Quem chama salva a configuração.
+ * Editor de uma regra de times opostos (TIM-21, 22), dentro do painel Times opostos: marcar de 2 a 8 pessoas entre as que
+ * o dono pode classificar (TIM-04), mais quem já está na regra. Numa regra que já existe, também Remover. Voltar volta para
+ * a lista do mesmo painel. Quem chama salva a configuração.
  */
 export default defineComponent({
-  name: 'TeamApartSheet',
-
-  components: { BottomSheet },
+  name: 'TeamApartEditor',
 
   props: {
-    modelValue: { type: Boolean, required: true },
     /** As pessoas para marcar (inclui quem já está na regra, mesmo se saiu do grupo). */
     people: { type: Array as PropType<ApartOption[]>, required: true },
     /** A regra em edição; sem ela, é uma regra nova. */
@@ -28,13 +25,13 @@ export default defineComponent({
   },
 
   emits: {
-    'update:modelValue': (_open: boolean) => true,
+    back: () => true,
     save: (_rule: TeamApartRule) => true,
     remove: () => true,
   },
 
   data() {
-    return { picked: [] as string[] };
+    return { picked: [...(this.rule?.people ?? [])] as PublicUserId[] };
   },
 
   computed: {
@@ -55,14 +52,8 @@ export default defineComponent({
     },
   },
 
-  watch: {
-    modelValue(open: boolean) {
-      if (open) this.picked = [...(this.rule?.people ?? [])];
-    },
-  },
-
   methods: {
-    toggle(userId: string, on: boolean) {
+    toggle(userId: PublicUserId, on: boolean) {
       this.picked = on ? [...this.picked, userId] : this.picked.filter((id) => id !== userId);
     },
 
@@ -74,12 +65,8 @@ export default defineComponent({
 </script>
 
 <template>
-  <BottomSheet
-    :model-value="modelValue"
-    :title="$t('teams.settings.editApart')"
-    :persistent="saving"
-    @update:model-value="$emit('update:modelValue', $event)"
-  >
+  <div>
+    <h3 class="sc-display title">{{ $t(rule ? 'teams.settings.editApart' : 'teams.settings.addApart') }}</h3>
     <div class="sc-caption q-mt-xs">{{ hint }}</div>
 
     <div class="people">
@@ -112,9 +99,10 @@ export default defineComponent({
         flat
         no-caps
         class="sc-btn-outline"
-        :label="$t('groups.cancel')"
+        :label="$t('teams.settings.back')"
+        icon="arrow_back"
         :disable="saving"
-        @click="$emit('update:modelValue', false)"
+        @click="$emit('back')"
       />
       <q-btn
         color="primary"
@@ -126,10 +114,15 @@ export default defineComponent({
         @click="save"
       />
     </div>
-  </BottomSheet>
+  </div>
 </template>
 
 <style scoped>
+.title {
+  font-size: 20px;
+  margin: 0;
+}
+
 .people {
   display: flex;
   flex-direction: column;

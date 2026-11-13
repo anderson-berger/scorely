@@ -1,5 +1,6 @@
 import { authRoute } from '@scorely/api/src/lib/auth';
 import { created, type HttpEvent, parseBody, pathParam } from '@scorely/api/src/lib/http';
+import { asPublicUserId } from '@scorely/api/src/lib/ids';
 import { dynamoGameRepository } from '@scorely/api/src/modules/groups/game.repository';
 import { createGameService } from '@scorely/api/src/modules/groups/game.service';
 import { createGroupImages } from '@scorely/api/src/modules/groups/group.images';
@@ -116,19 +117,31 @@ export async function members(event: HttpEvent) {
 
 export async function removeMember(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    await groups.removeMember(auth.userId, pathParam(event, 'id'), pathParam(event, 'userId'));
+    await groups.removeMember(
+      auth.userId,
+      pathParam(event, 'id'),
+      asPublicUserId(pathParam(event, 'userId')),
+    );
   });
 }
 
 export async function inviteToMember(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    return groups.inviteToMember(auth.userId, pathParam(event, 'id'), pathParam(event, 'userId'));
+    return groups.inviteToMember(
+      auth.userId,
+      pathParam(event, 'id'),
+      asPublicUserId(pathParam(event, 'userId')),
+    );
   });
 }
 
 export async function cancelMemberInvite(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    await groups.cancelMemberInvite(auth.userId, pathParam(event, 'id'), pathParam(event, 'userId'));
+    await groups.cancelMemberInvite(
+      auth.userId,
+      pathParam(event, 'id'),
+      asPublicUserId(pathParam(event, 'userId')),
+    );
   });
 }
 

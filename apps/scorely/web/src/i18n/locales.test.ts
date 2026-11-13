@@ -44,7 +44,6 @@ const TABS_KEYS = [
   'groups.tabs.members',
   'groups.tabs.settings',
   'groups.invite',
-  'groups.inviteHint',
   'groups.nextLayer.reserves',
   'groups.nextLayer.guests',
   'groups.nextLayer.allOpen',
@@ -210,9 +209,6 @@ const GROUP_PAGE_KEYS = [
   'groups.reservesSection',
   'groups.membersSection',
   'groups.settings.layers',
-  'groups.settings.links',
-  'groups.settings.data',
-  'groups.settings.dataHint',
   'groups.settings.danger',
   'groups.settings.dangerHint',
 ];

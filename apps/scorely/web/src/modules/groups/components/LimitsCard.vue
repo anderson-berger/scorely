@@ -3,7 +3,9 @@ import { GROUP_LIMITS, type Group, UpdateGroupInputSchema } from '@scorely/contr
 import BottomSheet from '@scorely/web/src/components/BottomSheet.vue';
 import HoursStepper from '@scorely/web/src/components/HoursStepper.vue';
 import { errorMessage, issueMessage } from '@scorely/web/src/i18n/errors';
+import SettingsRow from '@scorely/web/src/modules/groups/components/SettingsRow.vue';
 import { groupsApi } from '@scorely/web/src/modules/groups/groups.api';
+import { limitsSummary } from '@scorely/web/src/modules/groups/settings';
 import { defineComponent, type PropType } from 'vue';
 
 type LimitKey = 'maxMembers' | 'maxReserves';
@@ -17,11 +19,11 @@ interface LimitRow {
 
 const KEYS: LimitKey[] = ['maxMembers', 'maxReserves'];
 
-/** Limite de membros e de reservas (GRP-38); o dono ajusta num painel de baixo, no padrão do LayersCard. */
+/** Linha "Limites" dos Ajustes (GRP-29): o resumo e, ao tocar, o painel dos limites de membros e reservas (GRP-38). */
 export default defineComponent({
   name: 'LimitsCard',
 
-  components: { BottomSheet, HoursStepper },
+  components: { BottomSheet, HoursStepper, SettingsRow },
 
   props: {
     group: { type: Object as PropType<Group>, required: true },
@@ -38,8 +40,11 @@ export default defineComponent({
   },
 
   computed: {
-    summary(): { key: LimitKey; name: string; value: number }[] {
-      return KEYS.map((key) => ({ key, name: this.$t(`groups.limits.${key}`), value: this.group[key] }));
+    /** "30 membros · 30 reservas". */
+    summary(): string {
+      return limitsSummary(this.group)
+        .map((t) => this.$t(t.key, t.params ?? {}))
+        .join(' · ');
     },
 
     rows(): LimitRow[] {
@@ -86,16 +91,7 @@ export default defineComponent({
 
 <template>
   <section>
-    <div class="head">
-      <h2 class="sc-section">{{ $t('groups.limits.title') }}</h2>
-      <q-btn flat no-caps color="primary" class="adjust" :label="$t('groups.limits.edit')" @click="open" />
-    </div>
-    <div class="summary">
-      <div v-for="l in summary" :key="l.key" class="sc-card cell">
-        <div class="sc-number value">{{ l.value }}</div>
-        <div class="sc-caption">{{ l.name }}</div>
-      </div>
-    </div>
+    <SettingsRow icon="manage_accounts" :title="$t('groups.limits.title')" :summary="summary" @open="open" />
 
     <BottomSheet v-model="editing" :title="$t('groups.limits.title')" :persistent="saving">
       <div class="sc-caption q-mt-xs">{{ $t('groups.limits.hint') }}</div>
@@ -122,37 +118,6 @@ export default defineComponent({
 </template>
 
 <style scoped>
-.head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.head .sc-section {
-  margin: 0;
-}
-
-.adjust {
-  min-height: 44px;
-}
-
-.summary {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  margin-top: 8px;
-}
-
-.cell {
-  padding: 12px;
-  border-radius: 12px;
-  min-width: 0;
-}
-
-.value {
-  font-size: 26px;
-}
-
 .row {
   display: flex;
   align-items: center;

@@ -4,7 +4,8 @@ import { defineComponent, type PropType } from 'vue';
 
 /**
  * As posições de uma pessoa, abaixo do nome (TIM-05): a principal em destaque, depois as outras ("Central · Ponteiro").
- * Para o dono (`editable`), vira um botão que abre o painel; sem posição, mostra "+ Posição". Para os outros, sem posição, nada.
+ * Igual para todos, como texto: o dono edita tocando na linha (ou no "⋮ › Posições"). Só quem não tem posição mostra,
+ * para o dono (`editable`), o botão "+ Posição". Para os outros, sem posição, nada.
  */
 export default defineComponent({
   name: 'PlayerPositions',
@@ -36,22 +37,14 @@ export default defineComponent({
 
 <template>
   <button
-    v-if="editable"
+    v-if="editable && !main"
     type="button"
-    class="positions positions--editable"
-    :class="{ 'positions--empty': !main }"
+    class="positions positions--empty"
     :aria-label="$t('teams.editPositions', { name })"
     @click.stop="$emit('edit')"
   >
-    <template v-if="main">
-      <span class="main">{{ main }}</span>
-      <span v-if="others" class="others"> · {{ others }}</span>
-      <q-icon name="edit" size="14px" class="icon" />
-    </template>
-    <template v-else>
-      <q-icon name="add" size="14px" />
-      <span>{{ $t('teams.addPosition') }}</span>
-    </template>
+    <q-icon name="add" size="14px" />
+    <span>{{ $t('teams.addPosition') }}</span>
   </button>
   <span v-else-if="main" class="positions">
     <span class="main">{{ main }}</span>
@@ -83,27 +76,20 @@ export default defineComponent({
   text-overflow: ellipsis;
 }
 
-.positions--editable {
+/* TIM-05: o único botão por pessoa é o "+ Posição", de quem ainda não tem. */
+.positions--empty {
   align-self: flex-start;
   min-height: 28px;
   padding: 2px 10px;
-  border: 1px solid var(--sc-line-strong);
+  border: 1px dashed var(--sc-line-strong);
   border-radius: 999px;
   background: transparent;
+  color: var(--sc-accent);
   cursor: pointer;
   font-family: inherit;
 }
 
-.positions--editable:hover {
+.positions--empty:hover {
   border-color: var(--sc-accent);
-}
-
-.positions--empty {
-  border-style: dashed;
-  color: var(--sc-accent);
-}
-
-.icon {
-  color: var(--sc-muted);
 }
 </style>

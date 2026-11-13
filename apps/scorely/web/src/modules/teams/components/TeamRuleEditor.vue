@@ -7,7 +7,6 @@ import {
   type TeamRuleTarget,
   teamRuleKey,
 } from '@scorely/contracts';
-import BottomSheet from '@scorely/web/src/components/BottomSheet.vue';
 import HoursStepper from '@scorely/web/src/components/HoursStepper.vue';
 import { availableTargets, type Text, targetText } from '@scorely/web/src/modules/teams/rules';
 import { defineComponent, type PropType } from 'vue';
@@ -15,16 +14,16 @@ import { defineComponent, type PropType } from 'vue';
 type Bound = 'min' | 'max';
 
 /**
- * Painel de uma regra de quantidade por time (TIM-21): quem conta (posição do esporte ou gênero), mínimo e máximo
- * (cada um pode ficar sem valor). Numa regra que já existe, também Remover. Quem chama salva a configuração.
+ * Editor de uma regra de quantidade por time (TIM-21), dentro do painel Regras dos times: quem conta (posição do esporte
+ * ou gênero), mínimo e máximo (cada um pode ficar sem valor). Numa regra que já existe, também Remover. Voltar volta para
+ * a lista do mesmo painel. Quem chama salva a configuração.
  */
 export default defineComponent({
-  name: 'TeamRuleSheet',
+  name: 'TeamRuleEditor',
 
-  components: { BottomSheet, HoursStepper },
+  components: { HoursStepper },
 
   props: {
-    modelValue: { type: Boolean, required: true },
     sport: { type: String as PropType<Sport>, required: true },
     /** As regras do grupo: o que já tem regra não aparece para escolher. */
     rules: { type: Array as PropType<TeamRule[]>, required: true },
@@ -34,7 +33,7 @@ export default defineComponent({
   },
 
   emits: {
-    'update:modelValue': (_open: boolean) => true,
+    back: () => true,
     save: (_rule: TeamRule, _previous: TeamRuleTarget | undefined) => true,
     remove: (_target: TeamRuleTarget) => true,
   },
@@ -81,16 +80,13 @@ export default defineComponent({
     },
   },
 
-  watch: {
-    modelValue(open: boolean) {
-      if (!open) return;
-      const rule = this.rule;
-      this.targetKey = rule ? teamRuleKey(rule.target) : (this.options[0]?.value ?? '');
-      this.hasMin = rule ? rule.min !== undefined : true;
-      this.hasMax = rule ? rule.max !== undefined : false;
-      this.min = rule?.min ?? 1;
-      this.max = rule?.max ?? rule?.min ?? 1;
-    },
+  created() {
+    const rule = this.rule;
+    this.targetKey = rule ? teamRuleKey(rule.target) : (this.options[0]?.value ?? '');
+    this.hasMin = rule ? rule.min !== undefined : true;
+    this.hasMax = rule ? rule.max !== undefined : false;
+    this.min = rule?.min ?? 1;
+    this.max = rule?.max ?? rule?.min ?? 1;
   },
 
   methods: {
@@ -113,12 +109,8 @@ export default defineComponent({
 </script>
 
 <template>
-  <BottomSheet
-    :model-value="modelValue"
-    :title="$t('teams.settings.editRule')"
-    :persistent="saving"
-    @update:model-value="$emit('update:modelValue', $event)"
-  >
+  <div>
+    <h3 class="sc-display title">{{ $t(rule ? 'teams.settings.editRule' : 'teams.settings.addRule') }}</h3>
     <div class="sc-caption q-mt-xs">{{ $t('teams.settings.ruleHint') }}</div>
 
     <q-select
@@ -167,9 +159,10 @@ export default defineComponent({
         flat
         no-caps
         class="sc-btn-outline"
-        :label="$t('groups.cancel')"
+        :label="$t('teams.settings.back')"
+        icon="arrow_back"
         :disable="saving"
-        @click="$emit('update:modelValue', false)"
+        @click="$emit('back')"
       />
       <q-btn
         color="primary"
@@ -181,10 +174,15 @@ export default defineComponent({
         @click="save"
       />
     </div>
-  </BottomSheet>
+  </div>
 </template>
 
 <style scoped>
+.title {
+  font-size: 20px;
+  margin: 0;
+}
+
 .target {
   margin-top: 12px;
 }

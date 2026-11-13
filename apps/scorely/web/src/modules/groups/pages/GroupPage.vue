@@ -19,6 +19,7 @@ import { defineComponent } from 'vue';
 
 const TAB_LABELS: Record<GroupTab, string> = {
   group: 'groups.tabs.game',
+  'group-teams': 'groups.tabs.teams',
   'group-members': 'groups.tabs.members',
   'group-settings': 'groups.tabs.settings',
 };
@@ -85,11 +86,14 @@ export default defineComponent({
       return this.showsPositions ? positionsByUser(this.players) : undefined;
     },
 
+    /** GRP-29: o nome da aba não leva contagem; as contagens ficam nas seções de dentro. */
     tabs(): { name: GroupTab; label: string }[] {
-      return groupTabs(this.isOwner).map((name) => {
-        const label = this.$t(TAB_LABELS[name]);
-        return { name, label: name === 'group-members' ? `${label} · ${this.members.length}` : label };
-      });
+      return groupTabs(this.isOwner).map((name) => ({ name, label: this.$t(TAB_LABELS[name]) }));
+    },
+
+    /** A aba marcada: o nome da rota filha. */
+    activeTab(): string {
+      return String(this.$route.name);
     },
 
     /** GRP-29/41: a reserva com convite pendente vê a faixa para aceitar ou recusar. */
@@ -154,6 +158,10 @@ export default defineComponent({
       if (!this.group) return;
       const to = tabRedirect(String(this.$route.name), this.isOwner);
       if (to) await this.$router.replace({ name: to, params: { id: this.groupId } });
+    },
+
+    openTab(name: GroupTab) {
+      if (name !== this.$route.name) void this.$router.push({ name, params: { id: this.groupId } });
     },
 
     /** Pergunta antes de uma ação que avisa ou afeta outras pessoas. */
@@ -342,15 +350,10 @@ export default defineComponent({
             active-color="primary"
             indicator-color="primary"
             class="tabs"
+            :model-value="activeTab"
+            @update:model-value="openTab"
           >
-            <q-route-tab
-              v-for="t in tabs"
-              :key="t.name"
-              exact
-              :to="{ name: t.name, params: { id: groupId } }"
-              :label="t.label"
-              class="sc-display tab"
-            />
+            <q-tab v-for="t in tabs" :key="t.name" :name="t.name" :label="t.label" class="sc-display tab" />
           </q-tabs>
         </nav>
 

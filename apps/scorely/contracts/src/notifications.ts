@@ -14,7 +14,6 @@ export const NotificationTypeSchema = z.enum([
 export type NotificationType = z.infer<typeof NotificationTypeSchema>;
 
 export const NotificationSchema = EntitySchema.extend({
-  userId: z.uuid(),
   type: NotificationTypeSchema,
   title: z.string(),
   body: z.string().optional(),

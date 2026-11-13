@@ -5,18 +5,18 @@ import { gameCapacityPatch } from '@scorely/web/src/modules/groups/capacity';
 import CapacitySheet from '@scorely/web/src/modules/groups/components/CapacitySheet.vue';
 import GameCard from '@scorely/web/src/modules/groups/components/GameCard.vue';
 import { groupsApi } from '@scorely/web/src/modules/groups/groups.api';
-import TeamsCard from '@scorely/web/src/modules/teams/components/TeamsCard.vue';
+import TeamsLine from '@scorely/web/src/modules/teams/components/TeamsLine.vue';
 import { defineComponent, type PropType } from 'vue';
 
 /**
- * Aba Jogo (plano 012): o jogo da semana. Os times (E3) e as partidas (E4) entram aqui como seções.
+ * Aba Jogo (GRP-29): "eu jogo?". Os times ficam na aba Times; aqui, só a linha que leva até lá.
  * Grupo arquivado não tem jogo (`game = null`): só o aviso, sem placar nem lista (GRP-37).
  * O casco passa os mesmos dados para todas as abas; o que esta não usa não vira atributo (`inheritAttrs`).
  */
 export default defineComponent({
   name: 'GroupGamePage',
 
-  components: { CapacitySheet, GameCard, TeamsCard },
+  components: { CapacitySheet, GameCard, TeamsLine },
 
   inheritAttrs: false,
 
@@ -88,7 +88,7 @@ export default defineComponent({
     @edit-player="$emit('editPlayer', $event)"
   >
     <template #teams>
-      <TeamsCard :group-id="group.id" :game="game" :sport="group.sport" :is-owner="isOwner" />
+      <TeamsLine :group-id="group.id" :game="game" :is-owner="isOwner" />
     </template>
   </GameCard>
   <CapacitySheet

@@ -1,5 +1,6 @@
 import { authRoute } from '@scorely/api/src/lib/auth';
 import { type HttpEvent, parseBody, pathParam } from '@scorely/api/src/lib/http';
+import { asPublicUserId } from '@scorely/api/src/lib/ids';
 import { dynamoGameRepository } from '@scorely/api/src/modules/groups/game.repository';
 import { createGameService } from '@scorely/api/src/modules/groups/game.service';
 import { dynamoGroupRepository } from '@scorely/api/src/modules/groups/group.repository';
@@ -30,12 +31,13 @@ const groups = createGroupService(groupsDeps);
 const games = createGameService(groupsDeps);
 const players = createPlayerService({
   groups: dynamoGroupRepository,
-  roster: { members: groups.members, currentGame: games.current },
+  roster: { members: groups.memberRecords, currentGame: games.currentRoster },
   players: dynamoPlayerRepository,
+  users: dynamoUserDirectory,
 });
 const teams = createTeamsService({
   groups: dynamoGroupRepository,
-  roster: { currentGame: games.current, guestView: games.guestView },
+  roster: { currentGame: games.currentRoster, guestView: games.guestRoster },
   players: dynamoPlayerRepository,
   users: dynamoUserDirectory,
   notifications: groupsDeps.notifications,
@@ -44,7 +46,7 @@ const teams = createTeamsService({
 });
 const teamSettings = createTeamSettingsService({
   groups: dynamoGroupRepository,
-  roster: { members: groups.members, currentGame: games.current },
+  roster: { members: groups.memberRecords, currentGame: games.currentRoster },
   users: dynamoUserDirectory,
   settings: dynamoTeamSettingsRepository,
 });
@@ -58,7 +60,12 @@ export async function listPlayers(event: HttpEvent) {
 export async function updatePlayer(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const input = parseBody(event, UpdatePlayerInputSchema);
-    return players.update(auth.userId, pathParam(event, 'id'), pathParam(event, 'userId'), input);
+    return players.update(
+      auth.userId,
+      pathParam(event, 'id'),
+      asPublicUserId(pathParam(event, 'userId')),
+      input,
+    );
   });
 }
 

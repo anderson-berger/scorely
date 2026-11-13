@@ -1,6 +1,10 @@
 import { GroupRoleSchema, LocalDateSchema, type Sport } from '@scorely/contracts/src/groups';
-import { GenderSchema } from '@scorely/contracts/src/users';
+import { GenderSchema, PublicUserIdSchema } from '@scorely/contracts/src/users';
 import { z } from 'zod';
+
+/** Quem está nos times: uma pessoa (id público, USR-16) ou um avulso do jogo (uuid gerado pelo web, TIM-24). */
+export const TeamPersonIdSchema = z.union([PublicUserIdSchema, z.uuid()]);
+export type TeamPersonId = z.infer<typeof TeamPersonIdSchema>;
 
 /** Posições do esporte (TIM-02). O web traduz (`teams.positions.<valor>`). */
 export const PlayerPositionSchema = z.enum([
@@ -36,7 +40,7 @@ const PlayerPositionsSchema = z
 
 /** Jogador no grupo (TIM-01): membro, reserva ou convidado da lista atual, com as suas posições (a primeira é a principal). */
 export const PlayerSchema = z.object({
-  userId: z.uuid(),
+  userId: PublicUserIdSchema,
   name: z.string().optional(),
   role: GroupRoleSchema,
   positions: z.array(PlayerPositionSchema),
@@ -87,7 +91,7 @@ export const TEAM_APART_LIMITS = { people: { min: 2, max: 8 }, rules: 10 } as co
 /** TIM-22: "estas pessoas sempre em times diferentes" (cada uma num time diferente das outras). */
 export const TeamApartRuleSchema = z.object({
   people: z
-    .array(z.uuid())
+    .array(PublicUserIdSchema)
     .min(TEAM_APART_LIMITS.people.min)
     .max(TEAM_APART_LIMITS.people.max)
     .refine((people) => new Set(people).size === people.length, 'People must not repeat'),
@@ -120,7 +124,7 @@ export type UpdateTeamSettingsInput = z.input<typeof UpdateTeamSettingsInputSche
 export const TeamSettingsSchema = UpdateTeamSettingsInputSchema.extend({
   apart: z.array(TeamApartRuleSchema).max(TEAM_APART_LIMITS.rules),
   spreadGender: z.boolean(),
-  names: z.record(z.uuid(), z.string()),
+  names: z.record(PublicUserIdSchema, z.string()),
 });
 export type TeamSettings = z.infer<typeof TeamSettingsSchema>;
 
@@ -135,7 +139,11 @@ export const TeamViolationSchema = z.discriminatedUnion('kind', [
     rule: TeamRuleSchema,
     count: z.number().int().nonnegative(),
   }),
-  z.object({ kind: z.literal('apart'), team: z.number().int().positive(), people: z.array(z.uuid()).min(2) }),
+  z.object({
+    kind: z.literal('apart'),
+    team: z.number().int().positive(),
+    people: z.array(PublicUserIdSchema).min(2),
+  }),
 ]);
 export type TeamViolation = z.infer<typeof TeamViolationSchema>;
 
@@ -165,13 +173,13 @@ export const TeamRuleConflictSchema = z.discriminatedUnion('reason', [
   /** TIM-22: `people` (os da regra que estão no sorteio) não cabem em `teams` times diferentes. */
   z.object({
     reason: z.literal('apart_too_many'),
-    people: z.array(z.uuid()).min(2),
+    people: z.array(PublicUserIdSchema).min(2),
     teams: z.number().int().positive(),
   }),
   /** TIM-22: `people` da mesma regra de times opostos estão fixadas juntas no time `team`. */
   z.object({
     reason: z.literal('apart_pinned'),
-    people: z.array(z.uuid()).min(2),
+    people: z.array(PublicUserIdSchema).min(2),
     team: z.number().int().positive(),
   }),
   /** Cada regra dá sozinha, mas não todas juntas com esses tamanhos. */
@@ -192,9 +200,9 @@ export const TeamExtraSchema = z.object({
 });
 export type TeamExtra = z.infer<typeof TeamExtraSchema>;
 
-/** Uma pessoa nos times (ou sem time), como a tela mostra. */
+/** Uma pessoa nos times (ou sem time), como a tela mostra. `userId`: o id público, ou o id do avulso (TIM-24). */
 export const TeamPlayerSchema = z.object({
-  userId: z.uuid(),
+  userId: TeamPersonIdSchema,
   name: z.string().optional(),
   role: GroupRoleSchema,
   /** As posições que valem no jogo: o ajuste do jogo ou, sem ele, as do grupo (TIM-13). A primeira é a principal. */
@@ -249,16 +257,16 @@ export type TeamsResponse = z.infer<typeof TeamsResponseSchema>;
 export const SaveTeamsInputSchema = z
   .object({
     teams: z
-      .array(z.array(z.uuid()))
+      .array(z.array(TeamPersonIdSchema))
       .min(TEAM_COUNT.min)
       .max(TEAM_COUNT.max)
       .refine((teams) => {
         const ids = teams.flat();
         return new Set(ids).size === ids.length;
       }, 'A person must be in one team only'),
-    positions: z.record(z.uuid(), PlayerPositionsSchema),
+    positions: z.record(TeamPersonIdSchema, PlayerPositionsSchema),
     /** Quem está fixo no time em que está (TIM-16). */
-    pinned: z.array(z.uuid()).default([]),
+    pinned: z.array(TeamPersonIdSchema).default([]),
     /** Os avulsos do jogo, inteiros (TIM-24): quem não vier aqui deixa de existir. */
     extras: z
       .array(TeamExtraSchema)

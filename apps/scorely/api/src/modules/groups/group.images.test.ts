@@ -1,21 +1,28 @@
 import { randomUUID } from 'node:crypto';
 import { AppError } from '@scorely/api/src/lib/errors';
+import { asUserId } from '@scorely/api/src/lib/ids';
 import { createGroupImages } from '@scorely/api/src/modules/groups/group.images';
 import type { GroupRepository, StoredGroup } from '@scorely/api/src/modules/groups/group.repository';
 import { groupKey } from '@scorely/api/src/modules/groups/group.table';
 import type { GroupsDeps } from '@scorely/api/src/modules/groups/groups.deps';
 import type { MediaService } from '@scorely/api/src/modules/media/media.service';
-import { type ErrorCode, type GroupImageSlot, MEDIA_PURPOSES, type MemberRole } from '@scorely/contracts';
+import {
+  type ErrorCode,
+  type GroupImageSlot,
+  MEDIA_PURPOSES,
+  type MemberRole,
+  PublicUserIdSchema,
+} from '@scorely/contracts';
 import { describe, expect, it } from 'vitest';
 
 // GRP-35 (docs/modules/grupos.md) e MID-01 (docs/modules/midia.md): só o dono troca e remove o logo e a capa,
 // conferido nos dois passos. A mídia é um dublê que grava `<slot>MediaId`/`<slot>Url` no item do grupo, como a
 // transação dela faria (MID-08); as regras do arquivo ficam em media/media.service.test.ts.
 
-const OWNER = '11111111-1111-4111-8111-111111111111';
-const A = '22222222-2222-4222-8222-222222222222';
-const R = '88888888-8888-4888-8888-888888888888';
-const OUTSIDER = '66666666-6666-4666-8666-666666666666';
+const OWNER = asUserId('11111111-1111-4111-8111-111111111111');
+const A = asUserId('22222222-2222-4222-8222-222222222222');
+const R = asUserId('88888888-8888-4888-8888-888888888888');
+const OUTSIDER = asUserId('66666666-6666-4666-8666-666666666666');
 const GROUP_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const BASE = 'https://uploads.test';
 
@@ -54,6 +61,7 @@ function setup() {
     listOpensHoursBefore: 48,
     reservesOpenHoursBefore: 24,
     ownerId: OWNER,
+    ownerPublicId: PublicUserIdSchema.parse('11111111'),
     inviteToken: 'member-token',
     reserveInviteToken: 'reserve-token',
     guestToken: 'guest-token',

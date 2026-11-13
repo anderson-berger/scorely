@@ -255,7 +255,7 @@ export default defineComponent({
     </div>
 
     <div v-if="!cancelled" class="lists">
-      <!-- TIM-14: o card Times entra antes da Escalação. -->
+      <!-- Antes da Escalação: a linha Times (GRP-29) ou, na página do link do jogo, os times publicados (TIM-14). -->
       <slot name="teams" />
       <h2 class="sc-section">{{ lineupTitle }}</h2>
       <div class="sc-card list">
@@ -326,6 +326,12 @@ export default defineComponent({
 <style scoped>
 .person--editable {
   cursor: pointer;
+}
+
+/* TIM-05: a linha inteira abre as posições; o destaque mostra que dá para tocar. */
+.person--editable:hover,
+.person--editable:active {
+  background: var(--sc-bg);
 }
 
 .game {

@@ -1,5 +1,5 @@
 import { EntitySchema } from '@scorely/contracts/src/entity';
-import { TimeZoneSchema } from '@scorely/contracts/src/users';
+import { PublicUserIdSchema, TimeZoneSchema } from '@scorely/contracts/src/users';
 import { z } from 'zod';
 
 /** Esportes do grupo. O web traduz o nome (`sports.<valor>`). */
@@ -161,7 +161,8 @@ export const GroupSchema = EntitySchema.extend({
   listOpensHoursBefore: z.number().int(),
   reservesOpenHoursBefore: z.number().int(),
   guestsOpenHoursBefore: z.number().int().optional(),
-  ownerId: z.uuid(),
+  /** Id público do dono (USR-16). */
+  ownerId: PublicUserIdSchema,
   inviteToken: z.string().optional(),
   reserveInviteToken: z.string().optional(),
   guestToken: z.string().optional(),
@@ -187,7 +188,7 @@ export const InviteSchema = z.object({ kind: InviteKindSchema, token: z.string()
 export type Invite = z.infer<typeof InviteSchema>;
 
 export const MemberSchema = z.object({
-  userId: z.uuid(),
+  userId: PublicUserIdSchema,
   name: z.string().optional(),
   isOwner: z.boolean(),
   role: MemberRoleSchema,
@@ -197,14 +198,14 @@ export const MemberSchema = z.object({
 export type Member = z.infer<typeof MemberSchema>;
 
 /** POST /groups/{id}/members/{userId}/member-invite: o convite pendente (GRP-40). */
-export const MemberInviteSchema = z.object({ userId: z.uuid(), expiresAt: z.iso.datetime() });
+export const MemberInviteSchema = z.object({ userId: PublicUserIdSchema, expiresAt: z.iso.datetime() });
 export type MemberInvite = z.infer<typeof MemberInviteSchema>;
 
 export const GameStatusSchema = z.enum(['scheduled', 'open', 'in_progress', 'cancelled']);
 export type GameStatus = z.infer<typeof GameStatusSchema>;
 
 export const AttendeeSchema = z.object({
-  userId: z.uuid(),
+  userId: PublicUserIdSchema,
   name: z.string().optional(),
   confirmedAt: z.iso.datetime(),
   role: GroupRoleSchema,

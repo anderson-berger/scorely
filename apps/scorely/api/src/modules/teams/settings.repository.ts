@@ -1,8 +1,9 @@
 import { GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
 import { dbItem, stripKeys } from '@scorely/api/src/lib/db';
 import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
+import type { TeamApartRule } from '@scorely/api/src/modules/teams/engine/rules';
 import { TEAM_SETTINGS_ENTITY, teamSettingsKey } from '@scorely/api/src/modules/teams/settings.table';
-import type { TeamApartRule, TeamRule } from '@scorely/contracts';
+import type { TeamRule } from '@scorely/contracts';
 
 /** A configuração de times como fica no banco (a resposta é o `TeamSettings` de @scorely/contracts, com os nomes). */
 export interface StoredTeamSettings {

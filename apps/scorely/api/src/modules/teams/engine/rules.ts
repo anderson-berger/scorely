@@ -1,11 +1,20 @@
 import type {
+  TeamApartRule as ContractApartRule,
+  TeamRuleConflict as ContractRuleConflict,
+  TeamViolation as ContractViolation,
   Gender,
   PlayerPosition,
-  TeamApartRule,
   TeamRule,
-  TeamRuleConflict,
-  TeamViolation,
 } from '@scorely/contracts';
+
+/**
+ * Por dentro, as pessoas andam pelo id do sistema (ou o do avulso, TIM-24); o service troca pelo id público na
+ * resposta (USR-16). Estes são os tipos do contrato com `people` interno.
+ */
+type WithInternalPeople<T> = T extends { people: unknown } ? Omit<T, 'people'> & { people: string[] } : T;
+export type TeamApartRule = WithInternalPeople<ContractApartRule>;
+export type TeamViolation = WithInternalPeople<ContractViolation>;
+export type TeamRuleConflict = WithInternalPeople<ContractRuleConflict>;
 
 /** O que as regras olham de uma pessoa (TIM-18): a principal no jogo e o gênero do perfil. */
 export interface RulePerson {

@@ -1,20 +1,23 @@
 import type { AppError } from '@scorely/api/src/lib/errors';
 import { range } from '@scorely/api/src/lib/fn';
+import { asUserId } from '@scorely/api/src/lib/ids';
 import type { NotificationRepository } from '@scorely/api/src/modules/notifications/notification.repository';
 import { createNotificationService } from '@scorely/api/src/modules/notifications/notification.service';
-import type { Notification } from '@scorely/contracts';
 import { describe, expect, it } from 'vitest';
+
+/** O item guardado: com o `userId` (sistema) do dono, que a resposta não leva (USR-16). */
+type StoredNotification = Parameters<NotificationRepository['create']>[0];
 
 type MemoryOptions = {
   /** Roda antes de cada `remove` (simula escrita concorrente entre o `get` e o `remove`). */
-  beforeRemove?: (n: Notification, repo: NotificationRepository) => Promise<void>;
+  beforeRemove?: (n: StoredNotification, repo: NotificationRepository) => Promise<void>;
 };
 
 type MemoryRepo = NotificationRepository & { removeCalls: { count: number } };
 
 function memoryRepo(opts: MemoryOptions = {}): MemoryRepo {
   const removeCalls = { count: 0 };
-  const items = new Map<string, Notification>();
+  const items = new Map<string, StoredNotification>();
   const unread = new Map<string, number>();
   const bump = (userId: string, delta: number) => unread.set(userId, (unread.get(userId) ?? 0) + delta);
   const repo: MemoryRepo = {
@@ -64,8 +67,8 @@ async function expectNotFound(p: Promise<unknown>) {
   expect(err?.status).toBe(404);
 }
 
-const USER = '11111111-1111-4111-8111-111111111111';
-const OTHER = '22222222-2222-4222-8222-222222222222';
+const USER = asUserId('11111111-1111-4111-8111-111111111111');
+const OTHER = asUserId('22222222-2222-4222-8222-222222222222');
 
 describe('notifications', () => {
   it('conta não lidas e marca como lida (idempotente)', async () => {
@@ -94,6 +97,16 @@ describe('notifications', () => {
     const page = await service.list(USER);
     expect(page.unreadCount).toBe(0);
     expect(page.items.every((n) => n.readAt)).toBe(true);
+  });
+
+  it('USR-16: a notificação devolvida (notify e list) não traz o `userId`', async () => {
+    const service = createNotificationService(memoryRepo());
+    const n = await service.notify(USER, { type: 'welcome', title: 'Oi' });
+    expect(n).not.toHaveProperty('userId');
+    const page = await service.list(USER);
+    expect(page.items).toHaveLength(1);
+    for (const item of page.items) expect(item).not.toHaveProperty('userId');
+    expect(JSON.stringify(page)).not.toContain(USER);
   });
 
   describe('remove', () => {

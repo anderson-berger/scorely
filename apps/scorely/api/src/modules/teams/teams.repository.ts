@@ -1,8 +1,9 @@
 import { DeleteCommand, GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
 import { dbItem, stripKeys } from '@scorely/api/src/lib/db';
 import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
+import type { TeamApartRule } from '@scorely/api/src/modules/teams/engine/rules';
 import { TEAMS_ENTITY, teamsKey } from '@scorely/api/src/modules/teams/teams.table';
-import type { PlayerPosition, TeamApartRule, TeamExtra, TeamRule, TeamsStatus } from '@scorely/contracts';
+import type { PlayerPosition, TeamExtra, TeamRule, TeamsStatus } from '@scorely/contracts';
 
 /** Os times do jogo como ficam no banco (a resposta é o `Teams` de @scorely/contracts, montado pelo service). */
 export interface StoredTeams {
@@ -10,7 +11,7 @@ export interface StoredTeams {
   /** Data local do jogo (`Game.date`). */
   date: string;
   status: TeamsStatus;
-  /** Ids por time, na ordem ("Time 1", "Time 2"...). */
+  /** Ids por time, na ordem ("Time 1", "Time 2"...): o id do sistema da pessoa ou o do avulso (USR-17). */
   teams: string[][];
   /** Só os ajustes de posição deste jogo (TIM-13). */
   positions: Record<string, PlayerPosition[]>;

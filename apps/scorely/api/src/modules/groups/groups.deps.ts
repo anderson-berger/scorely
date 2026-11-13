@@ -1,4 +1,5 @@
 import { appError } from '@scorely/api/src/lib/errors';
+import type { UserId } from '@scorely/api/src/lib/ids';
 import type { GameRepository } from '@scorely/api/src/modules/groups/game.repository';
 import {
   type GroupRepository,
@@ -26,10 +27,25 @@ export function reservesHours(group: StoredGroup): number {
 /** Ids das mídias do logo e da capa (GRP-35): internos, gravados pela transação da mídia (MID-08). */
 export type GroupImageIds = { logoMediaId?: string; coverMediaId?: string };
 
-/** O grupo para quem pede: com as camadas e os limites efetivos (GRP-15, 38) e o papel; os 3 tokens só para o dono; sem os ids das mídias (GRP-36). */
-export function forViewer(group: StoredGroup, userId: string, myRole: MemberRole): Group {
-  const { logoMediaId: _l, coverMediaId: _c, ...clean } = group as StoredGroup & GroupImageIds;
-  const view = { ...clean, ...limitsOf(clean), reservesOpenHoursBefore: reservesHours(clean), myRole };
+/**
+ * O grupo para quem pede: com as camadas e os limites efetivos (GRP-15, 38) e o papel; os 3 tokens só para o dono;
+ * sem os ids das mídias (GRP-36). O `ownerId` sai com o id público do dono (USR-16).
+ */
+export function forViewer(group: StoredGroup, userId: UserId, myRole: MemberRole): Group {
+  const {
+    logoMediaId: _l,
+    coverMediaId: _c,
+    ownerId: _owner,
+    ownerPublicId,
+    ...clean
+  } = group as StoredGroup & GroupImageIds;
+  const view = {
+    ...clean,
+    ownerId: ownerPublicId,
+    ...limitsOf(group),
+    reservesOpenHoursBefore: reservesHours(group),
+    myRole,
+  };
   if (group.ownerId === userId) return view;
   const { inviteToken: _i, reserveInviteToken: _r, guestToken: _g, ...rest } = view;
   return rest;
@@ -38,7 +54,7 @@ export function forViewer(group: StoredGroup, userId: string, myRole: MemberRole
 /** Grupo de quem é membro ou reserva. Quem não participa (ou grupo inexistente) → `GROUP_NOT_FOUND` (D10 do 003). */
 export async function requireMember(
   deps: Pick<GroupsDeps, 'groups'>,
-  userId: string,
+  userId: UserId,
   groupId: string,
 ): Promise<{ group: StoredGroup; role: MemberRole }> {
   const [group, role] = await Promise.all([deps.groups.get(groupId), deps.groups.roleOf(groupId, userId)]);
@@ -54,7 +70,7 @@ export function requireActive(group: StoredGroup): void {
 /** Como `requireMember`, e só o dono passa (`GROUP_NOT_OWNER`, 403 com corpo). */
 export async function requireOwner(
   deps: Pick<GroupsDeps, 'groups'>,
-  userId: string,
+  userId: UserId,
   groupId: string,
 ): Promise<StoredGroup> {
   const { group } = await requireMember(deps, userId, groupId);

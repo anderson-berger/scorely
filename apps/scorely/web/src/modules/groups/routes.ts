@@ -26,6 +26,12 @@ export const groupsRoutes: RouteRecordRaw[] = [
         name: 'group',
         component: () => import('@scorely/web/src/modules/groups/pages/GroupGamePage.vue'),
       },
+      // GRP-29: os times do jogo numa aba própria (TIM-14).
+      {
+        path: 'teams',
+        name: 'group-teams',
+        component: () => import('@scorely/web/src/modules/groups/pages/GroupTeamsPage.vue'),
+      },
       {
         path: 'members',
         name: 'group-members',

@@ -39,6 +39,30 @@ describe('rotas das abas do grupo', () => {
   });
 });
 
+describe('rotas da aba Times', () => {
+  it('GRP-29: { name: group-teams } resolve para /groups/:id/teams', () => {
+    const router = makeRouter();
+    expect(router.resolve({ name: 'group-teams', params: { id } }).path).toBe(`/groups/${id}/teams`);
+    expect(router.resolve(`/groups/${id}/teams`).name).toBe('group-teams');
+  });
+
+  it('GRP-29: a aba Times é filha de groups/:id (fica dentro do casco com as abas)', () => {
+    const parent = groupsRoutes.find((r) => r.path === 'groups/:id');
+    const names = (parent?.children ?? []).map((c) => c.name);
+    expect(names).toEqual(expect.arrayContaining(['group-teams']));
+  });
+
+  it('TIM-21: as linhas de times dos Ajustes não são página: não há rota group-settings-teams', () => {
+    expect(makeRouter().hasRoute('group-settings-teams')).toBe(false);
+  });
+
+  it('TIM-21: /groups/:id/settings/teams não abre nenhuma página', () => {
+    const resolved = makeRouter().resolve(`/groups/${id}/settings/teams`);
+    expect(resolved.matched.map((r) => r.name)).not.toContain('group-settings-teams');
+    expect(resolved.name).not.toBe('group-settings-teams');
+  });
+});
+
 describe('tela de Grupos (plano 013)', () => {
   it('caso 6: /groups resolve para o nome groups', () => {
     const router = makeRouter();

@@ -2,6 +2,7 @@ import { hmac, randomCode, randomToken, safeEqual } from '@scorely/api/src/lib/c
 import type { Mailer } from '@scorely/api/src/lib/email';
 import { newEntity } from '@scorely/api/src/lib/entity';
 import { appError } from '@scorely/api/src/lib/errors';
+import type { UserId } from '@scorely/api/src/lib/ids';
 import { signJwt } from '@scorely/api/src/lib/jwt';
 import type { AuthRepository } from '@scorely/api/src/modules/auth/auth.repository';
 import type { LoginCode, Session } from '@scorely/api/src/modules/auth/auth.table';
@@ -42,12 +43,12 @@ export function createAuthService({
   const codeHash = (email: string, code: string) => hmac(secret, 'login-code', `${email}:${code}`);
   const refreshHash = (tokenSecret: string) => hmac(secret, 'refresh-token', tokenSecret);
 
-  function accessToken(userId: string, sessionId: string, at: Date): Tokens['accessToken'] {
+  function accessToken(userId: UserId, sessionId: string, at: Date): Tokens['accessToken'] {
     const iat = Math.floor(at.getTime() / 1000);
     return signJwt({ sub: userId, sid: sessionId, iat, exp: iat + AUTH_LIMITS.accessTtlSeconds }, secret);
   }
 
-  async function startSession(userId: string): Promise<Tokens> {
+  async function startSession(userId: UserId): Promise<Tokens> {
     const at = now();
     const tokenSecret = randomToken();
     const session = newEntity<Session>(
@@ -114,16 +115,17 @@ export function createAuthService({
       if (!safeEqual(codeHash(email, code), record.codeHash)) throw appError('AUTH_CODE_INVALID');
       if (!(await repo.consumeCode(email, record.codeHash))) throw appError('AUTH_CODE_INVALID');
 
-      const { user, created } = await users.findOrCreateByEmail(email);
+      // USR-16: a sessão e o JWT usam o id do sistema; a pessoa devolvida sai com o id público.
+      const { userId, me, created } = await users.findOrCreateByEmail(email);
       if (created) {
-        await notifications.notify(user.id, {
+        await notifications.notify(userId, {
           type: 'welcome',
           title: 'Bem-vindo ao scorely!',
           body: 'Complete seu perfil para entrar nos grupos.',
           link: '/profile',
         });
       }
-      return { ...(await startSession(user.id)), user, isNewUser: created };
+      return { ...(await startSession(userId)), user: me, isNewUser: created };
     },
 
     /**

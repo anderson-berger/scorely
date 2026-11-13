@@ -4,8 +4,10 @@ import {
   TEAM_COUNT,
   type TeamExtra,
   type TeamPlayer,
+  type TeamSettings,
   type Teams,
 } from '@scorely/contracts';
+import type { Text } from '@scorely/web/src/modules/teams/rules';
 
 /**
  * O que o painel da pessoa devolve: o time (0 = Time 1; `undefined` = fora dos times), as posições no jogo
@@ -123,4 +125,46 @@ export function setGamePositions(
 ): TeamsDraft {
   const { [userId]: _old, ...rest } = draft.positions;
   return { ...draft, positions: positions ? { ...rest, [userId]: positions } : rest };
+}
+
+/**
+ * A linha Times da aba Jogo (GRP-29). O dono sempre vê o estado dos times, porque a linha serve para ele gerenciar.
+ * Quem não é dono: o próprio time, se está num time publicado; "Times publicados", se não está; sem times publicados, sem linha.
+ * O jogo cancelado esconde a linha no componente (esta função não recebe o jogo).
+ */
+export function teamsLine(teams: Teams | null, meId: string, isOwner: boolean): Text | null {
+  if (isOwner) {
+    if (!teams) return { key: 'teams.line.ownerNone' };
+    return { key: teams.status === 'published' ? 'teams.line.ownerPublished' : 'teams.line.ownerDraft' };
+  }
+  if (teams?.status !== 'published') return null;
+  const index = teams.teams.findIndex((team) => team.some((p) => p.userId === meId));
+  return index >= 0
+    ? { key: 'teams.line.myTeam', params: { team: index + 1 } }
+    : { key: 'teams.line.published' };
+}
+
+/** Resumo da linha Times dos Ajustes (TIM-21): "2 times", com "espalha homens e mulheres" e "publica fora das regras" quando ligados. */
+export function teamCountSummary(settings: TeamSettings): Text[] {
+  return [
+    { key: 'teams.summary.teams', params: { count: settings.teamCount } },
+    ...(settings.spreadGender ? [{ key: 'teams.summary.spread' }] : []),
+    ...(settings.allowOutsideRules ? [{ key: 'teams.summary.outside' }] : []),
+  ];
+}
+
+/** "3 regras", "1 regra" ou o texto de vazio. */
+function ruleCount(count: number, emptyKey: string): Text {
+  if (count === 0) return { key: emptyKey };
+  return count === 1 ? { key: 'teams.summary.oneRule' } : { key: 'teams.summary.rules', params: { count } };
+}
+
+/** Resumo da linha Regras dos times (TIM-21): só as regras de quantidade por time. */
+export function teamRulesSummary(settings: TeamSettings): Text {
+  return ruleCount(settings.rules.length, 'teams.summary.noRules');
+}
+
+/** Resumo da linha Times opostos (TIM-21). */
+export function teamApartSummary(settings: TeamSettings): Text {
+  return ruleCount(settings.apart.length, 'teams.summary.noApart');
 }

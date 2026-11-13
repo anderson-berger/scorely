@@ -11,9 +11,8 @@ interface LinkRow {
 }
 
 /**
- * Os links do dono (plano 007, D5/D7) em linhas compactas (plano 015, D12): membro, reserva e, com
- * convidados ligados, o do jogo. Com `manage` desligado (o "Convidar" da aba Membros, plano 012 D7):
- * só membro e reserva, só para copiar.
+ * Os links do dono (plano 007, D5/D7) em linhas compactas (plano 015, D12): membro, reserva e, com convidados ligados,
+ * o do jogo, cada um com Copiar e "Gerar outro link". Ficam só no "Convidar" da aba Membros (GRP-29).
  */
 export default defineComponent({
   name: 'GroupLinksCard',
@@ -21,7 +20,6 @@ export default defineComponent({
   props: {
     group: { type: Object as PropType<Group>, required: true },
     busy: { type: Boolean, default: false },
-    manage: { type: Boolean, default: true },
   },
 
   emits: ['rotate'],
@@ -39,7 +37,7 @@ export default defineComponent({
           url: url('reserve', this.group.reserveInviteToken),
         },
       ];
-      if (!this.manage || this.group.guestsOpenHoursBefore === undefined) return rows;
+      if (this.group.guestsOpenHoursBefore === undefined) return rows;
       return [
         ...rows,
         { kind: 'guest', label: this.$t('groups.linkGuest'), url: url('guest', this.group.guestToken) },
@@ -58,7 +56,7 @@ export default defineComponent({
 
 <template>
   <div>
-    <div v-if="manage" class="sc-caption hint">{{ $t('groups.linksHint') }}</div>
+    <div class="sc-caption hint">{{ $t('groups.linksHint') }}</div>
     <div class="sc-card rows">
       <div v-for="row in rows" :key="row.kind" class="row">
         <div class="text">
@@ -68,7 +66,6 @@ export default defineComponent({
 
         <template v-if="row.url">
           <q-btn
-            v-if="manage"
             flat
             round
             icon="autorenew"
@@ -82,7 +79,7 @@ export default defineComponent({
           <q-btn color="primary" unelevated no-caps class="copy" :label="$t('groups.copy')" @click="copy(row.url)" />
         </template>
         <q-btn
-          v-else-if="manage"
+          v-else
           flat
           no-caps
           color="primary"

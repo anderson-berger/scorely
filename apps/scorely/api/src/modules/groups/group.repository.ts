@@ -11,6 +11,7 @@ import {
   transactWrite,
 } from '@scorely/api/src/lib/db';
 import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
+import { asUserId, type UserId } from '@scorely/api/src/lib/ids';
 import { type AttendanceRecord, attendanceDeletes } from '@scorely/api/src/modules/groups/game.repository';
 import {
   GROUP_ENTITY,
@@ -29,7 +30,13 @@ import {
   userGroupLookupKey,
   userGroupsLookupPk,
 } from '@scorely/api/src/modules/groups/membership.table';
-import { GROUP_LIMITS, type Group, type InviteKind, type MemberRole } from '@scorely/contracts';
+import {
+  GROUP_LIMITS,
+  type Group,
+  type InviteKind,
+  type MemberRole,
+  type PublicUserId,
+} from '@scorely/contracts';
 
 /**
  * O grupo como fica no banco (o service tira os tokens para quem não é dono). Ativo, tem os 3 tokens;
@@ -37,8 +44,12 @@ import { GROUP_LIMITS, type Group, type InviteKind, type MemberRole } from '@sco
  */
 export type StoredGroup = Omit<
   Group,
-  'myRole' | 'myMemberInvite' | 'reservesOpenHoursBefore' | 'maxMembers' | 'maxReserves'
+  'ownerId' | 'myRole' | 'myMemberInvite' | 'reservesOpenHoursBefore' | 'maxMembers' | 'maxReserves'
 > & {
+  /** Dono pelo id do sistema (interno). */
+  ownerId: UserId;
+  /** USR-16: cópia do id público do dono, que é o que sai no `ownerId` da resposta. O código não muda (USR-15). */
+  ownerPublicId: PublicUserId;
   reservesOpenHoursBefore?: number | undefined;
   /** GRP-38: grupo novo sempre grava os dois; grupo antigo sem eles é lido com o teto (`limitsOf`). */
   maxMembers?: number | undefined;
@@ -92,7 +103,7 @@ export interface GroupPatch {
 
 /** Participante do grupo; `createdAt` é a data de entrada (plano 013, D9: o service ordena por ela). */
 export interface GroupMember {
-  userId: string;
+  userId: UserId;
   role: MemberRole;
   createdAt: string;
   /** Prazo do convite para membro (GRP-40), como gravado: quem confere se venceu é o service. */
@@ -106,26 +117,26 @@ export interface GroupRepository {
   /** Grupo + lookups dos tokens + participação do dono (membership + 2 lookups), numa transação. */
   create(group: StoredGroup): Promise<void>;
   /** Papel no grupo (leitura consistente); `undefined` = não participa. */
-  roleOf(groupId: string, userId: string): Promise<MemberRole | undefined>;
+  roleOf(groupId: string, userId: UserId): Promise<MemberRole | undefined>;
   /** D5 do 007 + GRP-39: entra com o papel, com o limite conferido na gravação; reserva → membro apaga o convite. */
-  addMember(group: StoredGroup, userId: string, role: MemberRole): Promise<AddMemberResult>;
+  addMember(group: StoredGroup, userId: UserId, role: MemberRole): Promise<AddMemberResult>;
   /** Contagem atual (GRP-39), do item COUNTERS. */
   counts(groupId: string): Promise<{ memberCount: number; reserveCount: number }>;
   /** Participação com o convite pendente (leitura consistente). */
   getMembership(
     groupId: string,
-    userId: string,
+    userId: UserId,
   ): Promise<{ role: MemberRole; memberInviteExpiresAt?: string } | undefined>;
   /** GRP-40: grava o prazo do convite; `not_reserve` = não é (mais) reserva. */
-  setMemberInvite(groupId: string, userId: string, expiresAt: string): Promise<'set' | 'not_reserve'>;
+  setMemberInvite(groupId: string, userId: UserId, expiresAt: string): Promise<'set' | 'not_reserve'>;
   /** GRP-40/41: apaga o convite (cancelar/recusar). Sem participação, não faz nada. */
-  clearMemberInvite(groupId: string, userId: string): Promise<void>;
+  clearMemberInvite(groupId: string, userId: UserId): Promise<void>;
   /** GRP-41: promove pelo convite, com a condição do prazo (`> now`) e do limite na mesma transação. */
-  acceptMemberInvite(group: StoredGroup, userId: string, now: string): Promise<AcceptInviteResult>;
+  acceptMemberInvite(group: StoredGroup, userId: UserId, now: string): Promise<AcceptInviteResult>;
   /** Participantes na ordem da chave (`userId`); quem ordena para a tela é o service. */
   listMembers(groupId: string): Promise<GroupMember[]>;
   /** Grupos do usuário com o papel dele em cada um (plano 013, D7): 1 Query + BatchGet. */
-  groupsOf(userId: string): Promise<{ group: StoredGroup; role: MemberRole }[]>;
+  groupsOf(userId: UserId): Promise<{ group: StoredGroup; role: MemberRole }[]>;
   /** Troca o token daquele tipo; o antigo deixa de valer na mesma transação. Sem token antigo → só cria (D6). */
   rotateToken(group: StoredGroup, kind: InviteKind, newToken: string): Promise<void>;
   /**
@@ -142,7 +153,7 @@ export interface GroupRepository {
    */
   removeMember(input: {
     group: StoredGroup;
-    userId: string;
+    userId: UserId;
     role: MemberRole;
     newToken?: string;
     attendance?: AttendanceRecord;
@@ -166,7 +177,7 @@ const KINDS = ['member', 'reserve', 'guest'] as const;
 /** Entrar no grupo (plano 013, D5): a membership e os 2 lookups, todos novos. */
 function membershipPuts(
   groupId: string,
-  userId: string,
+  userId: UserId,
   role: MemberRole,
   createdAt: string,
 ): TransactItem[] {
@@ -230,7 +241,7 @@ async function mustWrite(items: TransactItem[]): Promise<void> {
 }
 
 /** A participação, com leitura consistente: quem acabou de ser removido não pode mais ler o grupo (D12 do 003). */
-async function readMembership(groupId: string, userId: string): Promise<MembershipRecord | undefined> {
+async function readMembership(groupId: string, userId: UserId): Promise<MembershipRecord | undefined> {
   const { Item } = await dynamo().send(
     new GetCommand({ TableName: tableName(), Key: membershipKey(groupId, userId), ConsistentRead: true }),
   );
@@ -241,7 +252,7 @@ async function readMembership(groupId: string, userId: string): Promise<Membersh
  * Reserva → membro (plano 013, D5; GRP-41): troca o papel na própria membership (os lookups ficam), grava
  * `roleChangedAt` e apaga o convite pendente. Pelo convite, a condição também exige o prazo no futuro.
  */
-function promoteUpdate(groupId: string, userId: string, at: string, byInvite: boolean): TransactItem {
+function promoteUpdate(groupId: string, userId: UserId, at: string, byInvite: boolean): TransactItem {
   return {
     Update: {
       TableName: tableName(),
@@ -449,7 +460,7 @@ export const dynamoGroupRepository: GroupRepository = {
   async listMembers(groupId) {
     const rows = await queryLookupRows(groupMembershipsLookupPk(groupId), { consistent: true });
     const items = await batchGetOrdered(
-      rows.map((row) => membershipKey(groupId, row.id)),
+      rows.map((row) => membershipKey(groupId, asUserId(row.id))),
       { consistent: true },
     );
     return items.map((item) => {

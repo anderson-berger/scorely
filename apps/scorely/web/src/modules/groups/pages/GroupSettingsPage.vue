@@ -1,23 +1,22 @@
 <script lang="ts">
-import type { Game, Group, InviteKind } from '@scorely/contracts';
+import type { Game, Group } from '@scorely/contracts';
 import { formatDateTime } from '@scorely/web/src/lib/datetime';
 import CapacityCard from '@scorely/web/src/modules/groups/components/CapacityCard.vue';
 import GroupImagesCard from '@scorely/web/src/modules/groups/components/GroupImagesCard.vue';
-import GroupLinksCard from '@scorely/web/src/modules/groups/components/GroupLinksCard.vue';
 import LayersCard from '@scorely/web/src/modules/groups/components/LayersCard.vue';
 import LimitsCard from '@scorely/web/src/modules/groups/components/LimitsCard.vue';
-import TeamSettingsCard from '@scorely/web/src/modules/teams/components/TeamSettingsCard.vue';
+import TeamSettingsRows from '@scorely/web/src/modules/teams/components/TeamSettingsRows.vue';
 import { defineComponent, type PropType } from 'vue';
 
 /**
- * Aba Ajustes, só do dono (GRP-29): Abertura da lista, Limites (GRP-38), Links de convite, Logo e capa (GRP-35),
- * Dados do grupo (reservado) e Zona de perigo, com cancelar (ou reabrir, GRP-44) o jogo e arquivar o grupo.
+ * Aba Ajustes, só do dono (GRP-29): uma lista, cada linha com o resumo e o lugar de mudar (Abertura da lista, Vagas e
+ * mínimo, Limites, Times, Logo e capa), e a zona de perigo no fim, com cancelar (ou reabrir, GRP-44) e arquivar.
  * Grupo arquivado (GRP-37): só "Desarquivar grupo".
  */
 export default defineComponent({
   name: 'GroupSettingsPage',
 
-  components: { CapacityCard, GroupImagesCard, GroupLinksCard, LayersCard, LimitsCard, TeamSettingsCard },
+  components: { CapacityCard, GroupImagesCard, LayersCard, LimitsCard, TeamSettingsRows },
 
   inheritAttrs: false,
 
@@ -34,7 +33,6 @@ export default defineComponent({
     saved: () => true,
     cancel: () => true,
     reopen: () => true,
-    rotate: (_kind: InviteKind) => true,
     archive: () => true,
     unarchive: () => true,
   },
@@ -66,25 +64,13 @@ export default defineComponent({
   </div>
 
   <div v-else-if="isOwner && game" class="sections">
-    <LayersCard :group="group" :game="game" :is-owner="isOwner" @saved="$emit('saved')" />
-
-    <CapacityCard :group="group" @saved="$emit('saved')" />
-
-    <TeamSettingsCard :group="group" />
-
-    <LimitsCard :group="group" @saved="$emit('saved')" />
-
-    <section>
-      <h2 class="sc-section">{{ $t('groups.settings.links') }}</h2>
-      <GroupLinksCard :group="group" :busy="busy" @rotate="$emit('rotate', $event)" />
-    </section>
-
-    <GroupImagesCard :group="group" @saved="$emit('saved')" />
-
-    <section>
-      <h2 class="sc-section">{{ $t('groups.settings.data') }}</h2>
-      <div class="sc-card sc-caption reserved">{{ $t('groups.settings.dataHint') }}</div>
-    </section>
+    <div class="sc-card settings-list">
+      <LayersCard :group="group" :game="game" :is-owner="isOwner" @saved="$emit('saved')" />
+      <CapacityCard :group="group" @saved="$emit('saved')" />
+      <LimitsCard :group="group" @saved="$emit('saved')" />
+      <TeamSettingsRows :group="group" />
+      <GroupImagesCard :group="group" @saved="$emit('saved')" />
+    </div>
 
     <section>
       <h2 class="sc-section danger-title">{{ $t('groups.settings.danger') }}</h2>
@@ -128,25 +114,21 @@ export default defineComponent({
 </template>
 
 <style scoped>
+/* GRP-29: uma coluna só, com largura máxima, para a lista não esticar na tela larga. */
 .sections {
   display: flex;
   flex-direction: column;
   gap: 26px;
+  max-width: 720px;
 }
 
-/* Desktop: as seções lado a lado, em quantas colunas couberem (plano 016, D3). */
-@media (min-width: 1024px) {
-  .sections {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
-    align-items: start;
-  }
+.settings-list {
+  overflow: hidden;
 }
 
-.reserved {
-  padding: 12px 14px;
-  border-style: dashed;
-  border-color: var(--sc-line-strong);
+/* O fio entre as linhas: a última não tem. */
+.settings-list > :last-child :deep(.settings-row) {
+  border-bottom: 0;
 }
 
 .danger-title {

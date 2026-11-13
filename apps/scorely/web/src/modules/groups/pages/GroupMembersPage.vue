@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { Group, Member, PlayerPosition } from '@scorely/contracts';
+import type { Group, InviteKind, Member, PlayerPosition } from '@scorely/contracts';
 import BottomSheet from '@scorely/web/src/components/BottomSheet.vue';
 import GroupLinksCard from '@scorely/web/src/modules/groups/components/GroupLinksCard.vue';
 import { memberSections } from '@scorely/web/src/modules/groups/groups';
@@ -45,6 +45,7 @@ export default defineComponent({
     cancelMemberInvite: (_member: Member) => true,
     leaveGroup: () => true,
     editPlayer: (_userId: string) => true,
+    rotate: (_kind: InviteKind) => true,
   },
 
   data() {
@@ -160,6 +161,10 @@ export default defineComponent({
           >
             <q-menu anchor="bottom right" self="top right">
               <q-list style="min-width: 220px">
+                <q-item v-if="playerPositions && canEditPositions" v-close-popup clickable @click="edit(m.userId)">
+                  <q-item-section avatar><q-icon name="badge" /></q-item-section>
+                  <q-item-section>{{ $t('teams.positionsMenu') }}</q-item-section>
+                </q-item>
                 <template v-if="m.role === 'reserve'">
                   <q-item v-if="m.memberInviteExpiresAt" v-close-popup clickable @click="$emit('cancelMemberInvite', m)">
                     <q-item-section avatar><q-icon name="block" /></q-item-section>
@@ -193,8 +198,7 @@ export default defineComponent({
     />
 
     <BottomSheet v-if="isOwner" v-model="inviting" :title="$t('groups.invite')">
-      <div class="sc-caption hint">{{ $t('groups.inviteHint') }}</div>
-      <GroupLinksCard :group="group" :manage="false" />
+      <GroupLinksCard :group="group" :busy="busy" @rotate="$emit('rotate', $event)" />
     </BottomSheet>
   </div>
 </template>
@@ -202,6 +206,12 @@ export default defineComponent({
 <style scoped>
 .member--editable {
   cursor: pointer;
+}
+
+/* TIM-05: a linha inteira abre as posições; o destaque mostra que dá para tocar. */
+.member--editable:hover,
+.member--editable:active {
+  border-color: var(--sc-accent);
 }
 
 .sections {
@@ -293,10 +303,6 @@ export default defineComponent({
 .leave {
   align-self: flex-start;
   min-height: 44px;
-}
-
-.hint {
-  margin: 4px 0 12px;
 }
 
 /* Desktop: as pessoas em quantas colunas couberem, com espaço entre os blocos (planos 015 D11 e 016 D3; TIM-05). */

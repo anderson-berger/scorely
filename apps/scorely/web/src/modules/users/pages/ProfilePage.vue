@@ -15,6 +15,7 @@ import { effectiveTimeZone } from '@scorely/web/src/lib/preferences';
 import { useAuthStore } from '@scorely/web/src/modules/auth/auth.store';
 import { initials } from '@scorely/web/src/modules/groups/scoreboard';
 import { displayName } from '@scorely/web/src/modules/users/user.display';
+import { copyToClipboard } from 'quasar';
 import { defineComponent } from 'vue';
 
 interface Option<T> {
@@ -124,6 +125,18 @@ export default defineComponent({
   },
 
   methods: {
+    /** USR-15: copia o código de amigo (o id público). */
+    async copyCode() {
+      if (!this.auth.user) return;
+      try {
+        await copyToClipboard(this.auth.user.id);
+        this.$q.notify({ type: 'positive', message: this.$t('profile.codeCopied') });
+      } catch {
+        // Navegador sem permissão de área de transferência: o código continua na tela para copiar à mão.
+        this.$q.notify({ type: 'warning', message: this.$t('profile.copyFailed') });
+      }
+    },
+
     /** Abre um painel com o rascunho a partir do perfil atual. */
     edit(editor: Exclude<Editor, ''>) {
       const u = this.auth.user;
@@ -187,15 +200,21 @@ export default defineComponent({
       });
     },
 
-    /** Cada painel manda só os seus campos no `PATCH /me` (USR-03). */
+    /**
+     * Cada painel manda só os seus campos no `PATCH /me` (USR-03): "Seus dados" leva o que é do perfil (nome, apelido,
+     * gênero); "Preferências", o idioma e o fuso.
+     */
     async save() {
       // No primeiro acesso, "Seus dados" também grava o idioma e o fuso detectados (como antes do painel).
-      const you = { name: this.name, nickname: this.nickname.trim() ? this.nickname : null };
+      const you = {
+        name: this.name,
+        nickname: this.nickname.trim() ? this.nickname : null,
+        ...(this.gender && { gender: this.gender }),
+      };
       const fields =
         this.editor === 'you'
           ? { ...you, ...(this.welcome && { locale: this.locale, timeZone: this.timeZone }) }
           : {
-              ...(this.gender && { gender: this.gender }),
               ...(this.locale && { locale: this.locale }),
               ...(this.timeZone && { timeZone: this.timeZone }),
             };
@@ -262,6 +281,24 @@ export default defineComponent({
             />
           </div>
           <input ref="photoInput" type="file" accept="image/*" hidden @change="onPhotoPicked" />
+
+          <dl class="rows">
+            <div class="row">
+              <dt class="sc-label">{{ $t('profile.gender') }}</dt>
+              <dd>{{ genderLabel }}</dd>
+            </div>
+          </dl>
+
+          <div class="friend-code">
+            <div>
+              <div class="sc-label">{{ $t('profile.friendCode') }}</div>
+              <div class="code">{{ auth.user.id }}</div>
+              <div class="sc-caption">{{ $t('profile.friendCodeHint') }}</div>
+            </div>
+            <q-btn flat round color="primary" icon="content_copy" :aria-label="$t('profile.copyCode')" @click="copyCode">
+              <q-tooltip>{{ $t('profile.copyCode') }}</q-tooltip>
+            </q-btn>
+          </div>
         </section>
 
         <section class="sc-card card" :aria-label="$t('profile.preferences')">
@@ -270,10 +307,6 @@ export default defineComponent({
             <q-btn flat no-caps color="primary" class="edit" :label="$t('profile.edit')" @click="edit('prefs')" />
           </div>
           <dl class="rows">
-            <div class="row">
-              <dt class="sc-label">{{ $t('profile.gender') }}</dt>
-              <dd>{{ genderLabel }}</dd>
-            </div>
             <div class="row">
               <dt class="sc-label">{{ $t('profile.language') }}</dt>
               <dd>{{ localeLabel }}</dd>
@@ -305,23 +338,6 @@ export default defineComponent({
           <label for="profile-nickname" class="sc-label field-label">{{ $t('profile.nickname') }}</label>
           <q-input v-model="nickname" for="profile-nickname" outlined />
         </div>
-        <div class="actions" :class="{ 'actions--one': welcome }">
-          <q-btn v-if="!welcome" flat no-caps class="sc-btn-outline" :label="$t('profile.cancel')" :disable="saving" @click="editor = ''" />
-          <q-btn
-            type="submit"
-            color="primary"
-            unelevated
-            class="sc-btn-main"
-            :label="welcome ? $t('profile.continue') : $t('profile.save')"
-            :loading="saving"
-          />
-        </div>
-      </q-form>
-    </BottomSheet>
-
-    <BottomSheet v-model="prefsOpen" :title="$t('profile.preferences')" :persistent="saving">
-      <div class="sc-caption q-mt-xs">{{ $t('profile.preferencesHint') }}</div>
-      <q-form class="fields" @submit.prevent="save">
         <fieldset class="group">
           <legend class="sc-label field-label">{{ $t('profile.gender') }}</legend>
           <div class="choices">
@@ -339,6 +355,23 @@ export default defineComponent({
           </div>
           <div class="sc-caption q-mt-xs">{{ $t('profile.genderHint') }}</div>
         </fieldset>
+        <div class="actions" :class="{ 'actions--one': welcome }">
+          <q-btn v-if="!welcome" flat no-caps class="sc-btn-outline" :label="$t('profile.cancel')" :disable="saving" @click="editor = ''" />
+          <q-btn
+            type="submit"
+            color="primary"
+            unelevated
+            class="sc-btn-main"
+            :label="welcome ? $t('profile.continue') : $t('profile.save')"
+            :loading="saving"
+          />
+        </div>
+      </q-form>
+    </BottomSheet>
+
+    <BottomSheet v-model="prefsOpen" :title="$t('profile.preferences')" :persistent="saving">
+      <div class="sc-caption q-mt-xs">{{ $t('profile.preferencesHint') }}</div>
+      <q-form class="fields" @submit.prevent="save">
         <div>
           <label for="profile-locale" class="sc-label field-label">{{ $t('profile.language') }}</label>
           <q-select v-model="locale" for="profile-locale" :options="localeOptions" emit-value map-options outlined />
@@ -440,9 +473,32 @@ export default defineComponent({
   margin: 8px 0 0;
 }
 
+.friend-code {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--sc-line);
+}
+
+/* Logo depois da linha do gênero: a linha já tem o respiro de baixo. */
+.rows + .friend-code {
+  margin-top: 4px;
+}
+
+.friend-code .code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 1.25rem;
+  letter-spacing: 0.12em;
+  color: var(--sc-text);
+}
+
 .row {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 12px;
   padding: 12px 0;
   border-bottom: 1px solid var(--sc-line);

@@ -639,4 +639,38 @@ describe('mídia: acesso (MID-12)', () => {
     const second = await t.attachAvatar(b.mediaId);
     expect(second.url).not.toBe(first.url);
   });
+
+  it('MID-12: o caminho público usa o `ownerRef` do pedido (id público da pessoa), não o `ownerId`', async () => {
+    const t = setup();
+    const ownerRef = '7K3QX9TA';
+    const upload = await t.media.requestUpload({
+      purpose: 'avatar',
+      ownerId: USER,
+      ownerRef,
+      uploadedBy: USER,
+      contentType: 'image/webp',
+    });
+    t.bucket.files.set(`tmp/${upload.mediaId}`, {
+      size: 50_000,
+      format: 'image/webp',
+      width: 512,
+      height: 512,
+    });
+    const { url } = await t.attachAvatar(upload.mediaId);
+    expect(url).toBe(`${BASE}/public/user/${ownerRef}/avatar/${upload.mediaId}.webp`);
+    expect(url).not.toContain(USER);
+    expect(t.db.records.get(upload.mediaId)).toMatchObject({ ownerId: USER, ownerRef });
+  });
+
+  it('MID-12: sem `ownerRef`, o caminho usa o `ownerId` (o id do grupo)', async () => {
+    const t = setup();
+    const upload = await t.uploaded('group.logo', GROUP);
+    const { url } = await t.media.attach({
+      mediaId: upload.mediaId,
+      purpose: 'group.logo',
+      ownerId: GROUP,
+      target: t.groupSlot('logo'),
+    });
+    expect(url.startsWith(`${BASE}/public/group/${GROUP}/group.logo/`)).toBe(true);
+  });
 });

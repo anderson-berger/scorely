@@ -1,4 +1,5 @@
 import { appError } from '@scorely/api/src/lib/errors';
+import type { UserId } from '@scorely/api/src/lib/ids';
 import { groupKey } from '@scorely/api/src/modules/groups/group.table';
 import {
   forViewer,
@@ -26,7 +27,7 @@ const PURPOSES: Record<GroupImageSlot, MediaPurpose> = { logo: 'group.logo', cov
  * arquivo (MID-01). A permissão é conferida em cada passo, então quem perdeu o papel no meio é barrado.
  */
 export function createGroupImages(deps: GroupsDeps & { media: MediaService }) {
-  async function requireActiveOwner(userId: string, groupId: string) {
+  async function requireActiveOwner(userId: UserId, groupId: string) {
     const group = await requireOwner(deps, userId, groupId);
     requireActive(group);
     return group;
@@ -45,7 +46,7 @@ export function createGroupImages(deps: GroupsDeps & { media: MediaService }) {
   }
 
   /** O grupo depois da troca, como o dono vê. */
-  async function fresh(userId: string, groupId: string): Promise<Group> {
+  async function fresh(userId: UserId, groupId: string): Promise<Group> {
     const group = await deps.groups.get(groupId, { consistent: true });
     if (!group) throw appError('GROUP_NOT_FOUND');
     return forViewer(group, userId, 'member');
@@ -53,7 +54,7 @@ export function createGroupImages(deps: GroupsDeps & { media: MediaService }) {
 
   return {
     async requestUpload(
-      userId: string,
+      userId: UserId,
       groupId: string,
       slot: GroupImageSlot,
       input: MediaUploadInput,
@@ -68,7 +69,7 @@ export function createGroupImages(deps: GroupsDeps & { media: MediaService }) {
     },
 
     async attach(
-      userId: string,
+      userId: UserId,
       groupId: string,
       slot: GroupImageSlot,
       input: AttachMediaInput,
@@ -83,7 +84,7 @@ export function createGroupImages(deps: GroupsDeps & { media: MediaService }) {
       return fresh(userId, groupId);
     },
 
-    async detach(userId: string, groupId: string, slot: GroupImageSlot): Promise<Group> {
+    async detach(userId: UserId, groupId: string, slot: GroupImageSlot): Promise<Group> {
       await requireActiveOwner(userId, groupId);
       await deps.media.detach({ purpose: PURPOSES[slot], ownerId: groupId, target: target(groupId, slot) });
       return fresh(userId, groupId);

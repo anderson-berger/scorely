@@ -4,6 +4,7 @@
 //   "quais grupos eu participo?"  LOOKUP#USER#<userId>#GROUP / <groupId> ─┐
 //                                                                         ├─▶ MEMBERSHIP#<groupId>#<userId> / META
 //   "quem participa do grupo?"    LOOKUP#GROUP#<groupId>#MEMBERSHIP / <userId> ─┘
+import type { UserId } from '@scorely/api/src/lib/ids';
 import type { MemberRole } from '@scorely/contracts';
 
 export const MEMBERSHIP_ENTITY = 'Membership';
@@ -15,7 +16,7 @@ export const MEMBERSHIP_ENTITY = 'Membership';
  */
 export interface MembershipRecord {
   groupId: string;
-  userId: string;
+  userId: UserId;
   role: MemberRole;
   createdAt: string;
   roleChangedAt?: string;
@@ -28,7 +29,7 @@ export interface MembershipRecord {
  * Escrita: Put com `attribute_not_exists(PK)` ao entrar; Update de `role` na promoção (que apaga o convite);
  * Update de `memberInviteExpiresAt` no convite (GRP-40); Delete na remoção e na saída.
  */
-export function membershipKey(groupId: string, userId: string) {
+export function membershipKey(groupId: string, userId: UserId) {
   return { PK: `MEMBERSHIP#${groupId}#${userId}`, SK: 'META' };
 }
 
@@ -40,7 +41,7 @@ export function groupMembershipsLookupPk(groupId: string) {
   return `LOOKUP#GROUP#${groupId}#MEMBERSHIP`;
 }
 
-export function groupMembershipLookupKey(groupId: string, userId: string) {
+export function groupMembershipLookupKey(groupId: string, userId: UserId) {
   return { PK: groupMembershipsLookupPk(groupId), SK: userId };
 }
 
@@ -48,10 +49,10 @@ export function groupMembershipLookupKey(groupId: string, userId: string) {
  * Grupos do usuário: `PK=LOOKUP#USER#<userId>#GROUP`, `SK=<groupId>`, `{ id: groupId }`.
  * Leitura: Query → BatchGet em `groupKey(id)` + `membershipKey(id, userId)`.
  */
-export function userGroupsLookupPk(userId: string) {
+export function userGroupsLookupPk(userId: UserId) {
   return `LOOKUP#USER#${userId}#GROUP`;
 }
 
-export function userGroupLookupKey(userId: string, groupId: string) {
+export function userGroupLookupKey(userId: UserId, groupId: string) {
   return { PK: userGroupsLookupPk(userId), SK: groupId };
 }

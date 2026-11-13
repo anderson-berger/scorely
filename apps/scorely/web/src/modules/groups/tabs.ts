@@ -1,12 +1,13 @@
-/** Abas da página do grupo (plano 012): nomes das rotas filhas de `groups/:id`. */
-export type GroupTab = 'group' | 'group-members' | 'group-settings';
+/** Abas da página do grupo (plano 012, GRP-29): nomes das rotas filhas de `groups/:id`. */
+export type GroupTab = 'group' | 'group-teams' | 'group-members' | 'group-settings';
 
-/** Abas visíveis: o Ajustes é só do dono (D3). */
+/** Abas visíveis: o Ajustes é só do dono (GRP-29). */
 export function groupTabs(isOwner: boolean): GroupTab[] {
-  return isOwner ? ['group', 'group-members', 'group-settings'] : ['group', 'group-members'];
+  const tabs: GroupTab[] = ['group', 'group-teams', 'group-members'];
+  return isOwner ? [...tabs, 'group-settings'] : tabs;
 }
 
-/** Para onde mandar quem abriu uma aba que não pode ver; `undefined` = fica (D4). */
+/** Para onde mandar quem abriu uma aba que não pode ver (os Ajustes são só do dono); `undefined` = fica (D4). */
 export function tabRedirect(routeName: string, isOwner: boolean): GroupTab | undefined {
   return routeName === 'group-settings' && !isOwner ? 'group' : undefined;
 }

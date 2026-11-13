@@ -1,6 +1,7 @@
 import { env } from '@scorely/api/src/lib/env';
 import { appError } from '@scorely/api/src/lib/errors';
 import { type HttpEvent, type HttpResult, route } from '@scorely/api/src/lib/http';
+import { asUserId, type UserId } from '@scorely/api/src/lib/ids';
 import { verifyJwt } from '@scorely/api/src/lib/jwt';
 import type {
   APIGatewayProxyEventV2WithLambdaAuthorizer,
@@ -10,7 +11,8 @@ import type {
 
 /** Quem está chamando: vem do access token, validado pelo authorizer do API Gateway. */
 export interface AuthContext {
-  userId: string;
+  /** Id do sistema (USR-16): fica no token, nunca sai na resposta. */
+  userId: UserId;
   sessionId: string;
 }
 
@@ -26,7 +28,7 @@ export function verifyBearer(
   const [scheme, token] = (header ?? '').split(' ');
   if (scheme?.toLowerCase() !== 'bearer' || !token) return undefined;
   const claims = verifyJwt(token, secret, nowSeconds);
-  return claims && { userId: claims.sub, sessionId: claims.sid };
+  return claims && { userId: asUserId(claims.sub), sessionId: claims.sid };
 }
 
 /**
@@ -54,6 +56,6 @@ export async function authRoute(
   return route(event, async () => {
     const ctx = (event as AuthedEvent).requestContext.authorizer?.lambda;
     if (!ctx?.userId || !ctx.sessionId) throw appError('UNAUTHORIZED');
-    return fn({ userId: ctx.userId, sessionId: ctx.sessionId });
+    return fn({ userId: asUserId(ctx.userId), sessionId: ctx.sessionId });
   });
 }

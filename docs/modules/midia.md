@@ -1,6 +1,6 @@
 # Módulo Mídia
 
-> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-10.
+> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-13.
 
 Código: `apps/scorely/api/src/modules/media/`, `apps/scorely/api/src/lib/storage.ts`, `apps/scorely/web/src/lib/media.ts`. Contrato: `apps/scorely/contracts/src/media.ts`.
 
@@ -72,9 +72,9 @@ Guardar os arquivos enviados pelas pessoas (por enquanto, só imagens) do mesmo 
 
 ### Dados
 
-| Item  | Chave                 | Para quê                                                                                                                                                                                                                             |
-| ----- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Mídia | `MEDIA#<id>` / `META` | `kind`, `purpose`, `ownerType`, `ownerId`, `status` (`pending`/`ready`), `key`, `contentType`, `size`, `width`, `height`, `uploadedBy`. Na pendente, também `expiresAt` e `ttl` ([ADR 0004](../decisions/0004-ttl-com-expiresat.md)) |
+| Item  | Chave                 | Para quê                                                                                                                                                                                                                                                                                                      |
+| ----- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Mídia | `MEDIA#<id>` / `META` | `kind`, `purpose`, `ownerType`, `ownerId`, `ownerRef` (o que vai no caminho público, MID-12; sem ele, o `ownerId`), `status` (`pending`/`ready`), `key`, `contentType`, `size`, `width`, `height`, `uploadedBy`. Na pendente, também `expiresAt` e `ttl` ([ADR 0004](../decisions/0004-ttl-com-expiresat.md)) |
 
 A área guarda o id e a URL da mídia no próprio item: `avatarMediaId` e `avatarUrl` no usuário; `logoMediaId`, `logoUrl`, `coverMediaId` e `coverUrl` no grupo. Esses campos são gravados na mesma transação da troca (MID-08), então nunca ficam diferentes da mídia.
 
@@ -82,9 +82,11 @@ A área guarda o id e a URL da mídia no próprio item: `avatarMediaId` e `avata
 
 ```
 tmp/<mediaId>                                              envio ainda não confirmado; o S3 apaga em 1 dia (MID-13)
-public/<ownerType>/<ownerId>/<purpose>/<mediaId>.<ext>     leitura pública (MID-12)
+public/<ownerType>/<ownerRef>/<purpose>/<mediaId>.<ext>    leitura pública (MID-12)
 private/...                                                reservado para mídias com acesso restrito (ainda sem uso)
 ```
+
+O `<ownerRef>` é o id do grupo, ou o id público da pessoa (USR-16 em [usuarios.md](usuarios.md)): a URL pública nunca leva o id do sistema de ninguém.
 
 ### Como as áreas usam
 

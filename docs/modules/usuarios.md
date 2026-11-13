@@ -1,6 +1,6 @@
 # Módulo Usuários
 
-> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-12.
+> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-13.
 
 Código: `apps/scorely/api/src/modules/users/`, `apps/scorely/web/src/modules/users/`, `apps/scorely/web/src/lib/preferences.ts`. Contrato: `apps/scorely/contracts/src/users.ts`.
 
@@ -10,11 +10,11 @@ O perfil de quem usa o scorely: como a pessoa aparece nas listas dos grupos (nom
 
 Os dados da pessoa ficam em três partes, cada uma com quem pode ler:
 
-| Parte        | O que tem                   | Quem lê                                                |
-| ------------ | --------------------------- | ------------------------------------------------------ |
-| Perfil       | nome, apelido, gênero, foto | a própria pessoa e os outros módulos (listas, times)   |
-| Email        | o email da conta            | só o login (auth) e a própria pessoa (`GET /me`)       |
-| Preferências | idioma e fuso               | a própria pessoa (e o navegador dela guarda uma cópia) |
+| Parte        | O que tem                               | Quem lê                                                |
+| ------------ | --------------------------------------- | ------------------------------------------------------ |
+| Perfil       | id público, nome, apelido, gênero, foto | a própria pessoa e os outros módulos (listas, times)   |
+| Email        | o email da conta                        | só o login (auth) e a própria pessoa (`GET /me`)       |
+| Preferências | idioma e fuso                           | a própria pessoa (e o navegador dela guarda uma cópia) |
 
 ## 2. Regras de negócio
 
@@ -25,6 +25,18 @@ Os dados da pessoa ficam em três partes, cada uma com quem pode ler:
   - O email não muda pelo perfil.
 - **USR-13. O email fica fora do perfil.** Ele é guardado à parte, e só o login e a própria pessoa (`GET /me`) o leem. Quando outro módulo busca pessoas (membros, lista do jogo, times), o email nem vem junto.
   - _Por quê:_ o email é o dado mais sensível da conta. Guardado longe do perfil, um erro numa resposta de lista não tem como vazá-lo.
+- **USR-15. Cada pessoa tem um id público, o código de amigo.** São 8 caracteres de letras maiúsculas e dígitos, sem `I`, `L`, `O` e `U` (ex.: `7K3QX9TA`).
+  - Nasce no primeiro login, é único e não muda.
+  - A pessoa vê o próprio código no perfil, com um botão para copiar.
+  - _Por quê:_ é o jeito de identificar uma pessoa para as outras sem expor nada da conta. Curto e sem letras que se confundem, dá para ditar ou copiar (como o código de amigo da Steam).
+- **USR-16. O id do sistema nunca aparece para outra pessoa.** Toda resposta da api identifica pessoas pelo id público: membros, lista do jogo, jogadores, times, times opostos, o dono do grupo e o endereço da foto (MID-12 em [midia.md](midia.md)).
+  - O id do sistema só existe no token do login e no banco. Nem o `GET /me` o devolve: o `id` da pessoa, para ela mesma, também é o público.
+  - _Por quê:_ o id do sistema é a chave de tudo da pessoa no banco. Mantido só do lado do servidor, ele não vira parte da api, e o código público pode ganhar usos (convite, busca) sem abrir a chave interna.
+- **USR-17. Quem a ação atinge sai do login ou do id público.**
+  - Ação sobre a própria pessoa (perfil, foto, preferências, sair do grupo) usa só o id do login: as rotas `/me` não recebem id nenhum.
+  - Ação sobre outra pessoa (remover membro, convite para membro, posições, times, times opostos) recebe o id público, e a api traduz para o id do sistema na entrada. A permissão continua vindo do login (quem pede), nunca do id recebido.
+  - Id público que não existe responde o mesmo erro de uma pessoa que não está no grupo (ex.: `GROUP_MEMBER_NOT_FOUND`).
+  - _Por quê:_ editar a si mesmo pelo login garante que ninguém edita o perfil de outro mudando um id. E o erro igual não deixa ninguém descobrir, chutando, se um código existe.
 - **USR-02. A conta nasce sem nome.** Enquanto não houver nome, o web leva a pessoa para o perfil (AUTH-13).
 
 ### Perfil
@@ -69,16 +81,17 @@ Os dados da pessoa ficam em três partes, cada uma com quem pode ler:
 
 ### Dados
 
-| Item            | Chave                                | Observação                                                                                       |
-| --------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------ |
-| Perfil          | `USER#<id>` / `META`                 | `id`, `createdAt`, `name`, `nickname`, `gender`, `avatarUrl` e `avatarMediaId` (a mídia da foto) |
-| Email           | `USER#<id>` / `EMAIL`                | `email` (USR-13). Lido só pelo auth e pelo `GET /me`                                             |
-| Preferências    | `USER#<id>` / `PREFERENCES`          | `locale`, `timeZone`, `updatedAt` (USR-06, 07, 14)                                               |
-| Email → usuário | `LOOKUP#USER#EMAIL#<email>` / `META` | email único (USR-01)                                                                             |
+| Item                 | Chave                                    | Observação                                                                                                            |
+| -------------------- | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Perfil               | `USER#<id>` / `META`                     | `id`, `publicId` (USR-15), `createdAt`, `name`, `nickname`, `gender`, `avatarUrl` e `avatarMediaId` (a mídia da foto) |
+| Email                | `USER#<id>` / `EMAIL`                    | `email` (USR-13). Lido só pelo auth e pelo `GET /me`                                                                  |
+| Preferências         | `USER#<id>` / `PREFERENCES`              | `locale`, `timeZone`, `updatedAt` (USR-06, 07, 14)                                                                    |
+| Email → usuário      | `LOOKUP#USER#EMAIL#<email>` / `META`     | email único (USR-01)                                                                                                  |
+| Id público → usuário | `LOOKUP#USER#PUBLIC#<publicId>` / `META` | código único (USR-15); a tradução da entrada (USR-17)                                                                 |
 
-O primeiro login grava o perfil, o email, as preferências e o lookup numa transação só. O `PATCH /me` grava no perfil e nas preferências, cada campo na sua parte, também numa transação.
+O primeiro login grava o perfil, o email, as preferências e os dois lookups numa transação só. Se o código sorteado já existir, a transação falha e o login sorteia outro (até 3 vezes). O `PATCH /me` grava no perfil e nas preferências, cada campo na sua parte, também numa transação.
 
-Os outros módulos leem pessoas pelo `UserDirectory`, que só busca o perfil (`META`).
+Os outros módulos leem pessoas pelo `UserDirectory`, que só busca o perfil (`META`). Ele também traduz ids públicos para ids do sistema (USR-17); o que não existe fica de fora, e o módulo responde o erro de pessoa fora do grupo.
 
 ### Rotas
 
@@ -90,7 +103,7 @@ Os outros módulos leem pessoas pelo `UserDirectory`, que só busca o perfil (`M
 | `PUT /me/avatar`         | logado | USR-08 (MID-05–09)  |
 | `DELETE /me/avatar`      | logado | USR-08 (MID-10)     |
 
-O `GET /me` e o `PATCH /me` devolvem o perfil, o email e as preferências (`preferences: { locale?, timeZone? }`).
+O `GET /me` e o `PATCH /me` devolvem o perfil (com `id` = id público, USR-16), o email e as preferências (`preferences: { locale?, timeZone? }`). Nas rotas dos outros módulos, todo `{userId}` e todo `userId` do corpo é o id público.
 
 Erros: `USER_NOT_FOUND` e `USER_CREATE_CONFLICT`. Os da foto vêm da mídia (`MEDIA_NOT_FOUND`, `MEDIA_NOT_UPLOADED` e `MEDIA_INVALID`).
 
@@ -102,4 +115,5 @@ Erros: `USER_NOT_FOUND` e `USER_CREATE_CONFLICT`. Os da foto vêm da mídia (`ME
 
 ## 5. Em discussão (ainda não é regra)
 
-- **Id público (código de amigo):** cada pessoa ganha um código curto para ser convidada sem passar o email. O id do sistema deixa de aparecer para os outros: as respostas mostram só o código, e as ações sobre outra pessoa recebem o código e traduzem na entrada. Ação sobre a própria pessoa usa só o id do login. Vem na próxima etapa, com ADR.
+- **Convidar pelo código de amigo:** o dono convida alguém que já tem conta digitando o id público dele (USR-15), sem link nem email. Depende das regras de convite dos grupos.
+- **Trocar o código de amigo:** gerar outro se o atual for parar onde não devia.

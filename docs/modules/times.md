@@ -1,6 +1,6 @@
 # Módulo Times
 
-> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Se o código e este doc discordarem, um dos dois está errado. Conferido com o código em 2026-11-12.
+> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Se o código e este doc discordarem, um dos dois está errado. Conferido com o código em 2026-11-13.
 
 Código: `apps/scorely/api/src/modules/teams/`, `apps/scorely/web/src/modules/teams/`. Contrato: `apps/scorely/contracts/src/teams.ts`.
 
@@ -148,11 +148,11 @@ Hoje o módulo guarda as **posições de cada pessoa no grupo**, a **configuraç
   - na aba **Membros**, em cada membro e reserva;
   - na aba **Jogo**, em cada pessoa da Escalação e do Banco, inclusive os convidados.
   - As posições ficam **abaixo do nome**, com a principal em destaque ("**Central** · Ponteiro"). Quem não tem posição não mostra nada para quem não é dono.
-  - **O dono vê como mudar:** quem não tem posição mostra "+ Posição"; quem tem mostra as posições como botão. Tocar nelas (ou na linha) abre o painel de baixo "Posições de {nome}": as posições do esporte para marcar e desmarcar, e uma estrela para escolher a principal entre as marcadas (a primeira marcada já vem como principal).
+  - **O dono vê como mudar, sem um botão por pessoa:** quem tem posição mostra as posições como texto, igual para todos, sem lápis. Quem não tem mostra "+ Posição". A linha inteira é tocável (o cursor muda e ela se destaca ao passar ou tocar), e tocar nela abre o painel de baixo "Posições de {nome}": as posições do esporte para marcar e desmarcar, e uma estrela para escolher a principal entre as marcadas (a primeira marcada já vem como principal). Na aba Membros, o menu "⋮" da pessoa também tem "Posições".
   - Na aba Membros, cada pessoa fica num bloco separado (no desktop, em colunas com espaço entre elas), e as ações do dono sobre a pessoa (remover, convidar para membro) saem do meio da linha e vão para um menu "⋮" no fim dela.
   - Com o grupo arquivado, as posições aparecem, mas sem "+ Posição" e sem abrir o painel (GRP-37).
-  - _Alterada em 2026-11-11:_ antes só o dono via, a função ficava ao lado do nome, e nada indicava que tocar abria o painel.
-- **TIM-14. Card "Times" na aba Jogo,** entre a abertura da lista e a Escalação (some com o jogo cancelado):
+  - _Alterada em 2026-11-11:_ antes só o dono via, a função ficava ao lado do nome, e nada indicava que tocar abria o painel. _Alterada em 2026-11-12:_ o lápis em cada pessoa enchia a tela de botões; a dica de que dá para tocar passou para a própria linha e para o "⋮".
+- **TIM-14. Aba "Times" na página do grupo** (GRP-29), para todos. Na aba Jogo, fica só a linha que leva até aqui. Com o jogo cancelado, a aba mostra "Jogo cancelado, sem times":
   - **dono, sem times:** "Sortear" (TIM-15) e "Montar à mão", que cria o rascunho com a quantidade padrão de times (TIM-17), vazios, e todos de dentro em "sem time";
   - **dono, com times:** cada time com o número de pessoas (e "3 H · 3 M" com a preferência de gênero ligada, TIM-23) e, em cada pessoa, o nome e a posição principal no jogo (TIM-13). Uma marca "Rascunho" ou "Publicado", "sem time: N" quando houver, a marca "saiu da lista" (TIM-12), a marca "avulso" (TIM-24), um alfinete em quem está fixo (TIM-16) e, abaixo do time, o que está fora das regras (TIM-20);
   - **avulso:** "+ Avulso" (junto de "Times: − 2 +") abre o painel de baixo com nome, gênero (Homem, Mulher, Não informar) e posições, e o avulso entra em "sem time". Tocar num avulso abre o painel de mover com "Editar avulso" e "Remover avulso";
@@ -160,18 +160,18 @@ Hoje o módulo guarda as **posições de cada pessoa no grupo**, a **configuraç
   - "Times: − 2 +" muda a quantidade. Ao diminuir, quem estava no time que sumiu vai para "sem time" (e deixa de ser fixo);
   - ações: "Sortear" (ou "Sortear de novo", quando já há alguém num time), Publicar (ou Voltar para rascunho) e, num menu "⋮", Descartar times, com confirmação. Sortear com os times publicados pede confirmação ("os times voltam para rascunho");
   - **sortear sem dar** (TIM-19): um aviso com a lista do que impede, e nada muda. Publicar fora das regras sem a permissão (TIM-20) mostra o que está fora;
-  - _Alterada em 2026-11-11:_ antes não havia sortear nem fixar. _Alterada em 2026-11-12:_ quantidade padrão e regras; depois, avulsos e "H · M" por time;
-  - **quem não é dono:** só os times publicados, sem ações, com o próprio time em destaque (com os avulsos marcados e "H · M" se a preferência estiver ligada). Sem times publicados, o card não aparece;
-  - **convidado, pela página do link do jogo:** os times publicados, como os outros veem.
-  - Grupo arquivado não tem jogo (GRP-37), então não tem card.
-- **TIM-21. Card "Times" nos Ajustes do grupo** (só o dono, como os outros cards dos Ajustes):
-  - a quantidade padrão de times ("− 2 +") e o interruptor "Permitir publicar times fora das regras";
-  - a lista das regras, cada uma numa linha ("Levantador: 1 por time", "Mulheres: no mínimo 2 por time", "Líbero: no máximo 1 por time"), com "Adicionar regra";
-  - tocar numa regra, ou em "Adicionar regra", abre o painel de baixo: posição ou gênero, mínimo e máximo (cada um pode ficar sem valor), Salvar e, numa regra que já existe, Remover. O que já tem regra não aparece para escolher de novo.
-  - **Times opostos:** a lista das regras, cada uma com os nomes ("Ana × Bia", "Ana × Bia × Carla"), e "Adicionar times opostos". O painel de baixo mostra as pessoas que o dono pode classificar (TIM-04) para marcar de 2 a 8, Salvar e, numa que já existe, Remover. Quem saiu do grupo continua na regra, com o nome.
-  - O interruptor **"Espalhar homens e mulheres"** (TIM-23).
-  - _Alterada em 2026-11-12:_ times opostos e a preferência de gênero.
-  - _Por quê:_ as regras são do grupo, então ficam junto das outras configurações do grupo.
+  - _Alterada em 2026-11-11:_ antes não havia sortear nem fixar. _Alterada em 2026-11-12:_ quantidade padrão e regras; depois, avulsos e "H · M" por time; depois, o card saiu da aba Jogo e virou a aba Times;
+  - **quem não é dono:** só os times publicados, sem ações, com o próprio time em destaque (com os avulsos marcados e "H · M" se a preferência estiver ligada). Sem times publicados, a aba mostra "Os times ainda não saíram";
+  - **convidado, pela página do link do jogo:** os times publicados, como os outros veem (a página do link não tem abas, então continua mostrando os times no meio da página).
+  - Grupo arquivado não tem jogo (GRP-37), então a aba só mostra o aviso.
+  - _Por quê:_ montar os times é trabalho do dono, com muitos controles, e ocupava a aba Jogo inteira. Com uma aba própria, a aba Jogo fica só com "eu jogo?", e os times ganham espaço para crescer (partidas, E4a).
+- **TIM-21. As linhas de times dos Ajustes** (só o dono). Na lista dos Ajustes (GRP-29), a configuração de times (TIM-17) ocupa três linhas. Cada uma mostra o resumo e abre o seu painel de baixo, sem sair da página:
+  - **Times**: "2 times", com "· espalha homens e mulheres" e "· publica fora das regras" quando ligados. O painel tem a quantidade padrão de times ("− 2 +"), o interruptor **"Espalhar homens e mulheres"** (TIM-23) e o interruptor **"Permitir publicar times fora das regras"**;
+  - **Regras dos times**: "3 regras", "1 regra" ou "Sem regras". O painel tem a lista das regras, cada uma numa linha ("Levantador: 1 por time", "Mulheres: no mínimo 2 por time", "Líbero: no máximo 1 por time"), e "Adicionar regra". Tocar numa regra, ou em "Adicionar regra", troca o conteúdo do mesmo painel para o editor: posição ou gênero, mínimo e máximo (cada um pode ficar sem valor), Salvar e, numa regra que já existe, Remover. O editor tem voltar para a lista. O que já tem regra não aparece para escolher de novo;
+  - **Times opostos**: "2 regras", "1 regra" ou "Nenhuma". O painel tem a lista das regras, cada uma com os nomes ("Ana × Bia", "Ana × Bia × Carla"), e "Adicionar times opostos". Tocar numa regra, ou em adicionar, troca o conteúdo do mesmo painel para o editor: as pessoas que o dono pode classificar (TIM-04) para marcar de 2 a 8, Salvar e, numa que já existe, Remover, com voltar para a lista. Quem saiu do grupo continua na regra, com o nome.
+  - Salvar ou remover no editor volta para a lista do mesmo painel, já atualizada. A quantidade e os interruptores salvam ao mudar.
+  - _Alterada em 2026-11-12:_ times opostos e a preferência de gênero; depois, o card virou uma página dentro dos Ajustes. _Alterada em 2026-11-13:_ a página saiu; a configuração virou três linhas da lista, cada uma com o seu painel.
+  - _Por quê:_ as regras são do grupo, então ficam junto das outras configurações do grupo. Todas as linhas dos Ajustes abrem um painel, e uma que levava para outra página quebrava esse padrão. Separar em três deixa cada painel com um assunto só, e o editor dentro do mesmo painel evita abrir um painel por cima de outro.
 
 ## 3. Como funciona
 
@@ -187,14 +187,16 @@ Não há lookup: quem aparece na lista já vem dos membros e do jogo atual (mód
 
 ### Onde está cada regra
 
-| Arquivo                             | O que tem                                                                                      |
-| ----------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `contracts/src/teams.ts`            | posições e o catálogo de posições por esporte (TIM-02)                                         |
-| `api/.../teams/player.service.ts`   | permissão e quem pode ser classificado (TIM-02, 03, 04)                                        |
-| `api/.../teams/teams.service.ts`    | times do jogo: montar, publicar, aviso, prazo, quem saiu, sortear, regras, avulsos (TIM-06–24) |
-| `api/.../teams/engine/draw.ts`      | sorteio puro: fixados, tamanhos, regras, preferência de gênero (TIM-15, 16, 19, 23)            |
-| `api/.../teams/engine/rules.ts`     | contar, conferir antes de sortear e apontar o que está fora (TIM-18–20, 22)                    |
-| `api/.../teams/settings.service.ts` | configuração de times do grupo (TIM-17, 18, 22, 23)                                            |
+| Arquivo                                                          | O que tem                                                                                      |
+| ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `contracts/src/teams.ts`                                         | posições e o catálogo de posições por esporte (TIM-02)                                         |
+| `api/.../teams/player.service.ts`                                | permissão e quem pode ser classificado (TIM-02, 03, 04)                                        |
+| `api/.../teams/teams.service.ts`                                 | times do jogo: montar, publicar, aviso, prazo, quem saiu, sortear, regras, avulsos (TIM-06–24) |
+| `api/.../teams/engine/draw.ts`                                   | sorteio puro: fixados, tamanhos, regras, preferência de gênero (TIM-15, 16, 19, 23)            |
+| `api/.../teams/engine/rules.ts`                                  | contar, conferir antes de sortear e apontar o que está fora (TIM-18–20, 22)                    |
+| `api/.../teams/settings.service.ts`                              | configuração de times do grupo (TIM-17, 18, 22, 23)                                            |
+| `web/.../teams/teams.ts`                                         | linha Times da aba Jogo e resumos das linhas de times dos Ajustes (GRP-29, TIM-21)             |
+| `web/.../teams/components/TeamsLine.vue`, `TeamSettingsRows.vue` | linha Times da aba Jogo e as 3 linhas de times dos Ajustes, com os painéis (GRP-29, TIM-21)    |
 
 ### Rotas
 

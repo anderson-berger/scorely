@@ -1,6 +1,7 @@
 import { randomToken } from '@scorely/api/src/lib/crypto';
 import { newEntity } from '@scorely/api/src/lib/entity';
 import { appError } from '@scorely/api/src/lib/errors';
+import type { UserId } from '@scorely/api/src/lib/ids';
 import { createGameService } from '@scorely/api/src/modules/groups/game.service';
 import {
   type GroupMember,
@@ -15,6 +16,7 @@ import {
   requireOwner,
   reservesHours,
 } from '@scorely/api/src/modules/groups/groups.deps';
+import { publicMember, type RosterMember } from '@scorely/api/src/modules/groups/roster';
 import {
   type CreateGroupInput,
   type Group,
@@ -25,6 +27,7 @@ import {
   type MemberInvite,
   type MemberRole,
   type MyGroup,
+  type PublicUserId,
   type UpdateGroupInput,
 } from '@scorely/contracts';
 
@@ -102,7 +105,7 @@ export function createGroupService(deps: GroupsDeps) {
   /** Uma tentativa da remoção (D12 do 003); `stale` → relê o grupo e o plano e tenta de novo. */
   async function attemptRemoval(
     group: StoredGroup,
-    memberId: string,
+    memberId: UserId,
     role: MemberRole,
     attempt: number,
     rotate: boolean,
@@ -134,7 +137,7 @@ export function createGroupService(deps: GroupsDeps) {
   /** GRP-02/39: uma tentativa de entrar pelo link; `stale` → relê o grupo (limite trocado ou arquivado) e tenta de novo. */
   async function attemptJoin(
     group: StoredGroup,
-    userId: string,
+    userId: UserId,
     role: MemberRole,
     attempt: number,
   ): Promise<void> {
@@ -150,7 +153,7 @@ export function createGroupService(deps: GroupsDeps) {
   }
 
   /** GRP-41: uma tentativa do aceite; `stale` → relê o grupo e tenta de novo. */
-  async function attemptAccept(group: StoredGroup, userId: string, attempt: number): Promise<StoredGroup> {
+  async function attemptAccept(group: StoredGroup, userId: UserId, attempt: number): Promise<StoredGroup> {
     const result = await deps.groups.acceptMemberInvite(group, userId, now().toISOString());
     if (result === 'promoted') return group;
     if (result === 'invalid') throw appError('GROUP_MEMBER_INVITE_INVALID');
@@ -177,13 +180,54 @@ export function createGroupService(deps: GroupsDeps) {
     return attemptArchive(fresh, attempt + 1);
   }
 
+  /**
+   * Dono no topo, depois os membros e por último as reservas; dentro de cada papel, por data de entrada (D9 do 013).
+   * Com os dois ids de cada pessoa (interno, para os times); a resposta pública sai pelo `members`.
+   */
+  async function memberRecords(userId: UserId, groupId: string): Promise<RosterMember[]> {
+    const { group } = await requireMember(deps, userId, groupId);
+    const list = await deps.groups.listMembers(groupId);
+    const users = new Map((await deps.users.getMany(list.map((m) => m.userId))).map((u) => [u.id, u]));
+
+    const isOwner = (id: string) => id === group.ownerId;
+    const rank = (m: GroupMember) => (isOwner(m.userId) ? -1 : ROLE_ORDER[m.role]);
+    const ordered = [...list].sort((a, b) => rank(a) - rank(b) || a.createdAt.localeCompare(b.createdAt));
+    const viewerIsOwner = isOwner(userId);
+    return ordered.map(({ userId: id, role, memberInviteExpiresAt }): RosterMember => {
+      const user = users.get(id);
+      if (!user) throw new Error('Member without a user profile');
+      const name = user.nickname ?? user.name;
+      // GRP-40: só o dono vê o prazo do convite pendente.
+      const invite = viewerIsOwner ? pendingInvite(memberInviteExpiresAt) : undefined;
+      return {
+        userId: id,
+        publicId: user.publicId,
+        ...(name && { name }),
+        isOwner: isOwner(id),
+        role,
+        ...(invite && { memberInviteExpiresAt: invite }),
+      };
+    });
+  }
+
+  /** USR-17: a pessoa atingida chega pelo id público; desconhecido responde como alguém fora do grupo. */
+  async function resolveTarget(target: PublicUserId): Promise<UserId> {
+    const id = (await deps.users.resolve([target])).get(target);
+    if (!id) throw appError('GROUP_MEMBER_NOT_FOUND');
+    return id;
+  }
+
   return {
-    async create(ownerId: string, input: CreateGroupInput): Promise<Group> {
+    async create(ownerId: UserId, input: CreateGroupInput): Promise<Group> {
       const layers = createLayers(input);
       assertLayers({ ...input, ...layers });
       // GRP-13: sem fuso no pedido, o das preferências do dono (USR-07).
-      const timeZone =
-        input.timeZone ?? (await deps.users.getPreferences(ownerId)).timeZone ?? DEFAULT_TIME_ZONE;
+      const [preferences, owner] = await Promise.all([
+        deps.users.getPreferences(ownerId),
+        deps.users.get(ownerId),
+      ]);
+      if (!owner) throw appError('USER_NOT_FOUND');
+      const timeZone = input.timeZone ?? preferences.timeZone ?? DEFAULT_TIME_ZONE;
       const group = newEntity<StoredGroup>(
         {
           ...input,
@@ -191,6 +235,8 @@ export function createGroupService(deps: GroupsDeps) {
           ...CREATE_LIMITS,
           timeZone,
           ownerId,
+          // USR-16: o `ownerId` da resposta é o público; como o código não muda (USR-15), a cópia não fica velha.
+          ownerPublicId: owner.publicId,
           inviteToken: randomToken(),
           reserveInviteToken: randomToken(),
           guestToken: randomToken(),
@@ -201,7 +247,7 @@ export function createGroupService(deps: GroupsDeps) {
       return forViewer(group, ownerId, 'member');
     },
 
-    async get(userId: string, groupId: string): Promise<Group> {
+    async get(userId: UserId, groupId: string): Promise<Group> {
       const { group, role } = await requireMember(deps, userId, groupId);
       const view = forViewer(group, userId, role);
       if (role !== 'reserve') return view;
@@ -212,7 +258,7 @@ export function createGroupService(deps: GroupsDeps) {
       return expiresAt ? { ...view, myMemberInvite: { expiresAt } } : view;
     },
 
-    async myGroups(userId: string): Promise<MyGroup[]> {
+    async myGroups(userId: UserId): Promise<MyGroup[]> {
       // Plano 013, D7: grupo e papel numa leitura só (Query + BatchGet), sem get/roleOf por grupo.
       // GRP-31: arquivado sai daqui e vai para `archivedGroups`.
       const rows = (await deps.groups.groupsOf(userId)).filter(({ group }) => !group.archivedAt);
@@ -225,7 +271,7 @@ export function createGroupService(deps: GroupsDeps) {
     },
 
     /** GRP-31: só os arquivados, do arquivado mais recente para o mais antigo, sem o resumo do jogo. */
-    async archivedGroups(userId: string): Promise<Group[]> {
+    async archivedGroups(userId: UserId): Promise<Group[]> {
       const rows = await deps.groups.groupsOf(userId);
       return rows
         .flatMap(({ group, role }) => (group.archivedAt ? [{ group, role, at: group.archivedAt }] : []))
@@ -234,7 +280,7 @@ export function createGroupService(deps: GroupsDeps) {
     },
 
     /** GRP-31: arquiva (links param na hora) e cancela o jogo aberto. Arquivar de novo só completa o cancelamento. */
-    async archive(userId: string, groupId: string): Promise<Group> {
+    async archive(userId: UserId, groupId: string): Promise<Group> {
       const group = await requireOwner(deps, userId, groupId);
       const archived = await attemptArchive(group, 1);
       await games.cancelForArchive(archived);
@@ -242,7 +288,7 @@ export function createGroupService(deps: GroupsDeps) {
     },
 
     /** GRP-33: volta com 3 links novos. Grupo ativo → devolve como está. */
-    async unarchive(userId: string, groupId: string): Promise<Group> {
+    async unarchive(userId: UserId, groupId: string): Promise<Group> {
       const group = await requireOwner(deps, userId, groupId);
       if (!group.archivedAt) return forViewer(group, userId, 'member');
       const tokens = {
@@ -261,7 +307,7 @@ export function createGroupService(deps: GroupsDeps) {
     },
 
     /** D11: o dono muda as camadas. Junta com o atual e confere a ordem antes de gravar. */
-    async update(userId: string, groupId: string, patch: UpdateGroupInput): Promise<Group> {
+    async update(userId: UserId, groupId: string, patch: UpdateGroupInput): Promise<Group> {
       const group = await requireOwner(deps, userId, groupId);
       requireActive(group);
       const layers = {
@@ -289,7 +335,7 @@ export function createGroupService(deps: GroupsDeps) {
     },
 
     /** Gera outro link do tipo: o anterior deixa de valer (D9 do 003, D5 do 007). */
-    async rotateInvite(userId: string, groupId: string, kind: InviteKind = 'member'): Promise<Invite> {
+    async rotateInvite(userId: UserId, groupId: string, kind: InviteKind = 'member'): Promise<Invite> {
       const group = await requireOwner(deps, userId, groupId);
       requireActive(group);
       if (kind === 'guest' && group.guestsOpenHoursBefore == null) throw appError('GAME_LINK_INVALID');
@@ -299,7 +345,7 @@ export function createGroupService(deps: GroupsDeps) {
     },
 
     /** Entra pelo link de membro ou de reserva (D5). Já participa → só sobe de reserva para membro. */
-    async acceptInvite(userId: string, token: string): Promise<Group> {
+    async acceptInvite(userId: UserId, token: string): Promise<Group> {
       const found = await deps.groups.getByToken(token);
       if (!found || found.kind === 'guest') throw appError('GROUP_INVITE_INVALID');
       await attemptJoin(found.group, userId, found.kind, 1);
@@ -307,42 +353,24 @@ export function createGroupService(deps: GroupsDeps) {
       return forViewer(found.group, userId, role);
     },
 
-    /** Dono no topo, depois os membros e por último as reservas; dentro de cada papel, por data de entrada (D9 do 013). */
-    async members(userId: string, groupId: string): Promise<Member[]> {
-      const { group } = await requireMember(deps, userId, groupId);
-      const list = await deps.groups.listMembers(groupId);
-      const users = new Map((await deps.users.getMany(list.map((m) => m.userId))).map((u) => [u.id, u]));
-      const isOwner = (id: string) => id === group.ownerId;
-      const rank = (m: GroupMember) => (isOwner(m.userId) ? -1 : ROLE_ORDER[m.role]);
-      const ordered = [...list].sort((a, b) => rank(a) - rank(b) || a.createdAt.localeCompare(b.createdAt));
-      const viewerIsOwner = isOwner(userId);
-      return ordered.map(({ userId: id, role, memberInviteExpiresAt }): Member => {
-        const user = users.get(id);
-        const name = user?.nickname ?? user?.name;
-        // GRP-40: só o dono vê o prazo do convite pendente.
-        const invite = viewerIsOwner ? pendingInvite(memberInviteExpiresAt) : undefined;
-        return {
-          userId: id,
-          ...(name && { name }),
-          isOwner: isOwner(id),
-          role,
-          ...(invite && { memberInviteExpiresAt: invite }),
-        };
-      });
+    async members(userId: UserId, groupId: string): Promise<Member[]> {
+      return (await memberRecords(userId, groupId)).map(publicMember);
     },
 
+    memberRecords,
+
     /** D12 do 003 / D10 do 007: tira o acesso, troca o link do papel e (com a lista aberta) a vaga; depois, promoção. */
-    async removeMember(userId: string, groupId: string, memberId: string): Promise<void> {
+    async removeMember(userId: UserId, groupId: string, target: PublicUserId): Promise<void> {
       const group = await requireOwner(deps, userId, groupId);
       requireActive(group);
+      const memberId = await resolveTarget(target);
       if (memberId === group.ownerId) throw appError('GROUP_OWNER_NOT_REMOVABLE');
       const role = await deps.groups.roleOf(groupId, memberId);
       if (!role) throw appError('GROUP_MEMBER_NOT_FOUND');
       await attemptRemoval(group, memberId, role, 1, true);
     },
-
     /** GRP-42: membro ou reserva sai sozinho; como a remoção, mas sem trocar o link. */
-    async leave(userId: string, groupId: string): Promise<void> {
+    async leave(userId: UserId, groupId: string): Promise<void> {
       const { group, role } = await requireMember(deps, userId, groupId);
       requireActive(group);
       if (userId === group.ownerId) throw appError('GROUP_OWNER_NOT_REMOVABLE');
@@ -350,13 +378,14 @@ export function createGroupService(deps: GroupsDeps) {
     },
 
     /** GRP-40: o dono convida uma reserva para virar membro. Convite vigente → devolve o mesmo, sem avisar. */
-    async inviteToMember(ownerId: string, groupId: string, userId: string): Promise<MemberInvite> {
+    async inviteToMember(ownerId: UserId, groupId: string, target: PublicUserId): Promise<MemberInvite> {
       const group = await requireOwner(deps, ownerId, groupId);
       requireActive(group);
+      const userId = await resolveTarget(target);
       const membership = await deps.groups.getMembership(groupId, userId);
       if (membership?.role !== 'reserve') throw appError('GROUP_MEMBER_NOT_FOUND');
       const pending = pendingInvite(membership.memberInviteExpiresAt);
-      if (pending) return { userId, expiresAt: pending };
+      if (pending) return { userId: target, expiresAt: pending };
       const { memberCount } = await deps.groups.counts(groupId);
       if (memberCount >= limitsOf(group).maxMembers) throw appError('GROUP_MEMBERS_FULL');
       const expiresAt = new Date(now().getTime() + MEMBER_INVITE_DAYS * DAY_MS).toISOString();
@@ -368,18 +397,18 @@ export function createGroupService(deps: GroupsDeps) {
         body: `Você foi convidado para ser membro de ${group.name}.`,
         link: `/groups/${groupId}`,
       });
-      return { userId, expiresAt };
+      return { userId: target, expiresAt };
     },
 
     /** GRP-40: o dono cancela o convite pendente. Sem convite, não faz nada. */
-    async cancelMemberInvite(ownerId: string, groupId: string, userId: string): Promise<void> {
+    async cancelMemberInvite(ownerId: UserId, groupId: string, target: PublicUserId): Promise<void> {
       const group = await requireOwner(deps, ownerId, groupId);
       requireActive(group);
-      await deps.groups.clearMemberInvite(groupId, userId);
+      await deps.groups.clearMemberInvite(groupId, await resolveTarget(target));
     },
 
     /** GRP-41: a reserva aceita; o prazo e o limite são conferidos na gravação. */
-    async acceptMemberInvite(userId: string, groupId: string): Promise<Group> {
+    async acceptMemberInvite(userId: UserId, groupId: string): Promise<Group> {
       const { group, role } = await requireMember(deps, userId, groupId);
       requireActive(group);
       if (role !== 'reserve') throw appError('GROUP_MEMBER_INVITE_INVALID');
@@ -388,7 +417,7 @@ export function createGroupService(deps: GroupsDeps) {
     },
 
     /** GRP-41: a reserva recusa; o convite some e o dono não é avisado. */
-    async declineMemberInvite(userId: string, groupId: string): Promise<void> {
+    async declineMemberInvite(userId: UserId, groupId: string): Promise<void> {
       const { group } = await requireMember(deps, userId, groupId);
       requireActive(group);
       const membership = await deps.groups.getMembership(groupId, userId);

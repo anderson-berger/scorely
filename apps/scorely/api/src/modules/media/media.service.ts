@@ -125,6 +125,8 @@ export function createMediaService({ repo, storage, now = () => new Date() }: Me
     async requestUpload(input: {
       purpose: MediaPurpose;
       ownerId: string;
+      /** MID-12: o que vai no caminho público (padrão: o `ownerId`). A foto de perfil passa o id público. */
+      ownerRef?: string;
       uploadedBy: string;
       contentType: ImageContentType;
     }): Promise<MediaUpload> {
@@ -136,6 +138,7 @@ export function createMediaService({ repo, storage, now = () => new Date() }: Me
           purpose: input.purpose,
           ownerType: policy.ownerType,
           ownerId: input.ownerId,
+          ...(input.ownerRef !== undefined && { ownerRef: input.ownerRef }),
           status: 'pending',
           key: '',
           uploadedBy: input.uploadedBy,
@@ -168,7 +171,7 @@ export function createMediaService({ repo, storage, now = () => new Date() }: Me
       if (!media.expiresAt || new Date(media.expiresAt) <= now()) throw appError('MEDIA_NOT_FOUND');
 
       const file = await inspectUpload(media);
-      const finalKey = `${MEDIA_PREFIXES.public}${media.ownerType}/${media.ownerId}/${media.purpose}/${media.id}.${EXTENSIONS[file.contentType]}`;
+      const finalKey = `${MEDIA_PREFIXES.public}${media.ownerType}/${media.ownerRef ?? media.ownerId}/${media.purpose}/${media.id}.${EXTENSIONS[file.contentType]}`;
       await storage.copy(media.key, finalKey);
       const { expiresAt: _expires, ...rest } = media;
       const ready: MediaRecord = { ...rest, ...file, status: 'ready', key: finalKey };

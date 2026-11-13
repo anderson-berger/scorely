@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { AppError, appError } from '@scorely/api/src/lib/errors';
 import { range } from '@scorely/api/src/lib/fn';
+import { asUserId, type UserId } from '@scorely/api/src/lib/ids';
 import type { GroupRepository, StoredGroup } from '@scorely/api/src/modules/groups/group.repository';
 import type { NewNotification } from '@scorely/api/src/modules/notifications/notification.service';
 import type { StoredPlayer } from '@scorely/api/src/modules/teams/player.repository';
@@ -10,6 +11,7 @@ import type {
 } from '@scorely/api/src/modules/teams/settings.repository';
 import type { StoredTeams, TeamsRepository } from '@scorely/api/src/modules/teams/teams.repository';
 import { createTeamsService } from '@scorely/api/src/modules/teams/teams.service';
+import type { UserRecord } from '@scorely/api/src/modules/users/user.repository';
 import {
   type Attendee,
   type ErrorCode,
@@ -19,15 +21,15 @@ import {
   type MemberRole,
   type Notification,
   type PlayerPosition,
+  type PublicUserId,
+  PublicUserIdSchema,
   SaveTeamsInputSchema,
   TEAM_EXTRA_LIMITS,
   type TeamExtra,
   type TeamRule,
-  type TeamSettings,
   type Teams,
   TeamsResponseSchema,
   type TeamViolation,
-  type User,
 } from '@scorely/contracts';
 import { describe, expect, it } from 'vitest';
 
@@ -38,26 +40,104 @@ import { describe, expect, it } from 'vitest';
 // O fake de `users.getMany` só devolve quem tem conta (como o BatchGet real): o avulso não tem.
 
 const GROUP_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-const OWNER = '11111111-1111-4111-8111-111111111111';
-const A = '22222222-2222-4222-8222-222222222222';
+const OWNER = asUserId('11111111-1111-4111-8111-111111111111');
+const A = asUserId('22222222-2222-4222-8222-222222222222');
 /** Membro na fila (Banco). */
-const B = '33333333-3333-4333-8333-333333333333';
-const R = '88888888-8888-4888-8888-888888888888';
-const G = '99999999-9999-4999-8999-999999999999';
+const B = asUserId('33333333-3333-4333-8333-333333333333');
+const R = asUserId('88888888-8888-4888-8888-888888888888');
+const G = asUserId('99999999-9999-4999-8999-999999999999');
 /** Convidado na fila. */
-const H = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
-const OUTSIDER = '66666666-6666-4666-8666-666666666666';
-const E = range(8).map((i) => `dddddddd-dddd-4ddd-8ddd-00000000000${i}`);
+const H = asUserId('cccccccc-cccc-4ccc-8ccc-cccccccccccc');
+const OUTSIDER = asUserId('66666666-6666-4666-8666-666666666666');
+const E = range(8).map((i) => asUserId(`dddddddd-dddd-4ddd-8ddd-00000000000${i}`));
 const [E0, E1, E2, E3, E4, E5, E6, E7] = E as [
-  string,
-  string,
-  string,
-  string,
-  string,
-  string,
-  string,
-  string,
+  UserId,
+  UserId,
+  UserId,
+  UserId,
+  UserId,
+  UserId,
+  UserId,
+  UserId,
 ];
+
+const PEOPLE: UserId[] = [OWNER, A, B, R, G, H, OUTSIDER, ...E];
+// ---------------------------------------------------------------------------------------------
+// Id público (USR-15–17): por dentro, tudo anda com o id do sistema; na borda (entrada e saída do service), com o
+// público. Os testes falam com ids do sistema: `atTheEdge` traduz para o público na ida e volta para o do sistema na
+// saída. Um id do sistema que sair do service vira `LEAKED:<id>` e quebra a comparação (USR-16).
+
+/** Id público de cada pessoa do teste: os 4 primeiros e os 4 últimos caracteres do id do sistema, em maiúsculas. */
+const pub = (id: UserId): PublicUserId =>
+  PublicUserIdSchema.parse(`${id.slice(0, 4)}${id.slice(-4)}`.toUpperCase());
+const TO_PUBLIC = new Map<string, string>(PEOPLE.map((id) => [id, pub(id)]));
+const TO_SYSTEM = new Map<string, string>(PEOPLE.map((id) => [pub(id), id]));
+const resolveIn = (publicIds: readonly PublicUserId[]) =>
+  new Map(
+    publicIds.flatMap((code) => {
+      const id = TO_SYSTEM.get(code);
+      return id === undefined ? [] : [[code, asUserId(id)] as const];
+    }),
+  );
+
+function mapDeep(value: unknown, f: (s: string) => string): unknown {
+  if (typeof value === 'string') return f(value);
+  if (Array.isArray(value)) return value.map((v) => mapDeep(v, f));
+  if (value && typeof value === 'object')
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [f(k), mapDeep(v, f)]));
+  return value;
+}
+const toWire = (value: unknown) => mapDeep(value, (s) => TO_PUBLIC.get(s) ?? s);
+const fromWire = (value: unknown) =>
+  mapDeep(value, (s) => TO_SYSTEM.get(s) ?? (TO_PUBLIC.has(s) ? `LEAKED:${s}` : s));
+
+/** O tipo visto pelo teste: id público vira id do sistema. */
+type Sys<T> = T extends PublicUserId
+  ? UserId
+  : T extends string | number | boolean | null | undefined
+    ? T
+    : T extends readonly (infer U)[]
+      ? Sys<U>[]
+      : T extends object
+        ? { [K in keyof T]: Sys<T[K]> }
+        : T;
+type AtTheEdge<S> = {
+  [K in keyof S]: S[K] extends (...args: infer P) => Promise<infer R>
+    ? (...args: { [I in keyof P]: Sys<P[I]> }) => Promise<Sys<R>>
+    : S[K];
+};
+
+/** O service visto pelos testes: o 1º argumento (quem pede, o login) passa como está; o resto vai com o público. */
+function atTheEdge<S extends object>(service: S): AtTheEdge<S> {
+  return new Proxy(service, {
+    get(target, prop) {
+      const fn: unknown = Reflect.get(target, prop);
+      if (typeof fn !== 'function') return fn;
+      return async (actor: unknown, ...rest: unknown[]) => {
+        try {
+          return fromWire(await fn.call(target, actor, ...(toWire(rest) as unknown[])));
+        } catch (e) {
+          if (e instanceof AppError && e.details !== undefined)
+            Object.assign(e, { details: fromWire(e.details) });
+          throw e;
+        }
+      };
+    },
+  }) as unknown as AtTheEdge<S>;
+}
+
+/** Todos os ids do sistema do teste: nenhum pode aparecer numa resposta (USR-16). */
+const leaksSystemId = (value: unknown) => PEOPLE.some((id) => JSON.stringify(value).includes(id));
+
+/** O que o módulo de grupos entrega aos times (interno): as pessoas com os dois ids. */
+type RosterAttendee = Omit<Attendee, 'userId'> & { userId: UserId; publicId: PublicUserId };
+type RosterGame = Omit<Game, 'confirmed' | 'waitlist'> & {
+  confirmed: RosterAttendee[];
+  waitlist: RosterAttendee[];
+};
+type GuestRoster = Omit<GuestGame, 'game'> & { game: RosterGame };
+/** A configuração como fica guardada (os opostos pelo id do sistema). */
+type SettingsInput = Partial<Omit<StoredTeamSettings, 'groupId' | 'createdAt' | 'updatedAt'>>;
 
 const DATE = '2026-11-06';
 const NOW = new Date('2026-11-05T13:00:00.000Z');
@@ -98,8 +178,9 @@ const MEMBERS: Record<string, MemberRole> = {
   [R]: 'reserve',
 };
 
-const attendee = (userId: string, role: Attendee['role'], minute: number): Attendee => ({
+const attendee = (userId: UserId, role: Attendee['role'], minute: number): RosterAttendee => ({
   userId,
+  publicId: pub(userId),
   name: `P-${userId.slice(-2)}`,
   role,
   confirmedAt: new Date(Date.UTC(2026, 10, 4, 22, minute)).toISOString(),
@@ -108,7 +189,11 @@ const attendee = (userId: string, role: Attendee['role'], minute: number): Atten
 const INSIDE = [OWNER, A, G, R, ...E];
 const roleIn = (id: string): Attendee['role'] => MEMBERS[id] ?? 'guest';
 
-function gameOf(confirmed: string[], waitlist: string[] = [B, H], extra: Partial<Game> = {}): Game {
+function gameOf(
+  confirmed: UserId[],
+  waitlist: UserId[] = [B, H],
+  extra: Partial<RosterGame> = {},
+): RosterGame {
   return {
     groupId: GROUP_ID,
     date: DATE,
@@ -145,15 +230,15 @@ const MEN_THREE: TeamRule = { target: { kind: 'gender', gender: 'M' }, min: 3 };
 
 function setup(
   opts: {
-    game?: Game;
+    game?: RosterGame;
     random?: () => number;
-    settings?: Partial<TeamSettings>;
+    settings?: SettingsInput;
     positions?: Record<string, PlayerPosition[]>;
   } = {},
 ) {
   const clock = { now: NOW };
   const state = { group: storedGroup(), game: opts.game ?? gameOf(INSIDE) };
-  const sent: ({ userId: string } & NewNotification)[] = [];
+  const sent: ({ userId: UserId } & NewNotification)[] = [];
   const puts: StoredTeams[] = [];
   const teamsStore = new Map<string, StoredTeams>();
   const settingsStore = {
@@ -182,11 +267,11 @@ function setup(
   };
 
   const roster = {
-    currentGame: async (_userId: string, groupId: string): Promise<Game> => {
+    currentGame: async (_userId: UserId, groupId: string): Promise<RosterGame> => {
       if (groupId !== state.group.id) throw appError('GROUP_NOT_FOUND');
       return structuredClone(state.game);
     },
-    guestView: async (_userId: string, token: string): Promise<GuestGame> => {
+    guestView: async (_userId: UserId, token: string): Promise<GuestRoster> => {
       if (token !== state.group.guestToken) throw appError('GAME_LINK_INVALID');
       const g = state.group;
       return {
@@ -223,14 +308,16 @@ function setup(
   };
 
   const users = {
-    getMany: async (userIds: readonly string[]): Promise<User[]> =>
+    /** USR-17: id público → id do sistema; o desconhecido (e o avulso) fica de fora. */
+    resolve: async (publicIds: readonly PublicUserId[]) => resolveIn(publicIds),
+    getMany: async (userIds: readonly UserId[]): Promise<UserRecord[]> =>
       userIds
         .filter((id) => id in GENDERS)
         .map((id) => {
           const gender = GENDERS[id];
           return {
             id,
-            email: `${id.slice(0, 4)}@x.com`,
+            publicId: pub(id),
             name: `P-${id.slice(-2)}`,
             createdAt: '2026-01-01T00:00:00.000Z',
             ...(gender && { gender }),
@@ -239,9 +326,9 @@ function setup(
   };
 
   const notifications = {
-    notify: async (userId: string, input: NewNotification): Promise<Notification> => {
+    notify: async (userId: UserId, input: NewNotification): Promise<Notification> => {
       sent.push({ userId, ...input });
-      return { id: randomUUID(), createdAt: clock.now.toISOString(), userId, ...input };
+      return { id: randomUUID(), createdAt: clock.now.toISOString(), ...input };
     },
   };
 
@@ -264,7 +351,7 @@ function setup(
       groupId === GROUP_ID && settingsStore.current ? structuredClone(settingsStore.current) : undefined,
   };
 
-  const service = createTeamsService({
+  const raw = createTeamsService({
     groups,
     roster,
     players,
@@ -275,8 +362,9 @@ function setup(
     now: () => clock.now,
     random: opts.random ?? seeded(42),
   });
+  const service = atTheEdge(raw);
 
-  const setSettings = (s: Partial<TeamSettings>) => {
+  const setSettings = (s: SettingsInput) => {
     settingsStore.current = storedSettings(s);
   };
   const seedTeams = (extra: Partial<StoredTeams> = {}) =>
@@ -292,7 +380,7 @@ function setup(
       ...extra,
     });
   const stored = () => teamsStore.get(`${GROUP_ID}#${DATE}`);
-  return { clock, state, sent, puts, service, setSettings, seedTeams, stored };
+  return { clock, state, sent, puts, service, raw, setSettings, seedTeams, stored };
 }
 
 function storedGroup(): StoredGroup {
@@ -309,6 +397,7 @@ function storedGroup(): StoredGroup {
     reservesOpenHoursBefore: 24,
     guestsOpenHoursBefore: 12,
     ownerId: OWNER,
+    ownerPublicId: pub(OWNER),
     inviteToken: 'tok-member',
     reserveInviteToken: 'tok-reserve',
     guestToken: 'tok-guest',
@@ -317,7 +406,7 @@ function storedGroup(): StoredGroup {
   };
 }
 
-function storedSettings(s: Partial<TeamSettings>): StoredTeamSettings {
+function storedSettings(s: SettingsInput): StoredTeamSettings {
   return {
     groupId: GROUP_ID,
     teamCount: 2,
@@ -340,14 +429,14 @@ async function expectAppError(p: Promise<unknown>, code: ErrorCode, status: numb
 }
 
 const ids = (list: { userId: string }[]) => list.map((x) => x.userId);
-const teamIds = (t: Teams | null) => (t ? t.teams.map(ids) : []);
+const teamIds = (t: Sys<Teams> | null) => (t ? t.teams.map(ids) : []);
 const countIn = (team: string[], group: string[]) => team.filter((id) => group.includes(id)).length;
 const SETTERS = [E0, E1];
 const WOMEN = [A, G, E2, E3, E4, E5];
 const SEEDS = range(30).map((i) => i * 7919 + 3);
 
 /** Mesmo conteúdo, em qualquer ordem. */
-function expectSameViolations(actual: TeamViolation[] | undefined, expected: TeamViolation[]) {
+function expectSameViolations(actual: Sys<TeamViolation>[] | undefined, expected: Sys<TeamViolation>[]) {
   expect(actual ?? []).toHaveLength(expected.length);
   expect(actual ?? []).toEqual(expect.arrayContaining(expected));
 }
@@ -356,7 +445,7 @@ describe('quantidade padrão de times (TIM-14, TIM-15, TIM-17)', () => {
   it('TIM-14: dono sem times recebe a quantidade padrão do grupo (sem configuração, 2); os outros não', async () => {
     const t = setup();
     const res = await t.service.get(OWNER, GROUP_ID, DATE);
-    expect(TeamsResponseSchema.parse(res)).toEqual(res);
+    expect(TeamsResponseSchema.parse(toWire(res))).toEqual(toWire(res));
     expect(res).toEqual({ teams: null, defaultTeamCount: 2 });
 
     t.setSettings({ teamCount: 3 });
@@ -552,7 +641,7 @@ describe('montar à mão com regras (TIM-20)', () => {
     ],
     positions: {},
   };
-  const OUTSIDE_VIOLATIONS: TeamViolation[] = [
+  const OUTSIDE_VIOLATIONS: Sys<TeamViolation>[] = [
     { kind: 'count', team: 1, rule: SETTER_ONE, count: 2 },
     { kind: 'count', team: 2, rule: SETTER_ONE, count: 0 },
   ];
@@ -561,7 +650,7 @@ describe('montar à mão com regras (TIM-20)', () => {
     const t = setup({ settings: { rules: [SETTER_ONE] } });
     const res = await t.service.save(OWNER, GROUP_ID, DATE, OUTSIDE);
 
-    expect(TeamsResponseSchema.parse(res)).toEqual(res);
+    expect(TeamsResponseSchema.parse(toWire(res))).toEqual(toWire(res));
     expect(res.teams?.status).toBe('draft');
     expect(t.stored()?.teams).toEqual(OUTSIDE.teams);
     expectSameViolations(res.teams?.violations, OUTSIDE_VIOLATIONS);
@@ -632,7 +721,10 @@ describe('montar à mão com regras (TIM-20)', () => {
     await t.service.save(OWNER, GROUP_ID, DATE, OUTSIDE);
     const err = await expectAppError(t.service.publish(OWNER, GROUP_ID, DATE), 'TEAM_RULES_VIOLATED', 422);
 
-    expectSameViolations((err.details as { violations: TeamViolation[] }).violations, OUTSIDE_VIOLATIONS);
+    expectSameViolations(
+      (err.details as { violations: Sys<TeamViolation>[] }).violations,
+      OUTSIDE_VIOLATIONS,
+    );
     expect(t.stored()?.status).toBe('draft');
     expect(t.stored()?.publishedAt).toBeUndefined();
     expect(t.sent).toEqual([]);
@@ -838,7 +930,7 @@ describe('times opostos montando à mão (TIM-22, TIM-20)', () => {
   it('TIM-20 / TIM-22: o dono vê, no time, quem devia estar em times diferentes; o rascunho salva', async () => {
     const t = setup({ settings: { apart: [{ people: [A, G] }] } });
     const res = await t.service.save(OWNER, GROUP_ID, DATE, TOGETHER);
-    expect(TeamsResponseSchema.parse(res)).toEqual(res);
+    expect(TeamsResponseSchema.parse(toWire(res))).toEqual(toWire(res));
     expect(t.stored()?.teams).toEqual(TOGETHER.teams);
     expect(normalized(res.teams?.violations)).toEqual([
       { kind: 'apart', team: 1, people: sortedIds([A, G]) },
@@ -955,7 +1047,7 @@ describe('preferência: espalhar homens e mulheres (TIM-23)', () => {
   it('TIM-23: com ela ligada, cada time mostra quantos homens e mulheres tem (quem não informou não conta), para o dono, os membros e o link do jogo', async () => {
     const t = setup({ settings: { spreadGender: true } });
     const drawn = await t.service.draw(OWNER, GROUP_ID, DATE);
-    expect(TeamsResponseSchema.parse(drawn)).toEqual(drawn);
+    expect(TeamsResponseSchema.parse(toWire(drawn))).toEqual(toWire(drawn));
     expect(drawn.teams?.genders).toEqual(teamIds(drawn.teams).map(gendersOf));
 
     await t.service.publish(OWNER, GROUP_ID, DATE);
@@ -1024,7 +1116,7 @@ describe('avulso: pessoa sem conta só neste jogo (TIM-24, TIM-08)', () => {
       positions: {},
       extras: [ZE, LU],
     });
-    expect(TeamsResponseSchema.parse(res)).toEqual(res);
+    expect(TeamsResponseSchema.parse(toWire(res))).toEqual(toWire(res));
     expect(res.teams?.teams[0]?.[1]).toMatchObject({ ...ZE_VIEW, gender: 'M' });
     expect(res.teams?.unassigned.find((p) => p.userId === X2)).toMatchObject({
       userId: X2,
@@ -1215,5 +1307,40 @@ describe('avulso no sorteio e nas regras (TIM-24, TIM-15, TIM-18)', () => {
       extras: [ZE, LU],
     });
     expectSameViolations(without.teams?.violations, [{ kind: 'count', team: 2, rule: SETTER_MIN, count: 0 }]);
+  });
+});
+
+describe('regras e avulsos pelo id público (USR-16, USR-17)', () => {
+  it('USR-16: o conflito de times opostos sai com os ids públicos', async () => {
+    const t = setup({ settings: { apart: [{ people: [A, G, E2] }] } });
+    const err = await expectAppError(t.raw.draw(OWNER, GROUP_ID, DATE), 'TEAM_RULES_CONFLICT', 422);
+    const conflicts = (err.details as { conflicts: { reason: string; people?: string[] }[] }).conflicts;
+    expect(conflicts.map((c) => [c.reason, [...(c.people ?? [])].sort()])).toEqual([
+      ['apart_too_many', [A, G, E2].map(pub).sort()],
+    ]);
+    expect(leaksSystemId(err.details)).toBe(false);
+  });
+
+  it('USR-16: a violação de times opostos no rascunho sai com os ids públicos', async () => {
+    const t = setup({ settings: { apart: [{ people: [A, G] }], allowOutsideRules: true } });
+    const res = await t.raw.save(OWNER, GROUP_ID, DATE, {
+      teams: [[pub(A), pub(G)], [pub(R)]],
+      positions: {},
+    });
+    const apart = (res.teams?.violations ?? []).filter((v) => v.kind === 'apart');
+    expect(apart.map((v) => [...v.people].sort())).toEqual([[pub(A), pub(G)].sort()]);
+    expect(leaksSystemId(res)).toBe(false);
+  });
+
+  it('USR-17: o avulso continua pelo uuid dele, junto com as pessoas pelo id público', async () => {
+    const t = setup();
+    const res = await t.raw.save(OWNER, GROUP_ID, DATE, {
+      teams: [[pub(A), X1], [pub(G)]],
+      positions: { [X1]: ['libero'] },
+      extras: [ZE],
+    });
+    expect(t.stored()?.teams).toEqual([[A, X1], [G]]);
+    expect(res.teams?.teams[0]?.map((p) => p.userId)).toEqual([pub(A), X1]);
+    expect(TeamsResponseSchema.parse(res)).toEqual(res);
   });
 });

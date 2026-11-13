@@ -1,18 +1,20 @@
 import { parseBody, route } from '@scorely/api/src/lib/http';
-import type { UserRepository } from '@scorely/api/src/modules/users/user.repository';
+import type { UserId } from '@scorely/api/src/lib/ids';
+import type { MeRecord, UserRecord, UserRepository } from '@scorely/api/src/modules/users/user.repository';
 import { createUserService } from '@scorely/api/src/modules/users/user.service';
 import {
-  type Me,
   type Preferences,
+  type PublicUserId,
+  PublicUserIdSchema,
   TimeZoneSchema,
   type UpdateMeInput,
   UpdateMeInputSchema,
-  type User,
 } from '@scorely/contracts';
 import type { APIGatewayProxyEventV2 } from 'aws-lambda';
 import { describe, expect, it } from 'vitest';
 
 const EMAIL = 'ana@example.com';
+const PUBLIC_ID = PublicUserIdSchema.parse('7K3QX9TA');
 type ReadOpts = { consistent?: boolean };
 
 /**
@@ -20,11 +22,11 @@ type ReadOpts = { consistent?: boolean };
  * `null` no patch remove o atributo; `writes` conta as gravações (para conferir "nada gravado").
  */
 function memoryUserRepo() {
-  const profiles = new Map<string, User>();
-  const emails = new Map<string, string>();
-  const prefs = new Map<string, Preferences>();
+  const profiles = new Map<UserId, UserRecord>();
+  const emails = new Map<UserId, string>();
+  const prefs = new Map<UserId, Preferences>();
   const writes = { count: 0 };
-  const me = (id: string): Me | undefined => {
+  const me = (id: UserId): MeRecord | undefined => {
     const profile = profiles.get(id);
     const email = emails.get(id);
     if (!profile || email === undefined) return undefined;
@@ -36,22 +38,22 @@ function memoryUserRepo() {
       if (v === null) delete target[k];
       else if (v !== undefined) target[k] = v;
     });
-  const impl = {
-    get: async (id: string, _opts?: ReadOpts) => structuredClone(profiles.get(id)),
-    getMe: async (id: string, _opts?: ReadOpts) => me(id),
+  const repo: UserRepository = {
+    get: async (id: UserId, _opts?: ReadOpts) => structuredClone(profiles.get(id)),
+    getMe: async (id: UserId, _opts?: ReadOpts) => me(id),
     getByEmail: async (email: string, _opts?: ReadOpts) => {
       const id = idOf(email);
       return id === undefined ? undefined : me(id);
     },
-    getPreferences: async (id: string): Promise<Preferences> => structuredClone(prefs.get(id) ?? {}),
-    async create(user: User, email: string) {
-      if (idOf(email) !== undefined) return false;
+    getPreferences: async (id: UserId): Promise<Preferences> => structuredClone(prefs.get(id) ?? {}),
+    async create(user: UserRecord, email: string) {
+      if (idOf(email) !== undefined) return 'email_taken';
       profiles.set(user.id, structuredClone(user));
       emails.set(user.id, email);
       prefs.set(user.id, {});
-      return true;
+      return 'created';
     },
-    async update(id: string, patch: UpdateMeInput) {
+    async update(id: UserId, patch: UpdateMeInput) {
       const profile = profiles.get(id);
       const preferences = prefs.get(id);
       if (!profile || !preferences) return undefined;
@@ -61,22 +63,32 @@ function memoryUserRepo() {
       assign(profile, rest);
       return me(id);
     },
+    resolve: async (codes: readonly PublicUserId[]) =>
+      new Map(
+        [...profiles.values()]
+          .filter((u) => codes.includes(u.publicId))
+          .map((u) => [u.publicId, u.id] as const),
+      ),
   };
-  const repo: UserRepository = impl;
   return { repo, writes, profiles, prefs };
 }
 
 async function withUser() {
   const clock = { now: new Date('2026-11-06T12:00:00.000Z') };
   const memory = memoryUserRepo();
-  const service = createUserService(memory.repo, () => clock.now);
-  const { user } = await service.findOrCreateByEmail(EMAIL);
+  const service = createUserService(
+    memory.repo,
+    () => clock.now,
+    undefined,
+    () => PUBLIC_ID,
+  );
+  const { userId } = await service.findOrCreateByEmail(EMAIL);
   /** Mesmo caminho do `PATCH /me`: parse do body com o schema do contrato → `update`. */
   const patchMe = (body: unknown) => {
     const event = { body: JSON.stringify(body) } as APIGatewayProxyEventV2;
-    return route(event, async () => service.update(user.id, parseBody(event, UpdateMeInputSchema)));
+    return route(event, async () => service.update(userId, parseBody(event, UpdateMeInputSchema)));
   };
-  return { service, user, memory, writes: memory.writes, patchMe };
+  return { service, userId, memory, writes: memory.writes, patchMe };
 }
 
 const bodyOf = (res: unknown) => JSON.parse((res as { body: string }).body);
@@ -87,19 +99,19 @@ describe('perfil: idioma e fuso nas preferências', () => {
     const res = await t.patchMe({ locale: 'en', timeZone: 'Europe/Lisbon' });
     expect(res).toMatchObject({ statusCode: 200 });
     const body = bodyOf(res);
-    expect(body).toMatchObject({ id: t.user.id, email: EMAIL });
+    expect(body).toMatchObject({ id: PUBLIC_ID, email: EMAIL });
     expect(body.preferences).toEqual({ locale: 'en', timeZone: 'Europe/Lisbon' });
     expect(body).not.toHaveProperty('locale');
     expect(body).not.toHaveProperty('timeZone');
-    expect((await t.service.get(t.user.id)).preferences).toEqual({ locale: 'en', timeZone: 'Europe/Lisbon' });
+    expect((await t.service.get(t.userId)).preferences).toEqual({ locale: 'en', timeZone: 'Europe/Lisbon' });
   });
 
   it('USR-14: idioma e fuso são gravados nas preferências, nunca no perfil', async () => {
     const t = await withUser();
     await t.patchMe({ locale: 'en', timeZone: 'Europe/Lisbon' });
-    expect(t.memory.profiles.get(t.user.id)).not.toHaveProperty('locale');
-    expect(t.memory.profiles.get(t.user.id)).not.toHaveProperty('timeZone');
-    expect(t.memory.prefs.get(t.user.id)).toEqual({ locale: 'en', timeZone: 'Europe/Lisbon' });
+    expect(t.memory.profiles.get(t.userId)).not.toHaveProperty('locale');
+    expect(t.memory.profiles.get(t.userId)).not.toHaveProperty('timeZone');
+    expect(t.memory.prefs.get(t.userId)).toEqual({ locale: 'en', timeZone: 'Europe/Lisbon' });
   });
 
   it('USR-03: PATCH /me misto → nome e apelido no perfil, idioma nas preferências', async () => {
@@ -111,8 +123,8 @@ describe('perfil: idioma e fuso nas preferências', () => {
       nickname: 'Aninha',
       preferences: { locale: 'en' },
     });
-    expect(t.memory.profiles.get(t.user.id)).toMatchObject({ name: 'Ana Souza', nickname: 'Aninha' });
-    expect(t.memory.prefs.get(t.user.id)).toEqual({ locale: 'en' });
+    expect(t.memory.profiles.get(t.userId)).toMatchObject({ name: 'Ana Souza', nickname: 'Aninha' });
+    expect(t.memory.prefs.get(t.userId)).toEqual({ locale: 'en' });
   });
 
   it('USR-03: PATCH /me só do perfil não mexe nas preferências', async () => {
@@ -144,7 +156,7 @@ describe('perfil: idioma e fuso nas preferências', () => {
     expect(error.code).toBe('VALIDATION_ERROR');
     expect(error.details.issues[0]).toMatchObject({ code: 'custom', path: ['timeZone'] });
     expect(t.writes.count).toBe(0);
-    expect((await t.service.get(t.user.id)).preferences.timeZone).toBeUndefined();
+    expect((await t.service.get(t.userId)).preferences.timeZone).toBeUndefined();
   });
 
   it('USR-03: PATCH /me { locale: es } → 422 VALIDATION_ERROR', async () => {
@@ -164,6 +176,6 @@ describe('perfil: idioma e fuso nas preferências', () => {
   it('USR-05: PATCH /me grava o fuso das preferências no nome canônico', async () => {
     const t = await withUser();
     await t.patchMe({ timeZone: 'Brazil/East' });
-    expect((await t.service.get(t.user.id)).preferences.timeZone).toBe('America/Sao_Paulo');
+    expect((await t.service.get(t.userId)).preferences.timeZone).toBe('America/Sao_Paulo');
   });
 });

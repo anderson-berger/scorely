@@ -49,7 +49,7 @@ function conflictsOf(err: unknown): TeamRuleConflict[] | undefined {
 }
 
 /**
- * Card "Times" da aba Jogo (TIM-14). O dono monta, move por toque, muda a quantidade, publica, volta para rascunho
+ * Os times do jogo, na aba Times (TIM-14). O dono monta, move por toque, muda a quantidade, publica, volta para rascunho
  * e descarta; sorteia (TIM-15) com quem está fixo (TIM-16); cada mudança é salva na hora (TIM-09). Quem não é dono só vê os times publicados.
  * Recarrega quando o jogo muda (qualquer ação da página recarrega o jogo).
  */
@@ -123,9 +123,9 @@ export default defineComponent({
       return (this.draft?.extras?.length ?? 0) < TEAM_EXTRA_LIMITS.perGame;
     },
 
-    /** Sem times publicados, quem não é dono não vê o card (TIM-14). */
+    /** Carregou (com ou sem times). Sem times publicados, quem não é dono vê o aviso (TIM-14). */
     visible(): boolean {
-      return this.isOwner ? this.teams !== undefined : Boolean(this.teams);
+      return this.teams !== undefined;
     },
   },
 
@@ -140,7 +140,7 @@ export default defineComponent({
         this.teams = res.teams;
         this.defaultTeamCount = res.defaultTeamCount ?? TEAM_COUNT.min;
       } catch {
-        // Sem os times a página continua funcionando; o card só não aparece.
+        // Sem os times a página continua funcionando; a aba só fica vazia.
         this.teams = undefined;
       }
     },
@@ -372,7 +372,9 @@ export default defineComponent({
       </div>
     </div>
 
-    <template v-else-if="teams">
+    <div v-else-if="!teams" class="sc-card sc-caption not-yet">{{ $t('teams.empty.notYet') }}</div>
+
+    <template v-else>
       <div v-if="isOwner && teams.status === 'draft'" class="sc-caption hint">{{ $t('teams.draftHint') }}</div>
       <TeamsView :teams="teams" :editable="isOwner" :me-id="meId" @select="select" />
 
@@ -433,6 +435,13 @@ export default defineComponent({
 </template>
 
 <style scoped>
+.not-yet {
+  padding: 24px 14px;
+  text-align: center;
+  border-style: dashed;
+  border-color: var(--sc-line-strong);
+}
+
 .conflicts {
   padding: 12px;
   border-radius: 12px;

@@ -1,4 +1,4 @@
-import type { LoginResult } from '@scorely/contracts';
+import { type LoginResult, PublicUserIdSchema } from '@scorely/contracts';
 import { createPinia, setActivePinia } from 'pinia';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -38,7 +38,7 @@ const LOGIN: LoginResult = {
   expiresIn: 3600,
   isNewUser: false,
   user: {
-    id: '00000000-0000-4000-8000-000000000001',
+    id: PublicUserIdSchema.parse('7K3QX9TA'),
     createdAt: '2026-01-01T00:00:00.000Z',
     email: 'ana@example.com',
     name: 'Ana',

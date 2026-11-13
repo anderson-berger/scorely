@@ -1,6 +1,6 @@
 import { range } from '@scorely/api/src/lib/fn';
-import { matches, type RulePeople } from '@scorely/api/src/modules/teams/engine/rules';
-import type { Gender, TeamApartRule, TeamRule } from '@scorely/contracts';
+import { matches, type RulePeople, type TeamApartRule } from '@scorely/api/src/modules/teams/engine/rules';
+import type { Gender, TeamRule } from '@scorely/contracts';
 
 /** O que o sorteio recebe (TIM-15, 16). Puro: sem I/O, o acaso vem de `random`. */
 export interface DrawInput {

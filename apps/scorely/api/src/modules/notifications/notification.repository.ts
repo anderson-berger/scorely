@@ -10,6 +10,7 @@ import {
   transactWrite,
 } from '@scorely/api/src/lib/db';
 import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
+import type { UserId } from '@scorely/api/src/lib/ids';
 import {
   INBOX_ENTITY,
   inboxKey,
@@ -17,24 +18,27 @@ import {
   notificationKey,
   notificationListLookupKey,
   notificationListLookupPk,
+  type StoredNotification,
 } from '@scorely/api/src/modules/notifications/notification.table';
-import type { Notification } from '@scorely/contracts';
 
 export interface NotificationRepository {
-  create(notification: Notification): Promise<void>;
-  get(id: string): Promise<Notification | undefined>;
-  list(userId: string, opts: { limit: number; cursor?: string | undefined }): Promise<Page<Notification>>;
-  unreadCount(userId: string): Promise<number>;
+  create(notification: StoredNotification): Promise<void>;
+  get(id: string): Promise<StoredNotification | undefined>;
+  list(
+    userId: UserId,
+    opts: { limit: number; cursor?: string | undefined },
+  ): Promise<Page<StoredNotification>>;
+  unreadCount(userId: UserId): Promise<number>;
   /** Marca como lida e decrementa o contador. `false` se já estava lida (ou não é do usuário). */
-  markRead(userId: string, id: string, readAt: string): Promise<boolean>;
+  markRead(userId: UserId, id: string, readAt: string): Promise<boolean>;
   /**
    * Apaga a notificação, o lookup da lista e (se não estava lida) decrementa o contador, numa transação.
    * `false` se ela mudou desde a leitura (sumiu ou foi marcada como lida): o service relê.
    */
-  remove(n: Notification): Promise<boolean>;
+  remove(n: StoredNotification): Promise<boolean>;
 }
 
-function inboxDelta(userId: string, delta: 1 | -1) {
+function inboxDelta(userId: UserId, delta: 1 | -1) {
   const createdAt = setCreatedAtIfNew();
   return {
     Update: {
@@ -72,13 +76,13 @@ export const dynamoNotificationRepository: NotificationRepository = {
     const { Item } = await dynamo().send(
       new GetCommand({ TableName: tableName(), Key: notificationKey(id) }),
     );
-    return Item ? stripKeys<Notification>(Item) : undefined;
+    return Item ? stripKeys<StoredNotification>(Item) : undefined;
   },
 
   async list(userId, opts) {
     const page = await queryLookupIds(notificationListLookupPk(userId), opts);
     const rows = await batchGetOrdered(page.items.map(notificationKey));
-    return { ...page, items: rows.map((row) => stripKeys<Notification>(row)) };
+    return { ...page, items: rows.map((row) => stripKeys<StoredNotification>(row)) };
   },
 
   async unreadCount(userId) {

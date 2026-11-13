@@ -9,6 +9,7 @@ import {
   transactWrite,
 } from '@scorely/api/src/lib/db';
 import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
+import { asUserId, type UserId } from '@scorely/api/src/lib/ids';
 import {
   USER_EMAIL_ENTITY,
   USER_ENTITY,
@@ -17,8 +18,19 @@ import {
   userEmailLookupKey,
   userKey,
   userPreferencesKey,
+  userPublicIdLookupKey,
 } from '@scorely/api/src/modules/users/user.table';
-import type { Me, Preferences, UpdateMeInput, User } from '@scorely/contracts';
+import type { Me, Preferences, PublicUserId, UpdateMeInput, User } from '@scorely/contracts';
+
+/**
+ * O perfil como fica no banco (`META`): `id` é o id do sistema, `publicId` o código de amigo (USR-15) e
+ * `avatarMediaId` a mídia da foto (USR-08). Interno da api: a resposta sai pelo `toMe`/`publicId`.
+ */
+export type UserRecord = Omit<User, 'id'> & { id: UserId; publicId: PublicUserId; avatarMediaId?: string };
+/** A própria pessoa como fica no banco: perfil + email + preferências (USR-13, 14). */
+export type MeRecord = UserRecord & Pick<Me, 'email' | 'preferences'>;
+/** Resultado da criação: o lookup de email ou o do id público já existia. */
+export type CreateUserResult = 'created' | 'email_taken' | 'public_id_taken';
 
 /** O que o `update` grava: o PATCH /me. A foto de perfil é gravada pela transação da mídia (USR-08, MID-08). */
 export type UserPatch = UpdateMeInput;
@@ -30,17 +42,19 @@ export interface ReadOptions {
 
 export interface UserRepository {
   /** Só o perfil (`META`): sem email nem preferências (USR-13). */
-  get(id: string, opts?: ReadOptions): Promise<User | undefined>;
+  get(id: UserId, opts?: ReadOptions): Promise<UserRecord | undefined>;
   /** Perfil + email + preferências: o `GET /me` (USR-13, 14). */
-  getMe(id: string, opts?: ReadOptions): Promise<Me | undefined>;
+  getMe(id: UserId, opts?: ReadOptions): Promise<MeRecord | undefined>;
   /** Pelo email (login): a pessoa inteira, como o `getMe`. */
-  getByEmail(email: string, opts?: ReadOptions): Promise<Me | undefined>;
+  getByEmail(email: string, opts?: ReadOptions): Promise<MeRecord | undefined>;
   /** Só as preferências (refresh, GRP-13). Sem item → `{}`. */
-  getPreferences(id: string): Promise<Preferences>;
-  /** Perfil + email + preferências vazias + lookup do email, numa transação. `false` se o email já estiver em uso. */
-  create(user: User, email: string): Promise<boolean>;
+  getPreferences(id: UserId): Promise<Preferences>;
+  /** Perfil + email + preferências vazias + lookups do email e do id público, numa transação (USR-15). */
+  create(user: UserRecord, email: string): Promise<CreateUserResult>;
   /** Cada campo na sua parte (perfil ou preferências), numa transação. `null` remove o atributo (apelido). */
-  update(id: string, patch: UserPatch): Promise<Me | undefined>;
+  update(id: UserId, patch: UserPatch): Promise<MeRecord | undefined>;
+  /** USR-17: ids públicos → ids do sistema. Só os encontrados entram no mapa. */
+  resolve(publicIds: readonly PublicUserId[]): Promise<Map<PublicUserId, UserId>>;
 }
 
 const PROFILE_FIELDS = ['name', 'nickname', 'gender'] as const;
@@ -85,7 +99,7 @@ export const dynamoUserRepository: UserRepository = {
     const { Item } = await dynamo().send(
       new GetCommand({ TableName: tableName(), Key: userKey(id), ConsistentRead: opts?.consistent }),
     );
-    return Item ? stripKeys<User>(Item) : undefined;
+    return Item ? stripKeys<UserRecord>(Item) : undefined;
   },
 
   async getMe(id, opts) {
@@ -94,7 +108,7 @@ export const dynamoUserRepository: UserRepository = {
     const profile = bySk.get('META');
     const email = bySk.get('EMAIL')?.email as string | undefined;
     if (!profile || email === undefined) return undefined;
-    return { ...stripKeys<User>(profile), email, preferences: preferencesOf(bySk.get('PREFERENCES')) };
+    return { ...stripKeys<UserRecord>(profile), email, preferences: preferencesOf(bySk.get('PREFERENCES')) };
   },
 
   async getByEmail(email, opts) {
@@ -106,7 +120,7 @@ export const dynamoUserRepository: UserRepository = {
         ConsistentRead: opts?.consistent,
       }),
     );
-    return pointer ? dynamoUserRepository.getMe(pointer.id as string, opts) : undefined;
+    return pointer ? dynamoUserRepository.getMe(asUserId(pointer.id as string), opts) : undefined;
   },
 
   async getPreferences(id) {
@@ -120,6 +134,7 @@ export const dynamoUserRepository: UserRepository = {
     const put = (Item: Record<string, unknown>): TransactItem => ({
       Put: { TableName: tableName(), Item, ConditionExpression: 'attribute_not_exists(PK)' },
     });
+    // A ordem importa: o índice que falhou diz qual lookup já existia (3 = email, 4 = id público).
     const result = await transactWrite([
       put(dbItem(userKey(user.id), USER_ENTITY, user)),
       put(dbItem(userEmailKey(user.id), USER_EMAIL_ENTITY, { email }, user.createdAt)),
@@ -132,8 +147,11 @@ export const dynamoUserRepository: UserRepository = {
         ),
       ),
       put(dbItem(userEmailLookupKey(email), LOOKUP_ENTITY, { id: user.id }, user.createdAt)),
+      put(dbItem(userPublicIdLookupKey(user.publicId), LOOKUP_ENTITY, { id: user.id }, user.createdAt)),
     ]);
-    return result.ok;
+    if (result.ok) return 'created';
+    // O id do sistema é um uuid novo: só os lookups podem colidir. Email tem prioridade (relê o vencedor).
+    return result.failed.includes(4) && !result.failed.includes(3) ? 'public_id_taken' : 'email_taken';
   },
 
   async update(id, patch) {
@@ -183,15 +201,29 @@ export const dynamoUserRepository: UserRepository = {
     if (!result.ok) return undefined;
     return dynamoUserRepository.getMe(id, { consistent: true });
   },
+
+  async resolve(publicIds) {
+    const unique = [...new Set(publicIds)];
+    const rows = await batchGetOrdered(unique.map(userPublicIdLookupKey));
+    const byPk = new Map(rows.map((row) => [row.PK as string, asUserId(row.id as string)]));
+    return new Map(
+      unique.flatMap((code) => {
+        const id = byPk.get(userPublicIdLookupKey(code).PK);
+        return id === undefined ? [] : [[code, id] as const];
+      }),
+    );
+  },
 };
 
 /** O que outros módulos leem dos usuários (ex.: nomes na lista do jogo). Só o perfil: nunca o email (USR-13). */
 export interface UserDirectory {
-  get(id: string): Promise<User | undefined>;
+  get(id: UserId): Promise<UserRecord | undefined>;
   /** Preferências da pessoa (GRP-13: o fuso padrão do grupo novo). */
-  getPreferences(id: string): Promise<Preferences>;
+  getPreferences(id: UserId): Promise<Preferences>;
   /** Vários de uma vez (BatchGet), na ordem dos ids; os que não existem somem. */
-  getMany(ids: readonly string[]): Promise<User[]>;
+  getMany(ids: readonly UserId[]): Promise<UserRecord[]>;
+  /** USR-17: ids públicos da entrada → ids do sistema; os desconhecidos ficam de fora. */
+  resolve(publicIds: readonly PublicUserId[]): Promise<Map<PublicUserId, UserId>>;
 }
 
 export const dynamoUserDirectory: UserDirectory = {
@@ -199,6 +231,7 @@ export const dynamoUserDirectory: UserDirectory = {
   getPreferences: (id) => dynamoUserRepository.getPreferences(id),
   async getMany(ids) {
     const rows = await batchGetOrdered([...new Set(ids)].map(userKey));
-    return rows.map((row) => stripKeys<User>(row));
+    return rows.map((row) => stripKeys<UserRecord>(row));
   },
+  resolve: (publicIds) => dynamoUserRepository.resolve(publicIds),
 };

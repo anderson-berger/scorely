@@ -1,5 +1,18 @@
-import { EntitySchema } from '@scorely/contracts/src/entity';
 import { z } from 'zod';
+
+/** Alfabeto do id público (Crockford base32: sem `I`, `L`, `O` e `U`). */
+export const PUBLIC_USER_ID_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+export const PUBLIC_USER_ID_LENGTH = 8;
+
+/**
+ * Id público da pessoa, o código de amigo (USR-15). É o único id de pessoa que a api devolve ou recebe:
+ * o id do sistema fica só no token e no banco (USR-16, 17; ADR 0011).
+ */
+export const PublicUserIdSchema = z
+  .string()
+  .regex(/^[0-9A-HJKMNP-TV-Z]{8}$/, 'Invalid user id')
+  .brand<'PublicUserId'>();
+export type PublicUserId = z.infer<typeof PublicUserIdSchema>;
 
 /** Usado no sorteio misto e (depois) no MVP. */
 export const GenderSchema = z.enum(['M', 'F']);
@@ -32,8 +45,13 @@ export const TimeZoneSchema = z
   .transform((tz) => canonicalTimeZone(tz) as string);
 export type TimeZone = z.infer<typeof TimeZoneSchema>;
 
-/** O perfil da pessoa: o que os outros módulos podem ler. Sem email (USR-13) e sem preferências (USR-14). */
-export const UserSchema = EntitySchema.extend({
+/**
+ * O perfil da pessoa: o que os outros módulos podem ler. Sem email (USR-13) e sem preferências (USR-14).
+ * `id` é o id público (USR-16): não estende o `EntitySchema`, cujo `id` é o uuid do sistema.
+ */
+export const UserSchema = z.object({
+  id: PublicUserIdSchema,
+  createdAt: z.iso.datetime(),
   name: z.string().min(1).max(80).optional(),
   nickname: z.string().min(1).max(40).optional(),
   gender: GenderSchema.optional(),
