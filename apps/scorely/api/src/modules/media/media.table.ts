@@ -12,8 +12,10 @@ export interface MediaRecord {
   purpose: MediaPurpose;
   ownerType: MediaOwnerType;
   ownerId: string;
+  /** Quem aparece no caminho público (MID-12): o id do grupo ou o id público da pessoa. Sem ele, o `ownerId`. */
+  ownerRef?: string;
   status: 'pending' | 'ready';
-  /** `tmp/<id>` na pendente; `public/<ownerType>/<ownerId>/<purpose>/<id>.<ext>` na pronta. */
+  /** `tmp/<id>` na pendente; `public/<ownerType>/<ownerRef>/<purpose>/<id>.<ext>` na pronta. */
   key: string;
   uploadedBy: string;
   contentType?: ImageContentType;

@@ -65,41 +65,33 @@ export function created(body: unknown) {
   return new HttpResponse(201, body);
 }
 
-/** O que o handler escreve: devolve os dados da resposta (ou nada) e lança `HttpError` para falhar. */
-export type Handler = (event: APIGatewayProxyEventV2) => Promise<unknown>;
-export type LambdaHandler = (event: APIGatewayProxyEventV2) => Promise<APIGatewayProxyStructuredResultV2>;
+/** Evento da rota HTTP (payload 2.0): o único parâmetro anotado nos `handlers.ts`. */
+export type HttpEvent = APIGatewayProxyEventV2;
+export type HttpResult = APIGatewayProxyStructuredResultV2;
 
-function toResult(value: unknown): APIGatewayProxyStructuredResultV2 {
+function toResult(value: unknown): HttpResult {
   if (value instanceof HttpResponse) {
     return value.body === undefined ? { statusCode: value.status } : json(value.status, value.body);
   }
   return value === undefined ? { statusCode: 204 } : json(200, value);
 }
 
-/** Envelopa um handler: o retorno vira a resposta HTTP e os erros, respostas padronizadas. */
-export function handler(fn: Handler): LambdaHandler {
-  return async (event) => {
-    try {
-      return toResult(await fn(event));
-    } catch (err) {
-      if (err instanceof ZodError) {
-        return json(422, errorBody('VALIDATION_ERROR', 'Dados inválidos', err.issues));
-      }
-      if (err instanceof HttpError) {
-        return json(err.status, errorBody(err.code, err.message));
-      }
-      console.error(err);
-      return json(500, errorBody('INTERNAL_ERROR', 'Erro interno'));
-    }
-  };
+/** Converte qualquer erro lançado na rota na resposta padronizada. */
+function toErrorResult(err: unknown, _event: HttpEvent): HttpResult {
+  if (err instanceof ZodError) return json(422, errorBody('VALIDATION_ERROR', 'Dados inválidos', err.issues));
+  if (err instanceof HttpError) return json(err.status, errorBody(err.code, err.message));
+  console.error(err);
+  return json(500, errorBody('INTERNAL_ERROR', 'Erro interno'));
 }
 
 /**
- * Envelopa vários handlers de uma vez, escritos como métodos de um objeto (padrão dos `handlers.ts`).
- * Exporte cada um pelo nome que o `functions.ts` usa: `export const { list, get } = handlers({ ... })`.
+ * Responde uma rota (padrão dos `handlers.ts`): roda `fn`, e o retorno vira a resposta HTTP e os erros,
+ * respostas padronizadas. `export async function list(event: HttpEvent) { return route(event, async () => ...) }`
  */
-export function handlers<T extends Record<string, Handler>>(methods: T): { [K in keyof T]: LambdaHandler } {
-  const wrapped: Record<string, LambdaHandler> = {};
-  for (const [name, fn] of Object.entries(methods)) wrapped[name] = handler(fn);
-  return wrapped as { [K in keyof T]: LambdaHandler };
+export async function route(event: HttpEvent, fn: () => Promise<unknown>): Promise<HttpResult> {
+  try {
+    return toResult(await fn());
+  } catch (err) {
+    return toErrorResult(err, event);
+  }
 }

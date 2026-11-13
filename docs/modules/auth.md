@@ -1,6 +1,6 @@
 # Módulo Auth
 
-> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-10.
+> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-13.
 
 Código: `apps/scorely/api/src/modules/auth/`, `apps/scorely/api/src/lib/auth.ts`, `apps/scorely/web/src/modules/auth/`, `apps/scorely/web/src/app/guard.ts`. Contrato: `apps/scorely/contracts/src/auth.ts`.
 
@@ -38,8 +38,10 @@ Entrar no scorely **sem senha**. A pessoa digita o email, recebe um código de 6
 
 - **AUTH-06. O login abre uma sessão** e devolve um access token (1 h) e um refresh token (30 dias).
   - O banco guarda só o hash do segredo, nunca o segredo.
+  - Junto vêm a pessoa (perfil e email) e as preferências dela (idioma e fuso, USR-14).
 - **AUTH-07. Renovar troca o refresh token por um novo** (rotação) e estende a sessão por mais 30 dias.
   - O token antigo deixa de valer.
+  - A resposta também traz as preferências atuais da pessoa (USR-14): é assim que uma mudança feita em outro aparelho chega a este.
 - **AUTH-08. Reusar um refresh token antigo derruba a sessão.** Isso responde `SESSION_INVALID` (401).
   - _Por quê:_ se o token antigo aparece de novo, provavelmente vazou, e encerrar a sessão protege o dono da conta.
 - **AUTH-09. Sessão vencida** responde `SESSION_EXPIRED` (401).
@@ -48,6 +50,10 @@ Entrar no scorely **sem senha**. A pessoa digita o email, recebe um código de 6
 - **AUTH-11. As rotas protegidas** passam pelo authorizer, que só confere a assinatura e a validade do JWT, sem cache.
   - Token inválido ou vencido recebe 403 do API Gateway, sem chegar na rota.
   - Logout não corta o access token já emitido: ele vale até o fim da sua hora.
+- **AUTH-16. Token de uma conta que não existe mais** responde `SESSION_INVALID` (401) nas rotas da própria pessoa (`/me`, `/me/avatar`), e não `USER_NOT_FOUND` (404).
+  - Acontece quando o access token ainda está na sua hora, mas a conta sumiu do banco (no dev, quando a tabela é recriada).
+  - Com o 401, o web tenta renovar; a sessão também não existe mais, a renovação falha e a pessoa vai para o login (AUTH-15).
+  - _Por quê:_ com o 404, o web não entendia como sessão ruim e a pessoa ficava "logada" sem conta até o token vencer.
 
 ### Navegação (web)
 
@@ -79,6 +85,8 @@ Os dois são internos da api e não estão no contrato. Os hashes usam HMAC com 
 | `POST /auth/refresh` | aberta | AUTH-07–09 |
 | `POST /auth/logout`  | logado | AUTH-10    |
 
+O AUTH-16 vale nas rotas `/me` do módulo de usuários ([usuarios.md](usuarios.md)).
+
 Erros: `AUTH_CODE_INVALID`, `AUTH_CODE_COOLDOWN`, `AUTH_CODE_LIMIT`, `SESSION_INVALID`, `SESSION_EXPIRED` e `UNAUTHORIZED`.
 
 Os limites estão em `AUTH_LIMITS` (`auth.service.ts`). As regras da navegação são funções puras em `web/src/app/guard.ts`.
@@ -87,3 +95,5 @@ Os limites estão em `AUTH_LIMITS` (`auth.service.ts`). As regras da navegação
 
 - O motivo da auth própria no lugar do Cognito ainda está "a confirmar" no ADR 0003.
 - No dev local, o código aparece no terminal em vez de ir por email.
+- O AUTH-16 só cobre conta e sessão sumindo juntas. Uma sessão viva com a conta apagada renovaria normalmente; hoje não há como apagar conta, então isso fica para quando houver.
+- Nas rotas dos outros módulos, o token de uma conta que não existe mais segue a regra de cada módulo (ex.: grupo não encontrado). Na prática o web carrega o `/me` ao abrir e cai no login por ele.

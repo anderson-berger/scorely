@@ -28,7 +28,7 @@ paths:
 
 Motivo de não usar Cognito: [docs/decisions/0003-auth-propria-sem-cognito.md](../../docs/decisions/0003-auth-propria-sem-cognito.md).
 
-- Rota que exige login: quem valida o token é o **authorizer do API Gateway**, declarado na rota em `src/modules/<mod>/functions.ts` com `authorizer: { name: AUTHORIZER }` (de `src/lib/auth.ts`). No handler, o método fica em `authHandlers({...})`, que só lê o contexto do authorizer e responde 401 se a rota estiver sem authorizer. Nunca leia o header na mão. O `userId` vem de `auth.userId`, nunca do body. Check: `checks/api.test.ts`.
+- Rota que exige login: quem valida o token é o **authorizer do API Gateway**, declarado na rota em `src/modules/<mod>/functions.ts` com `authorizer: { name: AUTHORIZER }` (de `src/lib/auth.ts`). No handler, a função responde por `authRoute(event, async (auth) => ...)`, que só lê o contexto do authorizer e responde 401 se a rota estiver sem authorizer. Nunca leia o header na mão. O `userId` vem de `auth.userId`, nunca do body. Check: `checks/api.test.ts`.
 - O authorizer (`authAuthorizer`, em `provider.httpApi.authorizers`) roda sem cache (TTL 0). Sem header ele responde 401; com token inválido ou expirado, 403 sem o corpo `{ error }`. O web renova a sessão nos dois casos. Por isso, um 403 de regra de negócio sai sempre com o corpo `{ error }` (via `appError`).
 
 ## Notificações

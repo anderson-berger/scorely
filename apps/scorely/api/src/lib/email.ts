@@ -1,6 +1,6 @@
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2';
-import { env } from './env';
-import { lazy } from './fn';
+import { env } from '@scorely/api/src/lib/env';
+import { lazy } from '@scorely/api/src/lib/fn';
 
 export interface EmailMessage {
   to: string;

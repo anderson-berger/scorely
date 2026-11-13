@@ -15,6 +15,17 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "noEmit": true
+    "noEmit": true,
+    "paths": {
+      "@base/api/*": ["./apps/base/api/*"],
+      "@base/web/*": ["./apps/base/web/*"],
+      "@base/infra/*": ["./infra/base/*"],
+      "@scorely/api/*": ["./apps/scorely/api/*"],
+      "@scorely/web/*": ["./apps/scorely/web/*"],
+      "@scorely/contracts/*": ["./apps/scorely/contracts/*"],
+      "@scorely/infra/*": ["./infra/scorely/*"],
+      "@infra/shared/*": ["./infra/shared/*"],
+      "@checks/*": ["./checks/*"]
+    }
   }
 }

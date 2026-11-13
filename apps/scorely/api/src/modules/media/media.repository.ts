@@ -1,7 +1,13 @@
 import { GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
-import { dbItem, stripKeys, type TransactItem, transactWrite, ttlFrom } from '../../lib/db';
-import { dynamo, tableName } from '../../lib/dynamo';
-import { MEDIA_ENTITY, type MediaRecord, type MediaTarget, mediaKey, targetFields } from './media.table';
+import { dbItem, stripKeys, type TransactItem, transactWrite, ttlFrom } from '@scorely/api/src/lib/db';
+import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
+import {
+  MEDIA_ENTITY,
+  type MediaRecord,
+  type MediaTarget,
+  mediaKey,
+  targetFields,
+} from '@scorely/api/src/modules/media/media.table';
 
 type TargetRef = Pick<MediaTarget, 'key' | 'field'>;
 

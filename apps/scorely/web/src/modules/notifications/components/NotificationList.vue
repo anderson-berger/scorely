@@ -1,10 +1,10 @@
 <script lang="ts">
 import type { Notification } from '@scorely/contracts';
+import { errorMessage } from '@scorely/web/src/i18n/errors';
+import { formatDateTime } from '@scorely/web/src/lib/datetime';
+import { notificationIcon } from '@scorely/web/src/modules/notifications/notification.icons';
+import { useNotificationsStore } from '@scorely/web/src/modules/notifications/notifications.store';
 import { defineComponent } from 'vue';
-import { errorMessage } from '@/i18n/errors';
-import { formatDateTime } from '@/lib/datetime';
-import { notificationIcon } from '../notification.icons';
-import { useNotificationsStore } from '../notifications.store';
 
 /** Lista de notificações, usada no menu (desktop) e no painel de baixo (celular) (plano 008, D10). */
 export default defineComponent({

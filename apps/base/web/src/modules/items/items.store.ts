@@ -1,7 +1,7 @@
+import type { CreateItemInput, Item } from '@base/web/src/modules/items/item.schema';
+import { itemsApi } from '@base/web/src/modules/items/items.api';
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
-import type { CreateItemInput, Item } from './item.schema';
-import { itemsApi } from './items.api';
 
 export const useItemsStore = defineStore('items', () => {
   const items = ref<Item[]>([]);

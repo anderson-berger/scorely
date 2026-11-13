@@ -134,20 +134,20 @@ Runtime ✅ `nodejs22.x`, 256 MB, 10 s, esbuild (bundle + sourcemap), plugin `se
 
 ## 6. Autenticação e sessão
 
-| Item                             | Status                                                                                                                                                          |
-| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Login (scorely)                  | ✅ passwordless: código de 6 dígitos por email (`/auth/code` → `/auth/verify`)                                                                                  |
-| Cadastro                         | ✅ automático no primeiro `verify`; o front força o preenchimento do perfil (nome) depois                                                                       |
-| Access token                     | ✅ JWT HS256 próprio (`lib/jwt.ts`), 1h                                                                                                                         |
-| Refresh token                    | ✅ 30 dias, rotacionado a cada refresh; reuso de token já trocado derruba a sessão                                                                              |
-| Limites                          | ✅ reenvio a cada 60s, 5 códigos/h por email, 5 tentativas por código, validade de 10 min                                                                       |
-| Validação do token               | ✅ Lambda authorizer do HTTP API (`authAuthorizer`, payload 2.0, resposta simples, sem cache), declarado por rota no `functions.ts`                             |
-| Contexto no handler              | ✅ `authHandlers({...})`/`authHandler` (`apps/scorely/api/src/lib/auth.ts`) lê `requestContext.authorizer.lambda` → `{ userId, sessionId }`; sem contexto → 401 |
-| Cookies                          | ❌. Os tokens ficam no `localStorage` do front (`scorely.session`)                                                                                              |
-| Cognito                          | ❌ (decisão explícita no README)                                                                                                                                |
-| Envio de email                   | ✅ `EMAIL_MODE=console` (só log, padrão) ou `ses`. 🟡 SES ainda sem domínio verificado                                                                          |
-| Auth no `base`                   | ❌                                                                                                                                                              |
-| Papéis / "platform" vs "produto" | ❌ Não existe separação nem roles. O único tipo de usuário é `User`                                                                                             |
+| Item                             | Status                                                                                                                                                              |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Login (scorely)                  | ✅ passwordless: código de 6 dígitos por email (`/auth/code` → `/auth/verify`)                                                                                      |
+| Cadastro                         | ✅ automático no primeiro `verify`; o front força o preenchimento do perfil (nome) depois                                                                           |
+| Access token                     | ✅ JWT HS256 próprio (`lib/jwt.ts`), 1h                                                                                                                             |
+| Refresh token                    | ✅ 30 dias, rotacionado a cada refresh; reuso de token já trocado derruba a sessão                                                                                  |
+| Limites                          | ✅ reenvio a cada 60s, 5 códigos/h por email, 5 tentativas por código, validade de 10 min                                                                           |
+| Validação do token               | ✅ Lambda authorizer do HTTP API (`authAuthorizer`, payload 2.0, resposta simples, sem cache), declarado por rota no `functions.ts`                                 |
+| Contexto no handler              | ✅ `authRoute(event, async (auth) => ...)` (`apps/scorely/api/src/lib/auth.ts`) lê `requestContext.authorizer.lambda` → `{ userId, sessionId }`; sem contexto → 401 |
+| Cookies                          | ❌. Os tokens ficam no `localStorage` do front (`scorely.session`)                                                                                                  |
+| Cognito                          | ❌ (decisão explícita no README)                                                                                                                                    |
+| Envio de email                   | ✅ `EMAIL_MODE=console` (só log, padrão) ou `ses`. 🟡 SES ainda sem domínio verificado                                                                              |
+| Auth no `base`                   | ❌                                                                                                                                                                  |
+| Papéis / "platform" vs "produto" | ❌ Não existe separação nem roles. O único tipo de usuário é `User`                                                                                                 |
 
 ## 7. Front-end
 

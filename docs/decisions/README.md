@@ -14,3 +14,4 @@ Uma linha por decisão. Abra só a que importa. Nova decisão: copie [`_template
 | 0008 | [S3 no dev local com Adobe S3Mock](0008-s3-local-s3mock.md)                                                             | aceita                     |
 | 0009 | [Entidade de relação usa chave natural](0009-entidade-de-relacao-chave-natural.md)                                      | aceita                     |
 | 0010 | [Documentação viva por módulo no lugar de planos](0010-documentacao-viva-por-modulo.md)                                 | aceita                     |
+| 0011 | [Id público do usuário, separado do id do sistema](0011-id-publico-do-usuario.md)                                       | aceita                     |

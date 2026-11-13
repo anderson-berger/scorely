@@ -1,17 +1,18 @@
+import { env } from '@scorely/api/src/lib/env';
+import { appError } from '@scorely/api/src/lib/errors';
+import { type HttpEvent, type HttpResult, route } from '@scorely/api/src/lib/http';
+import { asUserId, type UserId } from '@scorely/api/src/lib/ids';
+import { verifyJwt } from '@scorely/api/src/lib/jwt';
 import type {
-  APIGatewayProxyEventV2,
   APIGatewayProxyEventV2WithLambdaAuthorizer,
   APIGatewayRequestAuthorizerEventV2,
   APIGatewaySimpleAuthorizerWithContextResult,
 } from 'aws-lambda';
-import { env } from './env';
-import { appError } from './errors';
-import { handler, type LambdaHandler } from './http';
-import { verifyJwt } from './jwt';
 
 /** Quem está chamando: vem do access token, validado pelo authorizer do API Gateway. */
 export interface AuthContext {
-  userId: string;
+  /** Id do sistema (USR-16): fica no token, nunca sai na resposta. */
+  userId: UserId;
   sessionId: string;
 }
 
@@ -27,7 +28,7 @@ export function verifyBearer(
   const [scheme, token] = (header ?? '').split(' ');
   if (scheme?.toLowerCase() !== 'bearer' || !token) return undefined;
   const claims = verifyJwt(token, secret, nowSeconds);
-  return claims && { userId: claims.sub, sessionId: claims.sid };
+  return claims && { userId: asUserId(claims.sub), sessionId: claims.sid };
 }
 
 /**
@@ -42,27 +43,19 @@ export async function authorizer(
 }
 
 type AuthedEvent = APIGatewayProxyEventV2WithLambdaAuthorizer<Partial<AuthContext>>;
-/** Como o `Handler`: devolve só os dados da resposta (ou nada, para 204). */
-type AuthedHandler = (event: APIGatewayProxyEventV2, auth: AuthContext) => Promise<unknown>;
 
 /**
- * Igual ao `handler`, mas entrega o `AuthContext` que o authorizer deixou no evento.
+ * Como o `route`, para rota com authorizer: entrega o `AuthContext` que o authorizer deixou no evento.
  * Não valida token: a rota precisa declarar `authorizer: { name: AUTHORIZER }` no `functions.ts`.
  * Sem o contexto (rota sem authorizer), responde 401 em vez de rodar sem usuário.
  */
-export function authHandler(fn: AuthedHandler): LambdaHandler {
-  return handler(async (event) => {
+export async function authRoute(
+  event: HttpEvent,
+  fn: (auth: AuthContext) => Promise<unknown>,
+): Promise<HttpResult> {
+  return route(event, async () => {
     const ctx = (event as AuthedEvent).requestContext.authorizer?.lambda;
     if (!ctx?.userId || !ctx.sessionId) throw appError('UNAUTHORIZED');
-    return fn(event, { userId: ctx.userId, sessionId: ctx.sessionId });
+    return fn({ userId: asUserId(ctx.userId), sessionId: ctx.sessionId });
   });
-}
-
-/** Como `handlers`, para rotas com authorizer: cada método recebe `(event, auth)`. */
-export function authHandlers<T extends Record<string, AuthedHandler>>(
-  methods: T,
-): { [K in keyof T]: LambdaHandler } {
-  const wrapped: Record<string, LambdaHandler> = {};
-  for (const [name, fn] of Object.entries(methods)) wrapped[name] = authHandler(fn);
-  return wrapped as { [K in keyof T]: LambdaHandler };
 }

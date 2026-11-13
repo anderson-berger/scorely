@@ -1,6 +1,6 @@
 import { LoginResultSchema, RequestCodeResultSchema } from '@scorely/contracts';
-import { i18n } from '@/i18n';
-import { request, send } from '@/lib/http';
+import { i18n } from '@scorely/web/src/i18n';
+import { request, send } from '@scorely/web/src/lib/http';
 
 export const authApi = {
   /** Manda o idioma efetivo: o email com o código sai nele. */

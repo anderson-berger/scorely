@@ -1,4 +1,4 @@
-import { hmac, safeEqual } from './crypto';
+import { hmac, safeEqual } from '@scorely/api/src/lib/crypto';
 
 /** Claims do access token. `sid` é a sessão (refresh token) que emitiu o token. */
 export interface AccessClaims {

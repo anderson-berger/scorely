@@ -1,6 +1,6 @@
 import { TransactionCanceledException } from '@aws-sdk/client-dynamodb';
+import { createTransactWrite, type TransactItem, transactionFailure } from '@scorely/api/src/lib/db';
 import { describe, expect, it } from 'vitest';
-import { createTransactWrite, type TransactItem, transactionFailure } from './db';
 
 // Plano 006: casos 1–10 (classificação e repetição da TransactWriteItems).
 

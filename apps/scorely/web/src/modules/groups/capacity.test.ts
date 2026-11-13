@@ -1,15 +1,15 @@
 import type { Attendee, MyGroup } from '@scorely/contracts';
-import { GROUP_LIMITS } from '@scorely/contracts';
+import { GROUP_LIMITS, PublicUserIdSchema } from '@scorely/contracts';
+import { gameCapacityPatch, stepCapacity } from '@scorely/web/src/modules/groups/capacity';
+import { cardLine } from '@scorely/web/src/modules/groups/groups';
+import { minimum } from '@scorely/web/src/modules/groups/scoreboard';
 import { describe, expect, it } from 'vitest';
-import { gameCapacityPatch, stepCapacity } from './capacity';
-import { cardLine } from './groups';
-import { minimum } from './scoreboard';
 
 // Vagas e mínimo por jogo (GRP-45, 46) no web: placar, frase do card e painel "Vagas deste jogo".
 
 function attendees(n: number): Attendee[] {
   return Array.from({ length: n }, (_, i) => ({
-    userId: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
+    userId: PublicUserIdSchema.parse(String(i).padStart(8, '0')),
     name: `Pessoa ${i}`,
     confirmedAt: '2026-11-10T22:00:00.000Z',
     role: 'member',

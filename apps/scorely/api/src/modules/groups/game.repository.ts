@@ -1,5 +1,4 @@
 import { GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
-import type { Entity } from '@scorely/contracts';
 import {
   batchGetOrdered,
   dbItem,
@@ -8,8 +7,9 @@ import {
   queryLookupRows,
   stripKeys,
   transactWrite,
-} from '../../lib/db';
-import { dynamo, tableName } from '../../lib/dynamo';
+} from '@scorely/api/src/lib/db';
+import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
+import type { UserId } from '@scorely/api/src/lib/ids';
 import {
   ATTENDANCE_ENTITY,
   attendanceKey,
@@ -19,8 +19,9 @@ import {
   GAME_ENTITY,
   gameDateLookupKey,
   gameKey,
-} from './game.table';
-import { groupKey } from './group.table';
+} from '@scorely/api/src/modules/groups/game.table';
+import { groupKey } from '@scorely/api/src/modules/groups/group.table';
+import type { Entity } from '@scorely/contracts';
 
 /** Jogo materializado (D1): só existe depois da 1ª confirmação ou do cancelamento. */
 export type GameRecord = Entity & {
@@ -42,7 +43,7 @@ export interface GameSettingsPatch {
 }
 
 /** Presença de um jogador num jogo (D5). */
-export type AttendanceRecord = Entity & { gameId: string; userId: string; confirmedAt: string };
+export type AttendanceRecord = Entity & { gameId: string; userId: UserId; confirmedAt: string };
 
 export interface ReadOptions {
   consistent?: boolean;
@@ -67,7 +68,7 @@ export interface GameRepository {
   markMinReached(gameId: string, at: string): Promise<boolean>;
   /** Lista inteira, na ordem de confirmação (D4). */
   listAttendance(gameId: string, opts?: ReadOptions): Promise<AttendanceRecord[]>;
-  getAttendance(gameId: string, userId: string): Promise<AttendanceRecord | undefined>;
+  getAttendance(gameId: string, userId: UserId): Promise<AttendanceRecord | undefined>;
   /**
    * Presença + 2 lookups numa transação, que também confere o jogo e o grupo (GRP-24, GRP-32).
    * `exists` = o usuário já tinha presença; `cancelled` = o jogo foi cancelado; `archived` = o grupo foi

@@ -1,6 +1,6 @@
 import { DeleteCommand, GetCommand, PutCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
-import { dbItem, isConditionFailed, stripKeys, ttlFrom } from '../../lib/db';
-import { dynamo, tableName } from '../../lib/dynamo';
+import { dbItem, isConditionFailed, stripKeys, ttlFrom } from '@scorely/api/src/lib/db';
+import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
 import {
   LOGIN_CODE_ENTITY,
   type LoginCode,
@@ -8,7 +8,7 @@ import {
   SESSION_ENTITY,
   type Session,
   sessionKey,
-} from './auth.table';
+} from '@scorely/api/src/modules/auth/auth.table';
 
 export interface AuthRepository {
   getCode(email: string): Promise<LoginCode | undefined>;

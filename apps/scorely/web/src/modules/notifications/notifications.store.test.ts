@@ -1,10 +1,10 @@
 import type { NotificationPage } from '@scorely/contracts';
+import { notificationsApi } from '@scorely/web/src/modules/notifications/notifications.api';
+import { useNotificationsStore } from '@scorely/web/src/modules/notifications/notifications.store';
 import { createPinia, setActivePinia } from 'pinia';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { notificationsApi } from './notifications.api';
-import { useNotificationsStore } from './notifications.store';
 
-vi.mock('./notifications.api', () => ({
+vi.mock('@scorely/web/src/modules/notifications/notifications.api', () => ({
   notificationsApi: {
     list: vi.fn(),
     markRead: vi.fn(),

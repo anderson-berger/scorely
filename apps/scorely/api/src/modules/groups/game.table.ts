@@ -1,5 +1,6 @@
 // Como o jogo e a presença são salvos e buscados (single-table, sem GSI). Jogo e presença são tipos
 // internos da api (`GameRecord`, `AttendanceRecord`); a resposta `Game` é montada pelo service.
+import type { UserId } from '@scorely/api/src/lib/ids';
 
 export const GAME_ENTITY = 'Game';
 export const ATTENDANCE_ENTITY = 'Attendance';
@@ -30,11 +31,11 @@ export function attendanceOrderLookupPk(gameId: string) {
   return `LOOKUP#GAME#${gameId}#ATTENDANCE`;
 }
 
-export function attendanceOrderLookupKey(a: { gameId: string; confirmedAt: string; userId: string }) {
+export function attendanceOrderLookupKey(a: { gameId: string; confirmedAt: string; userId: UserId }) {
   return { PK: attendanceOrderLookupPk(a.gameId), SK: `${a.confirmedAt}#${a.userId}` };
 }
 
 /** Lookup único da presença por usuário: `PK=LOOKUP#GAME#<gameId>#ATTENDANCE#USER#<userId>`, `SK=META`, `{ id }`. */
-export function attendanceUserLookupKey(gameId: string, userId: string) {
+export function attendanceUserLookupKey(gameId: string, userId: UserId) {
   return { PK: `LOOKUP#GAME#${gameId}#ATTENDANCE#USER#${userId}`, SK: 'META' };
 }

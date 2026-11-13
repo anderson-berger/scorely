@@ -1,10 +1,17 @@
-import type { Attendee, Game } from '@scorely/contracts';
+import { type Attendee, type Game, PublicUserIdSchema } from '@scorely/contracts';
+import {
+  countdown,
+  formatCountdown,
+  initials,
+  lineupSlots,
+  score,
+  statusTone,
+} from '@scorely/web/src/modules/groups/scoreboard';
 import { describe, expect, it } from 'vitest';
-import { countdown, formatCountdown, initials, lineupSlots, score, statusTone } from './scoreboard';
 
 function attendees(n: number): Attendee[] {
   return Array.from({ length: n }, (_, i) => ({
-    userId: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
+    userId: PublicUserIdSchema.parse(String(i).padStart(8, '0')),
     name: `Pessoa ${i}`,
     confirmedAt: '2026-11-04T22:00:00.000Z',
     role: 'member',

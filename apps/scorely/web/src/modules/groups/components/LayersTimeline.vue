@@ -1,8 +1,8 @@
 <script lang="ts">
 import type { Game } from '@scorely/contracts';
+import { formatDateTime } from '@scorely/web/src/lib/datetime';
+import { type LayerStep, layerTimeline } from '@scorely/web/src/modules/groups/layers';
 import { defineComponent, type PropType } from 'vue';
-import { formatDateTime } from '@/lib/datetime';
-import { type LayerStep, layerTimeline } from '../layers';
 
 interface Row {
   key: string;

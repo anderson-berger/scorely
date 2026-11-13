@@ -1,11 +1,11 @@
 <script lang="ts">
 import { CodeSchema, EmailSchema, ErrorDetailsSchemas } from '@scorely/contracts';
+import { safeRedirect } from '@scorely/web/src/app/guard';
+import { errorMessage, issueMessage } from '@scorely/web/src/i18n/errors';
+import { ApiRequestError } from '@scorely/web/src/lib/http';
+import { authApi } from '@scorely/web/src/modules/auth/auth.api';
+import { useAuthStore } from '@scorely/web/src/modules/auth/auth.store';
 import { defineComponent } from 'vue';
-import { safeRedirect } from '@/app/guard';
-import { errorMessage, issueMessage } from '@/i18n/errors';
-import { ApiRequestError } from '@/lib/http';
-import { authApi } from '../auth.api';
-import { useAuthStore } from '../auth.store';
 
 export default defineComponent({
   name: 'LoginPage',

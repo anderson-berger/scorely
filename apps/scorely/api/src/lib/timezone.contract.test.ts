@@ -1,9 +1,14 @@
-import { CreateGroupInputSchema, GroupSchema, UpdateMeInputSchema, UserSchema } from '@scorely/contracts';
+import {
+  CreateGroupInputSchema,
+  GroupSchema,
+  PreferencesSchema,
+  UpdateMeInputSchema,
+} from '@scorely/contracts';
 import { describe, expect, it } from 'vitest';
 
 /** Contrato (plano 003, D13): fuso validado só na entrada; na leitura, texto livre e sem canonizar. */
 const ENTITY = { id: '7f3c2a1e-4b5d-4c6e-8f90-a1b2c3d4e5f6', createdAt: '2026-11-05T12:00:00.000Z' };
-const user = (timeZone: string) => ({ ...ENTITY, email: 'ana@example.com', timeZone });
+const preferences = (timeZone: string) => ({ locale: 'pt-BR', timeZone });
 const group = (timeZone: string) => ({
   ...ENTITY,
   name: 'Vôlei de sexta',
@@ -16,8 +21,9 @@ const group = (timeZone: string) => ({
   reservesOpenHoursBefore: 24,
   maxMembers: 30,
   maxReserves: 30,
-  ownerId: '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d',
+  ownerId: '7K3QX9TA',
   myRole: 'member',
+  myPermissions: [],
 });
 const createGroup = (timeZone: string) => ({
   name: 'Vôlei de sexta',
@@ -30,12 +36,12 @@ const createGroup = (timeZone: string) => ({
 });
 
 describe('contrato: fuso na leitura e na entrada (caso 14)', () => {
-  it("caso 14: UserSchema aceita 'Mars/Olympus' e devolve o texto igual", () => {
-    expect(UserSchema.parse(user('Mars/Olympus')).timeZone).toBe('Mars/Olympus');
+  it("caso 14: PreferencesSchema aceita 'Mars/Olympus' e devolve o texto igual", () => {
+    expect(PreferencesSchema.parse(preferences('Mars/Olympus')).timeZone).toBe('Mars/Olympus');
   });
 
-  it("caso 14: UserSchema com 'Brazil/East' devolve igual (sem canonizar)", () => {
-    expect(UserSchema.parse(user('Brazil/East')).timeZone).toBe('Brazil/East');
+  it("caso 14: PreferencesSchema com 'Brazil/East' devolve igual (sem canonizar)", () => {
+    expect(PreferencesSchema.parse(preferences('Brazil/East')).timeZone).toBe('Brazil/East');
   });
 
   it("caso 14: GroupSchema aceita 'Mars/Olympus' e devolve o texto igual", () => {

@@ -1,6 +1,6 @@
+import { EntitySchema } from '@scorely/contracts/src/entity';
+import { PublicUserIdSchema, TimeZoneSchema } from '@scorely/contracts/src/users';
 import { z } from 'zod';
-import { EntitySchema } from './entity';
-import { TimeZoneSchema } from './users';
 
 /** Esportes do grupo. O web traduz o nome (`sports.<valor>`). */
 export const SportSchema = z.enum(['volleyball', 'soccer', 'basketball', 'other']);
@@ -49,6 +49,33 @@ export const GroupRoleSchema = z.enum(['member', 'reserve', 'guest']);
 export type GroupRole = z.infer<typeof GroupRoleSchema>;
 export const MemberRoleSchema = GroupRoleSchema.exclude(['guest']);
 export type MemberRole = z.infer<typeof MemberRoleSchema>;
+
+/**
+ * Permissões de administração do grupo (GRP-49), por assunto. O dono tem todas; quem não tem cargo, nenhuma.
+ * Só do dono, fora do catálogo: arquivar, desarquivar, cargos e passar o grupo.
+ */
+export const PermissionSchema = z.enum(['game.manage', 'teams.manage', 'members.manage', 'settings.edit']);
+export type Permission = z.infer<typeof PermissionSchema>;
+export const ALL_PERMISSIONS: readonly Permission[] = PermissionSchema.options;
+
+/** Cargos (GRP-48, 50). Por enquanto só o Admin, fixo no código, com todas as permissões. */
+export const StaffRoleIdSchema = z.enum(['admin']);
+export type StaffRoleId = z.infer<typeof StaffRoleIdSchema>;
+export const STAFF_ROLES: Record<StaffRoleId, { name: string; permissions: readonly Permission[] }> = {
+  admin: { name: 'Admin', permissions: ALL_PERMISSIONS },
+};
+
+/** O cargo como sai na lista de membros (GRP-55). */
+export const StaffRoleSchema = z.object({ id: StaffRoleIdSchema, name: z.string() });
+export type StaffRole = z.infer<typeof StaffRoleSchema>;
+
+/** PUT /groups/{id}/members/{userId}/staff-role (dono, GRP-51). */
+export const SetStaffRoleInputSchema = z.object({ staffRoleId: StaffRoleIdSchema });
+export type SetStaffRoleInput = z.infer<typeof SetStaffRoleInputSchema>;
+
+/** POST /groups/{id}/transfer (dono, GRP-54): o membro que vira o dono, pelo id público. */
+export const TransferGroupInputSchema = z.object({ userId: PublicUserIdSchema });
+export type TransferGroupInput = z.infer<typeof TransferGroupInputSchema>;
 
 /** Qual link: de membro e de reserva (`/join`) ou do jogo, para convidados (`/play`). */
 export const InviteKindSchema = z.enum(['member', 'reserve', 'guest']);
@@ -128,7 +155,7 @@ export const CreateGroupInputSchema = z
 export type CreateGroupInput = z.infer<typeof CreateGroupInputSchema>;
 
 /**
- * PATCH /groups/{id} (dono): as camadas, os limites, as vagas e o mínimo padrão (GRP-16, 38, 45, 46).
+ * PATCH /groups/{id} (`settings.edit`): as camadas, os limites, as vagas e o mínimo padrão (GRP-16, 38, 45, 46).
  * `guestsOpenHoursBefore: null` desliga os convidados; `minPlayers: null` desliga o mínimo.
  */
 export const UpdateGroupInputSchema = z
@@ -145,7 +172,8 @@ export const UpdateGroupInputSchema = z
 export type UpdateGroupInput = z.infer<typeof UpdateGroupInputSchema>;
 
 /**
- * Grupo como a api devolve. Os 3 tokens só vêm para o dono; `myRole` é o papel de quem pede.
+ * Grupo como a api devolve. Os 3 tokens só vêm para quem tem `members.manage` (GRP-05); `myRole` é o papel
+ * de quem pede, e `myPermissions`, as permissões dele (GRP-55).
  * `timeZone` é texto livre na leitura: a api já validou ao gravar (plano 003, D13).
  */
 export const GroupSchema = EntitySchema.extend({
@@ -161,7 +189,8 @@ export const GroupSchema = EntitySchema.extend({
   listOpensHoursBefore: z.number().int(),
   reservesOpenHoursBefore: z.number().int(),
   guestsOpenHoursBefore: z.number().int().optional(),
-  ownerId: z.uuid(),
+  /** Id público do dono (USR-16). */
+  ownerId: PublicUserIdSchema,
   inviteToken: z.string().optional(),
   reserveInviteToken: z.string().optional(),
   guestToken: z.string().optional(),
@@ -173,6 +202,8 @@ export const GroupSchema = EntitySchema.extend({
   maxMembers: z.number().int(),
   maxReserves: z.number().int(),
   myRole: MemberRoleSchema,
+  /** O que quem pede pode fazer no grupo (GRP-55). O dono recebe todas. */
+  myPermissions: z.array(PermissionSchema),
   /** Só para a reserva com convite para membro pendente (GRP-40, 41). */
   myMemberInvite: z.object({ expiresAt: z.iso.datetime() }).optional(),
 });
@@ -187,24 +218,26 @@ export const InviteSchema = z.object({ kind: InviteKindSchema, token: z.string()
 export type Invite = z.infer<typeof InviteSchema>;
 
 export const MemberSchema = z.object({
-  userId: z.uuid(),
+  userId: PublicUserIdSchema,
   name: z.string().optional(),
   isOwner: z.boolean(),
   role: MemberRoleSchema,
-  /** Só na resposta para o dono: a reserva tem convite para membro pendente até essa data (GRP-40). */
+  /** O cargo da pessoa (GRP-48, 55). Ausente = sem cargo. Todos veem. */
+  staffRole: StaffRoleSchema.optional(),
+  /** Só na resposta para quem tem `members.manage`: a reserva tem convite para membro pendente até essa data (GRP-40). */
   memberInviteExpiresAt: z.iso.datetime().optional(),
 });
 export type Member = z.infer<typeof MemberSchema>;
 
 /** POST /groups/{id}/members/{userId}/member-invite: o convite pendente (GRP-40). */
-export const MemberInviteSchema = z.object({ userId: z.uuid(), expiresAt: z.iso.datetime() });
+export const MemberInviteSchema = z.object({ userId: PublicUserIdSchema, expiresAt: z.iso.datetime() });
 export type MemberInvite = z.infer<typeof MemberInviteSchema>;
 
 export const GameStatusSchema = z.enum(['scheduled', 'open', 'in_progress', 'cancelled']);
 export type GameStatus = z.infer<typeof GameStatusSchema>;
 
 export const AttendeeSchema = z.object({
-  userId: z.uuid(),
+  userId: PublicUserIdSchema,
   name: z.string().optional(),
   confirmedAt: z.iso.datetime(),
   role: GroupRoleSchema,
@@ -245,7 +278,7 @@ export const GameSchema = z.object({
 export type Game = z.infer<typeof GameSchema>;
 
 /**
- * PATCH /groups/{id}/games/{date} (dono): vagas e mínimo só do jogo atual (GRP-45, 46).
+ * PATCH /groups/{id}/games/{date} (`game.manage`): vagas e mínimo só do jogo atual (GRP-45, 46).
  * `null` = voltar ao padrão do grupo.
  */
 export const UpdateGameInputSchema = z

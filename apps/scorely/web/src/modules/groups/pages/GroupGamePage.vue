@@ -1,29 +1,37 @@
 <script lang="ts">
 import type { Game, Group, PlayerPosition } from '@scorely/contracts';
+import { errorMessage } from '@scorely/web/src/i18n/errors';
+import { gameCapacityPatch } from '@scorely/web/src/modules/groups/capacity';
+import CapacitySheet from '@scorely/web/src/modules/groups/components/CapacitySheet.vue';
+import GameCard from '@scorely/web/src/modules/groups/components/GameCard.vue';
+import { groupsApi } from '@scorely/web/src/modules/groups/groups.api';
+import {
+  type GroupAccess,
+  NO_ACCESS,
+  onPermissionError,
+  permissionLostInject,
+} from '@scorely/web/src/modules/groups/permissions';
+import TeamsLine from '@scorely/web/src/modules/teams/components/TeamsLine.vue';
 import { defineComponent, type PropType } from 'vue';
-import { errorMessage } from '@/i18n/errors';
-import TeamsCard from '../../teams/components/TeamsCard.vue';
-import { gameCapacityPatch } from '../capacity';
-import CapacitySheet from '../components/CapacitySheet.vue';
-import GameCard from '../components/GameCard.vue';
-import { groupsApi } from '../groups.api';
 
 /**
- * Aba Jogo (plano 012): o jogo da semana. Os times (E3) e as partidas (E4) entram aqui como seções.
+ * Aba Jogo (GRP-29): "eu jogo?". Os times ficam na aba Times; aqui, só a linha que leva até lá.
  * Grupo arquivado não tem jogo (`game = null`): só o aviso, sem placar nem lista (GRP-37).
  * O casco passa os mesmos dados para todas as abas; o que esta não usa não vira atributo (`inheritAttrs`).
  */
 export default defineComponent({
   name: 'GroupGamePage',
 
-  components: { CapacitySheet, GameCard, TeamsCard },
+  components: { CapacitySheet, GameCard, TeamsLine },
+
+  inject: permissionLostInject,
 
   inheritAttrs: false,
 
   props: {
     group: { type: Object as PropType<Group>, required: true },
     game: { type: Object as PropType<Game | null>, default: null },
-    isOwner: { type: Boolean, default: false },
+    access: { type: Object as PropType<GroupAccess>, default: () => NO_ACCESS },
     busy: { type: Boolean, default: false },
     /** TIM-05: posições de cada pessoa (ausente = o esporte não tem posições). */
     playerPositions: {
@@ -40,9 +48,9 @@ export default defineComponent({
   },
 
   computed: {
-    /** GRP-45: o dono muda as vagas do jogo enquanto dá para confirmar (antes do início, não cancelado). */
+    /** GRP-45: quem tem `game.manage` muda as vagas do jogo enquanto dá para confirmar (antes do início, não cancelado). */
     canEditCapacity(): boolean {
-      return this.isOwner && (this.game?.status === 'scheduled' || this.game?.status === 'open');
+      return this.access.game && (this.game?.status === 'scheduled' || this.game?.status === 'open');
     },
   },
 
@@ -61,7 +69,9 @@ export default defineComponent({
         this.$q.notify({ type: 'positive', message: this.$t('groups.capacity.saved') });
         this.$emit('saved');
       } catch (err) {
-        this.$q.notify({ type: 'negative', message: errorMessage(err) });
+        // GRP-57: sem a permissão, o painel fecha e a página recarrega.
+        if (await onPermissionError(err, this.permissionLost)) this.capacityOpen = false;
+        else this.$q.notify({ type: 'negative', message: errorMessage(err) });
       } finally {
         this.savingCapacity = false;
       }
@@ -88,7 +98,7 @@ export default defineComponent({
     @edit-player="$emit('editPlayer', $event)"
   >
     <template #teams>
-      <TeamsCard :group-id="group.id" :game="game" :sport="group.sport" :is-owner="isOwner" />
+      <TeamsLine :group-id="group.id" :game="game" :can-manage="access.teams" />
     </template>
   </GameCard>
   <CapacitySheet

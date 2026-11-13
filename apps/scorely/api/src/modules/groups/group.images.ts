@@ -1,3 +1,15 @@
+import { appError } from '@scorely/api/src/lib/errors';
+import type { UserId } from '@scorely/api/src/lib/ids';
+import { groupKey } from '@scorely/api/src/modules/groups/group.table';
+import {
+  forViewer,
+  type GroupImageIds,
+  type GroupsDeps,
+  requireActive,
+  requirePermission,
+} from '@scorely/api/src/modules/groups/groups.deps';
+import type { MediaService } from '@scorely/api/src/modules/media/media.service';
+import type { MediaTarget } from '@scorely/api/src/modules/media/media.table';
 import type {
   AttachMediaInput,
   Group,
@@ -6,22 +18,17 @@ import type {
   MediaUpload,
   MediaUploadInput,
 } from '@scorely/contracts';
-import { appError } from '../../lib/errors';
-import type { MediaService } from '../media/media.service';
-import type { MediaTarget } from '../media/media.table';
-import { groupKey } from './group.table';
-import { forViewer, type GroupImageIds, type GroupsDeps, requireActive, requireOwner } from './groups.deps';
 
 /** Cada imagem do grupo é uma finalidade da mídia (GRP-35, MID-02). */
 const PURPOSES: Record<GroupImageSlot, MediaPurpose> = { logo: 'group.logo', cover: 'group.cover' };
 
 /**
- * Logo e capa do grupo (GRP-35). O grupo decide quem pode (o dono, num grupo ativo) e a mídia cuida do
+ * Logo e capa do grupo (GRP-35). O grupo decide quem pode (`settings.edit`, num grupo ativo) e a mídia cuida do
  * arquivo (MID-01). A permissão é conferida em cada passo, então quem perdeu o papel no meio é barrado.
  */
 export function createGroupImages(deps: GroupsDeps & { media: MediaService }) {
-  async function requireActiveOwner(userId: string, groupId: string) {
-    const group = await requireOwner(deps, userId, groupId);
+  async function requireEditor(userId: UserId, groupId: string) {
+    const { group } = await requirePermission(deps, userId, groupId, 'settings.edit');
     requireActive(group);
     return group;
   }
@@ -38,21 +45,24 @@ export function createGroupImages(deps: GroupsDeps & { media: MediaService }) {
     };
   }
 
-  /** O grupo depois da troca, como o dono vê. */
-  async function fresh(userId: string, groupId: string): Promise<Group> {
-    const group = await deps.groups.get(groupId, { consistent: true });
-    if (!group) throw appError('GROUP_NOT_FOUND');
-    return forViewer(group, userId, 'member');
+  /** O grupo depois da troca, como quem trocou vê. */
+  async function fresh(userId: UserId, groupId: string): Promise<Group> {
+    const [group, membership] = await Promise.all([
+      deps.groups.get(groupId, { consistent: true }),
+      deps.groups.getMembership(groupId, userId),
+    ]);
+    if (!group || !membership) throw appError('GROUP_NOT_FOUND');
+    return forViewer(group, userId, membership.role, membership.staffRoleId);
   }
 
   return {
     async requestUpload(
-      userId: string,
+      userId: UserId,
       groupId: string,
       slot: GroupImageSlot,
       input: MediaUploadInput,
     ): Promise<MediaUpload> {
-      await requireActiveOwner(userId, groupId);
+      await requireEditor(userId, groupId);
       return deps.media.requestUpload({
         purpose: PURPOSES[slot],
         ownerId: groupId,
@@ -62,12 +72,12 @@ export function createGroupImages(deps: GroupsDeps & { media: MediaService }) {
     },
 
     async attach(
-      userId: string,
+      userId: UserId,
       groupId: string,
       slot: GroupImageSlot,
       input: AttachMediaInput,
     ): Promise<Group> {
-      await requireActiveOwner(userId, groupId);
+      await requireEditor(userId, groupId);
       await deps.media.attach({
         mediaId: input.mediaId,
         purpose: PURPOSES[slot],
@@ -77,8 +87,8 @@ export function createGroupImages(deps: GroupsDeps & { media: MediaService }) {
       return fresh(userId, groupId);
     },
 
-    async detach(userId: string, groupId: string, slot: GroupImageSlot): Promise<Group> {
-      await requireActiveOwner(userId, groupId);
+    async detach(userId: UserId, groupId: string, slot: GroupImageSlot): Promise<Group> {
+      await requireEditor(userId, groupId);
       await deps.media.detach({ purpose: PURPOSES[slot], ownerId: groupId, target: target(groupId, slot) });
       return fresh(userId, groupId);
     },

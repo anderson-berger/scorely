@@ -1,6 +1,6 @@
 import type { MediaUpload } from '@scorely/contracts';
+import { coverCrop, uploadMedia } from '@scorely/web/src/lib/media';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { coverCrop, uploadMedia } from './media';
 
 // MID-03 (docs/modules/midia.md): o navegador recorta no centro e deixa no tamanho final da finalidade.
 // O `prepareImage` (canvas e WebP/JPEG) depende do navegador e fica no roteiro manual.

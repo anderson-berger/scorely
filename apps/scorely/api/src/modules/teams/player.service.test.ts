@@ -1,3 +1,8 @@
+import { AppError, appError } from '@scorely/api/src/lib/errors';
+import { asUserId, type UserId } from '@scorely/api/src/lib/ids';
+import type { GroupRepository, StoredGroup } from '@scorely/api/src/modules/groups/group.repository';
+import type { PlayerRepository, StoredPlayer } from '@scorely/api/src/modules/teams/player.repository';
+import { createPlayerService } from '@scorely/api/src/modules/teams/player.service';
 import {
   type Attendee,
   type ErrorCode,
@@ -6,31 +11,107 @@ import {
   type MemberRole,
   type PlayerPosition,
   PlayerSchema,
+  type PublicUserId,
+  PublicUserIdSchema,
   SPORT_POSITIONS,
   type Sport,
+  type StaffRoleId,
   UpdatePlayerInputSchema,
 } from '@scorely/contracts';
 import { describe, expect, it } from 'vitest';
-import { AppError, appError } from '../../lib/errors';
-import type { GroupRepository, StoredGroup } from '../groups/group.repository';
-import type { PlayerRepository, StoredPlayer } from './player.repository';
-import { canManageTeams, createPlayerService } from './player.service';
 
 // E3 etapa 1 (`.claude/work/e3-times-1.md`, retrabalho 1): posições por pessoa no grupo, TIM-01 a TIM-04.
 // O roster (membros e jogo atual) é um fake: quem confere participação e permissão é o service (`requireMember` no list, dono no update).
 
 const GROUP_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const OTHER_GROUP_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
-const OWNER = '11111111-1111-4111-8111-111111111111';
-const A = '22222222-2222-4222-8222-222222222222';
-const B = '33333333-3333-4333-8333-333333333333';
+const OWNER = asUserId('11111111-1111-4111-8111-111111111111');
+const A = asUserId('22222222-2222-4222-8222-222222222222');
+const B = asUserId('33333333-3333-4333-8333-333333333333');
 /** Reserva. */
-const R = '88888888-8888-4888-8888-888888888888';
+const R = asUserId('88888888-8888-4888-8888-888888888888');
 /** Convidado dentro da lista. */
-const G = '99999999-9999-4999-8999-999999999999';
+const G = asUserId('99999999-9999-4999-8999-999999999999');
 /** Convidado na fila. */
-const H = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
-const OUTSIDER = '66666666-6666-4666-8666-666666666666';
+const H = asUserId('cccccccc-cccc-4ccc-8ccc-cccccccccccc');
+const OUTSIDER = asUserId('66666666-6666-4666-8666-666666666666');
+
+const PEOPLE: UserId[] = [OWNER, A, B, R, G, H, OUTSIDER];
+// ---------------------------------------------------------------------------------------------
+// Id público (USR-15–17): por dentro, tudo anda com o id do sistema; na borda (entrada e saída do service), com o
+// público. Os testes falam com ids do sistema: `atTheEdge` traduz para o público na ida e volta para o do sistema na
+// saída. Um id do sistema que sair do service vira `LEAKED:<id>` e quebra a comparação (USR-16).
+
+/** Id público de cada pessoa do teste: os 4 primeiros e os 4 últimos caracteres do id do sistema, em maiúsculas. */
+const pub = (id: UserId): PublicUserId =>
+  PublicUserIdSchema.parse(`${id.slice(0, 4)}${id.slice(-4)}`.toUpperCase());
+const TO_PUBLIC = new Map<string, string>(PEOPLE.map((id) => [id, pub(id)]));
+const TO_SYSTEM = new Map<string, string>(PEOPLE.map((id) => [pub(id), id]));
+const resolveIn = (publicIds: readonly PublicUserId[]) =>
+  new Map(
+    publicIds.flatMap((code) => {
+      const id = TO_SYSTEM.get(code);
+      return id === undefined ? [] : [[code, asUserId(id)] as const];
+    }),
+  );
+
+function mapDeep(value: unknown, f: (s: string) => string): unknown {
+  if (typeof value === 'string') return f(value);
+  if (Array.isArray(value)) return value.map((v) => mapDeep(v, f));
+  if (value && typeof value === 'object')
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [f(k), mapDeep(v, f)]));
+  return value;
+}
+const toWire = (value: unknown) => mapDeep(value, (s) => TO_PUBLIC.get(s) ?? s);
+const fromWire = (value: unknown) =>
+  mapDeep(value, (s) => TO_SYSTEM.get(s) ?? (TO_PUBLIC.has(s) ? `LEAKED:${s}` : s));
+
+/** O tipo visto pelo teste: id público vira id do sistema. */
+type Sys<T> = T extends PublicUserId
+  ? UserId
+  : T extends string | number | boolean | null | undefined
+    ? T
+    : T extends readonly (infer U)[]
+      ? Sys<U>[]
+      : T extends object
+        ? { [K in keyof T]: Sys<T[K]> }
+        : T;
+type AtTheEdge<S> = {
+  [K in keyof S]: S[K] extends (...args: infer P) => Promise<infer R>
+    ? (...args: { [I in keyof P]: Sys<P[I]> }) => Promise<Sys<R>>
+    : S[K];
+};
+
+/** O service visto pelos testes: o 1º argumento (quem pede, o login) passa como está; o resto vai com o público. */
+function atTheEdge<S extends object>(service: S): AtTheEdge<S> {
+  return new Proxy(service, {
+    get(target, prop) {
+      const fn: unknown = Reflect.get(target, prop);
+      if (typeof fn !== 'function') return fn;
+      return async (actor: unknown, ...rest: unknown[]) => {
+        try {
+          return fromWire(await fn.call(target, actor, ...(toWire(rest) as unknown[])));
+        } catch (e) {
+          if (e instanceof AppError && e.details !== undefined)
+            Object.assign(e, { details: fromWire(e.details) });
+          throw e;
+        }
+      };
+    },
+  }) as unknown as AtTheEdge<S>;
+}
+
+/** Todos os ids do sistema do teste: nenhum pode aparecer numa resposta (USR-16). */
+const leaksSystemId = (value: unknown) => PEOPLE.some((id) => JSON.stringify(value).includes(id));
+const UNKNOWN = PublicUserIdSchema.parse('ZZZZZZZZ');
+
+/** O que o módulo de grupos entrega aos times (interno): as pessoas com os dois ids. */
+type RosterMember = Omit<Member, 'userId'> & { userId: UserId; publicId: PublicUserId };
+type RosterAttendee = Omit<Attendee, 'userId'> & { userId: UserId; publicId: PublicUserId };
+type RosterGame = Omit<Game, 'confirmed' | 'waitlist'> & {
+  confirmed: RosterAttendee[];
+  waitlist: RosterAttendee[];
+};
 
 const NOW = new Date('2026-11-05T13:00:00.000Z');
 const LATER = new Date('2026-11-12T13:00:00.000Z');
@@ -49,6 +130,7 @@ function storedGroup(extra: Partial<StoredGroup> = {}): StoredGroup {
     reservesOpenHoursBefore: 24,
     guestsOpenHoursBefore: 12,
     ownerId: OWNER,
+    ownerPublicId: pub(OWNER),
     inviteToken: 'tok-member',
     reserveInviteToken: 'tok-reserve',
     guestToken: 'tok-guest',
@@ -58,22 +140,24 @@ function storedGroup(extra: Partial<StoredGroup> = {}): StoredGroup {
   };
 }
 
-const member = (userId: string, name: string, role: MemberRole = 'member'): Member => ({
+const member = (userId: UserId, name: string, role: MemberRole = 'member'): RosterMember => ({
   userId,
+  publicId: pub(userId),
   name,
   isOwner: userId === OWNER,
   role,
 });
 
-const attendee = (userId: string, name: string, role: Attendee['role'], minute: number): Attendee => ({
+const attendee = (userId: UserId, name: string, role: Attendee['role'], minute: number): RosterAttendee => ({
   userId,
+  publicId: pub(userId),
   name,
   role,
   confirmedAt: new Date(Date.UTC(2026, 10, 4, 22, minute)).toISOString(),
 });
 
 /** Ordem do GET /members (GRP-06): quem ordena é o módulo de grupos; aqui a ordem é a do fixture. */
-const MEMBERS: Member[] = [
+const MEMBERS: RosterMember[] = [
   member(OWNER, 'Dono'),
   member(B, 'Beatriz'),
   member(A, 'Ana'),
@@ -81,7 +165,7 @@ const MEMBERS: Member[] = [
 ];
 
 /** Jogo atual: membros e convidados misturados, dentro e na fila. */
-function gameOf(confirmed: Attendee[], waitlist: Attendee[]): Game {
+function gameOf(confirmed: RosterAttendee[], waitlist: RosterAttendee[]): RosterGame {
   return {
     groupId: GROUP_ID,
     date: '2026-11-06',
@@ -108,12 +192,14 @@ const unused = () => Promise.reject(new Error('not used by the teams module'));
  * Participação do grupo: os membros do roster; o `currentGame` responde `GROUP_ARCHIVED` com o grupo arquivado
  * (o jogo só existe com o grupo ativo, GRP-37), então o service não deve chamá-lo nesse caso.
  */
-function setup(opts: { group?: Partial<StoredGroup>; members?: Member[]; game?: Game } = {}) {
+function setup(opts: { group?: Partial<StoredGroup>; members?: RosterMember[]; game?: RosterGame } = {}) {
   const clock = { now: NOW };
   const state = {
     group: storedGroup(opts.group),
     members: opts.members ?? MEMBERS,
     game: opts.game ?? GAME,
+    /** Cargo de cada pessoa (GRP-48): `admin` dá o `teams.manage`. */
+    staff: {} as Record<string, StaffRoleId>,
   };
   const saved: { groupId: string; userId: string; positions: PlayerPosition[]; now: string }[] = [];
   const store = new Map<string, StoredPlayer>();
@@ -127,7 +213,15 @@ function setup(opts: { group?: Partial<StoredGroup>; members?: Member[]; game?: 
     create: unused,
     addMember: unused,
     counts: unused,
-    getMembership: unused,
+    getMembership: async (groupId, userId) => {
+      const role =
+        groupId === state.group.id ? state.members.find((m) => m.userId === userId)?.role : undefined;
+      if (!role) return undefined;
+      const staffRoleId = state.staff[userId];
+      return staffRoleId === undefined ? { role } : { role, staffRoleId };
+    },
+    setStaffRole: unused,
+    transfer: unused,
     setMemberInvite: unused,
     clearMemberInvite: unused,
     acceptMemberInvite: unused,
@@ -169,11 +263,17 @@ function setup(opts: { group?: Partial<StoredGroup>; members?: Member[]; game?: 
     },
   };
 
-  const service = createPlayerService({ groups, roster, players, now: () => clock.now });
+  /** USR-17: o PUT recebe o id público e traduz; `getMany` traz quem saiu do grupo. */
+  const users = {
+    resolve: async (publicIds: readonly PublicUserId[]) => resolveIn(publicIds),
+  };
+
+  const raw = createPlayerService({ groups, roster, players, users, now: () => clock.now });
+  const service = atTheEdge(raw);
   /** Grava direto no repositório (posição definida antes, por exemplo em outra semana). */
-  const seed = (userId: string, positions: PlayerPosition[], groupId = GROUP_ID) =>
+  const seed = (userId: UserId, positions: PlayerPosition[], groupId = GROUP_ID) =>
     players.save(groupId, userId, positions, '2026-10-01T00:00:00.000Z');
-  return { clock, state, saved, store, service, seed };
+  return { clock, state, saved, store, service, raw, seed };
 }
 
 async function expectAppError(p: Promise<unknown>, code: ErrorCode, status: number): Promise<AppError> {
@@ -193,7 +293,7 @@ describe('times: posições por pessoa no grupo (TIM-01)', () => {
     const t = setup();
     const list = await t.service.list(OWNER, GROUP_ID);
 
-    for (const p of list) expect(PlayerSchema.parse(p)).toEqual(p);
+    for (const p of list) expect(PlayerSchema.parse(toWire(p))).toEqual(toWire(p));
     expect(list.map((p) => [p.userId, p.role])).toEqual([
       [OWNER, 'member'],
       [B, 'member'],
@@ -359,13 +459,6 @@ describe('times: posições do esporte (TIM-02)', () => {
 });
 
 describe('times: todos do grupo veem, só o dono muda (TIM-03)', () => {
-  it('TIM-03: canManageTeams é verdadeiro só para o dono', () => {
-    const group = storedGroup();
-    expect(canManageTeams(group, OWNER)).toBe(true);
-    expect(canManageTeams(group, A)).toBe(false);
-    expect(canManageTeams(group, R)).toBe(false);
-  });
-
   it('TIM-03: membro e reserva veem a mesma lista do dono, com as posições', async () => {
     const t = setup();
     await t.seed(B, ['setter', 'libero']);
@@ -380,17 +473,17 @@ describe('times: todos do grupo veem, só o dono muda (TIM-03)', () => {
     }
   });
 
-  it('TIM-03: membro e reserva que não são donos → mudar responde GROUP_NOT_OWNER (403), sem gravar', async () => {
+  it('TIM-03: membro e reserva sem cargo (sem teams.manage) → mudar responde GROUP_PERMISSION_DENIED (403), sem gravar', async () => {
     const t = setup();
     for (const who of [A, R]) {
       await expectAppError(
         t.service.update(who, GROUP_ID, B, { positions: ['setter'] }),
-        'GROUP_NOT_OWNER',
+        'GROUP_PERMISSION_DENIED',
         403,
       );
       await expectAppError(
         t.service.update(who, GROUP_ID, who, { positions: ['setter'] }),
-        'GROUP_NOT_OWNER',
+        'GROUP_PERMISSION_DENIED',
         403,
       );
     }
@@ -416,11 +509,11 @@ describe('times: todos do grupo veem, só o dono muda (TIM-03)', () => {
     expect(t.saved).toEqual([]);
   });
 
-  it('TIM-03: a permissão vem antes da validação (não dono com posição inválida e pessoa de fora → 403)', async () => {
+  it('TIM-03: a permissão vem antes da validação (sem teams.manage, com posição inválida e pessoa de fora → 403)', async () => {
     const t = setup({ group: { sport: 'basketball' } });
     await expectAppError(
       t.service.update(A, GROUP_ID, OUTSIDER, { positions: ['setter'] }),
-      'GROUP_NOT_OWNER',
+      'GROUP_PERMISSION_DENIED',
       403,
     );
   });
@@ -477,7 +570,7 @@ describe('times: quem o dono classifica (TIM-04)', () => {
 
   it('TIM-04: o dono define para membro, reserva, convidado dentro e convidado na fila', async () => {
     const t = setup();
-    const cases: [string, Attendee['role']][] = [
+    const cases: [UserId, Attendee['role']][] = [
       [OWNER, 'member'],
       [B, 'member'],
       [R, 'reserve'],
@@ -548,5 +641,97 @@ describe('times: quem o dono classifica (TIM-04)', () => {
     const list = await t.service.list(OWNER, GROUP_ID);
     expect(list.find((p) => p.userId === A)?.positions).toEqual(['libero']);
     expect(list.find((p) => p.userId === G)?.positions).toEqual(['libero']);
+  });
+});
+
+describe('jogadores pelo id público (USR-16, USR-17)', () => {
+  it('USR-16: a lista de jogadores sai só com ids públicos', async () => {
+    const t = setup();
+    const list = await t.raw.list(OWNER, GROUP_ID);
+    expect(list.map((p) => p.userId)).toEqual([OWNER, B, A, R, G, H].map(pub));
+    expect(leaksSystemId(list)).toBe(false);
+  });
+
+  it('USR-17: o PUT recebe o id público, grava pelo id do sistema e devolve o público', async () => {
+    const t = setup();
+    const saved = await t.raw.update(OWNER, GROUP_ID, pub(A), { positions: ['setter'] });
+    expect(saved).toEqual({ userId: pub(A), name: 'Ana', role: 'member', positions: ['setter'] });
+    expect(t.saved.at(-1)).toMatchObject({ groupId: GROUP_ID, userId: A, positions: ['setter'] });
+  });
+
+  it('USR-17: id público que não existe → TEAM_PLAYER_NOT_FOUND (o mesmo de quem não está), sem gravar', async () => {
+    const t = setup();
+    const unknown = await expectAppError(
+      t.raw.update(OWNER, GROUP_ID, UNKNOWN, { positions: ['setter'] }),
+      'TEAM_PLAYER_NOT_FOUND',
+      404,
+    );
+    const outsider = await expectAppError(
+      t.raw.update(OWNER, GROUP_ID, pub(OUTSIDER), { positions: ['setter'] }),
+      'TEAM_PLAYER_NOT_FOUND',
+      404,
+    );
+    expect(unknown.message).toBe(outsider.message);
+    expect(t.saved).toEqual([]);
+  });
+
+  it('USR-17: o id do sistema no lugar do público não acha ninguém (TEAM_PLAYER_NOT_FOUND)', async () => {
+    const t = setup();
+    await expectAppError(
+      t.raw.update(OWNER, GROUP_ID, A as unknown as PublicUserId, { positions: ['setter'] }),
+      'TEAM_PLAYER_NOT_FOUND',
+      404,
+    );
+    expect(t.saved).toEqual([]);
+  });
+
+  it('USR-17: a permissão vem de quem pede: membro mudando a posição de outro → GROUP_PERMISSION_DENIED', async () => {
+    const t = setup();
+    await expectAppError(
+      t.raw.update(A, GROUP_ID, pub(B), { positions: ['setter'] }),
+      'GROUP_PERMISSION_DENIED',
+      403,
+    );
+    expect(t.saved).toEqual([]);
+  });
+});
+
+describe('posições com cargo (TIM-03, GRP-49, 53)', () => {
+  it('TIM-03: membro e reserva com o cargo Admin (teams.manage) mudam as posições', async () => {
+    const t = setup();
+    for (const who of [A, R]) {
+      t.state.staff[who] = 'admin';
+      const p = await t.service.update(who, GROUP_ID, B, { positions: ['setter'] });
+      expect(p).toMatchObject({ userId: B, positions: ['setter'] });
+    }
+    expect(t.saved).toHaveLength(2);
+  });
+
+  it('TIM-03: sem cargo, a resposta traz a permissão que faltou (teams.manage)', async () => {
+    const t = setup();
+    const err = await expectAppError(
+      t.service.update(A, GROUP_ID, B, { positions: ['setter'] }),
+      'GROUP_PERMISSION_DENIED',
+      403,
+    );
+    expect(err.details).toEqual({ permission: 'teams.manage' });
+  });
+
+  it('GRP-53: mudar as posições de quem tem cargo segue as regras normais (o dono muda as do Admin)', async () => {
+    const t = setup();
+    t.state.staff[A] = 'admin';
+    const p = await t.service.update(OWNER, GROUP_ID, A, { positions: ['libero'] });
+    expect(p).toMatchObject({ userId: A, positions: ['libero'] });
+  });
+
+  it('GRP-52: um cargo que não existe mais conta como sem cargo → GROUP_PERMISSION_DENIED', async () => {
+    const t = setup();
+    t.state.staff[A] = 'organizer' as never;
+    await expectAppError(
+      t.service.update(A, GROUP_ID, B, { positions: ['setter'] }),
+      'GROUP_PERMISSION_DENIED',
+      403,
+    );
+    expect(t.saved).toEqual([]);
   });
 });

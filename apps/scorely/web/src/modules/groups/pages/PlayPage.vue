@@ -1,13 +1,13 @@
 <script lang="ts">
 import type { GuestGame, Teams } from '@scorely/contracts';
+import { errorMessage } from '@scorely/web/src/i18n/errors';
+import { useAuthStore } from '@scorely/web/src/modules/auth/auth.store';
+import GameCard from '@scorely/web/src/modules/groups/components/GameCard.vue';
+import { groupsApi } from '@scorely/web/src/modules/groups/groups.api';
+import { playRedirect } from '@scorely/web/src/modules/groups/links';
+import TeamsView from '@scorely/web/src/modules/teams/components/TeamsView.vue';
+import { teamsApi } from '@scorely/web/src/modules/teams/teams.api';
 import { defineComponent } from 'vue';
-import { errorMessage } from '@/i18n/errors';
-import { useAuthStore } from '../../auth/auth.store';
-import TeamsView from '../../teams/components/TeamsView.vue';
-import { teamsApi } from '../../teams/teams.api';
-import GameCard from '../components/GameCard.vue';
-import { groupsApi } from '../groups.api';
-import { playRedirect } from '../links';
 
 /** `/play/:token`: o jogo da semana pelo link do jogo (plano 007, D7). Quem é do grupo vai para a página do grupo. */
 export default defineComponent({

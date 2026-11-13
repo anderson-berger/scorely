@@ -1,29 +1,21 @@
 <script lang="ts">
 import { type Game, GROUP_LIMITS, type Group, UpdateGroupInputSchema } from '@scorely/contracts';
-import { defineComponent, type PropType } from 'vue';
-import BottomSheet from '@/components/BottomSheet.vue';
-import HoursStepper from '@/components/HoursStepper.vue';
-import { errorMessage, issueMessage } from '@/i18n/errors';
-import { formatDateTime } from '@/lib/datetime';
-import { groupsApi } from '../groups.api';
+import BottomSheet from '@scorely/web/src/components/BottomSheet.vue';
+import HoursStepper from '@scorely/web/src/components/HoursStepper.vue';
+import { errorMessage, issueMessage } from '@scorely/web/src/i18n/errors';
+import { formatDateTime } from '@scorely/web/src/lib/datetime';
+import SettingsRow from '@scorely/web/src/modules/groups/components/SettingsRow.vue';
+import { groupsApi } from '@scorely/web/src/modules/groups/groups.api';
 import {
   changeLayer,
   type LayerKey,
-  type LayerStep,
   type Layers,
   layerOpensAt,
   layerTimeline,
   stepHours,
-} from '../layers';
-
-type LayerState = LayerStep['state'];
-
-interface SummaryRow {
-  key: LayerKey;
-  name: string;
-  state: LayerState;
-  when: string;
-}
+} from '@scorely/web/src/modules/groups/layers';
+import { onPermissionError, permissionLostInject } from '@scorely/web/src/modules/groups/permissions';
+import { defineComponent, type PropType } from 'vue';
 
 interface EditRow {
   key: LayerKey;
@@ -38,11 +30,13 @@ interface EditRow {
 const KEYS: LayerKey[] = ['members', 'reserves', 'guests'];
 const GUESTS_DEFAULT = 6;
 
-/** Quando a lista abre para cada camada; o dono ajusta num painel de baixo (planos 007 D2/D11 e 008). */
+/** Linha "Abertura da lista" dos Ajustes (GRP-29): o resumo e, ao tocar, o editor das camadas no painel de baixo. */
 export default defineComponent({
   name: 'LayersCard',
 
-  components: { BottomSheet, HoursStepper },
+  components: { BottomSheet, HoursStepper, SettingsRow },
+
+  inject: permissionLostInject,
 
   props: {
     group: { type: Object as PropType<Group>, required: true },
@@ -61,13 +55,16 @@ export default defineComponent({
   },
 
   computed: {
-    summary(): SummaryRow[] {
-      return layerTimeline(this.game, new Date()).map((step) => ({
-        key: step.key,
-        name: this.$t(`groups.layerNames.${step.key}`),
-        state: step.state,
-        when: step.at ? formatDateTime(step.at) : this.$t('groups.guestsOff'),
-      }));
+    /** GRP-29: "Membros 07/11, 19:00 · Reservas 09/11, 19:00 · Convidados desligado", com as datas do jogo atual. */
+    summary(): string {
+      return layerTimeline(this.game, new Date())
+        .map((step) => {
+          const layer = this.$t(`groups.layerNames.${step.key}`);
+          return step.at
+            ? this.$t('groups.settings.summary.layer', { layer, when: formatDateTime(step.at) })
+            : this.$t('groups.settings.summary.layerOff', { layer });
+        })
+        .join(' · ');
     },
 
     rows(): EditRow[] {
@@ -143,7 +140,9 @@ export default defineComponent({
         this.$q.notify({ type: 'positive', message: this.$t('groups.layersSaved') });
         this.$emit('saved');
       } catch (err) {
-        this.$q.notify({ type: 'negative', message: errorMessage(err) });
+        // GRP-57: sem a permissão, o painel fecha e a página recarrega.
+        if (await onPermissionError(err, this.permissionLost)) this.editing = false;
+        else this.$q.notify({ type: 'negative', message: errorMessage(err) });
       } finally {
         this.saving = false;
       }
@@ -154,17 +153,12 @@ export default defineComponent({
 
 <template>
   <section>
-    <div class="head">
-      <h2 class="sc-section">{{ $t('groups.settings.layers') }}</h2>
-      <q-btn v-if="isOwner" flat no-caps color="primary" class="adjust" :label="$t('groups.editLayers')" @click="open" />
-    </div>
-    <div class="summary">
-      <div v-for="l in summary" :key="l.key" class="sc-card cell" :class="{ 'cell--soon': l.state !== 'open' }">
-        <div class="sc-label state" :class="{ 'sc-accent': l.state === 'open' }">{{ $t(`groups.layerState.${l.state}`) }}</div>
-        <div class="sc-display name">{{ l.name }}</div>
-        <div class="sc-caption">{{ l.state === 'off' ? '' : l.when }}</div>
-      </div>
-    </div>
+    <SettingsRow
+      icon="schedule"
+      :title="$t('groups.settings.layers')"
+      :summary="summary"
+      @open="isOwner && open()"
+    />
 
     <BottomSheet v-model="editing" :title="$t('groups.layers')" :persistent="saving">
       <div class="sc-caption q-mt-xs">{{ $t('groups.layersHint') }}</div>
@@ -222,49 +216,6 @@ export default defineComponent({
 </template>
 
 <style scoped>
-.head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.head .sc-section {
-  margin: 0;
-}
-
-.adjust {
-  min-height: 44px;
-}
-
-.summary {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-  margin-top: 8px;
-}
-
-.cell {
-  padding: 12px;
-  border-radius: 12px;
-  min-width: 0;
-}
-
-.cell--soon {
-  border-color: var(--sc-line-strong);
-}
-
-.state {
-  font-size: 11px;
-  color: var(--sc-muted);
-}
-
-.name {
-  font-size: 20px;
-  margin: 4px 0 2px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 .timeline {
   margin-top: 18px;
   background: var(--sc-bg);

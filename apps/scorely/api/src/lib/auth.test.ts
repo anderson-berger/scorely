@@ -1,7 +1,7 @@
+import { authRoute, verifyBearer } from '@scorely/api/src/lib/auth';
+import { signJwt } from '@scorely/api/src/lib/jwt';
 import type { APIGatewayProxyEventV2 } from 'aws-lambda';
 import { describe, expect, it } from 'vitest';
-import { authHandler, verifyBearer } from './auth';
-import { signJwt } from './jwt';
 
 const secret = 'x'.repeat(32);
 const now = 1_000_000;
@@ -26,8 +26,8 @@ describe('verifyBearer', () => {
   });
 });
 
-describe('authHandler', () => {
-  const route = authHandler(async (_event, auth) => auth);
+describe('authRoute', () => {
+  const route = (event: APIGatewayProxyEventV2) => authRoute(event, async (auth) => auth);
   const eventWith = (authorizer: unknown) =>
     ({ requestContext: { authorizer } }) as unknown as APIGatewayProxyEventV2;
 

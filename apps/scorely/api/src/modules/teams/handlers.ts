@@ -1,18 +1,25 @@
-import { SaveTeamsInputSchema, UpdatePlayerInputSchema } from '@scorely/contracts';
-import { authHandlers } from '../../lib/auth';
-import { parseBody, pathParam } from '../../lib/http';
-import { dynamoGameRepository } from '../groups/game.repository';
-import { createGameService } from '../groups/game.service';
-import { dynamoGroupRepository } from '../groups/group.repository';
-import { createGroupService } from '../groups/group.service';
-import type { GroupsDeps } from '../groups/groups.deps';
-import { dynamoNotificationRepository } from '../notifications/notification.repository';
-import { createNotificationService } from '../notifications/notification.service';
-import { dynamoUserDirectory } from '../users/user.repository';
-import { dynamoPlayerRepository } from './player.repository';
-import { createPlayerService } from './player.service';
-import { dynamoTeamsRepository } from './teams.repository';
-import { createTeamsService } from './teams.service';
+import { authRoute } from '@scorely/api/src/lib/auth';
+import { type HttpEvent, parseBody, pathParam } from '@scorely/api/src/lib/http';
+import { asPublicUserId } from '@scorely/api/src/lib/ids';
+import { dynamoGameRepository } from '@scorely/api/src/modules/groups/game.repository';
+import { createGameService } from '@scorely/api/src/modules/groups/game.service';
+import { dynamoGroupRepository } from '@scorely/api/src/modules/groups/group.repository';
+import { createGroupService } from '@scorely/api/src/modules/groups/group.service';
+import type { GroupsDeps } from '@scorely/api/src/modules/groups/groups.deps';
+import { dynamoNotificationRepository } from '@scorely/api/src/modules/notifications/notification.repository';
+import { createNotificationService } from '@scorely/api/src/modules/notifications/notification.service';
+import { dynamoPlayerRepository } from '@scorely/api/src/modules/teams/player.repository';
+import { createPlayerService } from '@scorely/api/src/modules/teams/player.service';
+import { dynamoTeamSettingsRepository } from '@scorely/api/src/modules/teams/settings.repository';
+import { createTeamSettingsService } from '@scorely/api/src/modules/teams/settings.service';
+import { dynamoTeamsRepository } from '@scorely/api/src/modules/teams/teams.repository';
+import { createTeamsService } from '@scorely/api/src/modules/teams/teams.service';
+import { dynamoUserDirectory } from '@scorely/api/src/modules/users/user.repository';
+import {
+  SaveTeamsInputSchema,
+  UpdatePlayerInputSchema,
+  UpdateTeamSettingsInputSchema,
+} from '@scorely/contracts';
 
 const groupsDeps: GroupsDeps = {
   groups: dynamoGroupRepository,
@@ -24,64 +31,96 @@ const groups = createGroupService(groupsDeps);
 const games = createGameService(groupsDeps);
 const players = createPlayerService({
   groups: dynamoGroupRepository,
-  roster: { members: groups.members, currentGame: games.current },
+  roster: { members: groups.memberRecords, currentGame: games.currentRoster },
   players: dynamoPlayerRepository,
+  users: dynamoUserDirectory,
 });
 const teams = createTeamsService({
   groups: dynamoGroupRepository,
-  roster: { currentGame: games.current, guestView: games.guestView },
+  roster: { currentGame: games.currentRoster, guestView: games.guestRoster },
   players: dynamoPlayerRepository,
   users: dynamoUserDirectory,
   notifications: groupsDeps.notifications,
   teams: dynamoTeamsRepository,
+  settings: dynamoTeamSettingsRepository,
+});
+const teamSettings = createTeamSettingsService({
+  groups: dynamoGroupRepository,
+  roster: { members: groups.memberRecords, currentGame: games.currentRoster },
+  users: dynamoUserDirectory,
+  settings: dynamoTeamSettingsRepository,
 });
 
-export const {
-  listPlayers,
-  updatePlayer,
-  getTeams,
-  saveTeams,
-  publishTeams,
-  unpublishTeams,
-  drawTeams,
-  discardTeams,
-  guestTeams,
-} = authHandlers({
-  async listPlayers(event, auth) {
+export async function listPlayers(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
     return players.list(auth.userId, pathParam(event, 'id'));
-  },
+  });
+}
 
-  async updatePlayer(event, auth) {
+export async function updatePlayer(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
     const input = parseBody(event, UpdatePlayerInputSchema);
-    return players.update(auth.userId, pathParam(event, 'id'), pathParam(event, 'userId'), input);
-  },
+    return players.update(
+      auth.userId,
+      pathParam(event, 'id'),
+      asPublicUserId(pathParam(event, 'userId')),
+      input,
+    );
+  });
+}
 
-  async getTeams(event, auth) {
+export async function getTeamSettings(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
+    return teamSettings.get(auth.userId, pathParam(event, 'id'));
+  });
+}
+
+export async function updateTeamSettings(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
+    const input = parseBody(event, UpdateTeamSettingsInputSchema);
+    return teamSettings.update(auth.userId, pathParam(event, 'id'), input);
+  });
+}
+
+export async function getTeams(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
     return teams.get(auth.userId, pathParam(event, 'id'), pathParam(event, 'date'));
-  },
+  });
+}
 
-  async saveTeams(event, auth) {
+export async function saveTeams(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
     const input = parseBody(event, SaveTeamsInputSchema);
     return teams.save(auth.userId, pathParam(event, 'id'), pathParam(event, 'date'), input);
-  },
+  });
+}
 
-  async publishTeams(event, auth) {
+export async function publishTeams(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
     return teams.publish(auth.userId, pathParam(event, 'id'), pathParam(event, 'date'));
-  },
+  });
+}
 
-  async drawTeams(event, auth) {
+export async function drawTeams(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
     return teams.draw(auth.userId, pathParam(event, 'id'), pathParam(event, 'date'));
-  },
+  });
+}
 
-  async unpublishTeams(event, auth) {
+export async function unpublishTeams(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
     return teams.unpublish(auth.userId, pathParam(event, 'id'), pathParam(event, 'date'));
-  },
+  });
+}
 
-  async discardTeams(event, auth) {
+export async function discardTeams(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
     await teams.discard(auth.userId, pathParam(event, 'id'), pathParam(event, 'date'));
-  },
+  });
+}
 
-  async guestTeams(event, auth) {
+export async function guestTeams(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
     return teams.guestGet(auth.userId, pathParam(event, 'token'));
-  },
-});
+  });
+}

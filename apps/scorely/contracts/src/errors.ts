@@ -1,3 +1,5 @@
+import { PermissionSchema } from '@scorely/contracts/src/groups';
+import { TeamRuleConflictSchema, TeamViolationSchema } from '@scorely/contracts/src/teams';
 import { z } from 'zod';
 
 /**
@@ -30,6 +32,7 @@ export const ErrorCodeSchema = z.enum([
   // groups
   'GROUP_NOT_FOUND',
   'GROUP_NOT_OWNER',
+  'GROUP_PERMISSION_DENIED',
   'GROUP_INVITE_INVALID',
   'GROUP_MEMBER_NOT_FOUND',
   'GROUP_OWNER_NOT_REMOVABLE',
@@ -50,6 +53,8 @@ export const ErrorCodeSchema = z.enum([
   'TEAM_PLAYER_NOT_FOUND',
   'TEAM_POSITION_INVALID',
   'TEAM_EMPTY',
+  'TEAM_RULES_CONFLICT',
+  'TEAM_RULES_VIOLATED',
 ]);
 export type ErrorCode = z.infer<typeof ErrorCodeSchema>;
 
@@ -71,11 +76,17 @@ export const ErrorDetailsSchemas = {
     width: z.number().int().positive(),
     height: z.number().int().positive(),
   }),
+  /** A permissão que faltou (GRP-04, 52). */
+  GROUP_PERMISSION_DENIED: z.object({ permission: PermissionSchema }),
   GAME_LIST_NOT_OPEN: z.object({ opensAt: z.iso.datetime() }),
   GROUP_LAYERS_INVALID: z.object({ field: z.enum(['reservesOpenHoursBefore', 'guestsOpenHoursBefore']) }),
   TEAM_POSITION_INVALID: z.object({ position: z.string() }),
   /** O número do time vazio, a partir de 1 (TIM-08). */
   TEAM_EMPTY: z.object({ team: z.number().int().positive() }),
+  /** O que impede o sorteio (TIM-19). */
+  TEAM_RULES_CONFLICT: z.object({ conflicts: z.array(TeamRuleConflictSchema).min(1) }),
+  /** O que está fora das regras ao publicar (TIM-20). */
+  TEAM_RULES_VIOLATED: z.object({ violations: z.array(TeamViolationSchema).min(1) }),
   /** As vagas que valem (GRP-46): o mínimo não passa delas. */
   GROUP_MIN_PLAYERS_INVALID: z.object({ max: z.number().int().positive() }),
   /** Quantos já estão dentro (GRP-45): as vagas não descem abaixo disso. */

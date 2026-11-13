@@ -1,21 +1,29 @@
 import { randomUUID } from 'node:crypto';
-import { type ErrorCode, type GroupImageSlot, MEDIA_PURPOSES, type MemberRole } from '@scorely/contracts';
+import { AppError } from '@scorely/api/src/lib/errors';
+import { asUserId } from '@scorely/api/src/lib/ids';
+import { createGroupImages } from '@scorely/api/src/modules/groups/group.images';
+import type { GroupRepository, StoredGroup } from '@scorely/api/src/modules/groups/group.repository';
+import { groupKey } from '@scorely/api/src/modules/groups/group.table';
+import type { GroupsDeps } from '@scorely/api/src/modules/groups/groups.deps';
+import type { MediaService } from '@scorely/api/src/modules/media/media.service';
+import {
+  type ErrorCode,
+  type GroupImageSlot,
+  MEDIA_PURPOSES,
+  type MemberRole,
+  PublicUserIdSchema,
+  type StaffRoleId,
+} from '@scorely/contracts';
 import { describe, expect, it } from 'vitest';
-import { AppError } from '../../lib/errors';
-import type { MediaService } from '../media/media.service';
-import { createGroupImages } from './group.images';
-import type { GroupRepository, StoredGroup } from './group.repository';
-import { groupKey } from './group.table';
-import type { GroupsDeps } from './groups.deps';
 
 // GRP-35 (docs/modules/grupos.md) e MID-01 (docs/modules/midia.md): só o dono troca e remove o logo e a capa,
 // conferido nos dois passos. A mídia é um dublê que grava `<slot>MediaId`/`<slot>Url` no item do grupo, como a
 // transação dela faria (MID-08); as regras do arquivo ficam em media/media.service.test.ts.
 
-const OWNER = '11111111-1111-4111-8111-111111111111';
-const A = '22222222-2222-4222-8222-222222222222';
-const R = '88888888-8888-4888-8888-888888888888';
-const OUTSIDER = '66666666-6666-4666-8666-666666666666';
+const OWNER = asUserId('11111111-1111-4111-8111-111111111111');
+const A = asUserId('22222222-2222-4222-8222-222222222222');
+const R = asUserId('88888888-8888-4888-8888-888888888888');
+const OUTSIDER = asUserId('66666666-6666-4666-8666-666666666666');
 const GROUP_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const BASE = 'https://uploads.test';
 
@@ -54,6 +62,7 @@ function setup() {
     listOpensHoursBefore: 48,
     reservesOpenHoursBefore: 24,
     ownerId: OWNER,
+    ownerPublicId: PublicUserIdSchema.parse('11111111'),
     inviteToken: 'member-token',
     reserveInviteToken: 'reserve-token',
     guestToken: 'guest-token',
@@ -65,11 +74,20 @@ function setup() {
     [R, 'reserve'],
   ]);
 
+  /** Cargo de cada pessoa (GRP-48); ausente = sem cargo. */
+  const staff = new Map<string, StaffRoleId>();
+
   const groups = only<GroupRepository>(
     {
       get: async (id: string) => (id === GROUP_ID ? structuredClone(store.group) : undefined),
       roleOf: async (groupId: string, userId: string) =>
         groupId === GROUP_ID ? roles.get(userId) : undefined,
+      getMembership: async (groupId: string, userId: string) => {
+        const role = groupId === GROUP_ID ? roles.get(userId) : undefined;
+        if (!role) return undefined;
+        const staffRoleId = staff.get(userId);
+        return staffRoleId === undefined ? { role } : { role, staffRoleId };
+      },
     },
     'groups',
   );
@@ -134,7 +152,7 @@ function setup() {
   };
   const images = createGroupImages(deps);
   const mediaCalls = () => calls.requestUpload.length + calls.attach.length + calls.detach.length;
-  return { images, store, calls, mediaCalls, clock };
+  return { images, store, staff, calls, mediaCalls, clock };
 }
 
 async function expectAppError(p: Promise<unknown>, code: ErrorCode, status: number): Promise<AppError> {
@@ -211,23 +229,54 @@ describe('grupos: logo e capa (GRP-35)', () => {
     ['membro', A],
     ['reserva', R],
   ])(
-    'GRP-35: %s não é dono → GROUP_NOT_OWNER ao pedir o envio, ao confirmar e ao remover, sem chamar a mídia',
+    'GRP-35: %s sem cargo (sem settings.edit) → GROUP_PERMISSION_DENIED ao pedir o envio, ao confirmar e ao remover, sem chamar a mídia',
     async (_label, who) => {
       const t = setup();
       await expectAppError(
         t.images.requestUpload(who, GROUP_ID, 'logo', { contentType: 'image/webp' }),
-        'GROUP_NOT_OWNER',
+        'GROUP_PERMISSION_DENIED',
         403,
       );
       await expectAppError(
         t.images.attach(who, GROUP_ID, 'cover', { mediaId: randomUUID() }),
-        'GROUP_NOT_OWNER',
+        'GROUP_PERMISSION_DENIED',
         403,
       );
-      await expectAppError(t.images.detach(who, GROUP_ID, 'logo'), 'GROUP_NOT_OWNER', 403);
+      await expectAppError(t.images.detach(who, GROUP_ID, 'logo'), 'GROUP_PERMISSION_DENIED', 403);
       expect(t.mediaCalls()).toBe(0);
     },
   );
+
+  it.each([
+    ['membro', A],
+    ['reserva', R],
+  ])(
+    'GRP-35: %s com o cargo Admin (settings.edit) pede o envio, confirma e remove o logo',
+    async (_label, who) => {
+      const t = setup();
+      t.staff.set(who, 'admin');
+      const upload = await t.images.requestUpload(who, GROUP_ID, 'logo', { contentType: 'image/webp' });
+      const group = await t.images.attach(who, GROUP_ID, 'logo', { mediaId: upload.mediaId });
+      expect(group.logoUrl).toBeDefined();
+      const removed = await t.images.detach(who, GROUP_ID, 'logo');
+      expect(removed).not.toHaveProperty('logoUrl');
+      expect(t.calls.requestUpload[0]).toMatchObject({ ownerId: GROUP_ID, uploadedBy: who });
+    },
+  );
+
+  it('GRP-35: quem perdeu o cargo no meio do envio é barrado ao confirmar (GROUP_PERMISSION_DENIED)', async () => {
+    const t = setup();
+    t.staff.set(A, 'admin');
+    const upload = await t.images.requestUpload(A, GROUP_ID, 'cover', { contentType: 'image/webp' });
+    t.staff.delete(A);
+    const err = await expectAppError(
+      t.images.attach(A, GROUP_ID, 'cover', { mediaId: upload.mediaId }),
+      'GROUP_PERMISSION_DENIED',
+      403,
+    );
+    expect(err.details).toEqual({ permission: 'settings.edit' });
+    expect(t.calls.attach).toEqual([]);
+  });
 
   it('GRP-35: quem não participa (ou grupo inexistente) → GROUP_NOT_FOUND, sem chamar a mídia', async () => {
     const t = setup();
@@ -244,13 +293,13 @@ describe('grupos: logo e capa (GRP-35)', () => {
     expect(t.mediaCalls()).toBe(0);
   });
 
-  it('MID-01: a permissão é conferida de novo ao confirmar: quem deixou de ser dono no meio do envio recebe GROUP_NOT_OWNER', async () => {
+  it('MID-01: a permissão é conferida de novo ao confirmar: quem perdeu a permissão (settings.edit) no meio do envio recebe GROUP_PERMISSION_DENIED', async () => {
     const t = setup();
     const upload = await t.images.requestUpload(OWNER, GROUP_ID, 'logo', { contentType: 'image/webp' });
     t.store.group = { ...t.store.group, ownerId: A };
     await expectAppError(
       t.images.attach(OWNER, GROUP_ID, 'logo', { mediaId: upload.mediaId }),
-      'GROUP_NOT_OWNER',
+      'GROUP_PERMISSION_DENIED',
       403,
     );
     expect(t.calls.attach).toEqual([]);

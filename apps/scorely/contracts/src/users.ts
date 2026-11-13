@@ -1,5 +1,18 @@
 import { z } from 'zod';
-import { EntitySchema } from './entity';
+
+/** Alfabeto do id público (Crockford base32: sem `I`, `L`, `O` e `U`). */
+export const PUBLIC_USER_ID_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+export const PUBLIC_USER_ID_LENGTH = 8;
+
+/**
+ * Id público da pessoa, o código de amigo (USR-15). É o único id de pessoa que a api devolve ou recebe:
+ * o id do sistema fica só no token e no banco (USR-16, 17; ADR 0011).
+ */
+export const PublicUserIdSchema = z
+  .string()
+  .regex(/^[0-9A-HJKMNP-TV-Z]{8}$/, 'Invalid user id')
+  .brand<'PublicUserId'>();
+export type PublicUserId = z.infer<typeof PublicUserIdSchema>;
 
 /** Usado no sorteio misto e (depois) no MVP. */
 export const GenderSchema = z.enum(['M', 'F']);
@@ -32,18 +45,35 @@ export const TimeZoneSchema = z
   .transform((tz) => canonicalTimeZone(tz) as string);
 export type TimeZone = z.infer<typeof TimeZoneSchema>;
 
-export const UserSchema = EntitySchema.extend({
-  email: z.email(),
+/**
+ * O perfil da pessoa: o que os outros módulos podem ler. Sem email (USR-13) e sem preferências (USR-14).
+ * `id` é o id público (USR-16): não estende o `EntitySchema`, cujo `id` é o uuid do sistema.
+ */
+export const UserSchema = z.object({
+  id: PublicUserIdSchema,
+  createdAt: z.iso.datetime(),
   name: z.string().min(1).max(80).optional(),
   nickname: z.string().min(1).max(40).optional(),
   gender: GenderSchema.optional(),
-  locale: LocaleSchema.optional(),
-  /** Texto livre na leitura: a api valida ao gravar (plano 003, D13). */
-  timeZone: z.string().optional(),
   /** URL pública da foto de perfil (USR-08: mídia `avatar`). */
   avatarUrl: z.url().optional(),
 });
 export type User = z.infer<typeof UserSchema>;
+
+/** Idioma e fuso da pessoa (USR-06, 07, 14). Guardados à parte do perfil; o navegador guarda uma cópia. */
+export const PreferencesSchema = z.object({
+  locale: LocaleSchema.optional(),
+  /** Texto livre na leitura: a api valida ao gravar (plano 003, D13). */
+  timeZone: z.string().optional(),
+});
+export type Preferences = z.infer<typeof PreferencesSchema>;
+
+/** `GET /me`, `PATCH /me` e as rotas da foto: o perfil, o email (só para a própria pessoa, USR-13) e as preferências. */
+export const MeSchema = UserSchema.extend({
+  email: z.email(),
+  preferences: PreferencesSchema,
+});
+export type Me = z.infer<typeof MeSchema>;
 
 /** PATCH /me. `nickname: null` remove o apelido. */
 export const UpdateMeInputSchema = z

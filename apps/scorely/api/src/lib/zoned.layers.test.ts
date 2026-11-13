@@ -1,5 +1,5 @@
+import { currentOccurrence, layerOpensAt } from '@scorely/api/src/lib/zoned';
 import { describe, expect, it } from 'vitest';
-import { currentOccurrence, layerOpensAt } from './zoned';
 
 // Plano 007 (E2), tarefa 3: abertura de cada camada da lista (casos 5 e 6, parte de datas).
 

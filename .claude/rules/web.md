@@ -35,12 +35,12 @@ Todo form abre no `BottomSheet` (`src/components/BottomSheet.vue`), no padrão d
 Motivo: [docs/decisions/0006-datas-utc-fuso-do-perfil.md](../../docs/decisions/0006-datas-utc-fuso-do-perfil.md).
 
 - Toda data na tela passa por `formatDateTime(iso, style?)` de `src/lib/datetime.ts`, que usa o idioma e o fuso efetivos. Nunca `toLocale*String` nem `Intl.DateTimeFormat` fora dele. Check: `checks/web.test.ts`. Fuso que o navegador não conhece cai no detectado; não valide fuso na leitura.
-- Idioma e fuso efetivos saem de `src/lib/preferences.ts` (perfil → último idioma do navegador → idioma do navegador; perfil → fuso detectado). O auth store chama `applyPreferences` no login, no `loadMe`, no `updateProfile` e no logout.
+- Idioma e fuso efetivos saem de `src/lib/preferences.ts` (preferências da pessoa → último idioma do navegador → idioma do navegador; preferências → fuso detectado). O navegador guarda uma cópia das preferências em `scorely.preferences` (USR-14): o boot aplica a cópia com `applyPreferences()`; login, `loadMe`, `updateProfile` e o refresh chamam `updatePreferences(prefs)`, que só aplica e grava se mudou; o logout chama `clearSavedPreferences()` e `applyPreferences()`.
 - Texto da interface sempre por `this.$t` (chaves no `pt-BR`, mesmas chaves no `en`).
 
 ## i18n e erros (scorely)
 
-- `vue-i18n` (Composition mode, `legacy: false`), em `apps/scorely/web/src/i18n/`. `pt-BR` é o idioma base e define as chaves; os outros locales são tipados como `MessageSchema` e precisam ter as mesmas chaves. Nos componentes use `this.$t`; fora deles, `t` de `@/i18n`.
+- `vue-i18n` (Composition mode, `legacy: false`), em `apps/scorely/web/src/i18n/`. `pt-BR` é o idioma base e define as chaves; os outros locales são tipados como `MessageSchema` e precisam ter as mesmas chaves. Nos componentes use `this.$t`; fora deles, `t` de `@scorely/web/src/i18n`.
 - O usuário nunca vê texto do back. Traduza o erro pelo `code` com `errorMessage(err)` e os issues de validação com `issueMessage(issue, field?)` (`src/i18n/errors.ts`). Nunca mostre `err.message` nem `issue.message`.
 - Validação: `validation.<campo>.<código do Zod>`, com fallback em `validation.<código do Zod>`.
 - O `src/lib/http.ts` renova a sessão no 401 e no 403 sem `{ error }`.

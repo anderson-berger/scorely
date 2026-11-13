@@ -5,10 +5,16 @@ import {
   QueryCommand,
   TransactWriteCommand,
 } from '@aws-sdk/lib-dynamodb';
-import { dynamo, tableName } from '../../lib/dynamo';
-import { chunk } from '../../lib/fn';
-import type { Item } from './item.schema';
-import { ITEM_ENTITY, ITEM_LIST_LOOKUP_PK, itemKey, itemListLookupKey, LOOKUP_ENTITY } from './item.table';
+import { dynamo, tableName } from '@base/api/src/lib/dynamo';
+import { chunk } from '@base/api/src/lib/fn';
+import type { Item } from '@base/api/src/modules/items/item.schema';
+import {
+  ITEM_ENTITY,
+  ITEM_LIST_LOOKUP_PK,
+  itemKey,
+  itemListLookupKey,
+  LOOKUP_ENTITY,
+} from '@base/api/src/modules/items/item.table';
 
 export interface ItemRepository {
   put(item: Item): Promise<void>;

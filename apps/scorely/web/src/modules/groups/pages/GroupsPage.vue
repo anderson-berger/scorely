@@ -1,12 +1,17 @@
 <script lang="ts">
 import type { Group, MyGroup } from '@scorely/contracts';
+import { errorMessage } from '@scorely/web/src/i18n/errors';
+import { useAuthStore } from '@scorely/web/src/modules/auth/auth.store';
+import GroupCard from '@scorely/web/src/modules/groups/components/GroupCard.vue';
+import {
+  type GroupsTab,
+  groupsTab,
+  sortByNextGame,
+  splitGroups,
+} from '@scorely/web/src/modules/groups/groups';
+import { useGroupsStore } from '@scorely/web/src/modules/groups/groups.store';
+import { displayName } from '@scorely/web/src/modules/users/user.display';
 import { defineComponent } from 'vue';
-import { errorMessage } from '@/i18n/errors';
-import { useAuthStore } from '@/modules/auth/auth.store';
-import { displayName } from '@/modules/users/user.display';
-import GroupCard from '../components/GroupCard.vue';
-import { type GroupsTab, groupsTab, sortByNextGame, splitGroups } from '../groups';
-import { useGroupsStore } from '../groups.store';
 
 /** De quanto em quanto tempo as frases dos cards ("Abre …") se atualizam. */
 const TICK_MS = 60_000;

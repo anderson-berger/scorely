@@ -1,8 +1,8 @@
 import { UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { batchGetOrdered, setCreatedAtIfNew, stripKeys } from '@scorely/api/src/lib/db';
+import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
+import { PLAYER_ENTITY, playerKey } from '@scorely/api/src/modules/teams/player.table';
 import type { PlayerPosition } from '@scorely/contracts';
-import { batchGetOrdered, setCreatedAtIfNew, stripKeys } from '../../lib/db';
-import { dynamo, tableName } from '../../lib/dynamo';
-import { PLAYER_ENTITY, playerKey } from './player.table';
 
 /** O jogador como fica no banco (a resposta é o `Player` de @scorely/contracts). */
 export interface StoredPlayer {

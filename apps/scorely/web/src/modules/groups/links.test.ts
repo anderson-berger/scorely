@@ -1,6 +1,6 @@
 import type { Game, GroupRole, GuestGame } from '@scorely/contracts';
+import { inviteUrl, listGate, playRedirect } from '@scorely/web/src/modules/groups/links';
 import { describe, expect, it } from 'vitest';
-import { inviteUrl, listGate, playRedirect } from './links';
 
 const origin = 'https://scorely.app';
 const groupId = '11111111-1111-4111-8111-111111111111';

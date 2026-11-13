@@ -1,9 +1,10 @@
 // Regras de contrato (.claude/rules/contracts.md): no projeto sem pacote de contracts (hoje, o `base`),
-// cada `<mod>.schema.ts` da api tem uma cópia idêntica no web, e vice-versa.
+// cada `<mod>.schema.ts` da api tem uma cópia idêntica no web, e vice-versa. No scorely, campo de pessoa usa o
+// id público (USR-16, ADR 0011): nunca `z.uuid()`, e o `UserSchema` não estende o `EntitySchema`.
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { filesUnder, ROOT, read } from '@checks/lib';
 import { describe, expect, it } from 'vitest';
-import { filesUnder, ROOT, read } from './lib';
 
 interface Copy {
   module: string;
@@ -46,6 +47,48 @@ function copiesOf(project: string): Copy[] {
     };
   });
 }
+
+/** Campos que identificam pessoas nos contracts (USR-16): o id público, nunca o uuid do sistema. */
+const PERSON_FIELDS = ['userId', 'ownerId', 'people', 'pinned'];
+
+function personIdViolations(file: string, source: string): string[] {
+  const flat = source.replace(/\s+/g, '');
+  const fields = PERSON_FIELDS.filter((field) =>
+    new RegExp(`\\b${field}:z\\.(?:array\\(z\\.)?uuid\\(\\)`).test(flat),
+  ).map((field) => `${file}: \`${field}\` com z.uuid() (use PublicUserIdSchema)`);
+  // Chave de pessoa num record (`positions`, `names`): `z.record(z.uuid(), ...)` também é o id do sistema.
+  const records = /z\.record\(z\.uuid\(\)/.test(flat)
+    ? [`${file}: z.record com chave z.uuid() (use PublicUserIdSchema ou TeamPersonIdSchema)`]
+    : [];
+  const entity = /constUserSchema=EntitySchema\.extend\(/.test(flat)
+    ? [`${file}: UserSchema estende EntitySchema (o id seria o do sistema)`]
+    : [];
+  return [...fields, ...records, ...entity];
+}
+
+describe('contracts: pessoa pelo id público (USR-16)', () => {
+  it('nenhum campo de pessoa com z.uuid() nos contracts do scorely', () => {
+    const files = filesUnder(
+      'apps/scorely/contracts/src',
+      (p) => p.endsWith('.ts') && !p.endsWith('.test.ts'),
+    );
+    expect(files.length).toBeGreaterThan(0);
+    expect(files.flatMap((f) => personIdViolations(f, read(f)))).toEqual([]);
+  });
+
+  it('o check pega a violação plantada', () => {
+    expect(personIdViolations('x.ts', 'z.object({ userId: z.uuid() })')).toHaveLength(1);
+    expect(personIdViolations('x.ts', 'people: z\n  .array(z.uuid())\n  .min(2)')).toHaveLength(1);
+    expect(personIdViolations('x.ts', 'export const UserSchema = EntitySchema.extend({')).toHaveLength(1);
+    expect(personIdViolations('x.ts', 'positions: z.record(z.uuid(), PlayerPositionsSchema)')).toHaveLength(
+      1,
+    );
+    expect(personIdViolations('x.ts', 'names: z.record(PublicUserIdSchema, z.string())')).toEqual([]);
+    expect(personIdViolations('x.ts', 'z.object({ userId: PublicUserIdSchema, groupId: z.uuid() })')).toEqual(
+      [],
+    );
+  });
+});
 
 describe('contracts: cópias de schema iguais', () => {
   it.each(duplicatedProjects())('%s: api e web iguais', (project) => {

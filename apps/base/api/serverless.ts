@@ -1,7 +1,7 @@
+import { project, tableNameFor } from '@base/api/project';
+import { healthFunctions } from '@base/api/src/modules/health/functions';
+import { itemsFunctions } from '@base/api/src/modules/items/functions';
 import type { AWS } from '@serverless/typescript';
-import { project, tableNameFor } from './project';
-import { healthFunctions } from './src/modules/health/functions';
-import { itemsFunctions } from './src/modules/items/functions';
 
 // A tabela é criada pelo stack infra/<projeto> (não aqui).
 // Deploy via serverless-compose.ts → param tableName = output TableName do <projeto>-infra.

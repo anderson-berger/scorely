@@ -1,10 +1,11 @@
 <script lang="ts">
 import type { Player, PlayerPosition, Sport } from '@scorely/contracts';
+import BottomSheet from '@scorely/web/src/components/BottomSheet.vue';
+import { errorMessage } from '@scorely/web/src/i18n/errors';
+import { onPermissionError, permissionLostInject } from '@scorely/web/src/modules/groups/permissions';
+import PositionsPicker from '@scorely/web/src/modules/teams/components/PositionsPicker.vue';
+import { teamsApi } from '@scorely/web/src/modules/teams/teams.api';
 import { defineComponent, type PropType } from 'vue';
-import BottomSheet from '@/components/BottomSheet.vue';
-import { errorMessage } from '@/i18n/errors';
-import { teamsApi } from '../teams.api';
-import PositionsPicker from './PositionsPicker.vue';
 
 /**
  * Painel "Posições de {nome}" (TIM-05): o dono marca e desmarca as posições do esporte e escolhe a principal
@@ -14,6 +15,8 @@ export default defineComponent({
   name: 'PlayerPositionsSheet',
 
   components: { BottomSheet, PositionsPicker },
+
+  inject: permissionLostInject,
 
   props: {
     modelValue: { type: Boolean, required: true },
@@ -53,7 +56,9 @@ export default defineComponent({
         this.$emit('saved', saved);
         this.$emit('update:modelValue', false);
       } catch (err) {
-        this.$q.notify({ type: 'negative', message: errorMessage(err) });
+        // GRP-57: sem a permissão, o painel fecha e a página recarrega.
+        if (await onPermissionError(err, this.permissionLost)) this.$emit('update:modelValue', false);
+        else this.$q.notify({ type: 'negative', message: errorMessage(err) });
       } finally {
         this.saving = false;
       }

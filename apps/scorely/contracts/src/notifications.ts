@@ -1,5 +1,5 @@
+import { EntitySchema } from '@scorely/contracts/src/entity';
 import { z } from 'zod';
-import { EntitySchema } from './entity';
 
 /** Cresce conforme os módulos passam a notificar (ex.: `list_opened` na E2). */
 export const NotificationTypeSchema = z.enum([
@@ -10,11 +10,12 @@ export const NotificationTypeSchema = z.enum([
   'member_invite',
   'teams_published',
   'game_confirmed',
+  'staff_role_granted',
+  'group_transferred',
 ]);
 export type NotificationType = z.infer<typeof NotificationTypeSchema>;
 
 export const NotificationSchema = EntitySchema.extend({
-  userId: z.uuid(),
   type: NotificationTypeSchema,
   title: z.string(),
   body: z.string().optional(),

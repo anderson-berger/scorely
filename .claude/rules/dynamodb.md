@@ -19,7 +19,7 @@ Motivo: [docs/decisions/0002-single-table-sem-gsi.md](../../docs/decisions/0002-
 
 | Caso                                     | Chave do lookup                                     | Leitura                                                                                                       |
 | ---------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| Busca única (ex.: user por email)        | `PK=LOOKUP#USER#EMAIL#<email>`, `SK=META`, `{ id }` | `GetItem` no lookup → `GetItem` em `USER#<id>`                                                                |
+| Busca única (ex.: user por email)        | `PK=LOOKUP#USER#EMAIL#<email>`, `SK=META`, `{ id }` | `GetItem` no lookup → `GetItem` em `USER#<id>`. Vários de uma vez (ex.: ids públicos, `LOOKUP#USER#PUBLIC#<publicId>`): `BatchGetItem` |
 | Listagem/ordenação (ex.: items por data) | `PK=LOOKUP#ITEM`, `SK=<createdAt>#<id>`, `{ id }`   | `Query` no lookup → `BatchGetItem` pelos ids (lotes de 100, tentar de novo `UnprocessedKeys`, manter a ordem) |
 
 ## Regras
@@ -31,7 +31,7 @@ Motivo: [docs/decisions/0002-single-table-sem-gsi.md](../../docs/decisions/0002-
 - Normalize o valor usado na chave (ex.: email em minúsculas e sem espaços).
 - **Todo item tem `createdAt`** (ISO 8601 em UTC, `...Z`): entidade, lookup, contador. No scorely:
   - Entidade nasce com `newEntity<T>(data, now())` (`api/src/lib/entity.ts`), que gera `id` e `createdAt`. Não monte nenhum dos dois na mão.
-  - Schema de entidade nos contracts estende `EntitySchema`: `EntitySchema.extend({...})`.
+  - Schema de entidade nos contracts estende `EntitySchema`: `EntitySchema.extend({...})`. Exceção: o `UserSchema`, cujo `id` é o público (USR-16, ADR 0011); o item do banco continua com o `id` do sistema e o `publicId`.
   - Todo `Put` usa `dbItem(keys, entity, data, createdAt?)` (`api/src/lib/db.ts`). Nos lookups da mesma transação, passe o `createdAt` da entidade.
   - Item criado por `Update` (upsert, ex.: `INBOX`) inclui `setCreatedAtIfNew()` no `SET`.
 - Marque cada item com `entity` (`'Item'`, `'User'`, `'Lookup'`, ...). Remova `PK`, `SK` e `entity` antes de devolver (`toItem` no base, `stripKeys` no scorely, que também remove `ttl`).

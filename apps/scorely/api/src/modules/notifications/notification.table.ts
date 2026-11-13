@@ -1,7 +1,12 @@
 // Como a Notification é salva e buscada (single-table, sem GSI). O formato da entidade é o
-// `NotificationSchema` de @scorely/contracts. Toda escrita grava a entidade, o lookup e o contador
+// `NotificationSchema` de @scorely/contracts mais o `userId` (sistema) do dono, que a resposta não leva (USR-16).
+// Toda escrita grava a entidade, o lookup e o contador
 // na mesma transação.
+import type { UserId } from '@scorely/api/src/lib/ids';
 import type { Notification } from '@scorely/contracts';
+
+/** A notificação como fica no banco: com o dono (id do sistema). */
+export type StoredNotification = Notification & { userId: UserId };
 
 export const NOTIFICATION_ENTITY = 'Notification';
 export const INBOX_ENTITY = 'Inbox';
@@ -19,11 +24,11 @@ export function notificationKey(id: Notification['id']) {
  * `PK=LOOKUP#USER#NOTIFICATIONS#<userId>`, `SK=<createdAt>#<id>`, `{ id }`.
  * Leitura: Query em `notificationListLookupPk(userId)` (paginada) → BatchGet em `notificationKey(id)`.
  */
-export function notificationListLookupPk(userId: Notification['userId']) {
+export function notificationListLookupPk(userId: UserId) {
   return `LOOKUP#USER#NOTIFICATIONS#${userId}`;
 }
 
-export function notificationListLookupKey(n: Pick<Notification, 'id' | 'userId' | 'createdAt'>) {
+export function notificationListLookupKey(n: Pick<StoredNotification, 'id' | 'userId' | 'createdAt'>) {
   return { PK: notificationListLookupPk(n.userId), SK: `${n.createdAt}#${n.id}` };
 }
 
@@ -32,6 +37,6 @@ export function notificationListLookupKey(n: Pick<Notification, 'id' | 'userId' 
  * Escrita: upsert com `ADD unread ±1`, na mesma transação da Notification.
  * Leitura: GetItem.
  */
-export function inboxKey(userId: Notification['userId']) {
+export function inboxKey(userId: UserId) {
   return { PK: `INBOX#${userId}`, SK: 'META' };
 }

@@ -1,22 +1,24 @@
 <script lang="ts">
-import type { Game, Group, InviteKind } from '@scorely/contracts';
+import type { Game, Group } from '@scorely/contracts';
+import { formatDateTime } from '@scorely/web/src/lib/datetime';
+import CapacityCard from '@scorely/web/src/modules/groups/components/CapacityCard.vue';
+import GroupImagesCard from '@scorely/web/src/modules/groups/components/GroupImagesCard.vue';
+import LayersCard from '@scorely/web/src/modules/groups/components/LayersCard.vue';
+import LimitsCard from '@scorely/web/src/modules/groups/components/LimitsCard.vue';
+import { type GroupAccess, NO_ACCESS } from '@scorely/web/src/modules/groups/permissions';
+import TeamSettingsRows from '@scorely/web/src/modules/teams/components/TeamSettingsRows.vue';
 import { defineComponent, type PropType } from 'vue';
-import { formatDateTime } from '@/lib/datetime';
-import CapacityCard from '../components/CapacityCard.vue';
-import GroupImagesCard from '../components/GroupImagesCard.vue';
-import GroupLinksCard from '../components/GroupLinksCard.vue';
-import LayersCard from '../components/LayersCard.vue';
-import LimitsCard from '../components/LimitsCard.vue';
 
 /**
- * Aba Ajustes, só do dono (GRP-29): Abertura da lista, Limites (GRP-38), Links de convite, Logo e capa (GRP-35),
- * Dados do grupo (reservado) e Zona de perigo, com cancelar (ou reabrir, GRP-44) o jogo e arquivar o grupo.
- * Grupo arquivado (GRP-37): só "Desarquivar grupo".
+ * Aba Ajustes (GRP-29): uma lista, cada linha com o resumo e o lugar de mudar, e a zona de perigo no fim. Cada um vê só
+ * o que pode mudar (GRP-49): Abertura, Vagas e mínimo, Limites e Logo e capa com `settings.edit`; as linhas de times
+ * com `teams.manage`; cancelar ou reabrir (GRP-44) com `game.manage`; arquivar só o dono.
+ * Grupo arquivado (GRP-37): só o dono, com "Desarquivar grupo".
  */
 export default defineComponent({
   name: 'GroupSettingsPage',
 
-  components: { CapacityCard, GroupImagesCard, GroupLinksCard, LayersCard, LimitsCard },
+  components: { CapacityCard, GroupImagesCard, LayersCard, LimitsCard, TeamSettingsRows },
 
   inheritAttrs: false,
 
@@ -25,6 +27,7 @@ export default defineComponent({
     game: { type: Object as PropType<Game | null>, default: null },
     busy: { type: Boolean, default: false },
     isOwner: { type: Boolean, default: false },
+    access: { type: Object as PropType<GroupAccess>, default: () => NO_ACCESS },
     canCancel: { type: Boolean, default: false },
     canReopen: { type: Boolean, default: false },
   },
@@ -33,12 +36,16 @@ export default defineComponent({
     saved: () => true,
     cancel: () => true,
     reopen: () => true,
-    rotate: (_kind: InviteKind) => true,
     archive: () => true,
     unarchive: () => true,
   },
 
   computed: {
+    /** A zona de perigo só aparece com alguma ação dentro. */
+    hasDanger(): boolean {
+      return this.canCancel || this.canReopen || this.isOwner;
+    },
+
     gameDate(): string {
       return this.game ? formatDateTime(this.game.startsAt) : '';
     },
@@ -64,26 +71,18 @@ export default defineComponent({
     </section>
   </div>
 
-  <div v-else-if="isOwner && game" class="sections">
-    <LayersCard :group="group" :game="game" :is-owner="isOwner" @saved="$emit('saved')" />
+  <div v-else-if="game && !group.archivedAt" class="sections">
+    <div v-if="access.settings || access.teams" class="sc-card settings-list">
+      <template v-if="access.settings">
+        <LayersCard :group="group" :game="game" :is-owner="access.settings" @saved="$emit('saved')" />
+        <CapacityCard :group="group" @saved="$emit('saved')" />
+        <LimitsCard :group="group" @saved="$emit('saved')" />
+      </template>
+      <TeamSettingsRows v-if="access.teams" :group="group" />
+      <GroupImagesCard v-if="access.settings" :group="group" @saved="$emit('saved')" />
+    </div>
 
-    <CapacityCard :group="group" @saved="$emit('saved')" />
-
-    <LimitsCard :group="group" @saved="$emit('saved')" />
-
-    <section>
-      <h2 class="sc-section">{{ $t('groups.settings.links') }}</h2>
-      <GroupLinksCard :group="group" :busy="busy" @rotate="$emit('rotate', $event)" />
-    </section>
-
-    <GroupImagesCard :group="group" @saved="$emit('saved')" />
-
-    <section>
-      <h2 class="sc-section">{{ $t('groups.settings.data') }}</h2>
-      <div class="sc-card sc-caption reserved">{{ $t('groups.settings.dataHint') }}</div>
-    </section>
-
-    <section>
+    <section v-if="hasDanger">
       <h2 class="sc-section danger-title">{{ $t('groups.settings.danger') }}</h2>
       <div class="sc-card danger-list">
         <div v-if="canCancel" class="danger">
@@ -108,7 +107,7 @@ export default defineComponent({
             @click="$emit('reopen')"
           />
         </div>
-        <div class="danger">
+        <div v-if="isOwner" class="danger">
           <div class="danger-text">{{ $t('groups.settings.archiveHint') }}</div>
           <q-btn
             flat
@@ -125,25 +124,21 @@ export default defineComponent({
 </template>
 
 <style scoped>
+/* GRP-29: uma coluna só, com largura máxima, para a lista não esticar na tela larga. */
 .sections {
   display: flex;
   flex-direction: column;
   gap: 26px;
+  max-width: 720px;
 }
 
-/* Desktop: as seções lado a lado, em quantas colunas couberem (plano 016, D3). */
-@media (min-width: 1024px) {
-  .sections {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
-    align-items: start;
-  }
+.settings-list {
+  overflow: hidden;
 }
 
-.reserved {
-  padding: 12px 14px;
-  border-style: dashed;
-  border-color: var(--sc-line-strong);
+/* O fio entre as linhas: a última não tem. */
+.settings-list > :last-child :deep(.settings-row) {
+  border-bottom: 0;
 }
 
 .danger-title {

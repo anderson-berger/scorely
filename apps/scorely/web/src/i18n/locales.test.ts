@@ -1,6 +1,6 @@
+import { en } from '@scorely/web/src/i18n/locales/en';
+import { ptBR } from '@scorely/web/src/i18n/locales/pt-BR';
 import { describe, expect, it } from 'vitest';
-import { en } from './locales/en';
-import { ptBR } from './locales/pt-BR';
 
 /** Caminhos de todas as folhas (`a.b.c`) de um objeto de mensagens; arrays contam como folha. */
 function leafPaths(value: unknown, prefix = ''): string[] {
@@ -44,7 +44,6 @@ const TABS_KEYS = [
   'groups.tabs.members',
   'groups.tabs.settings',
   'groups.invite',
-  'groups.inviteHint',
   'groups.nextLayer.reserves',
   'groups.nextLayer.guests',
   'groups.nextLayer.allOpen',
@@ -210,9 +209,6 @@ const GROUP_PAGE_KEYS = [
   'groups.reservesSection',
   'groups.membersSection',
   'groups.settings.layers',
-  'groups.settings.links',
-  'groups.settings.data',
-  'groups.settings.dataHint',
   'groups.settings.danger',
   'groups.settings.dangerHint',
 ];

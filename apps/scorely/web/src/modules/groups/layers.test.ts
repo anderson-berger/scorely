@@ -1,5 +1,4 @@
 import { GROUP_LIMITS } from '@scorely/contracts';
-import { describe, expect, it } from 'vitest';
 import {
   changeLayer,
   HOURS_LADDER,
@@ -8,7 +7,8 @@ import {
   nextLayer,
   stepHours,
   stepSlots,
-} from './layers';
+} from '@scorely/web/src/modules/groups/layers';
+import { describe, expect, it } from 'vitest';
 
 const MAX = 144;
 

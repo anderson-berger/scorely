@@ -1,8 +1,8 @@
+import type { HttpError } from '@base/api/src/lib/http';
+import type { ItemRepository } from '@base/api/src/modules/items/item.repository';
+import type { Item } from '@base/api/src/modules/items/item.schema';
+import { createItemService } from '@base/api/src/modules/items/item.service';
 import { describe, expect, it } from 'vitest';
-import type { HttpError } from '../../lib/http';
-import type { ItemRepository } from './item.repository';
-import type { Item } from './item.schema';
-import { createItemService } from './item.service';
 
 function memoryRepo(): ItemRepository {
   const store = new Map<string, Item>();

@@ -1,10 +1,18 @@
 <script lang="ts">
-import type { TeamPlayer, Teams } from '@scorely/contracts';
+import type { TeamPlayer, Teams, TeamViolation } from '@scorely/contracts';
+import {
+  joinNames,
+  namesIn,
+  type Text,
+  targetText,
+  violationsOfTeam,
+  violationText,
+} from '@scorely/web/src/modules/teams/rules';
 import { defineComponent, type PropType } from 'vue';
 
 /**
  * Os times, um bloco por time (TIM-14): nome e posição principal no jogo (TIM-13), com as marcas "saiu da lista"
- * (TIM-12), "do banco" (TIM-08) e, só para o dono, o alfinete de quem está fixo (TIM-16). Para o dono (`editable`), tocar na pessoa emite `select`, e "sem time" aparece.
+ * (TIM-12), "do banco" (TIM-08), "avulso" (TIM-24), "H · M" por time (TIM-23) e, só para o dono, o alfinete de quem está fixo (TIM-16) e o que está fora das regras (TIM-20). Para o dono (`editable`), tocar na pessoa emite `select`, e "sem time" aparece.
  */
 export default defineComponent({
   name: 'TeamsView',
@@ -26,6 +34,31 @@ export default defineComponent({
     main(p: TeamPlayer): string {
       const first = p.positions[0];
       return first ? this.$t(`teams.positions.${first}`) : '';
+    },
+
+    text(t: Text): string {
+      return this.$t(t.key, t.params ?? {});
+    },
+
+    /** TIM-20: "Levantador: falta 1" de cada regra que o time não cumpre. */
+    outside(team: number): string[] {
+      return violationsOfTeam(this.teams.violations, team).map((v: TeamViolation) =>
+        v.kind === 'count'
+          ? `${this.text(targetText(v.rule.target))}: ${this.text(violationText(v))}`
+          : this.text(violationText(v, this.names(v.people))),
+      );
+    },
+
+    /** TIM-22: "Ana e Bia". */
+    names(ids: string[]): string {
+      const people = [...this.teams.teams.flat(), ...this.teams.unassigned];
+      return joinNames(namesIn(people, ids, this.$t('groups.unnamed')), this.$t('teams.rules.and'));
+    },
+
+    /** TIM-23: "3 H · 3 M" do time, quando a api manda (preferência ligada). */
+    genders(team: number): string {
+      const g = this.teams.genders?.[team];
+      return g ? this.$t('teams.genders', { m: g.M, f: g.F }) : '';
     },
 
     isMine(team: TeamPlayer[]): boolean {
@@ -50,6 +83,7 @@ export default defineComponent({
       <div class="team-head">
         <span class="sc-display team-name">{{ $t('teams.teamName', { n: i + 1 }) }}</span>
         <span class="sc-label team-count">{{ team.length }}</span>
+        <span v-if="genders(i)" class="sc-label team-genders">{{ genders(i) }}</span>
         <span v-if="isMine(team)" class="sc-label mine">{{ $t('teams.yourTeam') }}</span>
       </div>
       <component
@@ -69,11 +103,16 @@ export default defineComponent({
           :aria-label="$t('teams.pinned')"
         />
         <span class="pname">{{ name(p) }}</span>
+        <span v-if="p.extra" class="sc-label bench">{{ $t('teams.extra.mark') }}</span>
         <span v-if="!p.inList" class="sc-label left">{{ $t('teams.leftList') }}</span>
         <span v-else-if="p.bench" class="sc-label bench">{{ $t('teams.fromBench') }}</span>
         <span v-if="main(p)" class="pos" :class="{ 'pos--adjusted': p.adjusted }">{{ main(p) }}</span>
       </component>
       <div v-if="team.length === 0" class="sc-caption empty">{{ $t('teams.emptyTeam') }}</div>
+      <div v-if="editable && outside(i + 1).length > 0" class="outside">
+        <q-icon name="error_outline" size="16px" />
+        <span>{{ $t('teams.rules.outside') }}: {{ outside(i + 1).join(' · ') }}</span>
+      </div>
     </div>
 
     <div v-if="editable && teams.unassigned.length > 0" class="unassigned">
@@ -90,6 +129,15 @@ export default defineComponent({
 </template>
 
 <style scoped>
+.outside {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--sc-danger);
+}
+
 .teams {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -124,7 +172,8 @@ export default defineComponent({
   letter-spacing: 1px;
 }
 
-.team-count {
+.team-count,
+.team-genders {
   color: var(--sc-muted);
 }
 

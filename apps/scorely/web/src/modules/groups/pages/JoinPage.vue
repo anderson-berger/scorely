@@ -1,7 +1,7 @@
 <script lang="ts">
+import { errorMessage } from '@scorely/web/src/i18n/errors';
+import { groupsApi } from '@scorely/web/src/modules/groups/groups.api';
 import { defineComponent } from 'vue';
-import { errorMessage } from '@/i18n/errors';
-import { groupsApi } from '../groups.api';
 
 /** `/join/:token`: aceita o convite e vai para o grupo. O login (e o perfil) vem antes, pelo guard. */
 export default defineComponent({

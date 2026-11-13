@@ -37,7 +37,7 @@ Resultado esperado: **"O jogo da semana acontece sem confusão de lista e com ti
 
 ## Depois
 
-- **Permissões:** grupos de permissão criados pelo dono (ex.: "admin"), com pessoas dentro, para delegar registrar partidas, cancelar jogo, criar jogo avulso etc.
+- **Cargos criados pelo grupo:** além do Admin (GRP-50 em [grupos.md](../modules/grupos.md)), o dono cria cargos próprios (ex.: "Organizador", só times), se fizer falta.
 - Resultado com placar e scout por fundamento (saque, bloqueio, ataque, erro), configurável por grupo.
 - Página de notificações (hoje só o sino).
 - Hospedagem do front, domínio, CI/CD, stages além de `dev`, SES com domínio verificado.

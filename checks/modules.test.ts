@@ -2,8 +2,8 @@
 // `docs/modules/README.md`; todo doc listado existe e não repete id de regra; todo id citado em teste existe.
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { filesUnder, ROOT, read } from '@checks/lib';
 import { describe, expect, it } from 'vitest';
-import { filesUnder, ROOT, read } from './lib';
 
 const INDEX = 'docs/modules/README.md';
 

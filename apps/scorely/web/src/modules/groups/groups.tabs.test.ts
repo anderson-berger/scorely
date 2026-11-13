@@ -1,7 +1,13 @@
 import type { MyGroup } from '@scorely/contracts';
+import { ApiRequestError } from '@scorely/web/src/lib/http';
+import {
+  cardLine,
+  gameUnlessArchived,
+  groupColor,
+  groupsTab,
+  sortByNextGame,
+} from '@scorely/web/src/modules/groups/groups';
 import { describe, expect, it } from 'vitest';
-import { ApiRequestError } from '@/lib/http';
-import { cardLine, gameUnlessArchived, groupColor, groupsTab, sortByNextGame } from './groups';
 
 // Plano 014: tela de Grupos em abas com cards de capa.
 

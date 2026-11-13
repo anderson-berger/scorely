@@ -1,6 +1,6 @@
+import * as nav from '@scorely/web/src/layouts/nav';
+import { navItems } from '@scorely/web/src/layouts/nav';
 import { describe, expect, it } from 'vitest';
-import * as nav from './nav';
-import { navItems } from './nav';
 
 describe('navItems', () => {
   it('caso 5: só Grupos (D11)', () => {

@@ -3,5 +3,5 @@
   "compilerOptions": {
     "types": ["node"]
   },
-  "include": ["src", "serverless.ts", "project.ts"]
+  "include": ["src", "serverless.ts", "project.ts", "vitest.config.ts"]
 }

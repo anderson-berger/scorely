@@ -1,11 +1,11 @@
 <script lang="ts">
-import type { User } from '@scorely/contracts';
+import type { Me } from '@scorely/contracts';
+import { type NavItem, navItems } from '@scorely/web/src/layouts/nav';
+import { useAuthStore } from '@scorely/web/src/modules/auth/auth.store';
+import NotificationBell from '@scorely/web/src/modules/notifications/components/NotificationBell.vue';
+import { useNotificationsStore } from '@scorely/web/src/modules/notifications/notifications.store';
+import { displayName } from '@scorely/web/src/modules/users/user.display';
 import { defineComponent } from 'vue';
-import { useAuthStore } from '@/modules/auth/auth.store';
-import NotificationBell from '@/modules/notifications/components/NotificationBell.vue';
-import { useNotificationsStore } from '@/modules/notifications/notifications.store';
-import { displayName } from '@/modules/users/user.display';
-import { type NavItem, navItems } from './nav';
 
 /** Rotas em que o item Grupos fica destacado: a tela de Grupos e tudo que é de um grupo (plano 013, D2). */
 const GROUP_ROUTES = ['groups', 'group', 'group-members', 'group-settings', 'group-create'];
@@ -52,7 +52,7 @@ export default defineComponent({
   },
 
   methods: {
-    displayName(user: User): string {
+    displayName(user: Me): string {
       return displayName(user);
     },
 

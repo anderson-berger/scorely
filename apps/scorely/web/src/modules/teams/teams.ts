@@ -2,9 +2,12 @@ import {
   type PlayerPosition,
   type SaveTeamsInput,
   TEAM_COUNT,
+  type TeamExtra,
   type TeamPlayer,
+  type TeamSettings,
   type Teams,
 } from '@scorely/contracts';
+import type { Text } from '@scorely/web/src/modules/teams/rules';
 
 /**
  * O que o painel da pessoa devolve: o time (0 = Time 1; `undefined` = fora dos times), as posições no jogo
@@ -17,12 +20,12 @@ export interface TeamPlayerChange {
   pinned: boolean;
 }
 
-/** O que o dono edita e manda no PUT (TIM-08, 13, 16). */
+/** O que o dono edita e manda no PUT (TIM-08, 13, 16, 24). */
 export type TeamsDraft = SaveTeamsInput & { pinned: string[] };
 
-/** "Montar à mão" (TIM-14): 2 times vazios, sem ajustes nem fixados. */
-export function emptyDraft(): TeamsDraft {
-  return { teams: Array.from({ length: TEAM_COUNT.min }, () => []), positions: {}, pinned: [] };
+/** "Montar à mão" (TIM-14): `count` times vazios (a quantidade padrão do grupo, TIM-17, que vem da api), sem ajustes nem fixados. */
+export function emptyDraft(count: number = TEAM_COUNT.min): TeamsDraft {
+  return { teams: Array.from({ length: count }, () => []), positions: {}, pinned: [] };
 }
 
 /** Todas as pessoas que a resposta mostra: nos times e sem time. */
@@ -39,6 +42,39 @@ export function draftOf(teams: Teams): TeamsDraft {
     pinned: everyone(teams)
       .filter((p) => p.pinned)
       .map((p) => p.userId),
+    extras: everyone(teams)
+      .filter((p) => p.extra)
+      .map((p) => ({
+        id: p.userId,
+        name: p.name ?? '',
+        ...(p.gender && { gender: p.gender }),
+        positions: [...p.positions],
+      })),
+  };
+}
+
+/** O avulso de quem está na resposta (TIM-24), para editar. */
+export function extraOf(draft: TeamsDraft, id: string): TeamExtra | undefined {
+  return (draft.extras ?? []).find((e) => e.id === id);
+}
+
+/** Acrescenta o avulso (fica "sem time") ou substitui o de mesmo id, sem mudar o time dele (TIM-24). */
+export function putExtra(draft: TeamsDraft, extra: TeamExtra): TeamsDraft {
+  const extras = draft.extras ?? [];
+  const exists = extras.some((e) => e.id === extra.id);
+  return {
+    ...draft,
+    extras: exists ? extras.map((e) => (e.id === extra.id ? extra : e)) : [...extras, extra],
+  };
+}
+
+/** Remove o avulso dos times, dos fixados e do jogo (TIM-24). */
+export function removeExtra(draft: TeamsDraft, id: string): TeamsDraft {
+  return {
+    ...draft,
+    teams: draft.teams.map((team) => team.filter((x) => x !== id)),
+    pinned: draft.pinned.filter((x) => x !== id),
+    extras: (draft.extras ?? []).filter((e) => e.id !== id),
   };
 }
 
@@ -89,4 +125,46 @@ export function setGamePositions(
 ): TeamsDraft {
   const { [userId]: _old, ...rest } = draft.positions;
   return { ...draft, positions: positions ? { ...rest, [userId]: positions } : rest };
+}
+
+/**
+ * A linha Times da aba Jogo (GRP-29). O dono sempre vê o estado dos times, porque a linha serve para ele gerenciar.
+ * Quem não é dono: o próprio time, se está num time publicado; "Times publicados", se não está; sem times publicados, sem linha.
+ * O jogo cancelado esconde a linha no componente (esta função não recebe o jogo).
+ */
+export function teamsLine(teams: Teams | null, meId: string, canManage: boolean): Text | null {
+  if (canManage) {
+    if (!teams) return { key: 'teams.line.ownerNone' };
+    return { key: teams.status === 'published' ? 'teams.line.ownerPublished' : 'teams.line.ownerDraft' };
+  }
+  if (teams?.status !== 'published') return null;
+  const index = teams.teams.findIndex((team) => team.some((p) => p.userId === meId));
+  return index >= 0
+    ? { key: 'teams.line.myTeam', params: { team: index + 1 } }
+    : { key: 'teams.line.published' };
+}
+
+/** Resumo da linha Times dos Ajustes (TIM-21): "2 times", com "espalha homens e mulheres" e "publica fora das regras" quando ligados. */
+export function teamCountSummary(settings: TeamSettings): Text[] {
+  return [
+    { key: 'teams.summary.teams', params: { count: settings.teamCount } },
+    ...(settings.spreadGender ? [{ key: 'teams.summary.spread' }] : []),
+    ...(settings.allowOutsideRules ? [{ key: 'teams.summary.outside' }] : []),
+  ];
+}
+
+/** "3 regras", "1 regra" ou o texto de vazio. */
+function ruleCount(count: number, emptyKey: string): Text {
+  if (count === 0) return { key: emptyKey };
+  return count === 1 ? { key: 'teams.summary.oneRule' } : { key: 'teams.summary.rules', params: { count } };
+}
+
+/** Resumo da linha Regras dos times (TIM-21): só as regras de quantidade por time. */
+export function teamRulesSummary(settings: TeamSettings): Text {
+  return ruleCount(settings.rules.length, 'teams.summary.noRules');
+}
+
+/** Resumo da linha Times opostos (TIM-21). */
+export function teamApartSummary(settings: TeamSettings): Text {
+  return ruleCount(settings.apart.length, 'teams.summary.noApart');
 }

@@ -1,7 +1,7 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
-import { env } from './env';
-import { lazy } from './fn';
+import { env } from '@scorely/api/src/lib/env';
+import { lazy } from '@scorely/api/src/lib/fn';
 
 const client = lazy(() => {
   const { AWS_REGION, DYNAMODB_ENDPOINT } = env();

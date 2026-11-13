@@ -1,6 +1,6 @@
 import type { Locale } from '@scorely/contracts';
+import { i18n } from '@scorely/web/src/i18n';
 import { ref } from 'vue';
-import { i18n } from '@/i18n';
 
 /**
  * Único lugar da web que formata data (ADR 0006; check em `checks/web.test.ts`).

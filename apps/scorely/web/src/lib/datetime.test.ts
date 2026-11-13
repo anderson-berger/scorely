@@ -1,6 +1,6 @@
+import { i18n } from '@scorely/web/src/i18n';
+import { detectTimeZone, formatDateTime, setDisplayTimeZone } from '@scorely/web/src/lib/datetime';
 import { describe, expect, it } from 'vitest';
-import { i18n } from '@/i18n';
-import { detectTimeZone, formatDateTime, setDisplayTimeZone } from './datetime';
 
 const ISO = '2026-11-06T22:00:00.000Z';
 

@@ -1,10 +1,9 @@
 <script lang="ts">
 import type { Attendee, Game, PlayerPosition } from '@scorely/contracts';
-import { defineComponent, type PropType } from 'vue';
-import { formatDateTime } from '@/lib/datetime';
-import PlayerPositions from '../../teams/components/PlayerPositions.vue';
-import { nextLayer } from '../layers';
-import { type ListGate, listGate } from '../links';
+import { formatDateTime } from '@scorely/web/src/lib/datetime';
+import LayersTimeline from '@scorely/web/src/modules/groups/components/LayersTimeline.vue';
+import { nextLayer } from '@scorely/web/src/modules/groups/layers';
+import { type ListGate, listGate } from '@scorely/web/src/modules/groups/links';
 import {
   countdown,
   formatCountdown,
@@ -15,8 +14,9 @@ import {
   minimum,
   type Score,
   score,
-} from '../scoreboard';
-import LayersTimeline from './LayersTimeline.vue';
+} from '@scorely/web/src/modules/groups/scoreboard';
+import PlayerPositions from '@scorely/web/src/modules/teams/components/PlayerPositions.vue';
+import { defineComponent, type PropType } from 'vue';
 
 /** Intervalo da contagem regressiva (plano 008, D9). */
 const TICK_MS = 30_000;
@@ -255,7 +255,7 @@ export default defineComponent({
     </div>
 
     <div v-if="!cancelled" class="lists">
-      <!-- TIM-14: o card Times entra antes da Escalação. -->
+      <!-- Antes da Escalação: a linha Times (GRP-29) ou, na página do link do jogo, os times publicados (TIM-14). -->
       <slot name="teams" />
       <h2 class="sc-section">{{ lineupTitle }}</h2>
       <div class="sc-card list">
@@ -326,6 +326,12 @@ export default defineComponent({
 <style scoped>
 .person--editable {
   cursor: pointer;
+}
+
+/* TIM-05: a linha inteira abre as posições; o destaque mostra que dá para tocar. */
+.person--editable:hover,
+.person--editable:active {
+  background: var(--sc-bg);
 }
 
 .game {

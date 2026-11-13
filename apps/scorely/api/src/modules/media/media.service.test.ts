@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto';
+import { AppError } from '@scorely/api/src/lib/errors';
+import type { InspectedFile, MediaStorage } from '@scorely/api/src/lib/storage';
+import type { MediaRepository } from '@scorely/api/src/modules/media/media.repository';
+import { createMediaService } from '@scorely/api/src/modules/media/media.service';
+import type { MediaRecord, MediaTarget } from '@scorely/api/src/modules/media/media.table';
 import { type ErrorCode, MEDIA_PURPOSES, type MediaPurpose } from '@scorely/contracts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AppError } from '../../lib/errors';
-import type { InspectedFile, MediaStorage } from '../../lib/storage';
-import type { MediaRepository } from './media.repository';
-import { createMediaService } from './media.service';
-import type { MediaRecord, MediaTarget } from './media.table';
 
 // docs/modules/midia.md: MID-01, MID-02, MID-04 a MID-13. MID-03 (preparo no navegador) fica em web/src/lib/media.test.ts.
 
@@ -638,5 +638,39 @@ describe('mídia: acesso (MID-12)', () => {
     const first = await t.attachAvatar(a.mediaId);
     const second = await t.attachAvatar(b.mediaId);
     expect(second.url).not.toBe(first.url);
+  });
+
+  it('MID-12: o caminho público usa o `ownerRef` do pedido (id público da pessoa), não o `ownerId`', async () => {
+    const t = setup();
+    const ownerRef = '7K3QX9TA';
+    const upload = await t.media.requestUpload({
+      purpose: 'avatar',
+      ownerId: USER,
+      ownerRef,
+      uploadedBy: USER,
+      contentType: 'image/webp',
+    });
+    t.bucket.files.set(`tmp/${upload.mediaId}`, {
+      size: 50_000,
+      format: 'image/webp',
+      width: 512,
+      height: 512,
+    });
+    const { url } = await t.attachAvatar(upload.mediaId);
+    expect(url).toBe(`${BASE}/public/user/${ownerRef}/avatar/${upload.mediaId}.webp`);
+    expect(url).not.toContain(USER);
+    expect(t.db.records.get(upload.mediaId)).toMatchObject({ ownerId: USER, ownerRef });
+  });
+
+  it('MID-12: sem `ownerRef`, o caminho usa o `ownerId` (o id do grupo)', async () => {
+    const t = setup();
+    const upload = await t.uploaded('group.logo', GROUP);
+    const { url } = await t.media.attach({
+      mediaId: upload.mediaId,
+      purpose: 'group.logo',
+      ownerId: GROUP,
+      target: t.groupSlot('logo'),
+    });
+    expect(url.startsWith(`${BASE}/public/group/${GROUP}/group.logo/`)).toBe(true);
   });
 });

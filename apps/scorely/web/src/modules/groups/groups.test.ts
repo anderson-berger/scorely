@@ -1,8 +1,9 @@
+import { PublicUserIdSchema } from '@scorely/contracts';
+import { memberSections, splitGroups } from '@scorely/web/src/modules/groups/groups';
 import { describe, expect, it } from 'vitest';
-import { memberSections, splitGroups } from './groups';
 
-const me = 'u-me';
-const other = 'u-other';
+const me = PublicUserIdSchema.parse('MEMEMEME');
+const other = PublicUserIdSchema.parse('XTHER000');
 
 const a = { id: 'A', ownerId: me };
 const b = { id: 'B', ownerId: other };
@@ -14,7 +15,7 @@ describe('splitGroups', () => {
   });
 
   it('caso 2: nenhum grupo meu → owned vazio e joined com todos', () => {
-    const d = { id: 'D', ownerId: 'u-third' };
+    const d = { id: 'D', ownerId: PublicUserIdSchema.parse('THRD0000') };
     expect(splitGroups([b, d], me)).toEqual({ owned: [], joined: [b, d] });
   });
 

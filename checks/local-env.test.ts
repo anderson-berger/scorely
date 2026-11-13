@@ -2,8 +2,9 @@
 // Imagens com versão fixa, nenhum serviço `localstack`, o `app` aponta para `http://dynamodb:8000`
 // e as portas 8000/8001 saem pelo `ports:` do compose, nunca pelo `forwardPorts` do devcontainer: o VS Code
 // só encaminha portas do container `app`, e com a porta já publicada pelo Docker ele cai numa porta aleatória.
+
+import { read } from '@checks/lib';
 import { describe, expect, it } from 'vitest';
-import { read } from './lib';
 
 const COMPOSE = '.devcontainer/docker-compose.yml';
 const DEVCONTAINER = '.devcontainer/devcontainer.json';

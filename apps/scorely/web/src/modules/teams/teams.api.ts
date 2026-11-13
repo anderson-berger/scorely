@@ -1,10 +1,12 @@
 import {
   PlayerSchema,
   type SaveTeamsInput,
+  TeamSettingsSchema,
   TeamsResponseSchema,
   type UpdatePlayerInput,
+  type UpdateTeamSettingsInput,
 } from '@scorely/contracts';
-import { request, send } from '@/lib/http';
+import { request, send } from '@scorely/web/src/lib/http';
 
 const teamsUrl = (groupId: string, date: string) => `/groups/${groupId}/games/${date}/teams`;
 
@@ -25,6 +27,11 @@ export const teamsApi = {
   unpublishTeams: (groupId: string, date: string) =>
     request({ url: `${teamsUrl(groupId, date)}/unpublish`, method: 'POST' }, TeamsResponseSchema),
   discardTeams: (groupId: string, date: string) => send({ url: teamsUrl(groupId, date), method: 'DELETE' }),
+  /** Configuração de times do grupo (TIM-17): quantidade padrão, regras e "permitir publicar fora". Só o dono. */
+  settings: (groupId: string) => request({ url: `/groups/${groupId}/team-settings` }, TeamSettingsSchema),
+  updateSettings: (groupId: string, input: UpdateTeamSettingsInput) =>
+    request({ url: `/groups/${groupId}/team-settings`, method: 'PUT', data: input }, TeamSettingsSchema),
+
   /** Pelo link do jogo: só os times publicados (GRP-09). */
   guestTeams: (token: string) => request({ url: `/play/${token}/teams` }, TeamsResponseSchema),
 };

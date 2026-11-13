@@ -1,6 +1,6 @@
+import { range } from '@scorely/api/src/lib/fn';
+import { draw } from '@scorely/api/src/modules/teams/engine/draw';
 import { describe, expect, it } from 'vitest';
-import { range } from '../../../lib/fn';
-import { draw } from './draw';
 
 // E3 etapa 3 (`.claude/work/e3-times-3.md`): motor puro do sorteio, TIM-15 e TIM-16.
 // Testes de propriedade com laços e seeds fixos (o repo não tem fast-check).

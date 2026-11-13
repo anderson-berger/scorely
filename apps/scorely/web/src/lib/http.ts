@@ -1,11 +1,12 @@
-import { ApiErrorSchema, type ErrorCode, TokensSchema } from '@scorely/contracts';
+import { ApiErrorSchema, type ErrorCode, RefreshResultSchema } from '@scorely/contracts';
+import type { ClientErrorCode } from '@scorely/web/src/i18n/locales/pt-BR';
+import { updatePreferences } from '@scorely/web/src/lib/preferences';
+import { session } from '@scorely/web/src/lib/session';
 import axios, { type AxiosError, type AxiosRequestConfig, type InternalAxiosRequestConfig } from 'axios';
 import type { z } from 'zod';
-import type { ClientErrorCode } from '@/i18n/locales/pt-BR';
-import { session } from './session';
 
 /**
- * Erro de uma chamada à API. `code` é o que importa: a tela traduz com `errorMessage(err)` (`@/i18n/errors`).
+ * Erro de uma chamada à API. `code` é o que importa: a tela traduz com `errorMessage(err)` (`@scorely/web/src/i18n/errors`).
  * `message` é a mensagem técnica (em inglês), só para logs.
  */
 export class ApiRequestError extends Error {
@@ -36,9 +37,6 @@ export const onSessionExpired = (fn: () => void) => {
   expiry.onExpired = fn;
 };
 
-// O web guarda só o par de tokens; o expiresIn não entra na sessão.
-const RefreshResultSchema = TokensSchema.pick({ accessToken: true, refreshToken: true });
-
 // Várias requisições podem receber 401 juntas: todas esperam o mesmo refresh.
 const inFlight: { refresh?: Promise<boolean> } = {};
 function refreshSession(): Promise<boolean> {
@@ -48,7 +46,10 @@ function refreshSession(): Promise<boolean> {
     try {
       // axios "cru": sem os interceptors deste arquivo, para não entrar em loop.
       const { data } = await axios.post(`${baseURL}/auth/refresh`, { refreshToken });
-      session.set(RefreshResultSchema.parse(data));
+      const result = RefreshResultSchema.parse(data);
+      // O web guarda só o par de tokens (o expiresIn não entra na sessão); as preferências vão para o navegador (USR-14).
+      session.set(result);
+      updatePreferences(result.preferences);
       return true;
     } catch {
       return false;

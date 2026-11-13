@@ -9,4 +9,6 @@ export const notificationIcon: Record<NotificationType, string> = {
   member_invite: 'how_to_reg',
   teams_published: 'groups',
   game_confirmed: 'check_circle',
+  staff_role_granted: 'add_moderator',
+  group_transferred: 'key',
 };

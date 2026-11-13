@@ -1,24 +1,30 @@
-import { authHandlers } from '../../lib/auth';
-import { pathParam } from '../../lib/http';
-import { dynamoNotificationRepository } from './notification.repository';
-import { createNotificationService } from './notification.service';
+import { authRoute } from '@scorely/api/src/lib/auth';
+import { type HttpEvent, pathParam } from '@scorely/api/src/lib/http';
+import { dynamoNotificationRepository } from '@scorely/api/src/modules/notifications/notification.repository';
+import { createNotificationService } from '@scorely/api/src/modules/notifications/notification.service';
 
 const notifications = createNotificationService(dynamoNotificationRepository);
 
-export const { list, markRead, markAllRead, remove } = authHandlers({
-  async list(event, auth) {
+export async function list(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
     return notifications.list(auth.userId, event.queryStringParameters?.cursor);
-  },
+  });
+}
 
-  async markRead(event, auth) {
+export async function markRead(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
     await notifications.markRead(auth.userId, pathParam(event, 'id'));
-  },
+  });
+}
 
-  async markAllRead(_event, auth) {
+export async function markAllRead(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
     await notifications.markAllRead(auth.userId);
-  },
+  });
+}
 
-  async remove(event, auth) {
+export async function remove(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
     await notifications.remove(auth.userId, pathParam(event, 'id'));
-  },
-});
+  });
+}

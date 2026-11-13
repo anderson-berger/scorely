@@ -1,6 +1,7 @@
 // Como o código de login e a sessão são salvos e buscados (single-table, sem GSI).
 // Os dois são internos do servidor (não estão em @scorely/contracts) e expiram: além do `ttl`
 // (o DynamoDB apaga com até ~48h de atraso), o service confere o `expiresAt` ao ler.
+import type { UserId } from '@scorely/api/src/lib/ids';
 import type { Entity } from '@scorely/contracts';
 
 export const LOGIN_CODE_ENTITY = 'LoginCode';
@@ -20,7 +21,7 @@ export interface LoginCode {
 
 /** Sessão de login: o refresh token é `<id>.<segredo>` e só o hash do segredo fica aqui. */
 export interface Session extends Entity {
-  userId: string;
+  userId: UserId;
   tokenHash: string;
   expiresAt: string;
 }

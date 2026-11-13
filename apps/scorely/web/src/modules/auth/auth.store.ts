@@ -1,14 +1,14 @@
-import type { UpdateMeInput, User } from '@scorely/contracts';
+import type { Me, UpdateMeInput } from '@scorely/contracts';
+import { applyPreferences, clearSavedPreferences, updatePreferences } from '@scorely/web/src/lib/preferences';
+import { session } from '@scorely/web/src/lib/session';
+import { authApi } from '@scorely/web/src/modules/auth/auth.api';
+import { useGroupsStore } from '@scorely/web/src/modules/groups/groups.store';
+import { usersApi } from '@scorely/web/src/modules/users/users.api';
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
-import { applyPreferences } from '@/lib/preferences';
-import { session } from '@/lib/session';
-import { useGroupsStore } from '../groups/groups.store';
-import { usersApi } from '../users/users.api';
-import { authApi } from './auth.api';
 
 export const useAuthStore = defineStore('auth', () => {
-  const user = ref<User>();
+  const user = ref<Me>();
   // `session` não é reativo: este ref acompanha se há tokens guardados.
   const hasSession = ref(Boolean(session.get()));
 
@@ -21,19 +21,19 @@ export const useAuthStore = defineStore('auth', () => {
     session.set(result);
     hasSession.value = true;
     user.value = result.user;
-    applyPreferences(result.user);
+    updatePreferences(result.user.preferences);
     return result;
   }
 
   async function loadMe() {
     user.value = await usersApi.me();
-    applyPreferences(user.value);
+    updatePreferences(user.value.preferences);
     return user.value;
   }
 
   async function updateProfile(patch: UpdateMeInput) {
     user.value = await usersApi.updateMe(patch);
-    applyPreferences(user.value);
+    updatePreferences(user.value.preferences);
     return user.value;
   }
 
@@ -49,6 +49,8 @@ export const useAuthStore = defineStore('auth', () => {
     hasSession.value = false;
     user.value = undefined;
     useGroupsStore().reset();
+    // USR-14: esquece as preferências da pessoa; volta para o idioma da tela de login e o fuso do navegador.
+    clearSavedPreferences();
     applyPreferences();
   }
 

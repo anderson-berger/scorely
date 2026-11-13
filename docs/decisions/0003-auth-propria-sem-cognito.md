@@ -18,5 +18,5 @@ Login por código de 6 dígitos enviado por email, JWT HS256 (1 h) + refresh tok
 ## Consequências
 
 - Os limites (reenvio, tentativas, validade) e a rotação do refresh são código nosso, com testes.
-- Rota protegida declara o authorizer no `functions.ts` e usa `authHandlers`.
+- Rota protegida declara o authorizer no `functions.ts` e responde por `authRoute`.
 - Regra: `.claude/rules/scorely-api.md`. Check: `checks/api.test.ts`.

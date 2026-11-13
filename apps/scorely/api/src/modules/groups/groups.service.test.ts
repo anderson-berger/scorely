@@ -1,4 +1,20 @@
 import { randomUUID } from 'node:crypto';
+import { AppError } from '@scorely/api/src/lib/errors';
+import { asUserId, type UserId } from '@scorely/api/src/lib/ids';
+import type {
+  AttendanceRecord,
+  GameRecord,
+  GameRepository,
+} from '@scorely/api/src/modules/groups/game.repository';
+import { createGameService } from '@scorely/api/src/modules/groups/game.service';
+import type {
+  GroupRepository,
+  RemoveMemberResult,
+  StoredGroup,
+} from '@scorely/api/src/modules/groups/group.repository';
+import { createGroupService } from '@scorely/api/src/modules/groups/group.service';
+import type { NewNotification } from '@scorely/api/src/modules/notifications/notification.service';
+import type { UserRecord } from '@scorely/api/src/modules/users/user.repository';
 import {
   type CreateGroupInput,
   CreateGroupInputSchema,
@@ -14,17 +30,15 @@ import {
   type MemberRole,
   MyGroupSchema,
   type Notification,
+  type Permission,
+  type Preferences,
+  type PublicUserId,
+  PublicUserIdSchema,
+  type StaffRoleId,
   UpdateGameInputSchema,
   UpdateGroupInputSchema,
-  type User,
 } from '@scorely/contracts';
 import { describe, expect, it } from 'vitest';
-import { AppError } from '../../lib/errors';
-import type { NewNotification } from '../notifications/notification.service';
-import type { AttendanceRecord, GameRecord, GameRepository } from './game.repository';
-import { createGameService } from './game.service';
-import type { GroupRepository, RemoveMemberResult, StoredGroup } from './group.repository';
-import { createGroupService } from './group.service';
 
 // Plano 003, bloco 2: casos 1, 2, 3 (api), 4 (service), 5, 6, 7, 8, 10–13 e a corrida na criação do jogo (tarefa 6a).
 // Plano 006: casos 11–13 (remoção de membro com `not_member`/`stale`).
@@ -40,13 +54,17 @@ type UnarchiveArgs = { group: Stored; tokens: Parameters<GroupRepository['unarch
 type UnarchiveResult = Awaited<ReturnType<GroupRepository['unarchive']>>;
 /** Participação no fake (plano 013, D2): o `MembershipRecord` sem `groupId`, que é a chave do mapa. */
 type MembershipRow = {
-  userId: string;
+  userId: UserId;
   role: MemberRole;
   createdAt: string;
   roleChangedAt?: string;
   /** Prazo do convite para membro pendente (GRP-40), campo da própria participação. */
   memberInviteExpiresAt?: string;
+  /** O cargo (GRP-48); ausente = sem cargo. */
+  staffRoleId?: StaffRoleId;
 };
+type TransferArgs = Parameters<GroupRepository['transfer']>[0];
+type TransferResult = Awaited<ReturnType<GroupRepository['transfer']>>;
 type AddMemberResult = 'added' | 'promoted' | 'unchanged' | 'members_full' | 'reserves_full' | 'stale';
 type AcceptInviteResult = 'promoted' | 'invalid' | 'members_full' | 'stale';
 const DAY = 24 * 60 * 60 * 1000;
@@ -69,36 +87,51 @@ const WEDNESDAY_19H = new Date('2026-11-04T22:00:00.000Z');
 const DATE = '2026-11-06';
 const NEXT_DATE = '2026-11-13';
 
-const OWNER = '11111111-1111-4111-8111-111111111111';
-const A = '22222222-2222-4222-8222-222222222222';
-const B = '33333333-3333-4333-8333-333333333333';
-const C = '44444444-4444-4444-8444-444444444444';
-const D = '55555555-5555-4555-8555-555555555555';
-const OUTSIDER = '66666666-6666-4666-8666-666666666666';
-const LISBON_OWNER = '77777777-7777-4777-8777-777777777777';
+const OWNER = asUserId('11111111-1111-4111-8111-111111111111');
+const A = asUserId('22222222-2222-4222-8222-222222222222');
+const B = asUserId('33333333-3333-4333-8333-333333333333');
+const C = asUserId('44444444-4444-4444-8444-444444444444');
+const D = asUserId('55555555-5555-4555-8555-555555555555');
+const OUTSIDER = asUserId('66666666-6666-4666-8666-666666666666');
+const LISBON_OWNER = asUserId('77777777-7777-4777-8777-777777777777');
 /** Reserva (entra pelo link de reserva). */
-const R = '88888888-8888-4888-8888-888888888888';
+const R = asUserId('88888888-8888-4888-8888-888888888888');
 /** Convidado (só pelo link do jogo). */
-const G = '99999999-9999-4999-8999-999999999999';
+const G = asUserId('99999999-9999-4999-8999-999999999999');
 
-const user = (id: string, extra: Partial<User> = {}): User => ({
+/**
+ * Id público de cada pessoa do teste (USR-15): os 8 primeiros caracteres do id do sistema, em maiúsculas. `sys` faz
+ * o caminho inverso; um id que não é público (ex.: o uuid do sistema) não acha ninguém, e o teste que o compara falha.
+ */
+const pub = (id: UserId): PublicUserId => PublicUserIdSchema.parse(id.slice(0, 8).toUpperCase());
+
+const user = (id: UserId, extra: Partial<UserRecord> = {}): UserRecord => ({
   id,
-  email: `${id.slice(0, 4)}@example.com`,
+  publicId: pub(id),
   createdAt: '2026-01-01T00:00:00.000Z',
   ...extra,
 });
 
-const USERS: User[] = [
+const USERS: UserRecord[] = [
   user(OWNER, { name: 'Dono' }),
   user(A, { name: 'Ana' }),
   user(B, { name: 'Beatriz', nickname: 'Bia' }),
   user(C, { name: 'Caio' }),
   user(D, { name: 'Duda' }),
   user(OUTSIDER, { name: 'Fora' }),
-  user(LISBON_OWNER, { name: 'Lis', timeZone: 'Europe/Lisbon' }),
+  user(LISBON_OWNER, { name: 'Lis' }),
   user(R, { name: 'Rafa' }),
   user(G, { name: 'Gabi' }),
 ];
+
+const BY_PUBLIC = new Map<string, UserId>(USERS.map((u) => [u.publicId, u.id]));
+/** Id público → id do sistema (para comparar a saída com as constantes). */
+const sys = (publicId: string): UserId | undefined => BY_PUBLIC.get(publicId);
+
+/** Preferências de cada pessoa (USR-07): o fuso fica fora do perfil (usuarios.md, seção 3). */
+const PREFERENCES = new Map<UserId, Preferences>([
+  [LISBON_OWNER, { locale: 'pt-BR', timeZone: 'Europe/Lisbon' }],
+]);
 
 const BASE_INPUT: CreateGroupInput = {
   name: 'Vôlei de sexta',
@@ -171,6 +204,16 @@ function memoryStore(now: () => Date = () => new Date()) {
   const reopenCalls: { gameId: string; groupId: string }[] = [];
   /** Chamadas ao `markMinReached` do repositório (GRP-47). */
   const markMinReachedCalls: { gameId: string; at: string }[] = [];
+  /** Chamadas ao `transfer` do repositório (GRP-54) e respostas forçadas, consumidas na ordem. */
+  const transferCalls: TransferArgs[] = [];
+  const transferScript: ((args: TransferArgs) => TransferResult)[] = [];
+  /** Grava o cargo direto na participação (`null` tira), como o `setStaffRole` do repositório. */
+  const forceStaffRole = (groupId: string, userId: string, staffRoleId: StaffRoleId | null) => {
+    const m = memberships.get(groupId)?.get(userId);
+    if (!m) return;
+    const { staffRoleId: _old, ...rest } = m;
+    groupMemberships(groupId).set(userId, staffRoleId === null ? rest : { ...rest, staffRoleId });
+  };
   /** Grava o `minReachedAt` direto no item do jogo (outra escrita avisou antes, GRP-47). */
   const forceMinReached = (gameId: string, at: string) => {
     const g = games.get(gameId);
@@ -192,7 +235,7 @@ function memoryStore(now: () => Date = () => new Date()) {
   };
   const roleIn = (groupId: string, userId: string) => memberships.get(groupId)?.get(userId)?.role;
   const insert = (groupId: string, userId: string, role: MemberRole) =>
-    groupMemberships(groupId).set(userId, { userId, role, createdAt: now().toISOString() });
+    groupMemberships(groupId).set(userId, { userId: asUserId(userId), role, createdAt: now().toISOString() });
   /** Reserva → membro com 1 Update (D5): mantém o `createdAt`, grava `roleChangedAt` e apaga o convite (GRP-41). */
   const promote = (groupId: string, userId: string) => {
     const m = memberships.get(groupId)?.get(userId);
@@ -244,6 +287,19 @@ function memoryStore(now: () => Date = () => new Date()) {
     if (!g) return;
     const { cancelledAt: _cancelledAt, ...rest } = g;
     games.set(gameId, rest);
+  };
+  /**
+   * A transação do GRP-54: grupo com `ownerId = from` e sem `archivedAt` (senão `stale`); o `to` existe e é membro
+   * (senão `not_member`) e perde o cargo; o `from` vira Admin.
+   */
+  const naturalTransfer = (args: TransferArgs): TransferResult => {
+    const stored = groups.get(args.group.id);
+    if (!stored || stored.ownerId !== args.from || stored.archivedAt !== undefined) return 'stale';
+    if (roleIn(args.group.id, args.to) !== 'member') return 'not_member';
+    groups.set(args.group.id, { ...stored, ownerId: args.to, ownerPublicId: args.toPublicId });
+    forceStaffRole(args.group.id, args.to, null);
+    forceStaffRole(args.group.id, args.from, 'admin');
+    return 'transferred';
   };
   /** O `archive` como o Dynamo faria: já arquivado ou algum token diferente do lido → `stale`. */
   const naturalArchive = (group: Stored, archivedAt: string): ArchiveResult => {
@@ -348,9 +404,23 @@ function memoryStore(now: () => Date = () => new Date()) {
     async getMembership(groupId: string, userId: string) {
       const m = memberships.get(groupId)?.get(userId);
       if (!m) return undefined;
-      return m.memberInviteExpiresAt === undefined
-        ? { role: m.role }
-        : { role: m.role, memberInviteExpiresAt: m.memberInviteExpiresAt };
+      return {
+        role: m.role,
+        ...(m.memberInviteExpiresAt === undefined ? {} : { memberInviteExpiresAt: m.memberInviteExpiresAt }),
+        ...(m.staffRoleId === undefined ? {} : { staffRoleId: m.staffRoleId }),
+      };
+    },
+    /** Update com `attribute_exists(PK)`: a participação sumiu → `not_member`. */
+    async setStaffRole(groupId: string, userId: UserId, staffRoleId: StaffRoleId | null) {
+      if (!memberships.get(groupId)?.get(userId)) return 'not_member' as const;
+      forceStaffRole(groupId, userId, staffRoleId);
+      return 'set' as const;
+    },
+    /** Ver `naturalTransfer`; `transferScript` força a resposta (corridas). */
+    async transfer(args: TransferArgs): Promise<TransferResult> {
+      transferCalls.push({ ...args, group: { ...args.group } });
+      const scripted = transferScript.shift();
+      return scripted ? scripted(args) : naturalTransfer(args);
     },
     async setMemberInvite(groupId: string, userId: string, expiresAt: string) {
       const m = memberships.get(groupId)?.get(userId);
@@ -372,11 +442,13 @@ function memoryStore(now: () => Date = () => new Date()) {
     listMembers: async (groupId: string) =>
       [...groupMemberships(groupId).values()]
         .sort((x, y) => byKey(x.userId, y.userId))
-        .map(({ userId, role, createdAt, memberInviteExpiresAt }) =>
-          memberInviteExpiresAt === undefined
-            ? { userId, role, createdAt }
-            : { userId, role, createdAt, memberInviteExpiresAt },
-        ),
+        .map(({ userId, role, createdAt, memberInviteExpiresAt, staffRoleId }) => ({
+          userId,
+          role,
+          createdAt,
+          ...(memberInviteExpiresAt === undefined ? {} : { memberInviteExpiresAt }),
+          ...(staffRoleId === undefined ? {} : { staffRoleId }),
+        })),
     async groupsOf(userId: string) {
       reads.groupsOf += 1;
       return [...memberships.entries()]
@@ -535,6 +607,11 @@ function memoryStore(now: () => Date = () => new Date()) {
     gameCount: () => games.size,
     markMinReachedCalls,
     forceMinReached,
+    forceStaffRole,
+    transferCalls,
+    transferScript,
+    naturalTransfer,
+
     storedGame: (groupId: string, date: string) => {
       const id = gameByDate.get(`${groupId}#${date}`);
       const g = id === undefined ? undefined : games.get(id);
@@ -543,7 +620,7 @@ function memoryStore(now: () => Date = () => new Date()) {
   };
 }
 
-type Sent = { userId: string } & NewNotification;
+type Sent = { userId: UserId } & NewNotification;
 
 function setupServices(now: Date = THURSDAY_10H) {
   const clock = { now };
@@ -554,13 +631,22 @@ function setupServices(now: Date = THURSDAY_10H) {
     groups: store.groups,
     games: store.games,
     users: {
-      get: async (id: string) => byId.get(id),
-      getMany: async (ids: string[]) => ids.flatMap((id) => byId.get(id) ?? []),
+      get: async (id: UserId) => byId.get(id),
+      getMany: async (ids: readonly UserId[]) => ids.flatMap((id) => byId.get(id) ?? []),
+      getPreferences: async (id: UserId): Promise<Preferences> => PREFERENCES.get(id) ?? {},
+      /** USR-17: id público → id do sistema; o desconhecido fica de fora. */
+      resolve: async (publicIds: readonly PublicUserId[]) =>
+        new Map(
+          publicIds.flatMap((code) => {
+            const id = BY_PUBLIC.get(code);
+            return id === undefined ? [] : [[code, id] as const];
+          }),
+        ),
     },
     notifications: {
-      async notify(userId: string, input: NewNotification): Promise<Notification> {
+      async notify(userId: UserId, input: NewNotification): Promise<Notification> {
         sent.push({ userId, ...input });
-        return { id: randomUUID(), createdAt: clock.now.toISOString(), userId, ...input };
+        return { id: randomUUID(), createdAt: clock.now.toISOString(), ...input };
       },
     },
     now: () => clock.now,
@@ -592,9 +678,9 @@ type SetupOpts = {
   reservesOpenHoursBefore?: number;
   guestsOpenHoursBefore?: number;
   /** Entram pelo link de membro. */
-  members?: string[];
+  members?: UserId[];
   /** Entram pelo link de reserva (depois dos membros). */
-  reserves?: string[];
+  reserves?: UserId[];
   now?: Date;
   /** Limites gravados direto no grupo antes das entradas (GRP-38). */
   maxMembers?: number;
@@ -620,14 +706,14 @@ async function setup(opts: SetupOpts = {}) {
   for (const id of opts.members ?? []) await s.groups.acceptInvite(id, tokenOf(group));
   for (const id of opts.reserves ?? []) await s.groups.acceptInvite(id, reserveTokenOf(group));
   /** Confirma um por vez, avançando o relógio 1 min entre eles (`confirmedAt` define a ordem). */
-  const confirmInOrder = async (...ids: string[]) => {
+  const confirmInOrder = async (...ids: UserId[]) => {
     for (const id of ids) {
       await s.games.confirm(id, group.id, DATE);
       s.tick();
     }
   };
   /** Como `confirmInOrder`, pelo link do jogo (`guestConfirm`). */
-  const guestConfirmInOrder = async (...ids: string[]) => {
+  const guestConfirmInOrder = async (...ids: UserId[]) => {
     for (const id of ids) {
       await s.games.guestConfirm(id, group.guestToken ?? '', DATE);
       s.tick();
@@ -646,7 +732,14 @@ async function expectAppError(p: Promise<unknown>, code: ErrorCode, status: numb
   return err as AppError;
 }
 
-const ids = (list: { userId: string }[]) => list.map((x) => x.userId);
+/** GRP-04, 52: quem participa e não tem a permissão da ação recebe 403 com a permissão que faltou. */
+async function expectDenied(p: Promise<unknown>, permission: Permission): Promise<void> {
+  const err = await expectAppError(p, 'GROUP_PERMISSION_DENIED', 403);
+  expect(err.details).toEqual({ permission });
+}
+
+/** Os ids do sistema das pessoas da saída (que sai com o id público, USR-16). */
+const ids = (list: { userId: string }[]) => list.map((x) => sys(x.userId));
 const ofType = (sent: Sent[], type: Notification['type']) =>
   sent.filter((n) => n.type === type).map((n) => n.userId);
 
@@ -655,7 +748,7 @@ describe('grupos: criar (caso 1)', () => {
     const s = setupServices();
     const group = await s.groups.create(OWNER, INPUT);
     expect(GroupSchema.parse(group)).toEqual(group);
-    expect(group).toMatchObject({ ...INPUT, ownerId: OWNER });
+    expect(group).toMatchObject({ ...INPUT, ownerId: pub(OWNER) });
     expect(tokenOf(group).length).toBeGreaterThan(0);
     expect(group.createdAt).toBe(THURSDAY_10H.toISOString());
   });
@@ -664,7 +757,7 @@ describe('grupos: criar (caso 1)', () => {
     const s = setupServices();
     const group = await s.groups.create(OWNER, INPUT);
     const members = await s.groups.members(OWNER, group.id);
-    expect(members).toEqual([{ userId: OWNER, name: 'Dono', isOwner: true, role: 'member' }]);
+    expect(members).toEqual([{ userId: pub(OWNER), name: 'Dono', isOwner: true, role: 'member' }]);
     const mine = await s.groups.myGroups(OWNER);
     expect(mine.map((g) => g.id)).toEqual([group.id]);
     expect(MyGroupSchema.parse(mine[0])).toBeTruthy();
@@ -682,19 +775,19 @@ describe('grupos: criar (caso 1)', () => {
     expect(mine?.game.confirmedCount).toBe(0);
   });
 
-  it('caso 1: sem timeZone → o fuso do perfil do dono', async () => {
+  it('GRP-13: sem timeZone → o fuso das preferências do dono', async () => {
     const s = setupServices();
     const group = await s.groups.create(LISBON_OWNER, BASE_INPUT);
     expect(group.timeZone).toBe('Europe/Lisbon');
   });
 
-  it('caso 1: sem timeZone e dono sem fuso no perfil → America/Sao_Paulo', async () => {
+  it('GRP-13: sem timeZone e dono sem fuso nas preferências → America/Sao_Paulo', async () => {
     const s = setupServices();
     const group = await s.groups.create(OWNER, BASE_INPUT);
     expect(group.timeZone).toBe('America/Sao_Paulo');
   });
 
-  it('caso 1: timeZone informado vence o do perfil', async () => {
+  it('GRP-13: timeZone informado vence o das preferências', async () => {
     const s = setupServices();
     const group = await s.groups.create(LISBON_OWNER, { ...BASE_INPUT, timeZone: 'America/Sao_Paulo' });
     expect(group.timeZone).toBe('America/Sao_Paulo');
@@ -732,9 +825,9 @@ describe('grupos: convite (casos 2 e 3)', () => {
     expect(joined.id).toBe(t.group.id);
   });
 
-  it('caso 2: membro tenta gerar → GROUP_NOT_OWNER; não-membro → GROUP_NOT_FOUND', async () => {
+  it('GRP-04: membro sem cargo tenta gerar → GROUP_PERMISSION_DENIED (members.manage); não-membro → GROUP_NOT_FOUND', async () => {
     const t = await setup({ members: [A] });
-    await expectAppError(t.groups.rotateInvite(A, t.group.id, 'member'), 'GROUP_NOT_OWNER', 403);
+    await expectDenied(t.groups.rotateInvite(A, t.group.id, 'member'), 'members.manage');
     await expectAppError(t.groups.rotateInvite(OUTSIDER, t.group.id, 'member'), 'GROUP_NOT_FOUND', 404);
     expect((await t.groups.get(OWNER, t.group.id)).inviteToken).toBe(tokenOf(t.group));
   });
@@ -763,7 +856,7 @@ describe('grupos: convite (casos 2 e 3)', () => {
     const t = await setup();
     await t.groups.acceptInvite(OWNER, tokenOf(t.group));
     expect(await t.groups.members(OWNER, t.group.id)).toEqual([
-      { userId: OWNER, name: 'Dono', isOwner: true, role: 'member' },
+      { userId: pub(OWNER), name: 'Dono', isOwner: true, role: 'member' },
     ]);
   });
 
@@ -865,7 +958,7 @@ describe('jogo atual: corrida na criação do jogo (tarefa 6a, D2)', () => {
 
     expect(t.store.gameCount()).toBe(1);
     expect(t.store.findByDateReads).toContainEqual({ consistent: true });
-    expect(ids(await t.store.games.listAttendance(winner.id))).toEqual([A]);
+    expect((await t.store.games.listAttendance(winner.id)).map((a) => a.userId)).toEqual([A]);
     expect(ids(game.confirmed)).toEqual([A]);
   });
 
@@ -1048,10 +1141,10 @@ describe('cancelamento (caso 7)', () => {
     expect((await t.games.current(A, t.group.id)).status).toBe('cancelled');
   });
 
-  it('caso 7: membro cancela → GROUP_NOT_OWNER; não-membro → GROUP_NOT_FOUND', async () => {
+  it('GRP-24: membro sem cargo cancela → GROUP_PERMISSION_DENIED (game.manage); não-membro → GROUP_NOT_FOUND', async () => {
     const t = await setup({ members: [A] });
     await t.confirmInOrder(A);
-    await expectAppError(t.games.cancel(A, t.group.id, DATE), 'GROUP_NOT_OWNER', 403);
+    await expectDenied(t.games.cancel(A, t.group.id, DATE), 'game.manage');
     await expectAppError(t.games.cancel(OUTSIDER, t.group.id, DATE), 'GROUP_NOT_FOUND', 404);
     expect((await t.games.current(A, t.group.id)).status).toBe('open');
     expect(t.sent).toEqual([]);
@@ -1063,11 +1156,11 @@ describe('listas e meus grupos (caso 8)', () => {
     const t = await setup({ slots: 2, members: [A, C, D] });
     await t.confirmInOrder(A, C, D);
     const game = await t.games.current(A, t.group.id);
-    expect(game.confirmed.map((x) => [x.userId, x.name])).toEqual([
+    expect(game.confirmed.map((x) => [sys(x.userId), x.name])).toEqual([
       [A, 'Ana'],
       [C, 'Caio'],
     ]);
-    expect(game.waitlist.map((x) => [x.userId, x.name])).toEqual([[D, 'Duda']]);
+    expect(game.waitlist.map((x) => [sys(x.userId), x.name])).toEqual([[D, 'Duda']]);
     expect(iso(game.waitlist[0]?.confirmedAt ?? '')).toBe(
       new Date(THURSDAY_10H.getTime() + 2 * MINUTE).toISOString(),
     );
@@ -1076,10 +1169,10 @@ describe('listas e meus grupos (caso 8)', () => {
   it('caso 8: lista de membros com o dono primeiro e name = nickname ?? name', async () => {
     const t = await setup({ members: [B, A] });
     const members = await t.groups.members(A, t.group.id);
-    expect(members[0]).toEqual({ userId: OWNER, name: 'Dono', isOwner: true, role: 'member' });
+    expect(members[0]).toEqual({ userId: pub(OWNER), name: 'Dono', isOwner: true, role: 'member' });
     expect(members.slice(1).sort((x, y) => x.userId.localeCompare(y.userId))).toEqual([
-      { userId: A, name: 'Ana', isOwner: false, role: 'member' },
-      { userId: B, name: 'Bia', isOwner: false, role: 'member' },
+      { userId: pub(A), name: 'Ana', isOwner: false, role: 'member' },
+      { userId: pub(B), name: 'Bia', isOwner: false, role: 'member' },
     ]);
   });
 
@@ -1122,7 +1215,7 @@ describe('remover membro (casos 10–13)', () => {
   it('caso 10: dono remove A (dentro) → A perde o grupo e sai da lista', async () => {
     const t = await setup({ slots: 2, members: [A, B, C] });
     await t.confirmInOrder(A, B, C);
-    await expect(t.groups.removeMember(OWNER, t.group.id, A)).resolves.toBeUndefined();
+    await expect(t.groups.removeMember(OWNER, t.group.id, pub(A))).resolves.toBeUndefined();
     await expectAppError(t.groups.get(A, t.group.id), 'GROUP_NOT_FOUND', 404);
     await expectAppError(t.games.current(A, t.group.id), 'GROUP_NOT_FOUND', 404);
     expect(await t.groups.myGroups(A)).toEqual([]);
@@ -1132,7 +1225,7 @@ describe('remover membro (casos 10–13)', () => {
   it('caso 10: C sobe e recebe waitlist_promoted; A não é notificado', async () => {
     const t = await setup({ slots: 2, members: [A, B, C] });
     await t.confirmInOrder(A, B, C);
-    await t.groups.removeMember(OWNER, t.group.id, A);
+    await t.groups.removeMember(OWNER, t.group.id, pub(A));
     const game = await t.games.current(OWNER, t.group.id);
     expect(ids(game.confirmed)).toEqual([B, C]);
     expect(game.waitlist).toEqual([]);
@@ -1143,7 +1236,7 @@ describe('remover membro (casos 10–13)', () => {
   it('caso 10: remover quem estava na fila → sai da lista e ninguém é notificado', async () => {
     const t = await setup({ slots: 2, members: [A, B, C] });
     await t.confirmInOrder(A, B, C);
-    await t.groups.removeMember(OWNER, t.group.id, C);
+    await t.groups.removeMember(OWNER, t.group.id, pub(C));
     const game = await t.games.current(OWNER, t.group.id);
     expect(ids(game.confirmed)).toEqual([A, B]);
     expect(game.waitlist).toEqual([]);
@@ -1152,40 +1245,48 @@ describe('remover membro (casos 10–13)', () => {
 
   it('caso 10: remover membro sem presença (jogo virtual) funciona', async () => {
     const t = await setup({ members: [A] });
-    await t.groups.removeMember(OWNER, t.group.id, A);
+    await t.groups.removeMember(OWNER, t.group.id, pub(A));
     await expectAppError(t.groups.get(A, t.group.id), 'GROUP_NOT_FOUND', 404);
     expect(t.sent).toEqual([]);
   });
 
   it('caso 11: dono tenta se remover → GROUP_OWNER_NOT_REMOVABLE', async () => {
     const t = await setup({ members: [A] });
-    await expectAppError(t.groups.removeMember(OWNER, t.group.id, OWNER), 'GROUP_OWNER_NOT_REMOVABLE', 409);
+    await expectAppError(
+      t.groups.removeMember(OWNER, t.group.id, pub(OWNER)),
+      'GROUP_OWNER_NOT_REMOVABLE',
+      409,
+    );
     expect(ids(await t.groups.members(OWNER, t.group.id))).toContain(OWNER);
   });
 
-  it('caso 11: membro tenta remover outro → GROUP_NOT_OWNER', async () => {
+  it('GRP-25: membro sem cargo tenta remover outro → GROUP_PERMISSION_DENIED (members.manage)', async () => {
     const t = await setup({ members: [A, B] });
-    await expectAppError(t.groups.removeMember(A, t.group.id, B), 'GROUP_NOT_OWNER', 403);
+    await expectDenied(t.groups.removeMember(A, t.group.id, pub(B)), 'members.manage');
     expect(ids(await t.groups.members(OWNER, t.group.id))).toContain(B);
   });
 
   it('caso 11: remover quem não é membro → GROUP_MEMBER_NOT_FOUND', async () => {
     const t = await setup({ members: [A] });
-    await expectAppError(t.groups.removeMember(OWNER, t.group.id, OUTSIDER), 'GROUP_MEMBER_NOT_FOUND', 404);
+    await expectAppError(
+      t.groups.removeMember(OWNER, t.group.id, pub(OUTSIDER)),
+      'GROUP_MEMBER_NOT_FOUND',
+      404,
+    );
     expect((await t.groups.get(OWNER, t.group.id)).inviteToken).toBe(tokenOf(t.group));
   });
 
-  it('caso 11: ordem dos erros → não-membro dá GROUP_NOT_FOUND; membro removendo o dono dá GROUP_NOT_OWNER', async () => {
+  it('GRP-04: ordem dos erros → não-membro dá GROUP_NOT_FOUND; membro sem cargo removendo qualquer um dá GROUP_PERMISSION_DENIED', async () => {
     const t = await setup({ members: [A] });
-    await expectAppError(t.groups.removeMember(OUTSIDER, t.group.id, A), 'GROUP_NOT_FOUND', 404);
-    await expectAppError(t.groups.removeMember(A, t.group.id, OWNER), 'GROUP_NOT_OWNER', 403);
-    await expectAppError(t.groups.removeMember(A, t.group.id, OUTSIDER), 'GROUP_NOT_OWNER', 403);
+    await expectAppError(t.groups.removeMember(OUTSIDER, t.group.id, pub(A)), 'GROUP_NOT_FOUND', 404);
+    await expectDenied(t.groups.removeMember(A, t.group.id, pub(OWNER)), 'members.manage');
+    await expectDenied(t.groups.removeMember(A, t.group.id, pub(OUTSIDER)), 'members.manage');
   });
 
   it('caso 12: depois de uma remoção, o token antigo dá GROUP_INVITE_INVALID e o grupo tem um token novo', async () => {
     const t = await setup({ members: [A] });
     const old = tokenOf(t.group);
-    await t.groups.removeMember(OWNER, t.group.id, A);
+    await t.groups.removeMember(OWNER, t.group.id, pub(A));
     await expectAppError(t.groups.acceptInvite(A, old), 'GROUP_INVITE_INVALID', 404);
     await expectAppError(t.groups.acceptInvite(OUTSIDER, old), 'GROUP_INVITE_INVALID', 404);
     const fresh = tokenOf(await t.groups.get(OWNER, t.group.id));
@@ -1198,7 +1299,7 @@ describe('remover membro (casos 10–13)', () => {
     const t = await setup({ slots: 2, members: [A, B, C] });
     await t.confirmInOrder(A, B, C);
     t.clock.now = FRIDAY_20H;
-    await t.groups.removeMember(OWNER, t.group.id, A);
+    await t.groups.removeMember(OWNER, t.group.id, pub(A));
     await expectAppError(t.groups.get(A, t.group.id), 'GROUP_NOT_FOUND', 404);
     expect(await t.groups.myGroups(A)).toEqual([]);
     const game = await t.games.current(OWNER, t.group.id);
@@ -1214,7 +1315,7 @@ describe('remover membro: corrida com outra escrita (plano 006, casos 11–13)',
     const t = await setup({ slots: 2, members: [A, B, C] });
     await t.confirmInOrder(A, B, C);
     t.store.removeScript.push(() => 'not_member');
-    await expectAppError(t.groups.removeMember(OWNER, t.group.id, B), 'GROUP_MEMBER_NOT_FOUND', 404);
+    await expectAppError(t.groups.removeMember(OWNER, t.group.id, pub(B)), 'GROUP_MEMBER_NOT_FOUND', 404);
     expect(t.store.removeCalls).toHaveLength(1);
     expect(t.sent).toEqual([]);
   });
@@ -1228,7 +1329,7 @@ describe('remover membro: corrida com outra escrita (plano 006, casos 11–13)',
       return 'stale';
     });
 
-    await expect(t.groups.removeMember(OWNER, t.group.id, B)).resolves.toBeUndefined();
+    await expect(t.groups.removeMember(OWNER, t.group.id, pub(B))).resolves.toBeUndefined();
 
     expect(t.store.removeCalls).toHaveLength(2);
     expect(t.store.removeCalls[0]?.group.inviteToken).toBe(tokenOf(t.group));
@@ -1251,7 +1352,7 @@ describe('remover membro: corrida com outra escrita (plano 006, casos 11–13)',
       () => 'stale',
     );
 
-    const err = await t.groups.removeMember(OWNER, t.group.id, B).then(
+    const err = await t.groups.removeMember(OWNER, t.group.id, pub(B)).then(
       () => undefined,
       (e: unknown) => e,
     );
@@ -1381,8 +1482,8 @@ describe('E2: link de reserva (casos 3 e 4)', () => {
     const mine = await t.groups.myGroups(R);
     expect(mine.map((g) => [g.id, g.myRole])).toEqual([[t.group.id, 'reserve']]);
     expect(await t.groups.members(OWNER, t.group.id)).toEqual([
-      { userId: OWNER, name: 'Dono', isOwner: true, role: 'member' },
-      { userId: R, name: 'Rafa', isOwner: false, role: 'reserve' },
+      { userId: pub(OWNER), name: 'Dono', isOwner: true, role: 'member' },
+      { userId: pub(R), name: 'Rafa', isOwner: false, role: 'reserve' },
     ]);
   });
 
@@ -1401,8 +1502,8 @@ describe('E2: link de reserva (casos 3 e 4)', () => {
     await t.groups.acceptInvite(B, tokenOf(t.group));
     const list = await t.groups.members(R, t.group.id);
     expect(list.map((m) => m.role)).toEqual(['member', 'member', 'member', 'reserve']);
-    expect(list[0]?.userId).toBe(OWNER);
-    expect(list[3]?.userId).toBe(R);
+    expect(list[0]?.userId).toBe(pub(OWNER));
+    expect(list[3]?.userId).toBe(pub(R));
   });
 
   it('caso 4: reserva aceita o link de membro → vira membro (sai das reservas)', async () => {
@@ -1411,8 +1512,8 @@ describe('E2: link de reserva (casos 3 e 4)', () => {
     expect(joined.myRole).toBe('member');
     expect(await t.store.groups.roleOf(t.group.id, R)).toBe('member');
     const list = await t.groups.members(OWNER, t.group.id);
-    expect(list.filter((m) => m.userId === R)).toEqual([
-      { userId: R, name: 'Rafa', isOwner: false, role: 'member' },
+    expect(list.filter((m) => m.userId === pub(R))).toEqual([
+      { userId: pub(R), name: 'Rafa', isOwner: false, role: 'member' },
     ]);
     expect(list.some((m) => m.role === 'reserve')).toBe(false);
   });
@@ -1422,8 +1523,8 @@ describe('E2: link de reserva (casos 3 e 4)', () => {
     expect((await t.groups.acceptInvite(A, reserveTokenOf(t.group))).myRole).toBe('member');
     expect((await t.groups.acceptInvite(OWNER, reserveTokenOf(t.group))).myRole).toBe('member');
     expect(await t.groups.members(OWNER, t.group.id)).toEqual([
-      { userId: OWNER, name: 'Dono', isOwner: true, role: 'member' },
-      { userId: A, name: 'Ana', isOwner: false, role: 'member' },
+      { userId: pub(OWNER), name: 'Dono', isOwner: true, role: 'member' },
+      { userId: pub(A), name: 'Ana', isOwner: false, role: 'member' },
     ]);
   });
 });
@@ -1444,7 +1545,7 @@ describe('E2: presença por camada (casos 5–7)', () => {
     t.clock.now = THURSDAY_19H;
     const game = await t.games.confirm(R, t.group.id, DATE);
     expect(GameSchema.parse(game)).toBeTruthy();
-    expect(game.confirmed.map((x) => [x.userId, x.role])).toEqual([
+    expect(game.confirmed.map((x) => [sys(x.userId), x.role])).toEqual([
       [A, 'member'],
       [R, 'reserve'],
     ]);
@@ -1482,7 +1583,7 @@ describe('E2: presença por camada (casos 5–7)', () => {
     const t = await setup({ slots: 2, reservesOpenHoursBefore: 48, members: [A, B], reserves: [R] });
     await t.confirmInOrder(A, R, B);
     const full = await t.games.current(B, t.group.id);
-    expect(full.confirmed.map((x) => [x.userId, x.role])).toEqual([
+    expect(full.confirmed.map((x) => [sys(x.userId), x.role])).toEqual([
       [A, 'member'],
       [R, 'reserve'],
     ]);
@@ -1549,13 +1650,13 @@ describe('E2: link do jogo (casos 8–10)', () => {
     await t.confirmInOrder(A);
     const game = await t.games.guestConfirm(G, guestTokenOf(t.group), DATE);
     expect(GameSchema.parse(game)).toBeTruthy();
-    expect(game.confirmed.map((x) => [x.userId, x.name, x.role])).toEqual([
+    expect(game.confirmed.map((x) => [sys(x.userId), x.name, x.role])).toEqual([
       [A, 'Ana', 'member'],
       [G, 'Gabi', 'guest'],
     ]);
     expect(game.me).toEqual({ list: 'confirmed', position: 2 });
     const seen = await t.games.current(OWNER, t.group.id);
-    expect(seen.confirmed.find((x) => x.userId === G)?.role).toBe('guest');
+    expect(seen.confirmed.find((x) => x.userId === pub(G))?.role).toBe('guest');
     expect((await t.games.guestView(G, guestTokenOf(t.group))).game.me).toEqual({
       list: 'confirmed',
       position: 2,
@@ -1610,7 +1711,7 @@ describe('E2: link do jogo (casos 8–10)', () => {
     expect(iso(view.game.myOpensAt ?? '')).toBe(WEDNESDAY_19H.toISOString());
     expect((await t.games.guestView(OWNER, token)).myRole).toBe('member');
     const game = await t.games.guestConfirm(A, token, DATE);
-    expect(game.confirmed.map((x) => [x.userId, x.role])).toEqual([[A, 'member']]);
+    expect(game.confirmed.map((x) => [sys(x.userId), x.role])).toEqual([[A, 'member']]);
     expect((await t.games.current(A, t.group.id)).me).toEqual({ list: 'confirmed', position: 1 });
   });
 
@@ -1624,7 +1725,7 @@ describe('E2: link do jogo (casos 8–10)', () => {
     expect(opensAtOf(err)).toBe(THURSDAY_19H.toISOString());
     t.clock.now = THURSDAY_19H;
     const game = await t.games.guestConfirm(R, token, DATE);
-    expect(game.confirmed.map((x) => [x.userId, x.role])).toEqual([[R, 'reserve']]);
+    expect(game.confirmed.map((x) => [sys(x.userId), x.role])).toEqual([[R, 'reserve']]);
   });
 });
 
@@ -1658,11 +1759,11 @@ describe('E2: troca dos links (caso 11)', () => {
     expect(own.inviteToken).toBe(tokenOf(t.group));
   });
 
-  it('caso 11: membro ou reserva tenta trocar qualquer link → GROUP_NOT_OWNER e nada muda', async () => {
+  it('GRP-07: membro ou reserva sem cargo tenta trocar qualquer link → GROUP_PERMISSION_DENIED (members.manage) e nada muda', async () => {
     const t = await setup({ members: [A], reserves: [R], guestsOpenHoursBefore: 6 });
     for (const id of [A, R]) {
       for (const kind of KINDS) {
-        await expectAppError(t.groups.rotateInvite(id, t.group.id, kind), 'GROUP_NOT_OWNER', 403);
+        await expectDenied(t.groups.rotateInvite(id, t.group.id, kind), 'members.manage');
       }
     }
     const own = await t.groups.get(OWNER, t.group.id);
@@ -1684,7 +1785,7 @@ describe('E2: remover reserva (caso 12)', () => {
   it('caso 12: dono remove reserva confirmada → ela perde o acesso e sai da lista; a fila sobe com aviso', async () => {
     const t = await setup({ slots: 2, reservesOpenHoursBefore: 48, members: [A, B], reserves: [R] });
     await t.confirmInOrder(A, R, B);
-    await expect(t.groups.removeMember(OWNER, t.group.id, R)).resolves.toBeUndefined();
+    await expect(t.groups.removeMember(OWNER, t.group.id, pub(R))).resolves.toBeUndefined();
     await expectAppError(t.groups.get(R, t.group.id), 'GROUP_NOT_FOUND', 404);
     await expectAppError(t.games.current(R, t.group.id), 'GROUP_NOT_FOUND', 404);
     expect(await t.groups.myGroups(R)).toEqual([]);
@@ -1700,7 +1801,7 @@ describe('E2: remover reserva (caso 12)', () => {
   it('caso 12: remover reserva troca o link de reserva e não o de membro', async () => {
     const t = await setup({ reserves: [R] });
     const oldReserve = reserveTokenOf(t.group);
-    await t.groups.removeMember(OWNER, t.group.id, R);
+    await t.groups.removeMember(OWNER, t.group.id, pub(R));
     const own = await t.groups.get(OWNER, t.group.id);
     expect(own.inviteToken).toBe(tokenOf(t.group));
     expect(own.guestToken).toBe(guestTokenOf(t.group));
@@ -1712,7 +1813,7 @@ describe('E2: remover reserva (caso 12)', () => {
 
   it('caso 12: remover membro continua trocando só o link de membro', async () => {
     const t = await setup({ members: [A] });
-    await t.groups.removeMember(OWNER, t.group.id, A);
+    await t.groups.removeMember(OWNER, t.group.id, pub(A));
     const own = await t.groups.get(OWNER, t.group.id);
     expect(own.inviteToken).not.toBe(tokenOf(t.group));
     expect(own.reserveInviteToken).toBe(reserveTokenOf(t.group));
@@ -1721,18 +1822,10 @@ describe('E2: remover reserva (caso 12)', () => {
 });
 
 describe('E2: configurar as camadas (caso 13)', () => {
-  it('caso 13: PATCH por membro ou reserva → GROUP_NOT_OWNER; não-membro → GROUP_NOT_FOUND', async () => {
+  it('GRP-16: PATCH por membro ou reserva sem cargo → GROUP_PERMISSION_DENIED (settings.edit); não-membro → GROUP_NOT_FOUND', async () => {
     const t = await setup({ members: [A], reserves: [R] });
-    await expectAppError(
-      t.groups.update(A, t.group.id, { listOpensHoursBefore: 30 }),
-      'GROUP_NOT_OWNER',
-      403,
-    );
-    await expectAppError(
-      t.groups.update(R, t.group.id, { listOpensHoursBefore: 30 }),
-      'GROUP_NOT_OWNER',
-      403,
-    );
+    await expectDenied(t.groups.update(A, t.group.id, { listOpensHoursBefore: 30 }), 'settings.edit');
+    await expectDenied(t.groups.update(R, t.group.id, { listOpensHoursBefore: 30 }), 'settings.edit');
     await expectAppError(
       t.groups.update(OUTSIDER, t.group.id, { listOpensHoursBefore: 30 }),
       'GROUP_NOT_FOUND',
@@ -1814,6 +1907,7 @@ describe('E2: grupo de antes da E2 (caso 14, D3 e D6)', () => {
       slots: 12,
       listOpensHoursBefore: 48,
       ownerId: OWNER,
+      ownerPublicId: pub(OWNER),
       inviteToken: LEGACY_TOKEN,
     });
     return { ...s, id };
@@ -1866,16 +1960,16 @@ describe('E2: o que a reserva vê e faz (caso 15)', () => {
     expect(game.groupId).toBe(t.group.id);
   });
 
-  it('caso 15: reserva não remove ninguém (GROUP_NOT_OWNER) e ninguém sai', async () => {
+  it('GRP-25: reserva sem cargo não remove ninguém (GROUP_PERMISSION_DENIED) e ninguém sai', async () => {
     const t = await setup({ members: [A], reserves: [R] });
-    await expectAppError(t.groups.removeMember(R, t.group.id, A), 'GROUP_NOT_OWNER', 403);
-    await expectAppError(t.groups.removeMember(R, t.group.id, R), 'GROUP_NOT_OWNER', 403);
+    await expectDenied(t.groups.removeMember(R, t.group.id, pub(A)), 'members.manage');
+    await expectDenied(t.groups.removeMember(R, t.group.id, pub(R)), 'members.manage');
     expect(ids(await t.groups.members(OWNER, t.group.id))).toEqual([OWNER, A, R]);
   });
 
-  it('caso 15: reserva não cancela o jogo (GROUP_NOT_OWNER)', async () => {
+  it('GRP-24: reserva sem cargo não cancela o jogo (GROUP_PERMISSION_DENIED)', async () => {
     const t = await setup({ reserves: [R] });
-    await expectAppError(t.games.cancel(R, t.group.id, DATE), 'GROUP_NOT_OWNER', 403);
+    await expectDenied(t.games.cancel(R, t.group.id, DATE), 'game.manage');
   });
 });
 
@@ -1888,7 +1982,7 @@ describe('E2: o que a reserva vê e faz (caso 15)', () => {
 async function joinInOrder(
   t: Awaited<ReturnType<typeof setup>>,
   kind: 'member' | 'reserve',
-  ...users: string[]
+  ...users: UserId[]
 ) {
   const token = kind === 'member' ? tokenOf(t.group) : reserveTokenOf(t.group);
   for (const id of users) {
@@ -1897,14 +1991,15 @@ async function joinInOrder(
   }
 }
 
-const roles = (list: { userId: string; role: MemberRole | 'guest' }[]) => list.map((m) => [m.userId, m.role]);
+const roles = (list: { userId: string; role: MemberRole | 'guest' }[]) =>
+  list.map((m) => [sys(m.userId), m.role]);
 
 describe('plano 013: entrar e o papel (casos 1–7)', () => {
   it('caso 1: dono cria → membro e dono na lista, grupo nos grupos dele, papel member e entrada = criação', async () => {
     const s = setupServices();
     const group = await s.groups.create(OWNER, INPUT);
     expect(await s.groups.members(OWNER, group.id)).toEqual([
-      { userId: OWNER, name: 'Dono', isOwner: true, role: 'member' },
+      { userId: pub(OWNER), name: 'Dono', isOwner: true, role: 'member' },
     ]);
     expect((await s.groups.myGroups(OWNER)).map((g) => [g.id, g.myRole])).toEqual([[group.id, 'member']]);
     expect(await s.store.groups.roleOf(group.id, OWNER)).toBe('member');
@@ -2064,7 +2159,7 @@ describe('plano 013: remover (casos 11–14)', () => {
     const t = await setup({ slots: 2, members: [A, B, C] });
     await t.confirmInOrder(A, B, C);
     const before = await t.groups.get(OWNER, t.group.id);
-    await expect(t.groups.removeMember(OWNER, t.group.id, A)).resolves.toBeUndefined();
+    await expect(t.groups.removeMember(OWNER, t.group.id, pub(A))).resolves.toBeUndefined();
 
     expect(ids(await t.groups.members(OWNER, t.group.id))).toEqual([OWNER, B, C]);
     expect(await t.groups.myGroups(A)).toEqual([]);
@@ -2085,7 +2180,7 @@ describe('plano 013: remover (casos 11–14)', () => {
       t.store.drop(args.group.id, args.userId);
       return t.store.naturalRemove(args);
     });
-    await expectAppError(t.groups.removeMember(OWNER, t.group.id, B), 'GROUP_MEMBER_NOT_FOUND', 404);
+    await expectAppError(t.groups.removeMember(OWNER, t.group.id, pub(B)), 'GROUP_MEMBER_NOT_FOUND', 404);
     expect(t.store.removeCalls).toHaveLength(1);
     expect((await t.groups.get(OWNER, t.group.id)).inviteToken).toBe(tokenOf(t.group));
     expect(t.sent).toEqual([]);
@@ -2098,7 +2193,7 @@ describe('plano 013: remover (casos 11–14)', () => {
       return t.store.naturalRemove(args);
     });
 
-    await expect(t.groups.removeMember(OWNER, t.group.id, R)).resolves.toBeUndefined();
+    await expect(t.groups.removeMember(OWNER, t.group.id, pub(R))).resolves.toBeUndefined();
 
     expect(t.store.removeCalls.map((c) => [c.userId, c.role])).toEqual([
       [R, 'reserve'],
@@ -2113,7 +2208,7 @@ describe('plano 013: remover (casos 11–14)', () => {
 
   it('caso 14: removido tenta abrir o grupo → GROUP_NOT_FOUND', async () => {
     const t = await setup({ members: [A] });
-    await t.groups.removeMember(OWNER, t.group.id, A);
+    await t.groups.removeMember(OWNER, t.group.id, pub(A));
     await expectAppError(t.groups.get(A, t.group.id), 'GROUP_NOT_FOUND', 404);
     await expectAppError(t.groups.members(A, t.group.id), 'GROUP_NOT_FOUND', 404);
     await expectAppError(t.games.current(A, t.group.id), 'GROUP_NOT_FOUND', 404);
@@ -2132,7 +2227,7 @@ describe('plano 013: papel no link do jogo e na fila (casos 15 e 16)', () => {
 
   it('caso 15: depois de removido, o link do jogo trata como guest', async () => {
     const t = await setup({ members: [A], guestsOpenHoursBefore: 6 });
-    await t.groups.removeMember(OWNER, t.group.id, A);
+    await t.groups.removeMember(OWNER, t.group.id, pub(A));
     expect((await t.games.guestView(A, guestTokenOf(t.group))).myRole).toBe('guest');
   });
 
@@ -2468,7 +2563,9 @@ describe('grupo arquivado é só leitura (GRP-32)', () => {
     await expectAppError(t.games.confirm(B, t.group.id, DATE), 'GROUP_ARCHIVED', 409);
     await expectAppError(t.games.leave(A, t.group.id, DATE), 'GROUP_ARCHIVED', 409);
     expect(
-      ids(await t.store.games.listAttendance((await t.store.games.findByDate(t.group.id, DATE))?.id ?? '')),
+      (await t.store.games.listAttendance((await t.store.games.findByDate(t.group.id, DATE))?.id ?? '')).map(
+        (a) => a.userId,
+      ),
     ).toEqual([A]);
   });
 
@@ -2491,22 +2588,18 @@ describe('grupo arquivado é só leitura (GRP-32)', () => {
     );
     for (const kind of KINDS)
       await expectAppError(t.groups.rotateInvite(OWNER, t.group.id, kind), 'GROUP_ARCHIVED', 409);
-    await expectAppError(t.groups.removeMember(OWNER, t.group.id, A), 'GROUP_ARCHIVED', 409);
+    await expectAppError(t.groups.removeMember(OWNER, t.group.id, pub(A)), 'GROUP_ARCHIVED', 409);
     await expectAppError(t.games.cancel(OWNER, t.group.id, DATE), 'GROUP_ARCHIVED', 409);
     expect(t.store.storedGroup(t.group.id)).toEqual(before);
     expect(ids(await t.groups.members(OWNER, t.group.id))).toEqual([OWNER, A, R]);
     expect(t.store.removeCalls).toEqual([]);
   });
 
-  it('GRP-32: ação de dono por quem não é dono num grupo arquivado → GROUP_NOT_OWNER (GRP-04 vem antes)', async () => {
+  it('GRP-32: ação com permissão por quem não a tem num grupo arquivado → GROUP_PERMISSION_DENIED (GRP-04 vem antes)', async () => {
     const t = await setup({ members: [A] });
     await t.groups.archive(OWNER, t.group.id);
-    await expectAppError(
-      t.groups.update(A, t.group.id, { guestsOpenHoursBefore: 6 }),
-      'GROUP_NOT_OWNER',
-      403,
-    );
-    await expectAppError(t.games.cancel(A, t.group.id, DATE), 'GROUP_NOT_OWNER', 403);
+    await expectDenied(t.groups.update(A, t.group.id, { guestsOpenHoursBefore: 6 }), 'settings.edit');
+    await expectDenied(t.games.cancel(A, t.group.id, DATE), 'game.manage');
   });
 
   it('GRP-32: confirmar no mesmo instante do arquivamento → GROUP_ARCHIVED e a presença não é gravada', async () => {
@@ -2517,7 +2610,7 @@ describe('grupo arquivado é só leitura (GRP-32)', () => {
     );
     await expectAppError(t.games.confirm(B, t.group.id, DATE), 'GROUP_ARCHIVED', 409);
     const game = await t.store.games.findByDate(t.group.id, DATE, { consistent: true });
-    expect(ids(await t.store.games.listAttendance(game?.id ?? ''))).toEqual([A]);
+    expect((await t.store.games.listAttendance(game?.id ?? '')).map((a) => a.userId)).toEqual([A]);
     expect(await t.store.games.getAttendance(game?.id ?? '', B)).toBeUndefined();
   });
 
@@ -2539,7 +2632,7 @@ describe('grupo arquivado é só leitura (GRP-32)', () => {
     );
     await expectAppError(t.games.guestConfirm(G, guestTokenOf(t.group), DATE), 'GROUP_ARCHIVED', 409);
     const game = await t.store.games.findByDate(t.group.id, DATE, { consistent: true });
-    expect(ids(await t.store.games.listAttendance(game?.id ?? ''))).toEqual([A]);
+    expect((await t.store.games.listAttendance(game?.id ?? '')).map((a) => a.userId)).toEqual([A]);
   });
 
   it('GRP-32: arquivado e cancelado no mesmo instante da confirmação → GROUP_ARCHIVED', async () => {
@@ -2551,7 +2644,7 @@ describe('grupo arquivado é só leitura (GRP-32)', () => {
     });
     await expectAppError(t.games.confirm(B, t.group.id, DATE), 'GROUP_ARCHIVED', 409);
     const game = await t.store.games.findByDate(t.group.id, DATE, { consistent: true });
-    expect(ids(await t.store.games.listAttendance(game?.id ?? ''))).toEqual([A]);
+    expect((await t.store.games.listAttendance(game?.id ?? '')).map((a) => a.userId)).toEqual([A]);
   });
 
   it('GRP-32: remover no mesmo instante do arquivamento (stale) → GROUP_ARCHIVED, o membro fica e nenhum link é gravado', async () => {
@@ -2560,7 +2653,7 @@ describe('grupo arquivado é só leitura (GRP-32)', () => {
       t.store.forceArchive(args.group.id, t.clock.now.toISOString());
       return 'stale';
     });
-    await expectAppError(t.groups.removeMember(OWNER, t.group.id, A), 'GROUP_ARCHIVED', 409);
+    await expectAppError(t.groups.removeMember(OWNER, t.group.id, pub(A)), 'GROUP_ARCHIVED', 409);
     expect(t.store.membershipOf(t.group.id, A)).toBeDefined();
     expect(ids(await t.groups.members(OWNER, t.group.id))).toEqual([OWNER, A]);
     const stored = t.store.storedGroup(t.group.id);
@@ -2577,7 +2670,7 @@ describe('confirmar no mesmo instante do cancelamento (GRP-24)', () => {
     t.store.hooks.beforeAddAttendance.push((a) => t.store.forceCancel(a.gameId, t.clock.now.toISOString()));
     await expectAppError(t.games.confirm(B, t.group.id, DATE), 'GAME_CANCELLED', 409);
     const game = await t.store.games.findByDate(t.group.id, DATE, { consistent: true });
-    expect(ids(await t.store.games.listAttendance(game?.id ?? ''))).toEqual([A]);
+    expect((await t.store.games.listAttendance(game?.id ?? '')).map((a) => a.userId)).toEqual([A]);
     expect(await t.store.games.getAttendance(game?.id ?? '', B)).toBeUndefined();
   });
 
@@ -2587,7 +2680,7 @@ describe('confirmar no mesmo instante do cancelamento (GRP-24)', () => {
     t.store.hooks.beforeAddAttendance.push((a) => t.store.forceCancel(a.gameId, t.clock.now.toISOString()));
     await expectAppError(t.games.guestConfirm(G, guestTokenOf(t.group), DATE), 'GAME_CANCELLED', 409);
     const game = await t.store.games.findByDate(t.group.id, DATE, { consistent: true });
-    expect(ids(await t.store.games.listAttendance(game?.id ?? ''))).toEqual([A]);
+    expect((await t.store.games.listAttendance(game?.id ?? '')).map((a) => a.userId)).toEqual([A]);
   });
 
   it('GRP-24: quem confirmou antes do cancelamento está na lista e recebe o aviso', async () => {
@@ -2835,13 +2928,13 @@ describe('reabrir o jogo cancelado (GRP-44)', () => {
     expect(t.sent).toEqual([]);
   });
 
-  it('GRP-44: membro ou reserva tenta reabrir → GROUP_NOT_OWNER; quem não participa → GROUP_NOT_FOUND; nada muda', async () => {
+  it('GRP-44: membro ou reserva sem cargo tenta reabrir → GROUP_PERMISSION_DENIED (game.manage); quem não participa → GROUP_NOT_FOUND; nada muda', async () => {
     const t = await setup({ members: [A], reserves: [R], now: THURSDAY_19H });
     await t.confirmInOrder(A, R);
     await t.games.cancel(OWNER, t.group.id, DATE);
     t.sent.splice(0);
-    await expectAppError(t.games.reopen(A, t.group.id, DATE), 'GROUP_NOT_OWNER', 403);
-    await expectAppError(t.games.reopen(R, t.group.id, DATE), 'GROUP_NOT_OWNER', 403);
+    await expectDenied(t.games.reopen(A, t.group.id, DATE), 'game.manage');
+    await expectDenied(t.games.reopen(R, t.group.id, DATE), 'game.manage');
     await expectAppError(t.games.reopen(OUTSIDER, t.group.id, DATE), 'GROUP_NOT_FOUND', 404);
     expect((await t.games.current(A, t.group.id)).status).toBe('cancelled');
     expect(t.sent).toEqual([]);
@@ -2917,7 +3010,7 @@ describe('remover com o jogo cancelado (GRP-25)', () => {
     await t.confirmInOrder(A, B, C);
     await t.games.cancel(OWNER, t.group.id, DATE);
     t.sent.splice(0);
-    await t.groups.removeMember(OWNER, t.group.id, A);
+    await t.groups.removeMember(OWNER, t.group.id, pub(A));
     expect(t.store.removeCalls[0]?.attendance).toMatchObject({ userId: A });
     expect(
       await t.store.games.getAttendance((await t.store.games.findByDate(t.group.id, DATE))?.id ?? '', A),
@@ -2933,7 +3026,7 @@ describe('remover com o jogo cancelado (GRP-25)', () => {
     const t = await setup({ slots: 2, members: [A, B, C] });
     await t.confirmInOrder(A, B, C);
     await t.games.cancel(OWNER, t.group.id, DATE);
-    await t.groups.removeMember(OWNER, t.group.id, A);
+    await t.groups.removeMember(OWNER, t.group.id, pub(A));
     t.sent.splice(0);
     const game = await t.games.reopen(OWNER, t.group.id, DATE);
     expect(ids(game.confirmed)).toEqual([B, C]);
@@ -2947,7 +3040,7 @@ describe('remover com o jogo cancelado (GRP-25)', () => {
     await t.confirmInOrder(A, R);
     await t.games.cancel(OWNER, t.group.id, DATE);
     t.sent.splice(0);
-    await t.groups.removeMember(OWNER, t.group.id, R);
+    await t.groups.removeMember(OWNER, t.group.id, pub(R));
     expect(ids((await t.games.current(OWNER, t.group.id)).confirmed)).toEqual([A]);
     expect(t.sent).toEqual([]);
   });
@@ -2955,10 +3048,10 @@ describe('remover com o jogo cancelado (GRP-25)', () => {
 
 // ---------------------------------------------------------------------------------------------
 // Limites de membros e reservas, convite para membro e sair do grupo (GRP-38–42). Relógio: quinta 10h.
-const roleOfIn = (list: { userId: string; role: MemberRole }[], id: string) =>
-  list.find((m) => m.userId === id)?.role;
-const inviteOfIn = (list: { userId: string; memberInviteExpiresAt?: string | undefined }[], id: string) =>
-  list.find((m) => m.userId === id)?.memberInviteExpiresAt;
+const roleOfIn = (list: { userId: string; role: MemberRole }[], id: UserId) =>
+  list.find((m) => m.userId === pub(id))?.role;
+const inviteOfIn = (list: { userId: string; memberInviteExpiresAt?: string | undefined }[], id: UserId) =>
+  list.find((m) => m.userId === pub(id))?.memberInviteExpiresAt;
 const IN_7_DAYS = iso(new Date(THURSDAY_10H.getTime() + 7 * DAY));
 
 describe('limites do grupo (GRP-38, GRP-16)', () => {
@@ -2997,10 +3090,10 @@ describe('limites do grupo (GRP-38, GRP-16)', () => {
     expect(await t.groups.get(A, t.group.id)).toMatchObject({ maxMembers: 14, maxReserves: 0 });
   });
 
-  it('GRP-16: quem não é dono muda os limites → GROUP_NOT_OWNER e nada muda', async () => {
+  it('GRP-16: quem não tem settings.edit muda os limites → GROUP_PERMISSION_DENIED e nada muda', async () => {
     const t = await setup({ members: [A], reserves: [R] });
     for (const who of [A, R])
-      await expectAppError(t.groups.update(who, t.group.id, { maxMembers: 5 }), 'GROUP_NOT_OWNER', 403);
+      await expectDenied(t.groups.update(who, t.group.id, { maxMembers: 5 }), 'settings.edit');
     expect(t.store.storedGroup(t.group.id)?.maxMembers).toBe(30);
   });
 
@@ -3012,7 +3105,7 @@ describe('limites do grupo (GRP-38, GRP-16)', () => {
     expect(roleOfIn(list, R)).toBe('reserve');
     await expectAppError(t.groups.acceptInvite(D, tokenOf(t.group)), 'GROUP_MEMBERS_FULL', 409);
     await expectAppError(t.groups.acceptInvite(D, reserveTokenOf(t.group)), 'GROUP_RESERVES_FULL', 409);
-    await t.groups.removeMember(OWNER, t.group.id, A);
+    await t.groups.removeMember(OWNER, t.group.id, pub(A));
     // 3 membros (dono, B, C) ainda passam do limite de 2.
     const fresh = await t.groups.get(OWNER, t.group.id);
     await expectAppError(t.groups.acceptInvite(D, tokenOf(fresh)), 'GROUP_MEMBERS_FULL', 409);
@@ -3123,7 +3216,7 @@ describe('entrar pelo link com limite (GRP-02, GRP-39)', () => {
 describe('remover libera o lugar e apaga o convite (GRP-25)', () => {
   it('GRP-25: remover um membro libera o lugar no limite → outra pessoa entra pelo link novo', async () => {
     const t = await setup({ maxMembers: 2, members: [A] });
-    await t.groups.removeMember(OWNER, t.group.id, A);
+    await t.groups.removeMember(OWNER, t.group.id, pub(A));
     expect(t.store.countOf(t.group.id, 'member')).toBe(1);
     const fresh = await t.groups.get(OWNER, t.group.id);
     expect((await t.groups.acceptInvite(B, tokenOf(fresh))).myRole).toBe('member');
@@ -3131,15 +3224,15 @@ describe('remover libera o lugar e apaga o convite (GRP-25)', () => {
 
   it('GRP-25: remover uma reserva libera o lugar de reserva', async () => {
     const t = await setup({ maxReserves: 1, reserves: [R] });
-    await t.groups.removeMember(OWNER, t.group.id, R);
+    await t.groups.removeMember(OWNER, t.group.id, pub(R));
     const fresh = await t.groups.get(OWNER, t.group.id);
     expect((await t.groups.acceptInvite(D, reserveTokenOf(fresh))).myRole).toBe('reserve');
   });
 
   it('GRP-25: a reserva removida perde o convite para membro pendente', async () => {
     const t = await setup({ reserves: [R] });
-    await t.groups.inviteToMember(OWNER, t.group.id, R);
-    await t.groups.removeMember(OWNER, t.group.id, R);
+    await t.groups.inviteToMember(OWNER, t.group.id, pub(R));
+    await t.groups.removeMember(OWNER, t.group.id, pub(R));
     expect(t.store.removeCalls[0]?.newToken).toBeTypeOf('string');
     const fresh = await t.groups.get(OWNER, t.group.id);
     await t.groups.acceptInvite(R, reserveTokenOf(fresh));
@@ -3152,9 +3245,9 @@ describe('remover libera o lugar e apaga o convite (GRP-25)', () => {
 describe('convite para membro (GRP-40)', () => {
   it('GRP-40: o dono convida a reserva → convite de 7 dias e aviso member_invite com o link do grupo', async () => {
     const t = await setup({ reserves: [R] });
-    const invite = await t.groups.inviteToMember(OWNER, t.group.id, R);
+    const invite = await t.groups.inviteToMember(OWNER, t.group.id, pub(R));
     expect(MemberInviteSchema.parse(invite)).toEqual(invite);
-    expect(invite).toEqual({ userId: R, expiresAt: IN_7_DAYS });
+    expect(invite).toEqual({ userId: pub(R), expiresAt: IN_7_DAYS });
     expect(t.sent).toHaveLength(1);
     expect(t.sent[0]).toMatchObject({
       userId: R,
@@ -3167,7 +3260,7 @@ describe('convite para membro (GRP-40)', () => {
 
   it('GRP-40: a reserva vê o convite no grupo, e só o dono vê o prazo na lista de membros', async () => {
     const t = await setup({ members: [A], reserves: [R, D] });
-    await t.groups.inviteToMember(OWNER, t.group.id, R);
+    await t.groups.inviteToMember(OWNER, t.group.id, pub(R));
     expect((await t.groups.get(R, t.group.id)).myMemberInvite).toEqual({ expiresAt: IN_7_DAYS });
     expect((await t.groups.get(D, t.group.id)).myMemberInvite).toBeUndefined();
     expect((await t.groups.get(A, t.group.id)).myMemberInvite).toBeUndefined();
@@ -3181,36 +3274,41 @@ describe('convite para membro (GRP-40)', () => {
 
   it('GRP-40: convidar de novo com o convite pendente devolve o mesmo, sem avisar outra vez', async () => {
     const t = await setup({ reserves: [R] });
-    const first = await t.groups.inviteToMember(OWNER, t.group.id, R);
+    const first = await t.groups.inviteToMember(OWNER, t.group.id, pub(R));
     t.clock.now = new Date(THURSDAY_10H.getTime() + 2 * DAY);
-    const again = await t.groups.inviteToMember(OWNER, t.group.id, R);
+    const again = await t.groups.inviteToMember(OWNER, t.group.id, pub(R));
     expect(again).toEqual(first);
     expect(ofType(t.sent, 'member_invite')).toEqual([R]);
   });
 
   it('GRP-40: convite vencido conta como inexistente, e o dono pode convidar de novo (novo prazo e novo aviso)', async () => {
     const t = await setup({ reserves: [R] });
-    await t.groups.inviteToMember(OWNER, t.group.id, R);
+    await t.groups.inviteToMember(OWNER, t.group.id, pub(R));
     const later = new Date(THURSDAY_10H.getTime() + 7 * DAY + MINUTE);
     t.clock.now = later;
     expect((await t.groups.get(R, t.group.id)).myMemberInvite).toBeUndefined();
     expect(inviteOfIn(await t.groups.members(OWNER, t.group.id), R)).toBeUndefined();
-    const again = await t.groups.inviteToMember(OWNER, t.group.id, R);
+    const again = await t.groups.inviteToMember(OWNER, t.group.id, pub(R));
     expect(again.expiresAt).toBe(iso(new Date(later.getTime() + 7 * DAY)));
     expect(ofType(t.sent, 'member_invite')).toEqual([R, R]);
   });
 
   it('GRP-40: com os membros no limite, convidar responde GROUP_MEMBERS_FULL e ninguém é avisado', async () => {
     const t = await setup({ maxMembers: 2, members: [A], reserves: [R] });
-    await expectAppError(t.groups.inviteToMember(OWNER, t.group.id, R), 'GROUP_MEMBERS_FULL', 409);
+    await expectAppError(t.groups.inviteToMember(OWNER, t.group.id, pub(R)), 'GROUP_MEMBERS_FULL', 409);
     expect(t.store.membershipOf(t.group.id, R)?.memberInviteExpiresAt).toBeUndefined();
     expect(t.sent).toEqual([]);
   });
 
   it('GRP-40: convidar quem não é reserva (membro, dono ou quem não participa) → GROUP_MEMBER_NOT_FOUND', async () => {
-    const t = await setup({ members: [A] });
-    for (const who of [A, OWNER, OUTSIDER])
-      await expectAppError(t.groups.inviteToMember(OWNER, t.group.id, who), 'GROUP_MEMBER_NOT_FOUND', 404);
+    const t = await withAdmin({ members: [A] });
+    await expectAppError(t.groups.inviteToMember(A, t.group.id, pub(OWNER)), 'GROUP_MEMBER_NOT_FOUND', 404);
+    for (const who of [A, OUTSIDER])
+      await expectAppError(
+        t.groups.inviteToMember(OWNER, t.group.id, pub(who)),
+        'GROUP_MEMBER_NOT_FOUND',
+        404,
+      );
     expect(t.sent).toEqual([]);
   });
 
@@ -3221,23 +3319,23 @@ describe('convite para membro (GRP-40)', () => {
       t.store.promote(groupId, userId);
       return original(groupId, userId, expiresAt);
     };
-    await expectAppError(t.groups.inviteToMember(OWNER, t.group.id, R), 'GROUP_MEMBER_NOT_FOUND', 404);
+    await expectAppError(t.groups.inviteToMember(OWNER, t.group.id, pub(R)), 'GROUP_MEMBER_NOT_FOUND', 404);
     expect(t.sent).toEqual([]);
   });
 
-  it('GRP-40: só o dono convida e cancela (GROUP_NOT_OWNER); quem não participa recebe GROUP_NOT_FOUND', async () => {
+  it('GRP-40: sem members.manage, convidar e cancelar → GROUP_PERMISSION_DENIED; quem não participa recebe GROUP_NOT_FOUND', async () => {
     const t = await setup({ members: [A], reserves: [R, D] });
-    await expectAppError(t.groups.inviteToMember(A, t.group.id, R), 'GROUP_NOT_OWNER', 403);
-    await expectAppError(t.groups.inviteToMember(D, t.group.id, R), 'GROUP_NOT_OWNER', 403);
-    await expectAppError(t.groups.cancelMemberInvite(A, t.group.id, R), 'GROUP_NOT_OWNER', 403);
-    await expectAppError(t.groups.inviteToMember(OUTSIDER, t.group.id, R), 'GROUP_NOT_FOUND', 404);
+    await expectDenied(t.groups.inviteToMember(A, t.group.id, pub(R)), 'members.manage');
+    await expectDenied(t.groups.inviteToMember(D, t.group.id, pub(R)), 'members.manage');
+    await expectDenied(t.groups.cancelMemberInvite(A, t.group.id, pub(R)), 'members.manage');
+    await expectAppError(t.groups.inviteToMember(OUTSIDER, t.group.id, pub(R)), 'GROUP_NOT_FOUND', 404);
     expect(t.sent).toEqual([]);
   });
 
   it('GRP-40: o dono cancela o convite pendente → some da lista e da página da reserva', async () => {
     const t = await setup({ reserves: [R] });
-    await t.groups.inviteToMember(OWNER, t.group.id, R);
-    await expect(t.groups.cancelMemberInvite(OWNER, t.group.id, R)).resolves.toBeUndefined();
+    await t.groups.inviteToMember(OWNER, t.group.id, pub(R));
+    await expect(t.groups.cancelMemberInvite(OWNER, t.group.id, pub(R))).resolves.toBeUndefined();
     expect(inviteOfIn(await t.groups.members(OWNER, t.group.id), R)).toBeUndefined();
     expect((await t.groups.get(R, t.group.id)).myMemberInvite).toBeUndefined();
     await expectAppError(t.groups.acceptMemberInvite(R, t.group.id), 'GROUP_MEMBER_INVITE_INVALID', 404);
@@ -3245,14 +3343,14 @@ describe('convite para membro (GRP-40)', () => {
 
   it('GRP-40: cancelar um convite que não existe não faz nada', async () => {
     const t = await setup({ reserves: [R] });
-    await expect(t.groups.cancelMemberInvite(OWNER, t.group.id, R)).resolves.toBeUndefined();
+    await expect(t.groups.cancelMemberInvite(OWNER, t.group.id, pub(R))).resolves.toBeUndefined();
     expect(roleOfIn(await t.groups.members(OWNER, t.group.id), R)).toBe('reserve');
     expect(t.sent).toEqual([]);
   });
 
   it('GRP-40: o convite não segura o lugar: quem entra antes pelo link de membro fica com ele', async () => {
     const t = await setup({ maxMembers: 3, members: [A], reserves: [R] });
-    await t.groups.inviteToMember(OWNER, t.group.id, R);
+    await t.groups.inviteToMember(OWNER, t.group.id, pub(R));
     expect((await t.groups.acceptInvite(B, tokenOf(t.group))).myRole).toBe('member');
     await expectAppError(t.groups.acceptMemberInvite(R, t.group.id), 'GROUP_MEMBERS_FULL', 409);
   });
@@ -3262,7 +3360,7 @@ describe('aceitar ou recusar o convite (GRP-41)', () => {
   it('GRP-41: aceitar faz da reserva membro, com roleChangedAt e a mesma data de entrada (GRP-03)', async () => {
     const t = await setup({ reserves: [R] });
     const joinedAt = t.store.membershipOf(t.group.id, R)?.createdAt;
-    await t.groups.inviteToMember(OWNER, t.group.id, R);
+    await t.groups.inviteToMember(OWNER, t.group.id, pub(R));
     t.clock.now = new Date(THURSDAY_10H.getTime() + DAY);
     const group = await t.groups.acceptMemberInvite(R, t.group.id);
     expect(GroupSchema.parse(group)).toEqual(group);
@@ -3281,18 +3379,18 @@ describe('aceitar ou recusar o convite (GRP-41)', () => {
 
   it('GRP-41: aceitar sem lugar → GROUP_MEMBERS_FULL, continua reserva e o convite continua valendo', async () => {
     const t = await setup({ maxMembers: 3, members: [A], reserves: [R] });
-    await t.groups.inviteToMember(OWNER, t.group.id, R);
+    await t.groups.inviteToMember(OWNER, t.group.id, pub(R));
     await t.groups.acceptInvite(B, tokenOf(t.group));
     await expectAppError(t.groups.acceptMemberInvite(R, t.group.id), 'GROUP_MEMBERS_FULL', 409);
     expect(roleOfIn(await t.groups.members(OWNER, t.group.id), R)).toBe('reserve');
     expect((await t.groups.get(R, t.group.id)).myMemberInvite).toEqual({ expiresAt: IN_7_DAYS });
-    await t.groups.removeMember(OWNER, t.group.id, B);
+    await t.groups.removeMember(OWNER, t.group.id, pub(B));
     expect((await t.groups.acceptMemberInvite(R, t.group.id)).myRole).toBe('member');
   });
 
   it('GRP-41: o limite é conferido na gravação do aceite: outra entrada no meio → GROUP_MEMBERS_FULL', async () => {
     const t = await setup({ maxMembers: 3, members: [A], reserves: [R] });
-    await t.groups.inviteToMember(OWNER, t.group.id, R);
+    await t.groups.inviteToMember(OWNER, t.group.id, pub(R));
     t.store.hooks.beforeAddMember.push((groupId) => t.store.insert(groupId, B, 'member'));
     await expectAppError(t.groups.acceptMemberInvite(R, t.group.id), 'GROUP_MEMBERS_FULL', 409);
     expect(roleOfIn(await t.groups.members(OWNER, t.group.id), R)).toBe('reserve');
@@ -3300,7 +3398,7 @@ describe('aceitar ou recusar o convite (GRP-41)', () => {
 
   it('GRP-41: recusar apaga o convite e o dono não é avisado', async () => {
     const t = await setup({ reserves: [R] });
-    await t.groups.inviteToMember(OWNER, t.group.id, R);
+    await t.groups.inviteToMember(OWNER, t.group.id, pub(R));
     await expect(t.groups.declineMemberInvite(R, t.group.id)).resolves.toBeUndefined();
     expect(inviteOfIn(await t.groups.members(OWNER, t.group.id), R)).toBeUndefined();
     expect((await t.groups.get(R, t.group.id)).myMemberInvite).toBeUndefined();
@@ -3319,8 +3417,8 @@ describe('aceitar ou recusar o convite (GRP-41)', () => {
 
   it('GRP-41: convite vencido (no prazo exato ou depois) → GROUP_MEMBER_INVITE_INVALID e continua reserva', async () => {
     const t = await setup({ reserves: [R, D] });
-    await t.groups.inviteToMember(OWNER, t.group.id, R);
-    await t.groups.inviteToMember(OWNER, t.group.id, D);
+    await t.groups.inviteToMember(OWNER, t.group.id, pub(R));
+    await t.groups.inviteToMember(OWNER, t.group.id, pub(D));
     t.clock.now = new Date(IN_7_DAYS);
     await expectAppError(t.groups.acceptMemberInvite(R, t.group.id), 'GROUP_MEMBER_INVITE_INVALID', 404);
     t.clock.now = new Date(new Date(IN_7_DAYS).getTime() + MINUTE);
@@ -3330,14 +3428,14 @@ describe('aceitar ou recusar o convite (GRP-41)', () => {
 
   it('GRP-41: convite já usado → aceitar de novo dá GROUP_MEMBER_INVITE_INVALID', async () => {
     const t = await setup({ reserves: [R] });
-    await t.groups.inviteToMember(OWNER, t.group.id, R);
+    await t.groups.inviteToMember(OWNER, t.group.id, pub(R));
     await t.groups.acceptMemberInvite(R, t.group.id);
     await expectAppError(t.groups.acceptMemberInvite(R, t.group.id), 'GROUP_MEMBER_INVITE_INVALID', 404);
   });
 
   it('GRP-41: a reserva que vira membro pelo link de membro perde o convite pendente', async () => {
     const t = await setup({ reserves: [R] });
-    await t.groups.inviteToMember(OWNER, t.group.id, R);
+    await t.groups.inviteToMember(OWNER, t.group.id, pub(R));
     expect((await t.groups.acceptInvite(R, tokenOf(t.group))).myRole).toBe('member');
     expect(inviteOfIn(await t.groups.members(OWNER, t.group.id), R)).toBeUndefined();
     expect(t.store.membershipOf(t.group.id, R)?.memberInviteExpiresAt).toBeUndefined();
@@ -3416,7 +3514,7 @@ describe('sair do grupo (GRP-42)', () => {
 
   it('GRP-42: a reserva que sai perde o convite pendente', async () => {
     const t = await setup({ reserves: [R] });
-    await t.groups.inviteToMember(OWNER, t.group.id, R);
+    await t.groups.inviteToMember(OWNER, t.group.id, pub(R));
     await t.groups.leave(R, t.group.id);
     await t.groups.acceptInvite(R, reserveTokenOf(t.group));
     expect((await t.groups.get(R, t.group.id)).myMemberInvite).toBeUndefined();
@@ -3452,14 +3550,14 @@ describe('sair do grupo (GRP-42)', () => {
 describe('grupo arquivado barra limites, convite e saída (GRP-32)', () => {
   it('GRP-32: mudar os limites, convidar, cancelar o convite, aceitar, recusar e sair → GROUP_ARCHIVED e nada muda', async () => {
     const t = await setup({ members: [A], reserves: [R, D] });
-    await t.groups.inviteToMember(OWNER, t.group.id, R);
-    await t.groups.inviteToMember(OWNER, t.group.id, D);
+    await t.groups.inviteToMember(OWNER, t.group.id, pub(R));
+    await t.groups.inviteToMember(OWNER, t.group.id, pub(D));
     await t.groups.archive(OWNER, t.group.id);
     t.sent.splice(0);
     const before = t.store.storedGroup(t.group.id);
     await expectAppError(t.groups.update(OWNER, t.group.id, { maxMembers: 5 }), 'GROUP_ARCHIVED', 409);
-    await expectAppError(t.groups.inviteToMember(OWNER, t.group.id, R), 'GROUP_ARCHIVED', 409);
-    await expectAppError(t.groups.cancelMemberInvite(OWNER, t.group.id, R), 'GROUP_ARCHIVED', 409);
+    await expectAppError(t.groups.inviteToMember(OWNER, t.group.id, pub(R)), 'GROUP_ARCHIVED', 409);
+    await expectAppError(t.groups.cancelMemberInvite(OWNER, t.group.id, pub(R)), 'GROUP_ARCHIVED', 409);
     await expectAppError(t.groups.acceptMemberInvite(R, t.group.id), 'GROUP_ARCHIVED', 409);
     await expectAppError(t.groups.declineMemberInvite(D, t.group.id), 'GROUP_ARCHIVED', 409);
     await expectAppError(t.groups.leave(A, t.group.id), 'GROUP_ARCHIVED', 409);
@@ -3677,7 +3775,7 @@ describe('vagas padrão e por jogo (GRP-45, GRP-16)', () => {
     const t = await setup({ slots: 2, members: [A, B, C, D] });
     await t.games.updateGame(OWNER, t.group.id, DATE, { slots: 3 });
     await t.confirmInOrder(A, B, C, D);
-    await t.groups.removeMember(OWNER, t.group.id, B);
+    await t.groups.removeMember(OWNER, t.group.id, pub(B));
     expect(ofType(t.sent, 'waitlist_promoted')).toEqual([D]);
   });
 
@@ -3703,10 +3801,10 @@ describe('vagas padrão e por jogo (GRP-45, GRP-16)', () => {
     );
   });
 
-  it('GRP-45: membro ou reserva muda o jogo → GROUP_NOT_OWNER; quem não participa → GROUP_NOT_FOUND', async () => {
+  it('GRP-45: membro ou reserva sem cargo muda o jogo → GROUP_PERMISSION_DENIED (game.manage); quem não participa → GROUP_NOT_FOUND', async () => {
     const t = await setup({ members: [A], reserves: [R] });
     for (const who of [A, R])
-      await expectAppError(t.games.updateGame(who, t.group.id, DATE, { slots: 14 }), 'GROUP_NOT_OWNER', 403);
+      await expectDenied(t.games.updateGame(who, t.group.id, DATE, { slots: 14 }), 'game.manage');
     await expectAppError(
       t.games.updateGame(OUTSIDER, t.group.id, DATE, { slots: 14 }),
       'GROUP_NOT_FOUND',
@@ -3721,11 +3819,11 @@ describe('vagas padrão e por jogo (GRP-45, GRP-16)', () => {
     await expectAppError(t.games.updateGame(OWNER, t.group.id, DATE, { slots: 14 }), 'GROUP_ARCHIVED', 409);
   });
 
-  it('GRP-16: quem não é dono muda as vagas ou o mínimo do grupo → GROUP_NOT_OWNER e nada muda', async () => {
+  it('GRP-16: quem não tem settings.edit muda as vagas ou o mínimo do grupo → GROUP_PERMISSION_DENIED e nada muda', async () => {
     const t = await setup({ members: [A], reserves: [R] });
     for (const who of [A, R]) {
-      await expectAppError(t.groups.update(who, t.group.id, { slots: 14 }), 'GROUP_NOT_OWNER', 403);
-      await expectAppError(t.groups.update(who, t.group.id, { minPlayers: 4 }), 'GROUP_NOT_OWNER', 403);
+      await expectDenied(t.groups.update(who, t.group.id, { slots: 14 }), 'settings.edit');
+      await expectDenied(t.groups.update(who, t.group.id, { minPlayers: 4 }), 'settings.edit');
     }
     expect(t.store.storedGroup(t.group.id)?.slots).toBe(12);
     expect(t.store.storedGroup(t.group.id)?.minPlayers).toBeUndefined();
@@ -3870,13 +3968,13 @@ describe('mínimo para o jogo acontecer (GRP-46)', () => {
 });
 
 describe('aviso de jogo confirmado (GRP-47)', () => {
-  it('GRP-47: a confirmação que chega ao mínimo avisa todos da lista com game_confirmed, menos o dono', async () => {
+  it('GRP-47: a confirmação que chega ao mínimo avisa todos da lista com game_confirmed, menos quem confirmou (o dono também recebe)', async () => {
     const t = await setup({ members: [A, B] });
     await t.groups.update(OWNER, t.group.id, { minPlayers: 3 });
     await t.confirmInOrder(OWNER, A);
     expect(ofType(t.sent, 'game_confirmed')).toEqual([]);
     await t.confirmInOrder(B);
-    expect(ofType(t.sent, 'game_confirmed').sort()).toEqual([A, B].sort());
+    expect(ofType(t.sent, 'game_confirmed').sort()).toEqual([OWNER, A].sort());
     for (const n of t.sent.filter((x) => x.type === 'game_confirmed'))
       expect(n).toMatchObject({
         title: CONFIRMED_TITLE,
@@ -3889,18 +3987,18 @@ describe('aviso de jogo confirmado (GRP-47)', () => {
     const t = await setup({ members: [A, B, C] });
     await t.groups.update(OWNER, t.group.id, { minPlayers: 2 });
     await t.confirmInOrder(A, B);
-    expect(ofType(t.sent, 'game_confirmed').sort()).toEqual([A, B].sort());
+    expect(ofType(t.sent, 'game_confirmed')).toEqual([A]);
     await t.games.leave(B, t.group.id, DATE);
     t.tick();
     await t.confirmInOrder(B, C);
-    expect(ofType(t.sent, 'game_confirmed')).toHaveLength(2);
+    expect(ofType(t.sent, 'game_confirmed')).toEqual([A]);
   });
 
   it('GRP-47: quem confirma depois de o jogo já ter chegado ao mínimo não recebe o aviso', async () => {
     const t = await setup({ slots: 2, members: [A, B, C] });
     await t.groups.update(OWNER, t.group.id, { minPlayers: 2 });
     await t.confirmInOrder(A, B, C);
-    expect(ofType(t.sent, 'game_confirmed').sort()).toEqual([A, B].sort());
+    expect(ofType(t.sent, 'game_confirmed')).toEqual([A]);
   });
 
   it('GRP-47: ligar um mínimo que a lista já atinge avisa todos, dentro e fila', async () => {
@@ -3929,10 +4027,12 @@ describe('aviso de jogo confirmado (GRP-47)', () => {
   });
 
   it('GRP-47: o convidado recebe o link do jogo', async () => {
-    const t = await setup({ members: [A], reservesOpenHoursBefore: 48, guestsOpenHoursBefore: 48 });
-    await t.groups.update(OWNER, t.group.id, { minPlayers: 2 });
+    const t = await setup({ members: [A, B], reservesOpenHoursBefore: 48, guestsOpenHoursBefore: 48 });
+    await t.groups.update(OWNER, t.group.id, { minPlayers: 3 });
     await t.confirmInOrder(A);
     await t.guestConfirmInOrder(G);
+    await t.confirmInOrder(B);
+
     const toGuest = t.sent.find((n) => n.type === 'game_confirmed' && n.userId === G);
     expect(toGuest).toMatchObject({ link: `/play/${guestTokenOf(t.group)}` });
     const toMember = t.sent.find((n) => n.type === 'game_confirmed' && n.userId === A);
@@ -3968,5 +4068,702 @@ describe('aviso de jogo confirmado (GRP-47)', () => {
     await t.confirmInOrder(B);
     expect(t.store.markMinReachedCalls).toHaveLength(1);
     expect(ofType(t.sent, 'game_confirmed')).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Id público (USR-15–17, docs/modules/usuarios.md): toda saída identifica pessoas pelo id público; a entrada sobre
+// outra pessoa recebe o público e traduz na borda; o id do sistema só existe por dentro.
+
+/** Todos os ids do sistema do teste: nenhum pode aparecer numa resposta. */
+const SYSTEM_IDS = USERS.map((u) => u.id);
+const leaksSystemId = (value: unknown) => SYSTEM_IDS.some((id) => JSON.stringify(value).includes(id));
+const UNKNOWN = PublicUserIdSchema.parse('ZZZZZZZZ');
+
+describe('id público nas respostas dos grupos (USR-16)', () => {
+  it('USR-16: o grupo sai com o `ownerId` público (criar, ler e meus grupos), sem o `ownerPublicId` interno', async () => {
+    const s = setupServices();
+    const created = await s.groups.create(OWNER, INPUT);
+    const read = await s.groups.get(OWNER, created.id);
+    const [mine] = await s.groups.myGroups(OWNER);
+    for (const g of [created, read, mine]) {
+      expect(g?.ownerId).toBe(pub(OWNER));
+      expect(g).not.toHaveProperty('ownerPublicId');
+      expect(leaksSystemId(g)).toBe(false);
+    }
+    expect(s.store.storedGroup(created.id)).toMatchObject({ ownerId: OWNER, ownerPublicId: pub(OWNER) });
+  });
+
+  it('USR-16: membros, lista do jogo e página do convidado só com ids públicos', async () => {
+    const t = await setup({
+      slots: 2,
+      members: [A, B],
+      reserves: [R],
+      reservesOpenHoursBefore: 48,
+      guestsOpenHoursBefore: 48,
+    });
+    await t.groups.inviteToMember(OWNER, t.group.id, pub(R));
+    await t.confirmInOrder(A, B);
+    await t.guestConfirmInOrder(G);
+    const members = await t.groups.members(OWNER, t.group.id);
+    expect(members.map((m) => m.userId)).toEqual([pub(OWNER), pub(A), pub(B), pub(R)]);
+    const game = await t.games.current(OWNER, t.group.id);
+    expect(game.confirmed.map((x) => x.userId)).toEqual([pub(A), pub(B)]);
+    expect(game.waitlist.map((x) => x.userId)).toEqual([pub(G)]);
+    const guest = await t.games.guestView(G, guestTokenOf(t.group));
+    expect(guest.game.waitlist.map((x) => x.userId)).toEqual([pub(G)]);
+    for (const out of [members, game, guest]) expect(leaksSystemId(out)).toBe(false);
+  });
+
+  it('USR-16: o convite para membro devolve o id público da reserva', async () => {
+    const t = await setup({ reserves: [R] });
+    const invite = await t.groups.inviteToMember(OWNER, t.group.id, pub(R));
+    expect(invite.userId).toBe(pub(R));
+    expect(leaksSystemId(invite)).toBe(false);
+  });
+
+  it('USR-16: o roster interno (para os times) leva os dois ids; a resposta pública é a mesma lista, com o público', async () => {
+    const t = await setup({ members: [A], reserves: [R], reservesOpenHoursBefore: 48 });
+    await t.confirmInOrder(A, R);
+    const records = await t.groups.memberRecords(OWNER, t.group.id);
+    expect(records.map((m) => [m.userId, m.publicId])).toEqual([
+      [OWNER, pub(OWNER)],
+      [A, pub(A)],
+      [R, pub(R)],
+    ]);
+    const roster = await t.games.currentRoster(OWNER, t.group.id);
+    expect(roster.confirmed.map((x) => [x.userId, x.publicId])).toEqual([
+      [A, pub(A)],
+      [R, pub(R)],
+    ]);
+    const game = await t.games.current(OWNER, t.group.id);
+    expect(game.confirmed.map((x) => x.userId)).toEqual(roster.confirmed.map((x) => x.publicId));
+  });
+});
+
+describe('ação sobre outra pessoa pelo id público (USR-17)', () => {
+  it('USR-17: remover pelo id público traduz para o id do sistema na entrada', async () => {
+    const t = await setup({ members: [A, B] });
+    await t.groups.removeMember(OWNER, t.group.id, pub(A));
+    expect(t.store.removeCalls.at(-1)).toMatchObject({ userId: A });
+    expect(ids(await t.groups.members(OWNER, t.group.id))).toEqual([OWNER, B]);
+  });
+
+  it('USR-17: id público que não existe → GROUP_MEMBER_NOT_FOUND ao remover, convidar e cancelar o convite', async () => {
+    const t = await setup({ members: [A], reserves: [R] });
+    await expectAppError(t.groups.removeMember(OWNER, t.group.id, UNKNOWN), 'GROUP_MEMBER_NOT_FOUND', 404);
+    await expectAppError(t.groups.inviteToMember(OWNER, t.group.id, UNKNOWN), 'GROUP_MEMBER_NOT_FOUND', 404);
+    await expectAppError(
+      t.groups.cancelMemberInvite(OWNER, t.group.id, UNKNOWN),
+      'GROUP_MEMBER_NOT_FOUND',
+      404,
+    );
+    expect(t.store.removeCalls).toEqual([]);
+    expect(t.sent).toEqual([]);
+    expect(ids(await t.groups.members(OWNER, t.group.id))).toEqual([OWNER, A, R]);
+  });
+
+  it('USR-17: o código desconhecido responde igual a uma pessoa que existe mas não está no grupo', async () => {
+    const t = await setup({ members: [A] });
+    const unknown = await expectAppError(
+      t.groups.removeMember(OWNER, t.group.id, UNKNOWN),
+      'GROUP_MEMBER_NOT_FOUND',
+      404,
+    );
+    const outsider = await expectAppError(
+      t.groups.removeMember(OWNER, t.group.id, pub(OUTSIDER)),
+      'GROUP_MEMBER_NOT_FOUND',
+      404,
+    );
+    expect({ message: unknown.message, details: unknown.details }).toEqual({
+      message: outsider.message,
+      details: outsider.details,
+    });
+  });
+
+  it('USR-17: o id do sistema no lugar do público não acha ninguém (GROUP_MEMBER_NOT_FOUND)', async () => {
+    const t = await setup({ members: [A], reserves: [R] });
+    const raw = (id: UserId) => id as unknown as PublicUserId;
+    await expectAppError(t.groups.removeMember(OWNER, t.group.id, raw(A)), 'GROUP_MEMBER_NOT_FOUND', 404);
+    await expectAppError(t.groups.inviteToMember(OWNER, t.group.id, raw(R)), 'GROUP_MEMBER_NOT_FOUND', 404);
+    expect(ids(await t.groups.members(OWNER, t.group.id))).toEqual([OWNER, A, R]);
+  });
+
+  it('USR-17: a permissão vem de quem pede, não do id recebido (membro não remove nem convida)', async () => {
+    const t = await setup({ members: [A], reserves: [R] });
+    await expectDenied(t.groups.removeMember(A, t.group.id, pub(OWNER)), 'members.manage');
+    await expectDenied(t.groups.inviteToMember(A, t.group.id, pub(R)), 'members.manage');
+    expect(t.store.removeCalls).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Cargos e permissões (GRP-48–55), a parte que não depende de alguém ter cargo.
+
+const EVERY_PERMISSION: Permission[] = ['game.manage', 'members.manage', 'settings.edit', 'teams.manage'];
+const sorted = (list: readonly string[]) => [...list].sort();
+
+describe('permissões sem cargo (GRP-49, 55)', () => {
+  it('GRP-55: o dono recebe todas as permissões no `myPermissions` (ler e criar o grupo)', async () => {
+    const s = setupServices();
+    const created = await s.groups.create(OWNER, INPUT);
+    expect(sorted(created.myPermissions)).toEqual(EVERY_PERMISSION);
+    const read = await s.groups.get(OWNER, created.id);
+    expect(GroupSchema.parse(read)).toEqual(read);
+    expect(sorted(read.myPermissions)).toEqual(EVERY_PERMISSION);
+  });
+
+  it('GRP-49: membro e reserva sem cargo não têm nenhuma permissão', async () => {
+    const t = await setup({ members: [A], reserves: [R] });
+    for (const who of [A, R]) {
+      const read = await t.groups.get(who, t.group.id);
+      expect(GroupSchema.parse(read)).toEqual(read);
+      expect(read.myPermissions).toEqual([]);
+    }
+  });
+
+  it('GRP-05: sem members.manage, membro e reserva não recebem nenhum dos três links', async () => {
+    const t = await setup({ members: [A], reserves: [R], guestsOpenHoursBefore: 6 });
+    for (const who of [A, R]) {
+      const read = await t.groups.get(who, t.group.id);
+      expect(read.inviteToken).toBeUndefined();
+      expect(read.reserveInviteToken).toBeUndefined();
+      expect(read.guestToken).toBeUndefined();
+    }
+  });
+
+  it('GRP-48: o dono não tem cargo, e ninguém nasce com cargo na lista de membros', async () => {
+    const t = await setup({ members: [A], reserves: [R] });
+    for (const viewer of [OWNER, A, R]) {
+      const list = await t.groups.members(viewer, t.group.id);
+      expect(list.map((m) => m.staffRole)).toEqual([undefined, undefined, undefined]);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Cargos com alguém Admin (GRP-48–55). `withAdmin` grava o cargo direto na participação, como o `setStaffRole`
+// do repositório; dar e tirar pelo service tem os próprios testes (GRP-51).
+
+const ADMIN_ROLE = { id: 'admin', name: 'Admin' } as const;
+
+/** Grupo do OWNER com A (Admin), B e C membros e R reserva. */
+async function withAdmin(opts: SetupOpts = {}) {
+  const t = await setup({ members: [A, B, C], reserves: [R], ...opts });
+  t.store.forceStaffRole(t.group.id, A, 'admin');
+  return t;
+}
+
+const staffOf = async (t: Awaited<ReturnType<typeof setup>>, viewer: UserId, who: UserId) =>
+  (await t.groups.members(viewer, t.group.id)).find((m) => sys(m.userId) === who)?.staffRole;
+
+describe('dar e tirar o cargo (GRP-51)', () => {
+  it('GRP-51: o dono torna um membro Admin → a lista mostra o cargo e a pessoa recebe staff_role_granted', async () => {
+    const t = await setup({ members: [A, B] });
+    await expect(t.groups.setStaffRole(OWNER, t.group.id, pub(A), 'admin')).resolves.toBeUndefined();
+    expect(await staffOf(t, OWNER, A)).toEqual(ADMIN_ROLE);
+    expect(await staffOf(t, OWNER, B)).toBeUndefined();
+    expect(t.store.membershipOf(t.group.id, A)?.staffRoleId).toBe('admin');
+    expect(ofType(t.sent, 'staff_role_granted')).toEqual([A]);
+    expect(t.sent.find((n) => n.type === 'staff_role_granted')).toMatchObject({
+      link: `/groups/${t.group.id}`,
+    });
+  });
+
+  it('GRP-51: dar o cargo que a pessoa já tem não muda nada e não avisa de novo', async () => {
+    const t = await setup({ members: [A] });
+    await t.groups.setStaffRole(OWNER, t.group.id, pub(A), 'admin');
+    await t.groups.setStaffRole(OWNER, t.group.id, pub(A), 'admin');
+    expect(ofType(t.sent, 'staff_role_granted')).toEqual([A]);
+    expect(await staffOf(t, OWNER, A)).toEqual(ADMIN_ROLE);
+  });
+
+  it('GRP-51: o dono tira o cargo → some da lista, sem aviso; tirar de quem não tem não muda nada', async () => {
+    const t = await withAdmin();
+    await expect(t.groups.clearStaffRole(OWNER, t.group.id, pub(A))).resolves.toBeUndefined();
+    expect(await staffOf(t, OWNER, A)).toBeUndefined();
+    expect(t.store.membershipOf(t.group.id, A)?.staffRoleId).toBeUndefined();
+    await expect(t.groups.clearStaffRole(OWNER, t.group.id, pub(B))).resolves.toBeUndefined();
+    expect(await staffOf(t, OWNER, B)).toBeUndefined();
+    expect(t.sent).toEqual([]);
+  });
+
+  it('GRP-51: só o dono dá e tira: Admin e membro sem cargo recebem GROUP_NOT_OWNER; quem não participa, GROUP_NOT_FOUND', async () => {
+    const t = await withAdmin();
+    for (const who of [A, B, R]) {
+      await expectAppError(t.groups.setStaffRole(who, t.group.id, pub(C), 'admin'), 'GROUP_NOT_OWNER', 403);
+      await expectAppError(t.groups.clearStaffRole(who, t.group.id, pub(A)), 'GROUP_NOT_OWNER', 403);
+    }
+    await expectAppError(t.groups.setStaffRole(A, t.group.id, pub(A), 'admin'), 'GROUP_NOT_OWNER', 403);
+    await expectAppError(
+      t.groups.setStaffRole(OUTSIDER, t.group.id, pub(C), 'admin'),
+      'GROUP_NOT_FOUND',
+      404,
+    );
+    expect(await staffOf(t, OWNER, C)).toBeUndefined();
+    expect(await staffOf(t, OWNER, A)).toEqual(ADMIN_ROLE);
+    expect(t.sent).toEqual([]);
+  });
+
+  it('GRP-51: alvo que não participa → GROUP_MEMBER_NOT_FOUND; o próprio dono → VALIDATION_ERROR', async () => {
+    const t = await setup({ members: [A] });
+    await expectAppError(
+      t.groups.setStaffRole(OWNER, t.group.id, pub(OUTSIDER), 'admin'),
+      'GROUP_MEMBER_NOT_FOUND',
+      404,
+    );
+    await expectAppError(
+      t.groups.clearStaffRole(OWNER, t.group.id, pub(OUTSIDER)),
+      'GROUP_MEMBER_NOT_FOUND',
+      404,
+    );
+    await expectAppError(
+      t.groups.setStaffRole(OWNER, t.group.id, pub(OWNER), 'admin'),
+      'VALIDATION_ERROR',
+      422,
+    );
+    await expectAppError(t.groups.clearStaffRole(OWNER, t.group.id, pub(OWNER)), 'VALIDATION_ERROR', 422);
+    expect(t.store.membershipOf(t.group.id, OWNER)?.staffRoleId).toBeUndefined();
+    expect(t.sent).toEqual([]);
+  });
+
+  it('GRP-51: grupo arquivado → GROUP_ARCHIVED para dar e tirar', async () => {
+    const t = await withAdmin();
+    await t.groups.archive(OWNER, t.group.id);
+    t.sent.splice(0);
+    await expectAppError(t.groups.setStaffRole(OWNER, t.group.id, pub(B), 'admin'), 'GROUP_ARCHIVED', 409);
+    await expectAppError(t.groups.clearStaffRole(OWNER, t.group.id, pub(A)), 'GROUP_ARCHIVED', 409);
+    expect(await staffOf(t, OWNER, A)).toEqual(ADMIN_ROLE);
+    expect(await staffOf(t, OWNER, B)).toBeUndefined();
+    expect(t.sent).toEqual([]);
+  });
+
+  it('GRP-51: a participação some no meio (not_member) → GROUP_MEMBER_NOT_FOUND, sem aviso', async () => {
+    const t = await setup({ members: [A] });
+    const original = t.store.groups.setStaffRole.bind(t.store.groups);
+    t.store.groups.setStaffRole = async (
+      groupId: string,
+      userId: UserId,
+      staffRoleId: StaffRoleId | null,
+    ) => {
+      t.store.drop(groupId, userId);
+      return original(groupId, userId, staffRoleId);
+    };
+    await expectAppError(
+      t.groups.setStaffRole(OWNER, t.group.id, pub(A), 'admin'),
+      'GROUP_MEMBER_NOT_FOUND',
+      404,
+    );
+    expect(t.sent).toEqual([]);
+  });
+});
+
+describe('papel e cargo (GRP-48)', () => {
+  it('GRP-48: a reserva pode ter cargo: continua reserva, com todas as permissões do Admin', async () => {
+    const t = await setup({ reserves: [R] });
+    await t.groups.setStaffRole(OWNER, t.group.id, pub(R), 'admin');
+    const read = await t.groups.get(R, t.group.id);
+    expect(read.myRole).toBe('reserve');
+    expect(sorted(read.myPermissions)).toEqual(EVERY_PERMISSION);
+    expect(await staffOf(t, OWNER, R)).toEqual(ADMIN_ROLE);
+    expect(await t.groups.members(OWNER, t.group.id)).toContainEqual(
+      expect.objectContaining({ userId: pub(R), role: 'reserve' }),
+    );
+  });
+
+  it('GRP-48: a reserva com cargo que vira membro pelo link mantém o cargo', async () => {
+    const t = await setup({ reserves: [R] });
+    t.store.forceStaffRole(t.group.id, R, 'admin');
+    await t.groups.acceptInvite(R, tokenOf(t.group));
+    expect((await t.groups.get(R, t.group.id)).myRole).toBe('member');
+    expect(await staffOf(t, OWNER, R)).toEqual(ADMIN_ROLE);
+  });
+
+  it('GRP-48: a reserva com cargo que aceita o convite para membro mantém o cargo', async () => {
+    const t = await setup({ reserves: [R] });
+    t.store.forceStaffRole(t.group.id, R, 'admin');
+    await t.groups.inviteToMember(OWNER, t.group.id, pub(R));
+    await t.groups.acceptMemberInvite(R, t.group.id);
+    expect((await t.groups.get(R, t.group.id)).myRole).toBe('member');
+    expect(await staffOf(t, OWNER, R)).toEqual(ADMIN_ROLE);
+  });
+});
+
+describe('o que o Admin vê (GRP-05, 55)', () => {
+  it('GRP-55: o Admin recebe as quatro permissões no `myPermissions`', async () => {
+    const t = await withAdmin();
+    const read = await t.groups.get(A, t.group.id);
+    expect(GroupSchema.parse(read)).toEqual(read);
+    expect(sorted(read.myPermissions)).toEqual(EVERY_PERMISSION);
+    expect((await t.groups.get(B, t.group.id)).myPermissions).toEqual([]);
+  });
+
+  it('GRP-55: todos veem o cargo de cada pessoa na lista de membros, com o nome', async () => {
+    const t = await withAdmin();
+    for (const viewer of [OWNER, A, B, R]) {
+      const list = await t.groups.members(viewer, t.group.id);
+      const byPerson = new Map(list.map((m) => [sys(m.userId), m.staffRole]));
+      expect(byPerson.get(A)).toEqual(ADMIN_ROLE);
+      expect([OWNER, B, C, R].map((id) => byPerson.get(id))).toEqual([
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+      ]);
+    }
+  });
+
+  it('GRP-05: o Admin (members.manage) recebe os três links', async () => {
+    const t = await withAdmin({ guestsOpenHoursBefore: 6 });
+    const read = await t.groups.get(A, t.group.id);
+    expect(read.inviteToken).toBe(tokenOf(t.group));
+    expect(read.reserveInviteToken).toBe(reserveTokenOf(t.group));
+    expect(read.guestToken).toBe(guestTokenOf(t.group));
+  });
+
+  it('GRP-52: um cargo que não existe mais conta como sem cargo: sem permissões, sem links e sem marca na lista', async () => {
+    const t = await setup({ members: [A] });
+    t.store.forceStaffRole(t.group.id, A, 'organizer' as never);
+    const read = await t.groups.get(A, t.group.id);
+    expect(read.myPermissions).toEqual([]);
+    expect(read.inviteToken).toBeUndefined();
+    expect(await staffOf(t, OWNER, A)).toBeUndefined();
+    await expectDenied(t.games.cancel(A, t.group.id, DATE), 'game.manage');
+  });
+});
+
+describe('o Admin age com as permissões do cargo (GRP-49)', () => {
+  it('GRP-16: o Admin (settings.edit) muda as camadas, os limites, as vagas e o mínimo padrão', async () => {
+    const t = await withAdmin();
+    const updated = await t.groups.update(A, t.group.id, {
+      listOpensHoursBefore: 30,
+      maxMembers: 14,
+      slots: 14,
+      minPlayers: 10,
+    });
+    expect(updated).toMatchObject({ listOpensHoursBefore: 30, maxMembers: 14, slots: 14, minPlayers: 10 });
+    expect(t.store.storedGroup(t.group.id)).toMatchObject({
+      listOpensHoursBefore: 30,
+      slots: 14,
+      minPlayers: 10,
+    });
+  });
+
+  it('GRP-07: o Admin (members.manage) gera outro link, e o antigo deixa de valer', async () => {
+    const t = await withAdmin();
+    const invite = await t.groups.rotateInvite(A, t.group.id, 'member');
+    expect(invite.token).not.toBe(tokenOf(t.group));
+    await expectAppError(t.groups.acceptInvite(D, tokenOf(t.group)), 'GROUP_INVITE_INVALID', 404);
+  });
+
+  it('GRP-45: o Admin (game.manage) muda as vagas só do jogo atual', async () => {
+    const t = await withAdmin();
+    const game = await t.games.updateGame(A, t.group.id, DATE, { slots: 14 });
+    expect(game.slots).toBe(14);
+    expect(t.store.storedGroup(t.group.id)?.slots).toBe(12);
+  });
+
+  it('GRP-24: o Admin cancela → game_cancelled para todos da lista menos ele, o dono incluído', async () => {
+    const t = await withAdmin({ slots: 2 });
+    await t.confirmInOrder(OWNER, A, B);
+    const game = await t.games.cancel(A, t.group.id, DATE);
+    expect(game.status).toBe('cancelled');
+    expect(ofType(t.sent, 'game_cancelled').sort()).toEqual([OWNER, B].sort());
+  });
+
+  it('GRP-24: o dono cancela com o Admin na lista → o Admin é avisado, e o dono não', async () => {
+    const t = await withAdmin();
+    await t.confirmInOrder(OWNER, A);
+    await t.games.cancel(OWNER, t.group.id, DATE);
+    expect(ofType(t.sent, 'game_cancelled')).toEqual([A]);
+  });
+
+  it('GRP-44: o Admin reabre → game_reopened para todos da lista menos ele, o dono incluído', async () => {
+    const t = await withAdmin({ now: THURSDAY_19H });
+    await t.confirmInOrder(OWNER, A, B);
+    await t.games.cancel(OWNER, t.group.id, DATE);
+    t.sent.splice(0);
+    const game = await t.games.reopen(A, t.group.id, DATE);
+    expect(game.status).toBe('open');
+    expect(ofType(t.sent, 'game_reopened').sort()).toEqual([OWNER, B].sort());
+  });
+
+  it('GRP-47: o Admin baixa o mínimo do jogo até a lista → avisa todos da lista menos ele, o dono incluído', async () => {
+    const t = await withAdmin();
+    await t.groups.update(OWNER, t.group.id, { minPlayers: 4 });
+    await t.confirmInOrder(OWNER, A, B);
+    expect(ofType(t.sent, 'game_confirmed')).toEqual([]);
+    await t.games.updateGame(A, t.group.id, DATE, { minPlayers: 3 });
+    expect(ofType(t.sent, 'game_confirmed').sort()).toEqual([OWNER, B].sort());
+  });
+
+  it('GRP-40: o Admin convida a reserva para membro, e cancela o convite que o dono mandou', async () => {
+    const t = await withAdmin({ reserves: [R, D] });
+    await t.groups.inviteToMember(A, t.group.id, pub(R));
+    expect(ofType(t.sent, 'member_invite')).toEqual([R]);
+    await t.groups.inviteToMember(OWNER, t.group.id, pub(D));
+    await t.groups.cancelMemberInvite(A, t.group.id, pub(D));
+    await expectAppError(t.groups.acceptMemberInvite(D, t.group.id), 'GROUP_MEMBER_INVITE_INVALID', 404);
+    expect((await t.groups.acceptMemberInvite(R, t.group.id)).myRole).toBe('member');
+  });
+
+  it('GRP-49: arquivar e desarquivar continuam só do dono: o Admin recebe GROUP_NOT_OWNER', async () => {
+    const t = await withAdmin();
+    await expectAppError(t.groups.archive(A, t.group.id), 'GROUP_NOT_OWNER', 403);
+    await t.groups.archive(OWNER, t.group.id);
+    await expectAppError(t.groups.unarchive(A, t.group.id), 'GROUP_NOT_OWNER', 403);
+    expect(t.store.storedGroup(t.group.id)?.archivedAt).toBeDefined();
+  });
+
+  it('GRP-52: o cargo tirado barra na hora a próxima ação (GROUP_PERMISSION_DENIED)', async () => {
+    const t = await withAdmin();
+    await t.confirmInOrder(A);
+    await t.groups.clearStaffRole(OWNER, t.group.id, pub(A));
+    await expectDenied(t.games.cancel(A, t.group.id, DATE), 'game.manage');
+    expect((await t.games.current(A, t.group.id)).status).toBe('open');
+  });
+
+  it('GRP-52: ordem dos erros → quem não participa dá 404, depois a permissão, depois GROUP_ARCHIVED', async () => {
+    const t = await withAdmin();
+    await t.groups.archive(OWNER, t.group.id);
+    await expectAppError(t.games.cancel(OUTSIDER, t.group.id, DATE), 'GROUP_NOT_FOUND', 404);
+    await expectDenied(t.games.cancel(B, t.group.id, DATE), 'game.manage');
+    await expectAppError(t.games.cancel(A, t.group.id, DATE), 'GROUP_ARCHIVED', 409);
+    await expectAppError(t.groups.update(A, t.group.id, { slots: 14 }), 'GROUP_ARCHIVED', 409);
+    await expectAppError(t.groups.removeMember(A, t.group.id, pub(B)), 'GROUP_ARCHIVED', 409);
+  });
+});
+
+describe('remover com cargo (GRP-25, 53)', () => {
+  it('GRP-25: o Admin (members.manage) remove um membro e uma reserva sem cargo', async () => {
+    const t = await withAdmin();
+    await t.groups.removeMember(A, t.group.id, pub(B));
+    await t.groups.removeMember(A, t.group.id, pub(R));
+    expect(ids(await t.groups.members(OWNER, t.group.id))).toEqual([OWNER, A, C]);
+  });
+
+  it('GRP-25: o Admin remove a si mesmo → VALIDATION_ERROR (para isso existe sair); o dono, GROUP_OWNER_NOT_REMOVABLE', async () => {
+    const t = await withAdmin();
+    await expectAppError(t.groups.removeMember(A, t.group.id, pub(A)), 'VALIDATION_ERROR', 422);
+    await expectAppError(
+      t.groups.removeMember(OWNER, t.group.id, pub(OWNER)),
+      'GROUP_OWNER_NOT_REMOVABLE',
+      409,
+    );
+    expect(ids(await t.groups.members(OWNER, t.group.id))).toContain(A);
+    expect(t.store.removeCalls).toEqual([]);
+  });
+
+  it('GRP-25: o Admin tenta remover o dono → GROUP_OWNER_NOT_REMOVABLE', async () => {
+    const t = await withAdmin();
+    await expectAppError(t.groups.removeMember(A, t.group.id, pub(OWNER)), 'GROUP_OWNER_NOT_REMOVABLE', 409);
+    expect(t.store.removeCalls).toEqual([]);
+  });
+
+  it('GRP-53: o Admin tenta remover outro Admin → GROUP_NOT_OWNER, e ninguém sai', async () => {
+    const t = await withAdmin();
+    t.store.forceStaffRole(t.group.id, C, 'admin');
+    t.store.forceStaffRole(t.group.id, R, 'admin');
+    await expectAppError(t.groups.removeMember(A, t.group.id, pub(C)), 'GROUP_NOT_OWNER', 403);
+    await expectAppError(t.groups.removeMember(A, t.group.id, pub(R)), 'GROUP_NOT_OWNER', 403);
+    expect(ids(await t.groups.members(OWNER, t.group.id))).toEqual([OWNER, A, B, C, R]);
+    expect(t.store.removeCalls).toEqual([]);
+  });
+
+  it('GRP-53: o dono remove quem tem cargo → a pessoa sai com o cargo, e volta pelo link novo sem cargo', async () => {
+    const t = await withAdmin();
+    await t.groups.removeMember(OWNER, t.group.id, pub(A));
+    expect(t.store.membershipOf(t.group.id, A)).toBeUndefined();
+    const fresh = (await t.groups.get(OWNER, t.group.id)).inviteToken ?? '';
+    await t.groups.acceptInvite(A, fresh);
+    expect(await staffOf(t, OWNER, A)).toBeUndefined();
+    expect((await t.groups.get(A, t.group.id)).myPermissions).toEqual([]);
+  });
+
+  it('GRP-53: o Admin convida para membro uma reserva com cargo, pelas regras normais', async () => {
+    const t = await withAdmin();
+    t.store.forceStaffRole(t.group.id, R, 'admin');
+    await t.groups.inviteToMember(A, t.group.id, pub(R));
+    expect(ofType(t.sent, 'member_invite')).toEqual([R]);
+  });
+});
+
+describe('ninguém convida a si mesmo (GRP-40)', () => {
+  it('GRP-40: a reserva Admin convida a si mesma → VALIDATION_ERROR, sem aviso e sem convite gravado', async () => {
+    const t = await withAdmin();
+    t.store.forceStaffRole(t.group.id, R, 'admin');
+    await expectAppError(t.groups.inviteToMember(R, t.group.id, pub(R)), 'VALIDATION_ERROR', 422);
+    expect(t.store.membershipOf(t.group.id, R)?.memberInviteExpiresAt).toBeUndefined();
+    expect(inviteOfIn(await t.groups.members(OWNER, t.group.id), R)).toBeUndefined();
+    expect((await t.groups.get(R, t.group.id)).myMemberInvite).toBeUndefined();
+    await expectAppError(t.groups.acceptMemberInvite(R, t.group.id), 'GROUP_MEMBER_INVITE_INVALID', 404);
+    expect(roleOfIn(await t.groups.members(OWNER, t.group.id), R)).toBe('reserve');
+    expect(t.sent).toEqual([]);
+  });
+
+  it('GRP-40: a reserva Admin continua convidando as outras reservas', async () => {
+    const t = await withAdmin({ reserves: [R, D] });
+    t.store.forceStaffRole(t.group.id, R, 'admin');
+    await t.groups.inviteToMember(R, t.group.id, pub(D));
+    expect(ofType(t.sent, 'member_invite')).toEqual([D]);
+  });
+
+  it('GRP-40: o membro Admin e o dono convidam a si mesmos → VALIDATION_ERROR (antes de "não é reserva")', async () => {
+    const t = await withAdmin();
+    await expectAppError(t.groups.inviteToMember(A, t.group.id, pub(A)), 'VALIDATION_ERROR', 422);
+    await expectAppError(t.groups.inviteToMember(OWNER, t.group.id, pub(OWNER)), 'VALIDATION_ERROR', 422);
+    expect(t.sent).toEqual([]);
+  });
+
+  it('GRP-40: a si mesmo com o grupo arquivado → GROUP_ARCHIVED (o arquivado vem antes)', async () => {
+    const t = await withAdmin();
+    t.store.forceStaffRole(t.group.id, R, 'admin');
+    await t.groups.archive(OWNER, t.group.id);
+    t.sent.splice(0);
+    await expectAppError(t.groups.inviteToMember(R, t.group.id, pub(R)), 'GROUP_ARCHIVED', 409);
+    expect(t.store.membershipOf(t.group.id, R)?.memberInviteExpiresAt).toBeUndefined();
+    expect(t.sent).toEqual([]);
+  });
+
+  it('GRP-40: a reserva sem cargo convida a si mesma → GROUP_PERMISSION_DENIED (a permissão vem antes)', async () => {
+    const t = await withAdmin();
+    await expectDenied(t.groups.inviteToMember(R, t.group.id, pub(R)), 'members.manage');
+    expect(t.sent).toEqual([]);
+  });
+});
+
+describe('sair com cargo (GRP-42)', () => {
+  it('GRP-42: o Admin sai → perde o cargo; volta pelo mesmo link de membro sem cargo e sem permissões', async () => {
+    const t = await withAdmin();
+    await t.groups.leave(A, t.group.id);
+    expect(t.store.membershipOf(t.group.id, A)).toBeUndefined();
+    await t.groups.acceptInvite(A, tokenOf(t.group));
+    expect(await staffOf(t, OWNER, A)).toBeUndefined();
+    const read = await t.groups.get(A, t.group.id);
+    expect(read.myPermissions).toEqual([]);
+    await expectDenied(t.games.cancel(A, t.group.id, DATE), 'game.manage');
+  });
+});
+
+describe('passar o grupo (GRP-54)', () => {
+  it('GRP-54: o dono passa o grupo para um membro → a pessoa vira dona e o dono antigo vira Admin', async () => {
+    const t = await setup({ members: [A, B], reserves: [R], guestsOpenHoursBefore: 6 });
+    const result = await t.groups.transfer(OWNER, t.group.id, pub(B));
+    expect(GroupSchema.parse(result)).toEqual(result);
+    expect(result.ownerId).toBe(pub(B));
+    expect(result.myRole).toBe('member');
+    expect(sorted(result.myPermissions)).toEqual(EVERY_PERMISSION);
+
+    const asNewOwner = await t.groups.get(B, t.group.id);
+    expect(asNewOwner.ownerId).toBe(pub(B));
+    expect(sorted(asNewOwner.myPermissions)).toEqual(EVERY_PERMISSION);
+
+    const list = await t.groups.members(B, t.group.id);
+    expect(ids(list)).toEqual([B, OWNER, A, R]);
+    expect(list.find((m) => sys(m.userId) === B)).toMatchObject({ isOwner: true });
+    expect(list.find((m) => sys(m.userId) === B)?.staffRole).toBeUndefined();
+    expect(list.find((m) => sys(m.userId) === OWNER)).toMatchObject({
+      isOwner: false,
+      staffRole: ADMIN_ROLE,
+    });
+  });
+
+  it('GRP-54: os links não mudam, e o novo dono recebe group_transferred com o link do grupo', async () => {
+    const t = await setup({ members: [A, B], guestsOpenHoursBefore: 6 });
+    await t.groups.transfer(OWNER, t.group.id, pub(B));
+    const read = await t.groups.get(B, t.group.id);
+    expect([read.inviteToken, read.reserveInviteToken, read.guestToken]).toEqual([
+      tokenOf(t.group),
+      reserveTokenOf(t.group),
+      guestTokenOf(t.group),
+    ]);
+    expect(ofType(t.sent, 'group_transferred')).toEqual([B]);
+    expect(t.sent.find((n) => n.type === 'group_transferred')).toMatchObject({
+      link: `/groups/${t.group.id}`,
+    });
+  });
+
+  it('GRP-54: o jogo e a lista não mudam com a transferência', async () => {
+    const t = await setup({ members: [A, B] });
+    await t.confirmInOrder(OWNER, A);
+    const before = await t.games.current(A, t.group.id);
+    await t.groups.transfer(OWNER, t.group.id, pub(B));
+    expect(await t.games.current(A, t.group.id)).toEqual(before);
+  });
+
+  it('GRP-54: quem recebe o grupo perde o cargo que tinha', async () => {
+    const t = await withAdmin();
+    await t.groups.transfer(OWNER, t.group.id, pub(A));
+    expect(await staffOf(t, A, A)).toBeUndefined();
+    expect(t.store.membershipOf(t.group.id, A)?.staffRoleId).toBeUndefined();
+    expect(await staffOf(t, A, OWNER)).toEqual(ADMIN_ROLE);
+  });
+
+  it('GRP-54: depois de passar o grupo, o dono antigo pode sair, e o novo dono não', async () => {
+    const t = await setup({ members: [A, B] });
+    await t.groups.transfer(OWNER, t.group.id, pub(B));
+    await expectAppError(t.groups.leave(B, t.group.id), 'GROUP_OWNER_NOT_REMOVABLE', 409);
+    await expect(t.groups.leave(OWNER, t.group.id)).resolves.toBeUndefined();
+    expect(ids(await t.groups.members(B, t.group.id))).toEqual([B, A]);
+  });
+
+  it('GRP-54: o novo dono pode tirar o cargo do dono antigo', async () => {
+    const t = await setup({ members: [A, B] });
+    await t.groups.transfer(OWNER, t.group.id, pub(B));
+    await t.groups.clearStaffRole(B, t.group.id, pub(OWNER));
+    expect((await t.groups.get(OWNER, t.group.id)).myPermissions).toEqual([]);
+  });
+
+  it('GRP-54: para uma reserva ou quem não participa → GROUP_MEMBER_NOT_FOUND; para o próprio dono → VALIDATION_ERROR', async () => {
+    const t = await setup({ members: [A], reserves: [R] });
+    await expectAppError(t.groups.transfer(OWNER, t.group.id, pub(R)), 'GROUP_MEMBER_NOT_FOUND', 404);
+    await expectAppError(t.groups.transfer(OWNER, t.group.id, pub(OUTSIDER)), 'GROUP_MEMBER_NOT_FOUND', 404);
+    await expectAppError(t.groups.transfer(OWNER, t.group.id, pub(OWNER)), 'VALIDATION_ERROR', 422);
+    expect(t.store.storedGroup(t.group.id)?.ownerId).toBe(OWNER);
+    expect(ofType(t.sent, 'group_transferred')).toEqual([]);
+  });
+
+  it('GRP-54: só o dono passa o grupo: o Admin recebe GROUP_NOT_OWNER; quem não participa, GROUP_NOT_FOUND', async () => {
+    const t = await withAdmin();
+    await expectAppError(t.groups.transfer(A, t.group.id, pub(B)), 'GROUP_NOT_OWNER', 403);
+    await expectAppError(t.groups.transfer(B, t.group.id, pub(B)), 'GROUP_NOT_OWNER', 403);
+    await expectAppError(t.groups.transfer(OUTSIDER, t.group.id, pub(B)), 'GROUP_NOT_FOUND', 404);
+    expect(t.store.storedGroup(t.group.id)?.ownerId).toBe(OWNER);
+    expect(t.store.transferCalls).toEqual([]);
+  });
+
+  it('GRP-54: grupo arquivado → GROUP_ARCHIVED', async () => {
+    const t = await setup({ members: [A, B] });
+    await t.groups.archive(OWNER, t.group.id);
+    await expectAppError(t.groups.transfer(OWNER, t.group.id, pub(B)), 'GROUP_ARCHIVED', 409);
+    expect(t.store.storedGroup(t.group.id)?.ownerId).toBe(OWNER);
+  });
+
+  it('GRP-54: quem recebe saiu no meio (not_member) → GROUP_MEMBER_NOT_FOUND, sem aviso', async () => {
+    const t = await setup({ members: [A, B] });
+    t.store.transferScript.push(() => 'not_member');
+    await expectAppError(t.groups.transfer(OWNER, t.group.id, pub(B)), 'GROUP_MEMBER_NOT_FOUND', 404);
+    expect(t.sent).toEqual([]);
+  });
+
+  it('GRP-54: o grupo foi arquivado no meio (stale) → relê e responde GROUP_ARCHIVED', async () => {
+    const t = await setup({ members: [A, B] });
+    t.store.transferScript.push((args) => {
+      t.store.forceArchive(args.group.id, t.clock.now.toISOString());
+      return 'stale';
+    });
+    await expectAppError(t.groups.transfer(OWNER, t.group.id, pub(B)), 'GROUP_ARCHIVED', 409);
+    expect(t.sent).toEqual([]);
+  });
+
+  it('GRP-54: o grupo já foi passado no meio (stale, outro dono) → relê e responde GROUP_NOT_OWNER', async () => {
+    const t = await setup({ members: [A, B] });
+    t.store.transferScript.push((args) => {
+      t.store.naturalTransfer({ ...args, to: A, toPublicId: pub(A) });
+      return 'stale';
+    });
+    await expectAppError(t.groups.transfer(OWNER, t.group.id, pub(B)), 'GROUP_NOT_OWNER', 403);
+    expect(t.store.storedGroup(t.group.id)?.ownerId).toBe(A);
+    expect(ofType(t.sent, 'group_transferred')).toEqual([]);
   });
 });

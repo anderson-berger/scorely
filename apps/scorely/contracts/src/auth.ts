@@ -1,5 +1,5 @@
+import { EmailSchema, LocaleSchema, MeSchema, PreferencesSchema } from '@scorely/contracts/src/users';
 import { z } from 'zod';
-import { EmailSchema, LocaleSchema, UserSchema } from './users';
 
 /** Código de login: 6 dígitos. */
 export const CodeSchema = z
@@ -34,8 +34,13 @@ export const TokensSchema = z.object({
 });
 export type Tokens = z.infer<typeof TokensSchema>;
 
+/** `POST /auth/refresh`: o par novo e as preferências atuais (AUTH-07, USR-14). */
+export const RefreshResultSchema = TokensSchema.extend({ preferences: PreferencesSchema });
+export type RefreshResult = z.infer<typeof RefreshResultSchema>;
+
+/** `POST /auth/verify`: os tokens e a pessoa, com o email e as preferências (AUTH-06, USR-14). */
 export const LoginResultSchema = TokensSchema.extend({
-  user: UserSchema,
+  user: MeSchema,
   isNewUser: z.boolean(),
 });
 export type LoginResult = z.infer<typeof LoginResultSchema>;
