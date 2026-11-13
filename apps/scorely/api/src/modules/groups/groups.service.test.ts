@@ -3301,8 +3301,9 @@ describe('convite para membro (GRP-40)', () => {
   });
 
   it('GRP-40: convidar quem não é reserva (membro, dono ou quem não participa) → GROUP_MEMBER_NOT_FOUND', async () => {
-    const t = await setup({ members: [A] });
-    for (const who of [A, OWNER, OUTSIDER])
+    const t = await withAdmin({ members: [A] });
+    await expectAppError(t.groups.inviteToMember(A, t.group.id, pub(OWNER)), 'GROUP_MEMBER_NOT_FOUND', 404);
+    for (const who of [A, OUTSIDER])
       await expectAppError(
         t.groups.inviteToMember(OWNER, t.group.id, pub(who)),
         'GROUP_MEMBER_NOT_FOUND',
@@ -4584,6 +4585,50 @@ describe('remover com cargo (GRP-25, 53)', () => {
     t.store.forceStaffRole(t.group.id, R, 'admin');
     await t.groups.inviteToMember(A, t.group.id, pub(R));
     expect(ofType(t.sent, 'member_invite')).toEqual([R]);
+  });
+});
+
+describe('ninguém convida a si mesmo (GRP-40)', () => {
+  it('GRP-40: a reserva Admin convida a si mesma → VALIDATION_ERROR, sem aviso e sem convite gravado', async () => {
+    const t = await withAdmin();
+    t.store.forceStaffRole(t.group.id, R, 'admin');
+    await expectAppError(t.groups.inviteToMember(R, t.group.id, pub(R)), 'VALIDATION_ERROR', 422);
+    expect(t.store.membershipOf(t.group.id, R)?.memberInviteExpiresAt).toBeUndefined();
+    expect(inviteOfIn(await t.groups.members(OWNER, t.group.id), R)).toBeUndefined();
+    expect((await t.groups.get(R, t.group.id)).myMemberInvite).toBeUndefined();
+    await expectAppError(t.groups.acceptMemberInvite(R, t.group.id), 'GROUP_MEMBER_INVITE_INVALID', 404);
+    expect(roleOfIn(await t.groups.members(OWNER, t.group.id), R)).toBe('reserve');
+    expect(t.sent).toEqual([]);
+  });
+
+  it('GRP-40: a reserva Admin continua convidando as outras reservas', async () => {
+    const t = await withAdmin({ reserves: [R, D] });
+    t.store.forceStaffRole(t.group.id, R, 'admin');
+    await t.groups.inviteToMember(R, t.group.id, pub(D));
+    expect(ofType(t.sent, 'member_invite')).toEqual([D]);
+  });
+
+  it('GRP-40: o membro Admin e o dono convidam a si mesmos → VALIDATION_ERROR (antes de "não é reserva")', async () => {
+    const t = await withAdmin();
+    await expectAppError(t.groups.inviteToMember(A, t.group.id, pub(A)), 'VALIDATION_ERROR', 422);
+    await expectAppError(t.groups.inviteToMember(OWNER, t.group.id, pub(OWNER)), 'VALIDATION_ERROR', 422);
+    expect(t.sent).toEqual([]);
+  });
+
+  it('GRP-40: a si mesmo com o grupo arquivado → GROUP_ARCHIVED (o arquivado vem antes)', async () => {
+    const t = await withAdmin();
+    t.store.forceStaffRole(t.group.id, R, 'admin');
+    await t.groups.archive(OWNER, t.group.id);
+    t.sent.splice(0);
+    await expectAppError(t.groups.inviteToMember(R, t.group.id, pub(R)), 'GROUP_ARCHIVED', 409);
+    expect(t.store.membershipOf(t.group.id, R)?.memberInviteExpiresAt).toBeUndefined();
+    expect(t.sent).toEqual([]);
+  });
+
+  it('GRP-40: a reserva sem cargo convida a si mesma → GROUP_PERMISSION_DENIED (a permissão vem antes)', async () => {
+    const t = await withAdmin();
+    await expectDenied(t.groups.inviteToMember(R, t.group.id, pub(R)), 'members.manage');
+    expect(t.sent).toEqual([]);
   });
 });
 

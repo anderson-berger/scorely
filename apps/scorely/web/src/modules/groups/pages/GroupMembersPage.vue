@@ -117,12 +117,12 @@ export default defineComponent({
     /** GRP-29, 40, 56: o menu "⋮" da pessoa só aparece com alguma ação (o dono não tem). */
     hasActions(m: Member): boolean {
       if (m.isOwner) return false;
-      return (
-        this.canRemove(m) ||
-        this.ownerActions ||
-        (this.canManage && m.role === 'reserve') ||
-        this.canEditPositions
-      );
+      return this.canRemove(m) || this.ownerActions || this.canInvite(m) || this.canEditPositions;
+    },
+
+    /** GRP-40: o convite para membro vai para uma reserva, e nunca para a própria pessoa. */
+    canInvite(m: Member): boolean {
+      return this.canManage && m.role === 'reserve' && m.userId !== this.auth.user?.id;
     },
 
     /** GRP-25, 53: nem a si mesmo (para isso, sair), e quem tem cargo só o dono remove. */
@@ -195,7 +195,7 @@ export default defineComponent({
                   <q-item-section avatar><q-icon name="badge" /></q-item-section>
                   <q-item-section>{{ $t('teams.positionsMenu') }}</q-item-section>
                 </q-item>
-                <template v-if="canManage && m.role === 'reserve'">
+                <template v-if="canInvite(m)">
                   <q-item v-if="m.memberInviteExpiresAt" v-close-popup clickable @click="$emit('cancelMemberInvite', m)">
                     <q-item-section avatar><q-icon name="block" /></q-item-section>
                     <q-item-section>{{ $t('groups.memberInvite.cancel') }}</q-item-section>

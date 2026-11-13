@@ -173,6 +173,7 @@ Cada regra tem um id fixo (`GRP-NN`). O id não é reaproveitado: se uma regra s
   - O convite vence em **7 dias**. Vencido, conta como inexistente, e dá para convidar de novo.
   - Quem tem `members.manage` pode cancelar o convite pendente, inclusive o que outra pessoa mandou. Cancelar um que não existe não faz nada.
   - Convidar quem não é reserva responde `GROUP_MEMBER_NOT_FOUND`.
+  - Ninguém convida a si mesmo: a resposta é `VALIDATION_ERROR`, e a tela não oferece o convite na linha da própria pessoa. _(Nova em 2026-11-13.)_ _Por quê:_ o cargo não muda a participação (GRP-48). Sem isso, a reserva com `members.manage` subiria sozinha para membro com um toque.
   - **O convite não segura o lugar.** Quem entrar primeiro (pelo convite ou pelo link de membro) fica com ele.
   - _Por quê:_ o dono escolhe quem sobe sem espalhar o link de membro, que serve para qualquer pessoa. Segurar o lugar exigiria liberá-lo quando o convite vence, sem que ninguém precise fazer nada.
 - **GRP-41. A reserva aceita ou recusa o convite** na página do grupo.
@@ -400,6 +401,7 @@ Erros: `GROUP_NOT_FOUND`, `GROUP_NOT_OWNER`, `GROUP_PERMISSION_DENIED`, `GROUP_I
 - Não dá para rebaixar um membro a reserva. O dono teria que remover e mandar o link de reserva.
 - A tela só percebe que as permissões mudaram numa ação barrada ou ao voltar para a aba (GRP-57). Com a tela parada e visível, a pessoa ainda vê os botões antigos.
 - A permissão é conferida ao começar a ação (GRP-52), e não dentro da gravação. Se o dono tira o cargo de alguém no mesmo instante em que essa pessoa age, a ação ainda pode ser gravada.
+- A reserva com `members.manage` vê o link de membro (GRP-05) e, se abrir esse link, vira membro (GRP-02), como qualquer pessoa com o link. O convite para si mesma é barrado (GRP-40), mas esse caminho não.
 - Só existe o cargo Admin (GRP-50). Quem precisa de alguém que só monte os times precisa esperar os cargos criados pelo grupo (seção 5).
 - Arquivar faz duas escritas: primeiro arquiva o grupo, depois cancela o jogo. Se a segunda falhar, o grupo fica arquivado com o jogo aberto, mas ninguém consegue confirmar (GRP-32), e arquivar de novo completa o cancelamento (GRP-31).
 - No mesmo instante do arquivamento, só confirmar, remover e trocar link são barrados dentro da gravação (GRP-24, GRP-32). Desistir e mudar as camadas que chegam nesse instante ainda podem ser gravados. Trocar um link nesse instante dá erro 500, e nenhum link volta a valer.

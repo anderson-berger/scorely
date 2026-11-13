@@ -410,6 +410,7 @@ export function createGroupService(deps: GroupsDeps) {
       const { group } = await requirePermission(deps, userId, groupId, 'members.manage');
       requireActive(group);
       const reserveId = await resolveTarget(target);
+      if (reserveId === userId) throw selfTargetError('You cannot invite yourself');
       const membership = await deps.groups.getMembership(groupId, reserveId);
       if (membership?.role !== 'reserve') throw appError('GROUP_MEMBER_NOT_FOUND');
       const pending = pendingInvite(membership.memberInviteExpiresAt);
