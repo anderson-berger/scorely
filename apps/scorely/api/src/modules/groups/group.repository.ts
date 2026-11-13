@@ -36,15 +36,22 @@ import {
   type InviteKind,
   type MemberRole,
   type PublicUserId,
+  type StaffRoleId,
 } from '@scorely/contracts';
 
 /**
- * O grupo como fica no banco (o service tira os tokens para quem não é dono). Ativo, tem os 3 tokens;
+ * O grupo como fica no banco (o service tira os tokens para quem não tem `members.manage`). Ativo, tem os 3 tokens;
  * arquivado, tem `archivedAt` e nenhum token (GRP-31). Grupo de antes da E2 não tem `reservesOpenHoursBefore`.
  */
 export type StoredGroup = Omit<
   Group,
-  'ownerId' | 'myRole' | 'myMemberInvite' | 'reservesOpenHoursBefore' | 'maxMembers' | 'maxReserves'
+  | 'ownerId'
+  | 'myRole'
+  | 'myPermissions'
+  | 'myMemberInvite'
+  | 'reservesOpenHoursBefore'
+  | 'maxMembers'
+  | 'maxReserves'
 > & {
   /** Dono pelo id do sistema (interno). */
   ownerId: UserId;
@@ -108,6 +115,8 @@ export interface GroupMember {
   createdAt: string;
   /** Prazo do convite para membro (GRP-40), como gravado: quem confere se venceu é o service. */
   memberInviteExpiresAt?: string;
+  /** O cargo (GRP-48), como gravado: um id desconhecido conta como sem cargo (GRP-52). */
+  staffRoleId?: string;
 }
 
 export interface GroupRepository {
@@ -126,7 +135,23 @@ export interface GroupRepository {
   getMembership(
     groupId: string,
     userId: UserId,
-  ): Promise<{ role: MemberRole; memberInviteExpiresAt?: string } | undefined>;
+  ): Promise<{ role: MemberRole; memberInviteExpiresAt?: string; staffRoleId?: string } | undefined>;
+  /** GRP-51: grava o cargo (`null` tira). `not_member` = a participação sumiu. */
+  setStaffRole(
+    groupId: string,
+    userId: UserId,
+    staffRoleId: StaffRoleId | null,
+  ): Promise<'set' | 'not_member'>;
+  /**
+   * GRP-54, numa transação: o grupo passa de `from` para `to` (condição: `from` ainda é o dono e o grupo está
+   * ativo; senão `stale`); `to` precisa ser membro (senão `not_member`) e perde o cargo; `from` vira Admin.
+   */
+  transfer(input: {
+    group: StoredGroup;
+    from: UserId;
+    to: UserId;
+    toPublicId: PublicUserId;
+  }): Promise<'transferred' | 'not_member' | 'stale'>;
   /** GRP-40: grava o prazo do convite; `not_reserve` = não é (mais) reserva. */
   setMemberInvite(groupId: string, userId: UserId, expiresAt: string): Promise<'set' | 'not_reserve'>;
   /** GRP-40/41: apaga o convite (cancelar/recusar). Sem participação, não faz nada. */
@@ -136,7 +161,7 @@ export interface GroupRepository {
   /** Participantes na ordem da chave (`userId`); quem ordena para a tela é o service. */
   listMembers(groupId: string): Promise<GroupMember[]>;
   /** Grupos do usuário com o papel dele em cada um (plano 013, D7): 1 Query + BatchGet. */
-  groupsOf(userId: UserId): Promise<{ group: StoredGroup; role: MemberRole }[]>;
+  groupsOf(userId: UserId): Promise<{ group: StoredGroup; role: MemberRole; staffRoleId?: string }[]>;
   /** Troca o token daquele tipo; o antigo deixa de valer na mesma transação. Sem token antigo → só cria (D6). */
   rotateToken(group: StoredGroup, kind: InviteKind, newToken: string): Promise<void>;
   /**
@@ -406,9 +431,68 @@ export const dynamoGroupRepository: GroupRepository = {
   async getMembership(groupId, userId) {
     const m = await readMembership(groupId, userId);
     if (!m) return undefined;
-    return m.memberInviteExpiresAt === undefined
-      ? { role: m.role }
-      : { role: m.role, memberInviteExpiresAt: m.memberInviteExpiresAt };
+    return {
+      role: m.role,
+      ...(m.memberInviteExpiresAt !== undefined && { memberInviteExpiresAt: m.memberInviteExpiresAt }),
+      ...(m.staffRoleId !== undefined && { staffRoleId: m.staffRoleId }),
+    };
+  },
+
+  async setStaffRole(groupId, userId, staffRoleId) {
+    try {
+      await dynamo().send(
+        new UpdateCommand({
+          TableName: tableName(),
+          Key: membershipKey(groupId, userId),
+          UpdateExpression: staffRoleId === null ? 'REMOVE staffRoleId' : 'SET staffRoleId = :role',
+          ConditionExpression: 'attribute_exists(PK)',
+          ...(staffRoleId !== null && { ExpressionAttributeValues: { ':role': staffRoleId } }),
+        }),
+      );
+      return 'set';
+    } catch (err) {
+      if (isConditionFailed(err)) return 'not_member';
+      throw err;
+    }
+  },
+
+  async transfer({ group, from, to, toPublicId }) {
+    // [0] o grupo (dono ainda é `from`, ativo), [1] o novo dono (membro, perde o cargo), [2] o antigo vira Admin.
+    const result = await transactWrite([
+      {
+        Update: {
+          TableName: tableName(),
+          Key: groupKey(group.id),
+          UpdateExpression: 'SET ownerId = :to, ownerPublicId = :toPublic',
+          ConditionExpression: 'ownerId = :from AND attribute_not_exists(archivedAt)',
+          ExpressionAttributeValues: { ':to': to, ':toPublic': toPublicId, ':from': from },
+        },
+      },
+      {
+        Update: {
+          TableName: tableName(),
+          Key: membershipKey(group.id, to),
+          UpdateExpression: 'REMOVE staffRoleId',
+          ConditionExpression: '#role = :member',
+          ExpressionAttributeNames: { '#role': 'role' },
+          ExpressionAttributeValues: { ':member': 'member' },
+        },
+      },
+      {
+        Update: {
+          TableName: tableName(),
+          Key: membershipKey(group.id, from),
+          UpdateExpression: 'SET staffRoleId = :admin',
+          ConditionExpression: 'attribute_exists(PK)',
+          ExpressionAttributeValues: { ':admin': 'admin' },
+        },
+      },
+    ]);
+    if (result.ok) return 'transferred';
+    if (result.failed.includes(0)) return 'stale';
+    if (result.failed.includes(1)) return 'not_member';
+    // O dono antigo sem participação: o dono não sai (GRP-42), então é bug.
+    throw new Error('Group transfer: owner membership missing');
   },
 
   async setMemberInvite(groupId, userId, expiresAt) {
@@ -464,10 +548,15 @@ export const dynamoGroupRepository: GroupRepository = {
       { consistent: true },
     );
     return items.map((item) => {
-      const { userId, role, createdAt, memberInviteExpiresAt } = stripKeys<MembershipRecord>(item);
-      return memberInviteExpiresAt === undefined
-        ? { userId, role, createdAt }
-        : { userId, role, createdAt, memberInviteExpiresAt };
+      const { userId, role, createdAt, memberInviteExpiresAt, staffRoleId } =
+        stripKeys<MembershipRecord>(item);
+      return {
+        userId,
+        role,
+        createdAt,
+        ...(memberInviteExpiresAt !== undefined && { memberInviteExpiresAt }),
+        ...(staffRoleId !== undefined && { staffRoleId }),
+      };
     });
   },
 
@@ -480,15 +569,18 @@ export const dynamoGroupRepository: GroupRepository = {
     const groups = new Map(
       items.filter((i) => i.entity === GROUP_ENTITY).map((i) => [i.id as string, stripKeys<StoredGroup>(i)]),
     );
-    const roles = new Map(
+    const memberships = new Map(
       items
         .filter((i) => i.entity === MEMBERSHIP_ENTITY)
-        .map((i) => [i.groupId as string, i.role as MemberRole]),
+        .map((i) => [i.groupId as string, stripKeys<MembershipRecord>(i)]),
     );
     return rows.flatMap((row) => {
       const group = groups.get(row.id);
-      const role = roles.get(row.id);
-      return group && role ? [{ group, role }] : [];
+      const m = memberships.get(row.id);
+      if (!group || !m) return [];
+      return m.staffRoleId === undefined
+        ? [{ group, role: m.role }]
+        : [{ group, role: m.role, staffRoleId: m.staffRoleId }];
     });
   },
 

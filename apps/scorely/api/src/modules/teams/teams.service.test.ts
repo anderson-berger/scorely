@@ -19,6 +19,7 @@ import {
   type PublicUserId,
   PublicUserIdSchema,
   SaveTeamsInputSchema,
+  type StaffRoleId,
   TEAM_COUNT,
   type TeamPlayer,
   type Teams,
@@ -229,6 +230,8 @@ function setup(opts: { group?: Partial<StoredGroup>; game?: RosterGame; random?:
     group: storedGroup(opts.group),
     members: { ...MEMBERS } as Record<string, MemberRole>,
     game: opts.game ?? GAME,
+    /** Cargo de cada pessoa (GRP-48): `admin` dá o `teams.manage`. */
+    staff: {} as Record<string, StaffRoleId>,
   };
   const sent: ({ userId: UserId } & NewNotification)[] = [];
   const puts: StoredTeams[] = [];
@@ -244,7 +247,14 @@ function setup(opts: { group?: Partial<StoredGroup>; game?: RosterGame; random?:
     create: unused,
     addMember: unused,
     counts: unused,
-    getMembership: unused,
+    getMembership: async (groupId, userId) => {
+      const role = groupId === state.group.id ? state.members[userId] : undefined;
+      if (!role) return undefined;
+      const staffRoleId = state.staff[userId];
+      return staffRoleId === undefined ? { role } : { role, staffRoleId };
+    },
+    setStaffRole: unused,
+    transfer: unused,
     setMemberInvite: unused,
     clearMemberInvite: unused,
     acceptMemberInvite: unused,
@@ -454,11 +464,11 @@ describe('times do jogo: uma divisão por jogo, só o jogo atual (TIM-06)', () =
 });
 
 describe('times do jogo: só o dono mexe (TIM-07)', () => {
-  it('TIM-07: membro e reserva que não são donos → GROUP_NOT_OWNER (403) em salvar, publicar, voltar e descartar', async () => {
+  it('TIM-07: membro e reserva sem cargo (sem teams.manage) → GROUP_PERMISSION_DENIED (403) em salvar, publicar, voltar e descartar', async () => {
     const t = setup();
     t.seedTeams();
     for (const who of [A, B, R])
-      for (const write of writes(t, who)) await expectAppError(write(), 'GROUP_NOT_OWNER', 403);
+      for (const write of writes(t, who)) await expectAppError(write(), 'GROUP_PERMISSION_DENIED', 403);
     expect(t.puts).toEqual([]);
     expect(t.deletes).toEqual([]);
     expect(t.sent).toEqual([]);
@@ -481,7 +491,7 @@ describe('times do jogo: só o dono mexe (TIM-07)', () => {
     const t = setup({ group: { archivedAt: '2026-11-01T00:00:00.000Z' } });
     await expectAppError(
       t.service.save(A, GROUP_ID, OTHER_DATE, { teams: [[OUTSIDER], []], positions: {} }),
-      'GROUP_NOT_OWNER',
+      'GROUP_PERMISSION_DENIED',
       403,
     );
   });
@@ -1158,11 +1168,11 @@ describe('times do jogo: sortear (TIM-15)', () => {
     expect(again.teams).toMatchObject({ status: 'published', publishedAt: NOW.toISOString() });
   });
 
-  it('TIM-15 / TIM-07: quem não é dono → GROUP_NOT_OWNER (403); quem não participa ou grupo inexistente → GROUP_NOT_FOUND (404), sem gravar', async () => {
+  it('TIM-15 / TIM-07: quem não tem teams.manage → GROUP_PERMISSION_DENIED (403); quem não participa ou grupo inexistente → GROUP_NOT_FOUND (404), sem gravar', async () => {
     const t = setup();
     t.seedTeams();
     for (const who of [A, B, R])
-      await expectAppError(t.service.draw(who, GROUP_ID, DATE), 'GROUP_NOT_OWNER', 403);
+      await expectAppError(t.service.draw(who, GROUP_ID, DATE), 'GROUP_PERMISSION_DENIED', 403);
     for (const who of [OUTSIDER, G, H])
       await expectAppError(t.service.draw(who, GROUP_ID, DATE), 'GROUP_NOT_FOUND', 404);
     await expectAppError(t.service.draw(OWNER, OTHER_GROUP_ID, DATE), 'GROUP_NOT_FOUND', 404);
@@ -1171,7 +1181,7 @@ describe('times do jogo: sortear (TIM-15)', () => {
 
   it('TIM-15 / TIM-07: a permissão vem antes do arquivado e da data', async () => {
     const t = setup({ group: { archivedAt: '2026-11-01T00:00:00.000Z' } });
-    await expectAppError(t.service.draw(A, GROUP_ID, OTHER_DATE), 'GROUP_NOT_OWNER', 403);
+    await expectAppError(t.service.draw(A, GROUP_ID, OTHER_DATE), 'GROUP_PERMISSION_DENIED', 403);
   });
 
   it('TIM-15 / TIM-11: grupo arquivado → GROUP_ARCHIVED (409), antes da data', async () => {
@@ -1385,13 +1395,81 @@ describe('times pelo id público (USR-16, USR-17)', () => {
     expect(t.puts).toEqual([]);
   });
 
-  it('USR-17: a permissão vem de quem pede: membro salvando times com ids válidos → GROUP_NOT_OWNER', async () => {
+  it('USR-17: a permissão vem de quem pede: membro salvando times com ids válidos → GROUP_PERMISSION_DENIED', async () => {
     const t = setup();
     await expectAppError(
       t.raw.save(A, GROUP_ID, DATE, { teams: [[pub(OWNER)], [pub(G)]], positions: {} }),
-      'GROUP_NOT_OWNER',
+      'GROUP_PERMISSION_DENIED',
       403,
     );
     expect(t.puts).toEqual([]);
+  });
+});
+
+describe('times do jogo com cargo (TIM-07, 09, 10, 15)', () => {
+  it('TIM-07: o Admin (teams.manage) salva, publica, volta para rascunho e descarta os times', async () => {
+    const t = setup();
+    t.state.staff[A] = 'admin';
+    await t.service.save(A, GROUP_ID, DATE, { teams: [[OWNER], [A]], positions: {} });
+    expect((await t.service.publish(A, GROUP_ID, DATE)).teams?.status).toBe('published');
+    expect((await t.service.unpublish(A, GROUP_ID, DATE)).teams?.status).toBe('draft');
+    await expect(t.service.discard(A, GROUP_ID, DATE)).resolves.toBeUndefined();
+    expect(t.deletes).toHaveLength(1);
+  });
+
+  it('TIM-07: a reserva com o cargo Admin também monta os times', async () => {
+    const t = setup();
+    t.state.staff[R] = 'admin';
+    await t.service.save(R, GROUP_ID, DATE, { teams: [[OWNER], [R]], positions: {} });
+    expect(t.puts).toHaveLength(1);
+  });
+
+  it('TIM-07: sem cargo, a resposta traz a permissão que faltou (teams.manage)', async () => {
+    const t = setup();
+    const err = await expectAppError(t.service.publish(B, GROUP_ID, DATE), 'GROUP_PERMISSION_DENIED', 403);
+    expect(err.details).toEqual({ permission: 'teams.manage' });
+  });
+
+  it('TIM-09: o Admin vê o rascunho, como o dono; quem não tem cargo não vê', async () => {
+    const t = setup();
+    t.state.staff[A] = 'admin';
+    await t.service.save(OWNER, GROUP_ID, DATE, { teams: [[OWNER], [G]], positions: {} });
+    expect((await t.service.get(A, GROUP_ID, DATE)).teams?.status).toBe('draft');
+    expect(await t.service.get(B, GROUP_ID, DATE)).toEqual({ teams: null });
+  });
+
+  it('TIM-10: o Admin publica → todos da lista são avisados menos ele, o dono incluído', async () => {
+    const t = setup();
+    t.state.staff[A] = 'admin';
+    await t.service.save(A, GROUP_ID, DATE, { teams: [[OWNER], [A]], positions: {} });
+    await t.service.publish(A, GROUP_ID, DATE);
+    expect(t.sent.map((n) => n.userId).sort()).toEqual([OWNER, G, R, B, H].sort());
+    expect(t.sent.every((n) => n.type === 'teams_published')).toBe(true);
+  });
+
+  it('TIM-10: o dono publica com um Admin na lista → o Admin é avisado, e o dono não', async () => {
+    const t = setup();
+    t.state.staff[A] = 'admin';
+    await t.service.save(OWNER, GROUP_ID, DATE, { teams: [[OWNER], [A]], positions: {} });
+    await t.service.publish(OWNER, GROUP_ID, DATE);
+    expect(t.sent.map((n) => n.userId)).toContain(A);
+    expect(t.sent.map((n) => n.userId)).not.toContain(OWNER);
+  });
+
+  it('TIM-15: o Admin sorteia os times', async () => {
+    const t = setup();
+    t.state.staff[A] = 'admin';
+    const drawn = await t.service.draw(A, GROUP_ID, DATE);
+    expect(drawn.teams?.status).toBe('draft');
+    expect(t.puts).toHaveLength(1);
+  });
+
+  it('GRP-52: o cargo tirado barra a próxima mudança nos times', async () => {
+    const t = setup();
+    t.state.staff[A] = 'admin';
+    await t.service.save(A, GROUP_ID, DATE, { teams: [[OWNER], [A]], positions: {} });
+    delete t.state.staff[A];
+    await expectAppError(t.service.publish(A, GROUP_ID, DATE), 'GROUP_PERMISSION_DENIED', 403);
+    expect(t.sent).toEqual([]);
   });
 });

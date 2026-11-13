@@ -1,8 +1,10 @@
 <script lang="ts">
 import type { Group, InviteKind, Member, PlayerPosition } from '@scorely/contracts';
 import BottomSheet from '@scorely/web/src/components/BottomSheet.vue';
+import { useAuthStore } from '@scorely/web/src/modules/auth/auth.store';
 import GroupLinksCard from '@scorely/web/src/modules/groups/components/GroupLinksCard.vue';
 import { memberSections } from '@scorely/web/src/modules/groups/groups';
+import { type GroupAccess, NO_ACCESS } from '@scorely/web/src/modules/groups/permissions';
 import { initials } from '@scorely/web/src/modules/groups/scoreboard';
 import PlayerPositions from '@scorely/web/src/modules/teams/components/PlayerPositions.vue';
 import { defineComponent, type PropType } from 'vue';
@@ -15,8 +17,10 @@ interface Section {
 
 /**
  * Aba Membros (planos 012 e 015 D11; GRP-29): "Membros · N/limite", com o dono no topo, e "Reservas · N/limite".
- * Cada pessoa num bloco, com as posições abaixo do nome (TIM-05). O dono manda os links (012, D7) e, pelo menu "⋮"
- * da pessoa, remove e convida reservas para membro (GRP-40). Quem não é dono sai (GRP-42).
+ * Cada pessoa num bloco, com as posições abaixo do nome (TIM-05) e a marca do cargo (GRP-56). Quem tem
+ * `members.manage` manda os links (012, D7) e, pelo menu "⋮" da pessoa, remove e convida reservas para membro
+ * (GRP-40); quem tem cargo, só o dono remove (GRP-53). Só o dono dá e tira o cargo e passa o grupo (GRP-51, 54).
+ * Quem não é dono sai (GRP-42).
  * Grupo arquivado é só leitura (GRP-37): sem remover, convidar nem sair.
  */
 export default defineComponent({
@@ -26,11 +30,16 @@ export default defineComponent({
 
   inheritAttrs: false,
 
+  setup() {
+    return { auth: useAuthStore() };
+  },
+
   props: {
     group: { type: Object as PropType<Group>, required: true },
     members: { type: Array as PropType<Member[]>, required: true },
     busy: { type: Boolean, default: false },
     isOwner: { type: Boolean, default: false },
+    access: { type: Object as PropType<GroupAccess>, default: () => NO_ACCESS },
     /** TIM-05: posições de cada pessoa (ausente = o esporte não tem posições). */
     playerPositions: {
       type: Object as PropType<Record<string, PlayerPosition[]> | undefined>,
@@ -46,6 +55,9 @@ export default defineComponent({
     leaveGroup: () => true,
     editPlayer: (_userId: string) => true,
     rotate: (_kind: InviteKind) => true,
+    setAdmin: (_member: Member) => true,
+    clearAdmin: (_member: Member) => true,
+    transfer: (_member: Member) => true,
   },
 
   data() {
@@ -53,8 +65,13 @@ export default defineComponent({
   },
 
   computed: {
-    /** O dono remove e convida; no grupo arquivado, ninguém (GRP-37). */
+    /** Quem tem `members.manage` remove, convida e manda os links; no grupo arquivado, ninguém (GRP-37). */
     canManage(): boolean {
+      return this.access.members && !this.group.archivedAt;
+    },
+
+    /** Só o dono dá e tira o cargo e passa o grupo (GRP-51, 54); no arquivado, não (GRP-56). */
+    ownerActions(): boolean {
       return this.isOwner && !this.group.archivedAt;
     },
 
@@ -97,9 +114,21 @@ export default defineComponent({
       if (this.canEditPositions) this.$emit('editPlayer', userId);
     },
 
-    /** GRP-29, 40: o menu "⋮" da pessoa só aparece com alguma ação (o dono não tem). */
+    /** GRP-29, 40, 56: o menu "⋮" da pessoa só aparece com alguma ação (o dono não tem). */
     hasActions(m: Member): boolean {
-      return this.canManage && !m.isOwner;
+      if (m.isOwner) return false;
+      return (
+        this.canRemove(m) ||
+        this.ownerActions ||
+        (this.canManage && m.role === 'reserve') ||
+        this.canEditPositions
+      );
+    },
+
+    /** GRP-25, 53: nem a si mesmo (para isso, sair), e quem tem cargo só o dono remove. */
+    canRemove(m: Member): boolean {
+      if (!this.canManage || m.isOwner || m.userId === this.auth.user?.id) return false;
+      return this.isOwner || !m.staffRole;
     },
 
     personName(p: Pick<Member, 'name'>): string {
@@ -146,6 +175,7 @@ export default defineComponent({
             />
           </span>
           <span v-if="m.isOwner" class="sc-display owner">{{ $t('groups.owner') }}</span>
+          <span v-else-if="m.staffRole" class="sc-display owner">{{ m.staffRole.name }}</span>
           <span v-else-if="canManage && m.memberInviteExpiresAt" class="sc-label invited">{{
             $t('groups.memberInvite.sent')
           }}</span>
@@ -165,7 +195,7 @@ export default defineComponent({
                   <q-item-section avatar><q-icon name="badge" /></q-item-section>
                   <q-item-section>{{ $t('teams.positionsMenu') }}</q-item-section>
                 </q-item>
-                <template v-if="m.role === 'reserve'">
+                <template v-if="canManage && m.role === 'reserve'">
                   <q-item v-if="m.memberInviteExpiresAt" v-close-popup clickable @click="$emit('cancelMemberInvite', m)">
                     <q-item-section avatar><q-icon name="block" /></q-item-section>
                     <q-item-section>{{ $t('groups.memberInvite.cancel') }}</q-item-section>
@@ -175,7 +205,21 @@ export default defineComponent({
                     <q-item-section>{{ $t('groups.memberInvite.invite') }}</q-item-section>
                   </q-item>
                 </template>
-                <q-item v-close-popup clickable class="sc-danger" @click="$emit('remove', m)">
+                <template v-if="ownerActions">
+                  <q-item v-if="m.staffRole" v-close-popup clickable @click="$emit('clearAdmin', m)">
+                    <q-item-section avatar><q-icon name="remove_moderator" /></q-item-section>
+                    <q-item-section>{{ $t('groups.staff.clearAdmin') }}</q-item-section>
+                  </q-item>
+                  <q-item v-else v-close-popup clickable @click="$emit('setAdmin', m)">
+                    <q-item-section avatar><q-icon name="add_moderator" /></q-item-section>
+                    <q-item-section>{{ $t('groups.staff.setAdmin') }}</q-item-section>
+                  </q-item>
+                  <q-item v-if="m.role === 'member'" v-close-popup clickable @click="$emit('transfer', m)">
+                    <q-item-section avatar><q-icon name="key" /></q-item-section>
+                    <q-item-section>{{ $t('groups.staff.transfer', { name: personName(m) }) }}</q-item-section>
+                  </q-item>
+                </template>
+                <q-item v-if="canRemove(m)" v-close-popup clickable class="sc-danger" @click="$emit('remove', m)">
                   <q-item-section avatar><q-icon name="person_remove" /></q-item-section>
                   <q-item-section>{{ $t('groups.removeMember', { name: personName(m) }) }}</q-item-section>
                 </q-item>
@@ -197,7 +241,7 @@ export default defineComponent({
       @click="$emit('leaveGroup')"
     />
 
-    <BottomSheet v-if="isOwner" v-model="inviting" :title="$t('groups.invite')">
+    <BottomSheet v-if="canManage" v-model="inviting" :title="$t('groups.invite')">
       <GroupLinksCard :group="group" :busy="busy" @rotate="$emit('rotate', $event)" />
     </BottomSheet>
   </div>

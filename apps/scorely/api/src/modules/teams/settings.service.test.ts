@@ -15,6 +15,7 @@ import {
   type MemberRole,
   type PublicUserId,
   PublicUserIdSchema,
+  type StaffRoleId,
   TEAM_APART_LIMITS,
   TEAM_RULE_LIMITS,
   type TeamRule,
@@ -199,6 +200,8 @@ function setup(opts: { group?: Partial<StoredGroup> } = {}) {
   const state = {
     group: storedGroup(opts.group),
     members: { [OWNER]: 'member', [A]: 'member', [R]: 'reserve' } as Record<string, MemberRole>,
+    /** Cargo de cada pessoa (GRP-48): `admin` dá o `teams.manage`. */
+    staff: {} as Record<string, StaffRoleId>,
     game: GAME,
   };
   const store = new Map<string, StoredTeamSettings>();
@@ -211,7 +214,14 @@ function setup(opts: { group?: Partial<StoredGroup> } = {}) {
     create: unused,
     addMember: unused,
     counts: unused,
-    getMembership: unused,
+    getMembership: async (groupId, userId) => {
+      const role = groupId === state.group.id ? state.members[userId] : undefined;
+      if (!role) return undefined;
+      const staffRoleId = state.staff[userId];
+      return staffRoleId === undefined ? { role } : { role, staffRoleId };
+    },
+    setStaffRole: unused,
+    transfer: unused,
     setMemberInvite: unused,
     clearMemberInvite: unused,
     acceptMemberInvite: unused,
@@ -324,11 +334,11 @@ describe('configuração de times do grupo (TIM-17)', () => {
     expect(ok(2.5)).toBe(false);
   });
 
-  it('TIM-17: membro e reserva que não são donos → GROUP_NOT_OWNER (403) para ver e para mudar, sem gravar', async () => {
+  it('TIM-17: membro e reserva sem cargo (sem teams.manage) → GROUP_PERMISSION_DENIED (403) para ver e para mudar, sem gravar', async () => {
     const t = setup();
     for (const who of [A, R]) {
-      await expectAppError(t.service.get(who, GROUP_ID), 'GROUP_NOT_OWNER', 403);
-      await expectAppError(t.service.update(who, GROUP_ID, DEFAULTS), 'GROUP_NOT_OWNER', 403);
+      await expectAppError(t.service.get(who, GROUP_ID), 'GROUP_PERMISSION_DENIED', 403);
+      await expectAppError(t.service.update(who, GROUP_ID, DEFAULTS), 'GROUP_PERMISSION_DENIED', 403);
     }
     expect(t.puts).toEqual([]);
   });
@@ -366,9 +376,9 @@ describe('configuração de times do grupo (TIM-17)', () => {
     );
   });
 
-  it('TIM-17: com o grupo arquivado, quem não é dono continua recebendo GROUP_NOT_OWNER (a permissão vem antes)', async () => {
+  it('TIM-17: com o grupo arquivado, quem não tem teams.manage continua recebendo GROUP_PERMISSION_DENIED (a permissão vem antes)', async () => {
     const t = setup({ group: { archivedAt: '2026-11-10T00:00:00.000Z' } });
-    await expectAppError(t.service.update(A, GROUP_ID, DEFAULTS), 'GROUP_NOT_OWNER', 403);
+    await expectAppError(t.service.update(A, GROUP_ID, DEFAULTS), 'GROUP_PERMISSION_DENIED', 403);
   });
 
   it('TIM-17: item antigo, gravado sem opostos e sem a preferência, vale como [] e desligada', async () => {
@@ -656,6 +666,32 @@ describe('times opostos pelo id público (USR-16, USR-17)', () => {
       'TEAM_PLAYER_NOT_FOUND',
       404,
     );
+    expect(t.puts).toEqual([]);
+  });
+});
+
+describe('configuração de times com cargo (TIM-17)', () => {
+  it('TIM-17: membro e reserva com o cargo Admin (teams.manage) veem e mudam a configuração', async () => {
+    const t = setup();
+    for (const who of [A, R]) {
+      t.state.staff[who] = 'admin';
+      const input = { teamCount: 3, rules: [SETTER_ONE], allowOutsideRules: false };
+      expect(await t.service.update(who, GROUP_ID, input)).toEqual(full(input));
+      expect(await t.service.get(who, GROUP_ID)).toEqual(full(input));
+    }
+    expect(t.puts).toHaveLength(2);
+  });
+
+  it('TIM-17: sem cargo, a resposta traz a permissão que faltou (teams.manage)', async () => {
+    const t = setup();
+    const err = await expectAppError(t.service.get(A, GROUP_ID), 'GROUP_PERMISSION_DENIED', 403);
+    expect(err.details).toEqual({ permission: 'teams.manage' });
+  });
+
+  it('TIM-17: o Admin com o grupo arquivado → mudar responde GROUP_ARCHIVED (GRP-52: a permissão vem antes)', async () => {
+    const t = setup({ group: { archivedAt: '2026-11-10T00:00:00.000Z' } });
+    t.state.staff[A] = 'admin';
+    await expectAppError(t.service.update(A, GROUP_ID, DEFAULTS), 'GROUP_ARCHIVED', 409);
     expect(t.puts).toEqual([]);
   });
 });

@@ -25,6 +25,7 @@ export const ptBR = {
     NOTIFICATION_NOT_FOUND: 'Notificação não encontrada',
     GROUP_NOT_FOUND: 'Grupo não encontrado',
     GROUP_NOT_OWNER: 'Só o dono do grupo pode fazer isso',
+    GROUP_PERMISSION_DENIED: 'Você não tem permissão para fazer isso neste grupo',
     GROUP_INVITE_INVALID: 'Este link de convite não vale mais. Peça um novo ao dono do grupo',
     GROUP_MEMBER_NOT_FOUND: 'Essa pessoa não é membro do grupo',
     GROUP_OWNER_NOT_REMOVABLE: 'O dono não pode ser removido do grupo',
@@ -204,6 +205,18 @@ export const ptBR = {
       saved: 'Vagas salvas',
       missing: 'Falta {count} para fechar · mínimo {min} | Faltam {count} para fechar · mínimo {min}',
       reached: 'Jogo confirmado ✓',
+    },
+    /** GRP-57: ação barrada por permissão (a página recarrega). */
+    permissionsChanged: 'Suas permissões neste grupo mudaram',
+    /** Cargos e passar o grupo (GRP-51, 54, 56). */
+    staff: {
+      setAdmin: 'Tornar admin',
+      clearAdmin: 'Tirar de admin',
+      transfer: 'Passar o grupo para {name}',
+      transferConfirm: '{name} vira dono do grupo, e você continua como admin. Só {name} pode desfazer.',
+      grantedToast: '{name} agora é admin',
+      clearedToast: '{name} não é mais admin',
+      transferredToast: '{name} agora é o dono do grupo',
     },
     memberInvite: {
       invite: 'Convidar para membro',

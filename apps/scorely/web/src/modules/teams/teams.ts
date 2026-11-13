@@ -132,8 +132,8 @@ export function setGamePositions(
  * Quem não é dono: o próprio time, se está num time publicado; "Times publicados", se não está; sem times publicados, sem linha.
  * O jogo cancelado esconde a linha no componente (esta função não recebe o jogo).
  */
-export function teamsLine(teams: Teams | null, meId: string, isOwner: boolean): Text | null {
-  if (isOwner) {
+export function teamsLine(teams: Teams | null, meId: string, canManage: boolean): Text | null {
+  if (canManage) {
     if (!teams) return { key: 'teams.line.ownerNone' };
     return { key: teams.status === 'published' ? 'teams.line.ownerPublished' : 'teams.line.ownerDraft' };
   }

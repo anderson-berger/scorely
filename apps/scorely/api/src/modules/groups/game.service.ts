@@ -8,7 +8,7 @@ import {
   type GroupsDeps,
   requireActive,
   requireMember,
-  requireOwner,
+  requirePermission,
   reservesHours,
 } from '@scorely/api/src/modules/groups/groups.deps';
 import {
@@ -241,15 +241,20 @@ export function createGameService(deps: GroupsDeps) {
     for (const a of list.slice(from, Math.max(from, to))) await notifyPromoted(group, a.userId);
   }
 
-  /** GRP-47: na 1ª vez que quem está dentro chega ao mínimo, avisa a lista (dentro e fila), menos o dono. */
-  async function checkMinReached(group: StoredGroup, record: GameRecord, at: Date): Promise<void> {
+  /** GRP-47: na 1ª vez que quem está dentro chega ao mínimo, avisa a lista (dentro e fila), menos quem fez a mudança. */
+  async function checkMinReached(
+    group: StoredGroup,
+    record: GameRecord,
+    at: Date,
+    actorId: UserId,
+  ): Promise<void> {
     const min = minOf(group, record);
     if (min === undefined || record.minReachedAt) return;
     const list = await listOf(record);
     if (Math.min(list.length, slotsOf(group, record)) < min) return;
     if (!(await deps.games.markMinReached(record.id, at.toISOString()))) return;
     for (const a of list) {
-      if (a.userId === group.ownerId) continue;
+      if (a.userId === actorId) continue;
       await deps.notifications.notify(a.userId, {
         type: 'game_confirmed',
         title: 'Jogo confirmado',
@@ -259,14 +264,19 @@ export function createGameService(deps: GroupsDeps) {
     }
   }
 
-  /** GRP-24: marca o cancelamento e avisa a lista inteira (dentro e fila), menos o dono. Devolve o `cancelledAt`. */
-  async function cancelAndNotify(group: StoredGroup, record: GameRecord, at: Date): Promise<string> {
+  /** GRP-24: marca o cancelamento e avisa a lista inteira (dentro e fila), menos quem cancelou. Devolve o `cancelledAt`. */
+  async function cancelAndNotify(
+    group: StoredGroup,
+    record: GameRecord,
+    at: Date,
+    actorId: UserId,
+  ): Promise<string> {
     const cancelledAt = at.toISOString();
     await deps.games.cancel(record.id, cancelledAt);
     // Leitura consistente depois do cancelamento: quem confirmou antes dele está aqui e é avisado.
     const list = await listOf(record);
     for (const a of list) {
-      if (a.userId === group.ownerId) continue;
+      if (a.userId === actorId) continue;
       await deps.notifications.notify(a.userId, {
         type: 'game_cancelled',
         title: 'Jogo cancelado',
@@ -277,11 +287,11 @@ export function createGameService(deps: GroupsDeps) {
     return cancelledAt;
   }
 
-  /** GRP-44: avisa a lista inteira (dentro e fila), menos o dono. Lida depois da reabertura. */
-  async function notifyReopened(group: StoredGroup, record: GameRecord): Promise<void> {
+  /** GRP-44: avisa a lista inteira (dentro e fila), menos quem reabriu. Lida depois da reabertura. */
+  async function notifyReopened(group: StoredGroup, record: GameRecord, actorId: UserId): Promise<void> {
     const list = await listOf(record);
     for (const a of list) {
-      if (a.userId === group.ownerId) continue;
+      if (a.userId === actorId) continue;
       await deps.notifications.notify(a.userId, {
         type: 'game_reopened',
         title: 'Jogo reaberto',
@@ -304,7 +314,7 @@ export function createGameService(deps: GroupsDeps) {
       const result = await deps.games.addAttendance(attendance, group.id);
       if (result === 'archived') throw appError('GROUP_ARCHIVED');
       if (result === 'cancelled') throw appError('GAME_CANCELLED');
-      await checkMinReached(group, record, game.at);
+      await checkMinReached(group, record, game.at, userId);
     }
     return view(userId, { ...game, record }, role);
   }
@@ -396,16 +406,16 @@ export function createGameService(deps: GroupsDeps) {
       await leaveAs(userId, group, role, date);
     },
 
-    /** Dono cancela o jogo atual. Já cancelado → devolve igual, sem avisar de novo. */
+    /** GRP-24: quem tem `game.manage` cancela o jogo atual. Já cancelado → devolve igual, sem avisar de novo. */
     async cancel(userId: UserId, groupId: string, date: string): Promise<Game> {
-      const group = await requireOwner(deps, userId, groupId);
+      const { group, role } = await requirePermission(deps, userId, groupId, 'game.manage');
       requireActive(group);
       const game = await loadByDate(group, date);
-      if (game.record?.cancelledAt) return view(userId, game, 'member');
+      if (game.record?.cancelledAt) return view(userId, game, role);
       if (timeStatus(game.occurrence, game.at) === 'in_progress') throw appError('GAME_CLOSED');
       const record = await ensureRecord(game);
-      const cancelledAt = await cancelAndNotify(group, record, game.at);
-      return view(userId, { ...game, record: { ...record, cancelledAt } }, 'member');
+      const cancelledAt = await cancelAndNotify(group, record, game.at, userId);
+      return view(userId, { ...game, record: { ...record, cancelledAt } }, role);
     },
 
     /**
@@ -416,25 +426,26 @@ export function createGameService(deps: GroupsDeps) {
       const { occurrence, record, at } = await load(group, now());
       if (!record || record.cancelledAt) return;
       if (timeStatus(occurrence, at) === 'in_progress') return;
-      await cancelAndNotify(group, record, at);
+      // Só o dono arquiva (GRP-31, 49): quem cancelou foi ele.
+      await cancelAndNotify(group, record, at, group.ownerId);
     },
 
     /**
      * GRP-44: tira o cancelamento do jogo atual, antes do início. A lista fica como estava e é avisada,
-     * menos o dono. Jogo não cancelado → devolve como está, sem avisar.
+     * menos quem reabriu. Jogo não cancelado → devolve como está, sem avisar.
      */
     async reopen(userId: UserId, groupId: string, date: string): Promise<Game> {
-      const group = await requireOwner(deps, userId, groupId);
+      const { group, role } = await requirePermission(deps, userId, groupId, 'game.manage');
       requireActive(group);
       const game = await loadByDate(group, date);
       const { record } = game;
-      if (!record?.cancelledAt) return view(userId, game, 'member');
+      if (!record?.cancelledAt) return view(userId, game, role);
       if (timeStatus(game.occurrence, game.at) === 'in_progress') throw appError('GAME_CLOSED');
       const result = await deps.games.reopen(record.id, group.id);
       if (result === 'archived') throw appError('GROUP_ARCHIVED');
       const { cancelledAt: _c, ...reopened } = record;
-      if (result === 'reopened') await notifyReopened(group, reopened);
-      return view(userId, { ...game, record: reopened }, 'member');
+      if (result === 'reopened') await notifyReopened(group, reopened, userId);
+      return view(userId, { ...game, record: reopened }, role);
     },
 
     /**
@@ -442,7 +453,7 @@ export function createGameService(deps: GroupsDeps) {
      * está dentro; mais vagas promovem a fila (GRP-22); chegar ao mínimo avisa (GRP-47).
      */
     async updateGame(userId: UserId, groupId: string, date: string, patch: UpdateGameInput): Promise<Game> {
-      const group = await requireOwner(deps, userId, groupId);
+      const { group, role } = await requirePermission(deps, userId, groupId, 'game.manage');
       requireActive(group);
       const game = await loadByDate(group, date);
       const status = statusOf(game.occurrence, game.record, game.at);
@@ -462,19 +473,19 @@ export function createGameService(deps: GroupsDeps) {
         ...(patch.minPlayers !== undefined && { minPlayers: patch.minPlayers }),
       });
       await notifyMoreSlots(group, list, current, slots);
-      await checkMinReached(group, record, game.at);
-      return view(userId, { ...game, record }, 'member');
+      await checkMinReached(group, record, game.at, userId);
+      return view(userId, { ...game, record }, role);
     },
 
     /**
-     * GRP-45, 46: o dono vai mudar o padrão do grupo para `slots`. Se o jogo atual existe, não está cancelado e
+     * GRP-45, 46: quem tem `settings.edit` vai mudar o padrão do grupo para `slots`. Se o jogo atual existe, não está cancelado e
      * segue as vagas do grupo, as vagas não descem abaixo de quem está dentro (lança antes de gravar). O
      * `afterUpdate` roda com o grupo gravado: promove a fila e confere o mínimo (GRP-22, 47).
      */
     async defaultsPlan(
       group: StoredGroup,
       slots: number,
-    ): Promise<{ afterUpdate: (updated: StoredGroup) => Promise<void> }> {
+    ): Promise<{ afterUpdate: (updated: StoredGroup, actorId: UserId) => Promise<void> }> {
       const { occurrence, record, at } = await load(group, now());
       if (!record || statusOf(occurrence, record, at) === 'cancelled')
         return { afterUpdate: async () => undefined };
@@ -483,9 +494,9 @@ export function createGameService(deps: GroupsDeps) {
       const inside = Math.min(list.length, group.slots);
       if (followsGroup && slots < inside) throw appError('GAME_SLOTS_BELOW_CONFIRMED', { confirmed: inside });
       return {
-        afterUpdate: async (updated) => {
+        afterUpdate: async (updated, actorId) => {
           if (followsGroup) await notifyMoreSlots(updated, list, group.slots, slots);
-          await checkMinReached(updated, record, at);
+          await checkMinReached(updated, record, at, actorId);
         },
       };
     },

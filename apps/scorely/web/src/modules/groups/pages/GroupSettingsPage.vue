@@ -5,13 +5,15 @@ import CapacityCard from '@scorely/web/src/modules/groups/components/CapacityCar
 import GroupImagesCard from '@scorely/web/src/modules/groups/components/GroupImagesCard.vue';
 import LayersCard from '@scorely/web/src/modules/groups/components/LayersCard.vue';
 import LimitsCard from '@scorely/web/src/modules/groups/components/LimitsCard.vue';
+import { type GroupAccess, NO_ACCESS } from '@scorely/web/src/modules/groups/permissions';
 import TeamSettingsRows from '@scorely/web/src/modules/teams/components/TeamSettingsRows.vue';
 import { defineComponent, type PropType } from 'vue';
 
 /**
- * Aba Ajustes, só do dono (GRP-29): uma lista, cada linha com o resumo e o lugar de mudar (Abertura da lista, Vagas e
- * mínimo, Limites, Times, Logo e capa), e a zona de perigo no fim, com cancelar (ou reabrir, GRP-44) e arquivar.
- * Grupo arquivado (GRP-37): só "Desarquivar grupo".
+ * Aba Ajustes (GRP-29): uma lista, cada linha com o resumo e o lugar de mudar, e a zona de perigo no fim. Cada um vê só
+ * o que pode mudar (GRP-49): Abertura, Vagas e mínimo, Limites e Logo e capa com `settings.edit`; as linhas de times
+ * com `teams.manage`; cancelar ou reabrir (GRP-44) com `game.manage`; arquivar só o dono.
+ * Grupo arquivado (GRP-37): só o dono, com "Desarquivar grupo".
  */
 export default defineComponent({
   name: 'GroupSettingsPage',
@@ -25,6 +27,7 @@ export default defineComponent({
     game: { type: Object as PropType<Game | null>, default: null },
     busy: { type: Boolean, default: false },
     isOwner: { type: Boolean, default: false },
+    access: { type: Object as PropType<GroupAccess>, default: () => NO_ACCESS },
     canCancel: { type: Boolean, default: false },
     canReopen: { type: Boolean, default: false },
   },
@@ -38,6 +41,11 @@ export default defineComponent({
   },
 
   computed: {
+    /** A zona de perigo só aparece com alguma ação dentro. */
+    hasDanger(): boolean {
+      return this.canCancel || this.canReopen || this.isOwner;
+    },
+
     gameDate(): string {
       return this.game ? formatDateTime(this.game.startsAt) : '';
     },
@@ -63,16 +71,18 @@ export default defineComponent({
     </section>
   </div>
 
-  <div v-else-if="isOwner && game" class="sections">
-    <div class="sc-card settings-list">
-      <LayersCard :group="group" :game="game" :is-owner="isOwner" @saved="$emit('saved')" />
-      <CapacityCard :group="group" @saved="$emit('saved')" />
-      <LimitsCard :group="group" @saved="$emit('saved')" />
-      <TeamSettingsRows :group="group" />
-      <GroupImagesCard :group="group" @saved="$emit('saved')" />
+  <div v-else-if="game && !group.archivedAt" class="sections">
+    <div v-if="access.settings || access.teams" class="sc-card settings-list">
+      <template v-if="access.settings">
+        <LayersCard :group="group" :game="game" :is-owner="access.settings" @saved="$emit('saved')" />
+        <CapacityCard :group="group" @saved="$emit('saved')" />
+        <LimitsCard :group="group" @saved="$emit('saved')" />
+      </template>
+      <TeamSettingsRows v-if="access.teams" :group="group" />
+      <GroupImagesCard v-if="access.settings" :group="group" @saved="$emit('saved')" />
     </div>
 
-    <section>
+    <section v-if="hasDanger">
       <h2 class="sc-section danger-title">{{ $t('groups.settings.danger') }}</h2>
       <div class="sc-card danger-list">
         <div v-if="canCancel" class="danger">
@@ -97,7 +107,7 @@ export default defineComponent({
             @click="$emit('reopen')"
           />
         </div>
-        <div class="danger">
+        <div v-if="isOwner" class="danger">
           <div class="danger-text">{{ $t('groups.settings.archiveHint') }}</div>
           <q-btn
             flat

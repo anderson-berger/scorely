@@ -5,6 +5,7 @@ import { errorMessage } from '@scorely/web/src/i18n/errors';
 import { prepareImage } from '@scorely/web/src/lib/media';
 import SettingsRow from '@scorely/web/src/modules/groups/components/SettingsRow.vue';
 import { removeGroupImage, uploadGroupImage } from '@scorely/web/src/modules/groups/groups.api';
+import { onPermissionError, permissionLostInject } from '@scorely/web/src/modules/groups/permissions';
 import { defineComponent, type PropType } from 'vue';
 
 const PURPOSES = { logo: 'group.logo', cover: 'group.cover' } as const;
@@ -14,6 +15,8 @@ export default defineComponent({
   name: 'GroupImagesCard',
 
   components: { BottomSheet, SettingsRow },
+
+  inject: permissionLostInject,
 
   props: {
     group: { type: Object as PropType<Group>, required: true },
@@ -58,6 +61,11 @@ export default defineComponent({
         this.$q.notify({ type: 'positive', message: this.$t('groups.settings.imageSaved') });
         this.$emit('saved');
       } catch (err) {
+        // GRP-57: sem a permissão, o painel fecha e a página recarrega.
+        if (await onPermissionError(err, this.permissionLost)) {
+          this.open = false;
+          return;
+        }
         const unreadable = err instanceof Error && err.message === 'unreadable';
         this.$q.notify({
           type: 'negative',
@@ -75,7 +83,8 @@ export default defineComponent({
         this.$q.notify({ type: 'positive', message: this.$t('groups.settings.imageRemoved') });
         this.$emit('saved');
       } catch (err) {
-        this.$q.notify({ type: 'negative', message: errorMessage(err) });
+        if (await onPermissionError(err, this.permissionLost)) this.open = false;
+        else this.$q.notify({ type: 'negative', message: errorMessage(err) });
       } finally {
         this.busy = undefined;
       }

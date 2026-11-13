@@ -31,6 +31,16 @@ export const groupsFunctions: AWS['functions'] = {
     handler: handler('removeMember'),
     events: route('DELETE', '/groups/{id}/members/{userId}'),
   },
+  // Cargos (GRP-51) e passar o grupo (GRP-54)
+  groupsSetStaffRole: {
+    handler: handler('setStaffRole'),
+    events: route('PUT', '/groups/{id}/members/{userId}/staff-role'),
+  },
+  groupsClearStaffRole: {
+    handler: handler('clearStaffRole'),
+    events: route('DELETE', '/groups/{id}/members/{userId}/staff-role'),
+  },
+  groupsTransfer: { handler: handler('transferGroup'), events: route('POST', '/groups/{id}/transfer') },
   // Convite para membro (GRP-40, 41) e sair do grupo (GRP-42)
   groupsInviteToMember: {
     handler: handler('inviteToMember'),

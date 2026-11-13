@@ -2,10 +2,20 @@
 import type { Game, Group, InviteKind, Member, Player, PlayerPosition } from '@scorely/contracts';
 import { errorMessage } from '@scorely/web/src/i18n/errors';
 import { currentTimeZone, formatDateTime } from '@scorely/web/src/lib/datetime';
+import { ApiRequestError } from '@scorely/web/src/lib/http';
 import { useAuthStore } from '@scorely/web/src/modules/auth/auth.store';
 import GroupHero from '@scorely/web/src/modules/groups/components/GroupHero.vue';
 import { gameUnlessArchived } from '@scorely/web/src/modules/groups/groups';
 import { groupsApi } from '@scorely/web/src/modules/groups/groups.api';
+import {
+  type GroupAccess,
+  groupAccess,
+  isPermissionError,
+  NO_ACCESS,
+  PERMISSION_LOST,
+  shouldRefresh,
+  showsSettings,
+} from '@scorely/web/src/modules/groups/permissions';
 import {
   type GroupTab,
   groupTabs,
@@ -38,6 +48,11 @@ export default defineComponent({
     return { auth: useAuthStore() };
   },
 
+  /** GRP-57: os componentes das abas avisam aqui quando uma ação deles é barrada por permissão. */
+  provide() {
+    return { [PERMISSION_LOST]: () => this.permissionLost() };
+  },
+
   data() {
     return {
       group: undefined as Group | undefined,
@@ -50,6 +65,9 @@ export default defineComponent({
       players: [] as Player[],
       editingPlayer: undefined as Player | undefined,
       positionsOpen: false,
+      /** GRP-57: quando foi a última leitura e se há uma em andamento (a volta para a aba não relê à toa). */
+      lastLoadAt: undefined as number | undefined,
+      loading: false,
     };
   },
 
@@ -58,18 +76,30 @@ export default defineComponent({
       return String(this.$route.params.id);
     },
 
+    /** GRP-49, 55: o que quem vê pode fazer, pelo `myPermissions` da api. */
+    access(): GroupAccess {
+      return this.group ? groupAccess(this.group, this.auth.user?.id) : NO_ACCESS;
+    },
+
+    /** Só o que é do dono: arquivar, cargos e passar o grupo (GRP-49). */
     isOwner(): boolean {
-      return Boolean(this.group && this.group.ownerId === this.auth.user?.id);
+      return this.access.owner;
     },
 
+    /** GRP-24: quem tem `game.manage` cancela. */
     canCancel(): boolean {
-      return this.isOwner && (this.game?.status === 'open' || this.game?.status === 'scheduled');
+      return this.access.game && (this.game?.status === 'open' || this.game?.status === 'scheduled');
     },
 
-    /** GRP-44: o dono reabre o jogo cancelado, só antes do início. */
+    /** GRP-44: quem tem `game.manage` reabre o jogo cancelado, só antes do início. */
     canReopen(): boolean {
       const g = this.game;
-      return this.isOwner && g?.status === 'cancelled' && Date.parse(g.startsAt) > Date.now();
+      return this.access.game && g?.status === 'cancelled' && Date.parse(g.startsAt) > Date.now();
+    },
+
+    /** GRP-29: a aba Ajustes, para quem pode mudar alguma linha dela. */
+    showsSettings(): boolean {
+      return Boolean(this.group && showsSettings(this.access, Boolean(this.group.archivedAt)));
     },
 
     /** TIM-03, 05: todos do grupo veem as posições, só em esporte que tem posições. */
@@ -77,9 +107,9 @@ export default defineComponent({
       return Boolean(this.group && sportPositions(this.group.sport).length > 0);
     },
 
-    /** TIM-03, 05: só o dono muda; no grupo arquivado, as posições aparecem mas o painel não abre (GRP-37). */
+    /** TIM-03, 05: só quem tem `teams.manage` muda; no grupo arquivado, as posições aparecem mas o painel não abre (GRP-37). */
     canEditPositions(): boolean {
-      return this.showsPositions && this.isOwner && !this.group?.archivedAt;
+      return this.showsPositions && this.access.teams && !this.group?.archivedAt;
     },
 
     playerPositions(): Record<string, PlayerPosition[]> | undefined {
@@ -88,7 +118,7 @@ export default defineComponent({
 
     /** GRP-29: o nome da aba não leva contagem; as contagens ficam nas seções de dentro. */
     tabs(): { name: GroupTab; label: string }[] {
-      return groupTabs(this.isOwner).map((name) => ({ name, label: this.$t(TAB_LABELS[name]) }));
+      return groupTabs(this.showsSettings).map((name) => ({ name, label: this.$t(TAB_LABELS[name]) }));
     },
 
     /** A aba marcada: o nome da rota filha. */
@@ -119,28 +149,77 @@ export default defineComponent({
     '$route.name': 'guardTab',
   },
 
+  mounted() {
+    document.addEventListener('visibilitychange', this.onVisibility);
+  },
+
+  beforeUnmount() {
+    document.removeEventListener('visibilitychange', this.onVisibility);
+  },
+
   methods: {
+    /** GRP-57: voltar para a aba relê o grupo, se a última leitura tem 1 min ou mais. */
+    onVisibility() {
+      if (document.visibilityState !== 'visible' || !this.group) return;
+      if (shouldRefresh(this.lastLoadAt, Date.now(), this.loading)) void this.refresh();
+    },
+
+    /**
+     * GRP-57: a releitura da volta para a aba. Uma falha de rede aqui não troca a página pela tela de erro (o painel
+     * aberto fica); só sair do grupo (`GROUP_NOT_FOUND`) mostra o erro, como no `load()`.
+     */
+    async refresh() {
+      this.loading = true;
+      try {
+        await this.fetch();
+      } catch (err) {
+        if (err instanceof ApiRequestError && err.code === 'GROUP_NOT_FOUND') {
+          this.group = undefined;
+          this.loadError = errorMessage(err);
+        }
+      } finally {
+        this.loading = false;
+        this.lastLoadAt = Date.now();
+      }
+    },
+
+    /** GRP-57: uma ação foi barrada por permissão: avisa e recarrega, e a tela fica só com o que a pessoa pode. */
+    async permissionLost() {
+      this.positionsOpen = false;
+      this.$q.notify({ type: 'warning', message: this.$t('groups.permissionsChanged') });
+      await this.refresh();
+    },
+
     /** Passa a altura do cabeçalho fixo para as abas grudarem logo abaixo dele (D3). */
     pageStyle(offset: number, height: number): Record<string, string> {
       return { minHeight: `${height - offset}px`, '--sc-sticky-top': `${offset}px` };
     },
 
+    /** Lê o grupo, o jogo, os membros e as posições, e confere a aba (GRP-29). */
+    async fetch() {
+      const [group, game, members] = await Promise.all([
+        groupsApi.get(this.groupId),
+        gameUnlessArchived(() => groupsApi.currentGame(this.groupId)),
+        groupsApi.members(this.groupId),
+      ]);
+      this.group = group;
+      this.game = game;
+      this.members = members;
+      this.players = this.showsPositions ? await this.loadPlayers() : [];
+      await this.guardTab();
+    },
+
     async load() {
       this.loadError = '';
+      this.loading = true;
       try {
-        const [group, game, members] = await Promise.all([
-          groupsApi.get(this.groupId),
-          gameUnlessArchived(() => groupsApi.currentGame(this.groupId)),
-          groupsApi.members(this.groupId),
-        ]);
-        this.group = group;
-        this.game = game;
-        this.members = members;
-        this.players = this.showsPositions ? await this.loadPlayers() : [];
-        await this.guardTab();
+        await this.fetch();
       } catch (err) {
         this.group = undefined;
         this.loadError = errorMessage(err);
+      } finally {
+        this.loading = false;
+        this.lastLoadAt = Date.now();
       }
     },
 
@@ -153,10 +232,10 @@ export default defineComponent({
       }
     },
 
-    /** Quem não é dono e abriu o Ajustes cai no Jogo (D4). */
+    /** Quem não pode ver os Ajustes e abriu a aba cai no Jogo (D4, GRP-29). */
     async guardTab() {
       if (!this.group) return;
-      const to = tabRedirect(String(this.$route.name), this.isOwner);
+      const to = tabRedirect(String(this.$route.name), this.showsSettings);
       if (to) await this.$router.replace({ name: to, params: { id: this.groupId } });
     },
 
@@ -186,7 +265,9 @@ export default defineComponent({
         await action();
         if (success) this.$q.notify({ type: 'positive', message: success });
       } catch (err) {
-        this.$q.notify({ type: 'negative', message: errorMessage(err) });
+        // GRP-57: barrada por permissão → a mensagem própria; o `load()` abaixo ajusta a tela.
+        const message = isPermissionError(err) ? this.$t('groups.permissionsChanged') : errorMessage(err);
+        this.$q.notify({ type: isPermissionError(err) ? 'warning' : 'negative', message });
       } finally {
         this.busy = false;
         await this.load();
@@ -290,6 +371,31 @@ export default defineComponent({
       this.players = this.players.map((p) => (p.userId === saved.userId ? saved : p));
     },
 
+    /** GRP-51, 56: sem confirmação, dá para desfazer na hora. */
+    async setAdmin(m: Member) {
+      await this.run(
+        () => groupsApi.setStaffRole(this.groupId, m.userId, 'admin'),
+        this.$t('groups.staff.grantedToast', { name: m.name ?? this.$t('groups.unnamed') }),
+      );
+    },
+
+    async clearAdmin(m: Member) {
+      await this.run(
+        () => groupsApi.clearStaffRole(this.groupId, m.userId),
+        this.$t('groups.staff.clearedToast', { name: m.name ?? this.$t('groups.unnamed') }),
+      );
+    },
+
+    /** GRP-54, 56: confirma antes, porque o dono antigo não desfaz sozinho. A página recarrega com as permissões novas. */
+    async transfer(m: Member) {
+      const name = m.name ?? this.$t('groups.unnamed');
+      if (!(await this.ask(this.$t('groups.staff.transferConfirm', { name })))) return;
+      await this.run(
+        () => groupsApi.transfer(this.groupId, m.userId),
+        this.$t('groups.staff.transferredToast', { name }),
+      );
+    },
+
     async removeMember(m: Member) {
       const name = m.name ?? this.$t('groups.unnamed');
       const key = m.role === 'reserve' ? 'groups.removeReserveConfirm' : 'groups.removeConfirm';
@@ -374,6 +480,7 @@ export default defineComponent({
             :members="members"
             :busy="busy"
             :is-owner="isOwner"
+            :access="access"
             :can-cancel="canCancel"
             :can-reopen="canReopen"
             :player-positions="playerPositions"
@@ -388,6 +495,9 @@ export default defineComponent({
             @member-invite="inviteToMember"
             @cancel-member-invite="cancelMemberInvite"
             @leave-group="leaveGroup"
+            @set-admin="setAdmin"
+            @clear-admin="clearAdmin"
+            @transfer="transfer"
             @archive="archive"
             @unarchive="unarchive"
             @saved="load"

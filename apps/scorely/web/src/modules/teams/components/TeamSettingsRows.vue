@@ -17,6 +17,7 @@ import BottomSheet from '@scorely/web/src/components/BottomSheet.vue';
 import HoursStepper from '@scorely/web/src/components/HoursStepper.vue';
 import { errorMessage } from '@scorely/web/src/i18n/errors';
 import SettingsRow from '@scorely/web/src/modules/groups/components/SettingsRow.vue';
+import { onPermissionError, permissionLostInject } from '@scorely/web/src/modules/groups/permissions';
 import TeamApartEditor, {
   type ApartOption,
 } from '@scorely/web/src/modules/teams/components/TeamApartEditor.vue';
@@ -51,6 +52,8 @@ export default defineComponent({
   name: 'TeamSettingsRows',
 
   components: { BottomSheet, HoursStepper, SettingsRow, TeamApartEditor, TeamRuleEditor },
+
+  inject: permissionLostInject,
 
   props: {
     group: { type: Object as PropType<Group>, required: true },
@@ -149,7 +152,8 @@ export default defineComponent({
         this.settings = settings;
         this.players = players;
       } catch (err) {
-        this.$q.notify({ type: 'negative', message: errorMessage(err) });
+        if (!(await onPermissionError(err, this.permissionLost)))
+          this.$q.notify({ type: 'negative', message: errorMessage(err) });
       }
     },
 
@@ -172,7 +176,9 @@ export default defineComponent({
         this.$q.notify({ type: 'positive', message: this.$t('teams.settings.saved') });
         return true;
       } catch (err) {
-        this.$q.notify({ type: 'negative', message: errorMessage(err) });
+        // GRP-57: sem a permissão, o painel fecha e a página recarrega (estas linhas somem dos Ajustes).
+        if (await onPermissionError(err, this.permissionLost)) this.sheet = null;
+        else this.$q.notify({ type: 'negative', message: errorMessage(err) });
         return false;
       } finally {
         this.saving = false;

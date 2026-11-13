@@ -313,3 +313,21 @@ describe('findOrCreateByEmail', () => {
     expect((err as Error).message).not.toContain(EMAIL);
   });
 });
+
+describe('conta que não existe mais (AUTH-16)', () => {
+  const ghost = asUserId('00000000-0000-4000-8000-0000000000ff');
+
+  it('AUTH-16: GET /me com conta inexistente → SESSION_INVALID (401), não USER_NOT_FOUND', async () => {
+    const service = createUserService(memoryUserRepo().repo, () => clock.now);
+    const err = await service.get(ghost).catch((e: unknown) => e);
+    expect(err).toMatchObject({ code: 'SESSION_INVALID', status: 401 });
+  });
+
+  it('AUTH-16: PATCH /me com conta inexistente → SESSION_INVALID (401) e nada é criado', async () => {
+    const memory = memoryUserRepo();
+    const service = createUserService(memory.repo, () => clock.now);
+    const err = await service.update(ghost, { name: 'Ana' }).catch((e: unknown) => e);
+    expect(err).toMatchObject({ code: 'SESSION_INVALID', status: 401 });
+    expect(memory.profiles.size).toBe(0);
+  });
+});

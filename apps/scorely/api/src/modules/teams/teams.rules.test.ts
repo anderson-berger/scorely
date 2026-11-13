@@ -253,7 +253,12 @@ function setup(
     create: unused,
     addMember: unused,
     counts: unused,
-    getMembership: unused,
+    getMembership: async (groupId, userId) => {
+      const role = groupId === state.group.id ? MEMBERS[userId] : undefined;
+      return role === undefined ? undefined : { role };
+    },
+    setStaffRole: unused,
+    transfer: unused,
     setMemberInvite: unused,
     clearMemberInvite: unused,
     acceptMemberInvite: unused,

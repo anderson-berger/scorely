@@ -5,6 +5,7 @@ import HoursStepper from '@scorely/web/src/components/HoursStepper.vue';
 import { errorMessage, issueMessage } from '@scorely/web/src/i18n/errors';
 import SettingsRow from '@scorely/web/src/modules/groups/components/SettingsRow.vue';
 import { groupsApi } from '@scorely/web/src/modules/groups/groups.api';
+import { onPermissionError, permissionLostInject } from '@scorely/web/src/modules/groups/permissions';
 import { limitsSummary } from '@scorely/web/src/modules/groups/settings';
 import { defineComponent, type PropType } from 'vue';
 
@@ -24,6 +25,8 @@ export default defineComponent({
   name: 'LimitsCard',
 
   components: { BottomSheet, HoursStepper, SettingsRow },
+
+  inject: permissionLostInject,
 
   props: {
     group: { type: Object as PropType<Group>, required: true },
@@ -80,7 +83,9 @@ export default defineComponent({
         this.$q.notify({ type: 'positive', message: this.$t('groups.limits.saved') });
         this.$emit('saved');
       } catch (err) {
-        this.$q.notify({ type: 'negative', message: errorMessage(err) });
+        // GRP-57: sem a permissão, o painel fecha e a página recarrega.
+        if (await onPermissionError(err, this.permissionLost)) this.editing = false;
+        else this.$q.notify({ type: 'negative', message: errorMessage(err) });
       } finally {
         this.saving = false;
       }

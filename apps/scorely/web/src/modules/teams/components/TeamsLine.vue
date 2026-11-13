@@ -16,7 +16,7 @@ export default defineComponent({
   props: {
     groupId: { type: String, required: true },
     game: { type: Object as PropType<Game>, required: true },
-    isOwner: { type: Boolean, default: false },
+    canManage: { type: Boolean, default: false },
   },
 
   setup() {
@@ -30,7 +30,7 @@ export default defineComponent({
   computed: {
     line(): Text | null {
       if (this.teams === undefined || this.game.status === 'cancelled') return null;
-      return teamsLine(this.teams, this.auth.user?.id ?? '', this.isOwner);
+      return teamsLine(this.teams, this.auth.user?.id ?? '', this.canManage);
     },
   },
 

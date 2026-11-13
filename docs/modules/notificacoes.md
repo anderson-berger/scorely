@@ -1,6 +1,6 @@
 # Módulo Notificações
 
-> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-11.
+> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-13.
 
 Código: `apps/scorely/api/src/modules/notifications/`, `apps/scorely/web/src/modules/notifications/`. Contrato: `apps/scorely/contracts/src/notifications.ts`.
 
@@ -13,15 +13,17 @@ Avisar a pessoa, dentro do app, do que aconteceu sem ela estar olhando: entrou n
 - **NTF-01. Os outros módulos avisam por `notify(userId, { type, title, body?, link? })`.** Nenhum outro módulo grava notificação direto no banco.
 - **NTF-02. Tipos que existem hoje:**
 
-  | Tipo                | Quem dispara                                            | Link          |
-  | ------------------- | ------------------------------------------------------- | ------------- |
-  | `welcome`           | primeiro login (AUTH-05)                                | `/profile`    |
-  | `waitlist_promoted` | saiu alguém de dentro e a pessoa subiu da fila (GRP-22) | grupo ou jogo |
-  | `game_cancelled`    | o dono cancelou o jogo (GRP-24)                         | grupo         |
-  | `game_reopened`     | o dono reabriu o jogo cancelado (GRP-44)                | grupo         |
-  | `member_invite`     | o dono convidou a reserva para virar membro (GRP-40)    | grupo         |
-  | `teams_published`   | o dono publicou os times do jogo pela 1ª vez (TIM-10)   | grupo ou jogo |
-  | `game_confirmed`    | o jogo chegou ao mínimo pela 1ª vez (GRP-47)            | grupo ou jogo |
+  | Tipo                 | Quem dispara                                            | Link          |
+  | -------------------- | ------------------------------------------------------- | ------------- |
+  | `welcome`            | primeiro login (AUTH-05)                                | `/profile`    |
+  | `waitlist_promoted`  | saiu alguém de dentro e a pessoa subiu da fila (GRP-22) | grupo ou jogo |
+  | `game_cancelled`     | quem tem `game.manage` cancelou o jogo (GRP-24)         | grupo         |
+  | `game_reopened`      | quem tem `game.manage` reabriu o jogo (GRP-44)          | grupo         |
+  | `member_invite`      | a reserva foi convidada para virar membro (GRP-40)      | grupo         |
+  | `teams_published`    | os times do jogo foram publicados pela 1ª vez (TIM-10)  | grupo ou jogo |
+  | `game_confirmed`     | o jogo chegou ao mínimo pela 1ª vez (GRP-47)            | grupo ou jogo |
+  | `staff_role_granted` | a pessoa recebeu um cargo no grupo (GRP-51)             | grupo         |
+  | `group_transferred`  | a pessoa virou a dona do grupo (GRP-54)                 | grupo         |
   - Um tipo novo entra no contrato e ganha um ícone no web (`notification.icons.ts`).
 
 - **NTF-03. O título e o corpo são gravados em pt-BR** já no momento do aviso. O web mostra o texto como está.

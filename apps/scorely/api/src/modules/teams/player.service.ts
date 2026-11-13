@@ -1,7 +1,7 @@
 import { appError } from '@scorely/api/src/lib/errors';
 import type { UserId } from '@scorely/api/src/lib/ids';
 import type { GroupRepository, StoredGroup } from '@scorely/api/src/modules/groups/group.repository';
-import { requireActive, requireMember } from '@scorely/api/src/modules/groups/groups.deps';
+import { requireActive, requireMember, requirePermission } from '@scorely/api/src/modules/groups/groups.deps';
 import type { RosterGame, RosterMember } from '@scorely/api/src/modules/groups/roster';
 import type { PlayerRepository } from '@scorely/api/src/modules/teams/player.repository';
 import type { UserDirectory } from '@scorely/api/src/modules/users/user.repository';
@@ -26,11 +26,6 @@ export interface TeamsDeps {
   /** USR-17: o `{userId}` da rota chega pelo id público. */
   users: Pick<UserDirectory, 'resolve'>;
   now?: () => Date;
-}
-
-/** Ponto único da permissão de times (hoje: o dono). O módulo de permissões troca só isto. */
-export function canManageTeams(group: StoredGroup, userId: UserId): boolean {
-  return group.ownerId === userId;
 }
 
 /** Alguém classificável, com os dois ids (interno); a resposta sai com o público (USR-16). */
@@ -73,11 +68,9 @@ function toPlayer({ userId: _id, publicId, ...rest }: Person, positions: PlayerP
 export function createPlayerService(deps: TeamsDeps) {
   const now = deps.now ?? (() => new Date());
 
-  /** TIM-03: só quem gerencia os times muda (404 para quem não participa, 403 para quem não é dono). */
+  /** TIM-03: só quem tem `teams.manage` muda (404 para quem não participa, 403 para quem não tem, GRP-49). */
   async function requireManager(userId: UserId, groupId: string): Promise<StoredGroup> {
-    const { group } = await requireMember(deps, userId, groupId);
-    if (!canManageTeams(group, userId)) throw appError('GROUP_NOT_OWNER');
-    return group;
+    return (await requirePermission(deps, userId, groupId, 'teams.manage')).group;
   }
 
   const people = (userId: UserId, group: StoredGroup) => classifiablePeople(deps.roster, userId, group);

@@ -1,10 +1,11 @@
 <script lang="ts">
 import type { Game, Group } from '@scorely/contracts';
+import { type GroupAccess, NO_ACCESS } from '@scorely/web/src/modules/groups/permissions';
 import TeamsCard from '@scorely/web/src/modules/teams/components/TeamsCard.vue';
 import { defineComponent, type PropType } from 'vue';
 
 /**
- * Aba Times (GRP-29, TIM-14): os times do jogo da semana, para todos. O dono monta, sorteia e publica aqui.
+ * Aba Times (GRP-29, TIM-14): os times do jogo da semana, para todos. Quem tem `teams.manage` monta, sorteia e publica aqui.
  * Jogo cancelado: "Jogo cancelado, sem times". Grupo arquivado não tem jogo (`game = null`): só o aviso (GRP-37).
  * O casco passa os mesmos dados para todas as abas; o que esta não usa não vira atributo (`inheritAttrs`).
  */
@@ -18,7 +19,7 @@ export default defineComponent({
   props: {
     group: { type: Object as PropType<Group>, required: true },
     game: { type: Object as PropType<Game | null>, default: null },
-    isOwner: { type: Boolean, default: false },
+    access: { type: Object as PropType<GroupAccess>, default: () => NO_ACCESS },
   },
 });
 </script>
@@ -28,7 +29,7 @@ export default defineComponent({
   <div v-else-if="game.status === 'cancelled'" class="sc-card sc-caption notice">
     {{ $t('teams.empty.cancelled') }}
   </div>
-  <TeamsCard v-else :group-id="group.id" :game="game" :sport="group.sport" :is-owner="isOwner" />
+  <TeamsCard v-else :group-id="group.id" :game="game" :sport="group.sport" :can-manage="access.teams" />
 </template>
 
 <style scoped>

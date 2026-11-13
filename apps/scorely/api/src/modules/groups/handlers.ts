@@ -17,6 +17,8 @@ import {
   GroupImageSlotSchema,
   MediaUploadInputSchema,
   RotateInviteInputSchema,
+  SetStaffRoleInputSchema,
+  TransferGroupInputSchema,
   UpdateGameInputSchema,
   UpdateGroupInputSchema,
 } from '@scorely/contracts';
@@ -122,6 +124,38 @@ export async function removeMember(event: HttpEvent) {
       pathParam(event, 'id'),
       asPublicUserId(pathParam(event, 'userId')),
     );
+  });
+}
+
+/** GRP-51: o dono dá o cargo. */
+export async function setStaffRole(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
+    const { staffRoleId } = parseBody(event, SetStaffRoleInputSchema);
+    await groups.setStaffRole(
+      auth.userId,
+      pathParam(event, 'id'),
+      asPublicUserId(pathParam(event, 'userId')),
+      staffRoleId,
+    );
+  });
+}
+
+/** GRP-51: o dono tira o cargo. */
+export async function clearStaffRole(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
+    await groups.clearStaffRole(
+      auth.userId,
+      pathParam(event, 'id'),
+      asPublicUserId(pathParam(event, 'userId')),
+    );
+  });
+}
+
+/** GRP-54: o dono passa o grupo para um membro. */
+export async function transferGroup(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
+    const { userId } = parseBody(event, TransferGroupInputSchema);
+    return groups.transfer(auth.userId, pathParam(event, 'id'), userId);
   });
 }
 

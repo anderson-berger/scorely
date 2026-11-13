@@ -14,6 +14,7 @@ import {
   layerTimeline,
   stepHours,
 } from '@scorely/web/src/modules/groups/layers';
+import { onPermissionError, permissionLostInject } from '@scorely/web/src/modules/groups/permissions';
 import { defineComponent, type PropType } from 'vue';
 
 interface EditRow {
@@ -34,6 +35,8 @@ export default defineComponent({
   name: 'LayersCard',
 
   components: { BottomSheet, HoursStepper, SettingsRow },
+
+  inject: permissionLostInject,
 
   props: {
     group: { type: Object as PropType<Group>, required: true },
@@ -137,7 +140,9 @@ export default defineComponent({
         this.$q.notify({ type: 'positive', message: this.$t('groups.layersSaved') });
         this.$emit('saved');
       } catch (err) {
-        this.$q.notify({ type: 'negative', message: errorMessage(err) });
+        // GRP-57: sem a permissão, o painel fecha e a página recarrega.
+        if (await onPermissionError(err, this.permissionLost)) this.editing = false;
+        else this.$q.notify({ type: 'negative', message: errorMessage(err) });
       } finally {
         this.saving = false;
       }

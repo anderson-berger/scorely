@@ -33,6 +33,7 @@ const CATALOG = {
 
   GROUP_NOT_FOUND: { status: 404, message: 'Group not found' },
   GROUP_NOT_OWNER: { status: 403, message: 'Only the group owner can do this' },
+  GROUP_PERMISSION_DENIED: { status: 403, message: 'You do not have permission to do this in the group' },
   GROUP_INVITE_INVALID: { status: 404, message: 'Invalid or replaced invite link' },
   GROUP_MEMBER_NOT_FOUND: { status: 404, message: 'Member not found in this group' },
   GROUP_OWNER_NOT_REMOVABLE: { status: 409, message: 'The group owner cannot be removed' },

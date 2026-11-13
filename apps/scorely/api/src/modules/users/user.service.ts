@@ -31,10 +31,10 @@ export function createUserService(
   media: MediaService = mediaService,
   newId: () => PublicUserId = newPublicId,
 ) {
-  /** A própria pessoa: perfil, email e preferências (USR-13, 14). */
+  /** A própria pessoa: perfil, email e preferências (USR-13, 14). Conta sumida com token válido → 401 (AUTH-16). */
   async function getRecord(id: UserId): Promise<MeRecord> {
     const me = await repo.getMe(id);
-    if (!me) throw appError('USER_NOT_FOUND');
+    if (!me) throw appError('SESSION_INVALID');
     return me;
   }
 
@@ -89,7 +89,7 @@ export function createUserService(
     /** USR-03: cada campo vai para a sua parte (perfil ou preferências); devolve a pessoa com as preferências (USR-14). */
     async update(id: UserId, patch: UpdateMeInput): Promise<Me> {
       const me = await repo.update(id, patch);
-      if (!me) throw appError('USER_NOT_FOUND');
+      if (!me) throw appError('SESSION_INVALID');
       return toMe(me);
     },
 

@@ -105,7 +105,7 @@ Os outros módulos leem pessoas pelo `UserDirectory`, que só busca o perfil (`M
 
 O `GET /me` e o `PATCH /me` devolvem o perfil (com `id` = id público, USR-16), o email e as preferências (`preferences: { locale?, timeZone? }`). Nas rotas dos outros módulos, todo `{userId}` e todo `userId` do corpo é o id público.
 
-Erros: `USER_NOT_FOUND` e `USER_CREATE_CONFLICT`. Os da foto vêm da mídia (`MEDIA_NOT_FOUND`, `MEDIA_NOT_UPLOADED` e `MEDIA_INVALID`).
+Erros: `USER_CREATE_CONFLICT`, e `SESSION_INVALID` (401) quando a conta do token não existe mais (AUTH-16 em [auth.md](auth.md)). Os da foto vêm da mídia (`MEDIA_NOT_FOUND`, `MEDIA_NOT_UPLOADED` e `MEDIA_INVALID`).
 
 ## 4. Limites conhecidos
 

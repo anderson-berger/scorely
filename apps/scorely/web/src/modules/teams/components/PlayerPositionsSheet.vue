@@ -2,6 +2,7 @@
 import type { Player, PlayerPosition, Sport } from '@scorely/contracts';
 import BottomSheet from '@scorely/web/src/components/BottomSheet.vue';
 import { errorMessage } from '@scorely/web/src/i18n/errors';
+import { onPermissionError, permissionLostInject } from '@scorely/web/src/modules/groups/permissions';
 import PositionsPicker from '@scorely/web/src/modules/teams/components/PositionsPicker.vue';
 import { teamsApi } from '@scorely/web/src/modules/teams/teams.api';
 import { defineComponent, type PropType } from 'vue';
@@ -14,6 +15,8 @@ export default defineComponent({
   name: 'PlayerPositionsSheet',
 
   components: { BottomSheet, PositionsPicker },
+
+  inject: permissionLostInject,
 
   props: {
     modelValue: { type: Boolean, required: true },
@@ -53,7 +56,9 @@ export default defineComponent({
         this.$emit('saved', saved);
         this.$emit('update:modelValue', false);
       } catch (err) {
-        this.$q.notify({ type: 'negative', message: errorMessage(err) });
+        // GRP-57: sem a permissão, o painel fecha e a página recarrega.
+        if (await onPermissionError(err, this.permissionLost)) this.$emit('update:modelValue', false);
+        else this.$q.notify({ type: 'negative', message: errorMessage(err) });
       } finally {
         this.saving = false;
       }

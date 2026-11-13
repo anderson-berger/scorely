@@ -2,7 +2,7 @@ import { AppError, appError } from '@scorely/api/src/lib/errors';
 import { asUserId, type UserId } from '@scorely/api/src/lib/ids';
 import type { GroupRepository, StoredGroup } from '@scorely/api/src/modules/groups/group.repository';
 import type { PlayerRepository, StoredPlayer } from '@scorely/api/src/modules/teams/player.repository';
-import { canManageTeams, createPlayerService } from '@scorely/api/src/modules/teams/player.service';
+import { createPlayerService } from '@scorely/api/src/modules/teams/player.service';
 import {
   type Attendee,
   type ErrorCode,
@@ -15,6 +15,7 @@ import {
   PublicUserIdSchema,
   SPORT_POSITIONS,
   type Sport,
+  type StaffRoleId,
   UpdatePlayerInputSchema,
 } from '@scorely/contracts';
 import { describe, expect, it } from 'vitest';
@@ -197,6 +198,8 @@ function setup(opts: { group?: Partial<StoredGroup>; members?: RosterMember[]; g
     group: storedGroup(opts.group),
     members: opts.members ?? MEMBERS,
     game: opts.game ?? GAME,
+    /** Cargo de cada pessoa (GRP-48): `admin` dá o `teams.manage`. */
+    staff: {} as Record<string, StaffRoleId>,
   };
   const saved: { groupId: string; userId: string; positions: PlayerPosition[]; now: string }[] = [];
   const store = new Map<string, StoredPlayer>();
@@ -210,7 +213,15 @@ function setup(opts: { group?: Partial<StoredGroup>; members?: RosterMember[]; g
     create: unused,
     addMember: unused,
     counts: unused,
-    getMembership: unused,
+    getMembership: async (groupId, userId) => {
+      const role =
+        groupId === state.group.id ? state.members.find((m) => m.userId === userId)?.role : undefined;
+      if (!role) return undefined;
+      const staffRoleId = state.staff[userId];
+      return staffRoleId === undefined ? { role } : { role, staffRoleId };
+    },
+    setStaffRole: unused,
+    transfer: unused,
     setMemberInvite: unused,
     clearMemberInvite: unused,
     acceptMemberInvite: unused,
@@ -448,13 +459,6 @@ describe('times: posições do esporte (TIM-02)', () => {
 });
 
 describe('times: todos do grupo veem, só o dono muda (TIM-03)', () => {
-  it('TIM-03: canManageTeams é verdadeiro só para o dono', () => {
-    const group = storedGroup();
-    expect(canManageTeams(group, OWNER)).toBe(true);
-    expect(canManageTeams(group, A)).toBe(false);
-    expect(canManageTeams(group, R)).toBe(false);
-  });
-
   it('TIM-03: membro e reserva veem a mesma lista do dono, com as posições', async () => {
     const t = setup();
     await t.seed(B, ['setter', 'libero']);
@@ -469,17 +473,17 @@ describe('times: todos do grupo veem, só o dono muda (TIM-03)', () => {
     }
   });
 
-  it('TIM-03: membro e reserva que não são donos → mudar responde GROUP_NOT_OWNER (403), sem gravar', async () => {
+  it('TIM-03: membro e reserva sem cargo (sem teams.manage) → mudar responde GROUP_PERMISSION_DENIED (403), sem gravar', async () => {
     const t = setup();
     for (const who of [A, R]) {
       await expectAppError(
         t.service.update(who, GROUP_ID, B, { positions: ['setter'] }),
-        'GROUP_NOT_OWNER',
+        'GROUP_PERMISSION_DENIED',
         403,
       );
       await expectAppError(
         t.service.update(who, GROUP_ID, who, { positions: ['setter'] }),
-        'GROUP_NOT_OWNER',
+        'GROUP_PERMISSION_DENIED',
         403,
       );
     }
@@ -505,11 +509,11 @@ describe('times: todos do grupo veem, só o dono muda (TIM-03)', () => {
     expect(t.saved).toEqual([]);
   });
 
-  it('TIM-03: a permissão vem antes da validação (não dono com posição inválida e pessoa de fora → 403)', async () => {
+  it('TIM-03: a permissão vem antes da validação (sem teams.manage, com posição inválida e pessoa de fora → 403)', async () => {
     const t = setup({ group: { sport: 'basketball' } });
     await expectAppError(
       t.service.update(A, GROUP_ID, OUTSIDER, { positions: ['setter'] }),
-      'GROUP_NOT_OWNER',
+      'GROUP_PERMISSION_DENIED',
       403,
     );
   });
@@ -681,11 +685,51 @@ describe('jogadores pelo id público (USR-16, USR-17)', () => {
     expect(t.saved).toEqual([]);
   });
 
-  it('USR-17: a permissão vem de quem pede: membro mudando a posição de outro → GROUP_NOT_OWNER', async () => {
+  it('USR-17: a permissão vem de quem pede: membro mudando a posição de outro → GROUP_PERMISSION_DENIED', async () => {
     const t = setup();
     await expectAppError(
       t.raw.update(A, GROUP_ID, pub(B), { positions: ['setter'] }),
-      'GROUP_NOT_OWNER',
+      'GROUP_PERMISSION_DENIED',
+      403,
+    );
+    expect(t.saved).toEqual([]);
+  });
+});
+
+describe('posições com cargo (TIM-03, GRP-49, 53)', () => {
+  it('TIM-03: membro e reserva com o cargo Admin (teams.manage) mudam as posições', async () => {
+    const t = setup();
+    for (const who of [A, R]) {
+      t.state.staff[who] = 'admin';
+      const p = await t.service.update(who, GROUP_ID, B, { positions: ['setter'] });
+      expect(p).toMatchObject({ userId: B, positions: ['setter'] });
+    }
+    expect(t.saved).toHaveLength(2);
+  });
+
+  it('TIM-03: sem cargo, a resposta traz a permissão que faltou (teams.manage)', async () => {
+    const t = setup();
+    const err = await expectAppError(
+      t.service.update(A, GROUP_ID, B, { positions: ['setter'] }),
+      'GROUP_PERMISSION_DENIED',
+      403,
+    );
+    expect(err.details).toEqual({ permission: 'teams.manage' });
+  });
+
+  it('GRP-53: mudar as posições de quem tem cargo segue as regras normais (o dono muda as do Admin)', async () => {
+    const t = setup();
+    t.state.staff[A] = 'admin';
+    const p = await t.service.update(OWNER, GROUP_ID, A, { positions: ['libero'] });
+    expect(p).toMatchObject({ userId: A, positions: ['libero'] });
+  });
+
+  it('GRP-52: um cargo que não existe mais conta como sem cargo → GROUP_PERMISSION_DENIED', async () => {
+    const t = setup();
+    t.state.staff[A] = 'organizer' as never;
+    await expectAppError(
+      t.service.update(A, GROUP_ID, B, { positions: ['setter'] }),
+      'GROUP_PERMISSION_DENIED',
       403,
     );
     expect(t.saved).toEqual([]);

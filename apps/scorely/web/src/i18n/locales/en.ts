@@ -21,6 +21,7 @@ export const en: MessageSchema = {
     NOTIFICATION_NOT_FOUND: 'Notification not found',
     GROUP_NOT_FOUND: 'Group not found',
     GROUP_NOT_OWNER: 'Only the group owner can do this',
+    GROUP_PERMISSION_DENIED: 'You do not have permission to do this in this group',
     GROUP_INVITE_INVALID: 'This invite link is no longer valid. Ask the group owner for a new one',
     GROUP_MEMBER_NOT_FOUND: 'This person is not a member of the group',
     GROUP_OWNER_NOT_REMOVABLE: 'The owner cannot be removed from the group',
@@ -195,6 +196,18 @@ export const en: MessageSchema = {
       missing:
         '{count} more to make the game · minimum {min} | {count} more to make the game · minimum {min}',
       reached: 'Game on ✓',
+    },
+    /** GRP-57: ação barrada por permissão (a página recarrega). */
+    permissionsChanged: 'Your permissions in this group have changed',
+    /** Staff roles and handing over the group (GRP-51, 54, 56). */
+    staff: {
+      setAdmin: 'Make admin',
+      clearAdmin: 'Remove admin',
+      transfer: 'Hand the group over to {name}',
+      transferConfirm: '{name} becomes the group owner, and you stay as admin. Only {name} can undo this.',
+      grantedToast: '{name} is now an admin',
+      clearedToast: '{name} is no longer an admin',
+      transferredToast: '{name} is now the group owner',
     },
     memberInvite: {
       invite: 'Invite as member',

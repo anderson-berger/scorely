@@ -1,7 +1,12 @@
 import { appError } from '@scorely/api/src/lib/errors';
 import type { UserId } from '@scorely/api/src/lib/ids';
 import type { GroupRepository, StoredGroup } from '@scorely/api/src/modules/groups/group.repository';
-import { requireActive, requireMember } from '@scorely/api/src/modules/groups/groups.deps';
+import {
+  permissionsOf,
+  requireActive,
+  requireMember,
+  requirePermission,
+} from '@scorely/api/src/modules/groups/groups.deps';
 import type { GuestRoster, RosterAttendee, RosterGame } from '@scorely/api/src/modules/groups/roster';
 import type { NotificationService } from '@scorely/api/src/modules/notifications/notification.service';
 import { draw, drawWithRules } from '@scorely/api/src/modules/teams/engine/draw';
@@ -14,7 +19,6 @@ import {
   violations,
 } from '@scorely/api/src/modules/teams/engine/rules';
 import type { PlayerRepository } from '@scorely/api/src/modules/teams/player.repository';
-import { canManageTeams } from '@scorely/api/src/modules/teams/player.service';
 import type { TeamSettingsRepository } from '@scorely/api/src/modules/teams/settings.repository';
 import { settingsOf, type TeamConfig } from '@scorely/api/src/modules/teams/settings.service';
 import type { StoredTeams, TeamsRepository } from '@scorely/api/src/modules/teams/teams.repository';
@@ -71,10 +75,9 @@ export function createTeamsService(deps: TeamsServiceDeps) {
   const now = deps.now ?? (() => new Date());
   const random = deps.random ?? Math.random;
 
-  /** TIM-07: só o dono escreve (404 para quem não participa, 403 para quem não é dono), e o grupo ativo (TIM-11). */
+  /** TIM-07: só quem tem `teams.manage` escreve (404 para quem não participa, 403 para quem não tem), e o grupo ativo (TIM-11). */
   async function requireManager(userId: UserId, groupId: string): Promise<StoredGroup> {
-    const { group } = await requireMember(deps, userId, groupId);
-    if (!canManageTeams(group, userId)) throw appError('GROUP_NOT_OWNER');
+    const { group } = await requirePermission(deps, userId, groupId, 'teams.manage');
     requireActive(group);
     return group;
   }
@@ -378,9 +381,9 @@ export function createTeamsService(deps: TeamsServiceDeps) {
     return teams;
   }
 
-  /** TIM-10: na 1ª publicação, avisa a lista (dentro e fila), menos o dono. */
-  async function notifyPublished(group: StoredGroup, game: RosterGame): Promise<void> {
-    const people = [...game.confirmed, ...game.waitlist].filter((a) => a.userId !== group.ownerId);
+  /** TIM-10: na 1ª publicação, avisa a lista (dentro e fila), menos quem publicou. */
+  async function notifyPublished(group: StoredGroup, game: RosterGame, actorId: UserId): Promise<void> {
+    const people = [...game.confirmed, ...game.waitlist].filter((a) => a.userId !== actorId);
     await Promise.all(
       people.map((a) =>
         deps.notifications.notify(a.userId, {
@@ -396,12 +399,12 @@ export function createTeamsService(deps: TeamsServiceDeps) {
   return {
     /** TIM-06, 09, 11–13: rascunho só para o dono; jogo cancelado (ou grupo arquivado, sem jogo) → sem times. */
     async get(userId: UserId, groupId: string, date: string): Promise<TeamsResponse> {
-      const { group } = await requireMember(deps, userId, groupId);
+      const { group, staffRoleId } = await requireMember(deps, userId, groupId);
       if (group.archivedAt) return NONE;
       const game = await currentGame(userId, groupId, date);
       if (game.status === 'cancelled') return NONE;
       const stored = await deps.teams.get(group.id, date);
-      if (!canManageTeams(group, userId)) {
+      if (!permissionsOf(group, userId, staffRoleId).includes('teams.manage')) {
         if (stored?.status !== 'published') return NONE;
         return { teams: await view(group.id, game, stored, await settingsFor(group.id)) };
       }
@@ -505,7 +508,7 @@ export function createTeamsService(deps: TeamsServiceDeps) {
         updatedAt: at,
       };
       await deps.teams.put(next);
-      if (!existing.publishedAt) await notifyPublished(group, game);
+      if (!existing.publishedAt) await notifyPublished(group, game, userId);
       return { teams: await view(group.id, game, next, settings, true) };
     },
 

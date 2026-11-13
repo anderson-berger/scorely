@@ -1,13 +1,9 @@
 import { appError } from '@scorely/api/src/lib/errors';
 import type { UserId } from '@scorely/api/src/lib/ids';
 import type { GroupRepository, StoredGroup } from '@scorely/api/src/modules/groups/group.repository';
-import { requireActive, requireMember } from '@scorely/api/src/modules/groups/groups.deps';
+import { requireActive, requirePermission } from '@scorely/api/src/modules/groups/groups.deps';
 import type { TeamApartRule } from '@scorely/api/src/modules/teams/engine/rules';
-import {
-  canManageTeams,
-  classifiablePeople,
-  type TeamsDeps,
-} from '@scorely/api/src/modules/teams/player.service';
+import { classifiablePeople, type TeamsDeps } from '@scorely/api/src/modules/teams/player.service';
 import type {
   StoredTeamSettings,
   TeamSettingsRepository,
@@ -60,11 +56,9 @@ export interface TeamSettingsDeps {
 export function createTeamSettingsService(deps: TeamSettingsDeps) {
   const now = deps.now ?? (() => new Date());
 
-  /** TIM-17: só o dono vê e muda (404 para quem não participa, 403 para quem não é dono). */
+  /** TIM-17: só quem tem `teams.manage` vê e muda (404 para quem não participa, 403 para quem não tem). */
   async function requireManager(userId: UserId, groupId: string) {
-    const { group } = await requireMember(deps, userId, groupId);
-    if (!canManageTeams(group, userId)) throw appError('GROUP_NOT_OWNER');
-    return group;
+    return (await requirePermission(deps, userId, groupId, 'teams.manage')).group;
   }
 
   /** A resposta: os opostos pelo id público (USR-16), com o nome de cada pessoa (TIM-21, 22). */

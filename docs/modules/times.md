@@ -12,16 +12,17 @@ Caso de referência: vôlei misto de sexta, 12 vagas, 2 times de 6, 2 levantador
 
 Hoje o módulo guarda as **posições de cada pessoa no grupo**, a **configuração de times do grupo** (quantidade padrão, regras de quantidade por time, times opostos e a preferência de espalhar homens e mulheres) e os **times do jogo**, montados à mão ou sorteados pelo dono seguindo as regras, com os **avulsos** que o dono põe só naquele jogo.
 
-| Termo       | Significado                                                                                                                                               |
-| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Jogador     | qualquer pessoa que joga no grupo: membro, reserva ou convidado. Tem posições **naquele grupo**                                                           |
-| Posição     | onde a pessoa joga no esporte do grupo (ex.: levantador ou central no vôlei, goleiro no futebol). Pode não ter nenhuma                                    |
-| Principal   | a posição em que a pessoa mais joga. É a primeira da lista dela, e é a que conta nas regras dos times (TIM-18)                                            |
-| Regra       | o que todo time do grupo precisa ter, como "1 levantador por time" (TIM-18) ou "Ana e Bia em times diferentes" (TIM-22). O sorteio nunca quebra uma regra |
-| Preferência | o que o sorteio busca o melhor possível, sem quebrar uma regra: espalhar homens e mulheres (TIM-23)                                                       |
-| Avulso      | pessoa sem conta que o dono põe nos times de um jogo só, com nome, gênero e posições (TIM-24). Fora do ranking                                            |
-| Times       | a divisão das pessoas do jogo em times ("Time 1", "Time 2"...). Uma por jogo, rascunho ou publicada                                                       |
-| Sem time    | quem está dentro da lista (GRP-19) e ainda não foi posto em nenhum time                                                                                   |
+| Termo       | Significado                                                                                                                                                                                                     |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Dono        | **neste módulo**, quem tem a permissão `teams.manage` ([GRP-49](grupos.md)): o dono do grupo ou quem tem um cargo com ela (o Admin, GRP-50). Todas as regras abaixo que dizem "o dono" valem para essas pessoas |
+| Jogador     | qualquer pessoa que joga no grupo: membro, reserva ou convidado. Tem posições **naquele grupo**                                                                                                                 |
+| Posição     | onde a pessoa joga no esporte do grupo (ex.: levantador ou central no vôlei, goleiro no futebol). Pode não ter nenhuma                                                                                          |
+| Principal   | a posição em que a pessoa mais joga. É a primeira da lista dela, e é a que conta nas regras dos times (TIM-18)                                                                                                  |
+| Regra       | o que todo time do grupo precisa ter, como "1 levantador por time" (TIM-18) ou "Ana e Bia em times diferentes" (TIM-22). O sorteio nunca quebra uma regra                                                       |
+| Preferência | o que o sorteio busca o melhor possível, sem quebrar uma regra: espalhar homens e mulheres (TIM-23)                                                                                                             |
+| Avulso      | pessoa sem conta que o dono põe nos times de um jogo só, com nome, gênero e posições (TIM-24). Fora do ranking                                                                                                  |
+| Times       | a divisão das pessoas do jogo em times ("Time 1", "Time 2"...). Uma por jogo, rascunho ou publicada                                                                                                             |
+| Sem time    | quem está dentro da lista (GRP-19) e ainda não foi posto em nenhum time                                                                                                                                         |
 
 ## 2. Regras de negócio
 
@@ -37,7 +38,7 @@ Hoje o módulo guarda as **posições de cada pessoa no grupo**, a **configuraç
   - A pessoa pode ter mais de uma posição, ou nenhuma (o padrão). **A primeira é a principal.** Uma posição de outro esporte responde `TEAM_POSITION_INVALID` (422, `details.position`).
   - _Por quê:_ com todas as posições, qualquer uma pode virar regra dos times depois (ex.: 1 central por time). A principal diz onde a pessoa rende mais, sem impedir que ela jogue em outra. Um esporte novo é só uma entrada no catálogo.
   - _Alterada em 2026-11-11:_ antes eram só as posições fixas (vôlei: levantador e líbero; futebol: goleiro), sem principal.
-- **TIM-03. Todos do grupo veem as posições; só o dono muda.** Membros e reservas veem (`GET`); quem não participa do grupo recebe `GROUP_NOT_FOUND` (GRP-04). Mudar, para quem não é dono, responde `GROUP_NOT_OWNER` (403 com corpo). Com o grupo arquivado, mudar responde `GROUP_ARCHIVED` (GRP-32), e ver continua valendo.
+- **TIM-03. Todos do grupo veem as posições; só o dono muda.** Membros e reservas veem (`GET`); quem não participa do grupo recebe `GROUP_NOT_FOUND` (GRP-04). Mudar, para quem não tem `teams.manage`, responde `GROUP_PERMISSION_DENIED` (403 com corpo). _(Alterada em 2026-11-13: antes, só o dono, com `GROUP_NOT_OWNER`.)_ Com o grupo arquivado, mudar responde `GROUP_ARCHIVED` (GRP-32), e ver continua valendo.
   - _Por quê:_ posição não é avaliação de ninguém, e a lista fica mais útil ("quem levanta hoje?"). Quem monta os times é o dono.
   - _Alterada em 2026-11-11:_ antes só o dono via.
 - **TIM-04. O dono define as posições de quem está no grupo ou na lista do jogo atual:** membros, reservas e convidados que estão dentro ou na fila. Para outra pessoa, a resposta é `TEAM_PLAYER_NOT_FOUND` (404).
@@ -50,7 +51,7 @@ Hoje o módulo guarda as **posições de cada pessoa no grupo**, a **configuraç
 
 - **TIM-06. Cada jogo tem no máximo uma divisão de times, e só o jogo atual** (GRP-11). Outra data responde `GAME_NOT_FOUND`. Ela não existe até o dono salvar a primeira vez, e o dono pode descartá-la.
   - _Por quê:_ o jogo atual é o único que existe hoje. O histórico dos times vem com as partidas (E4a).
-- **TIM-07. Só o dono monta, muda, publica e descarta os times.** Quem não é dono recebe `GROUP_NOT_OWNER` (403 com corpo); quem não participa do grupo, `GROUP_NOT_FOUND` (GRP-04).
+- **TIM-07. Só quem tem `teams.manage` monta, muda, publica e descarta os times.** Quem não tem recebe `GROUP_PERMISSION_DENIED` (403 com corpo); quem não participa do grupo, `GROUP_NOT_FOUND` (GRP-04). _(Alterada em 2026-11-13: antes, só o dono, com `GROUP_NOT_OWNER`.)_
 - **TIM-08. Como os times são montados:**
   - de 2 a 8 times, chamados "Time 1", "Time 2"... na ordem;
   - cada pessoa fica em um time só. Quem está dentro da lista e não foi posto em nenhum time fica "sem time";
@@ -64,7 +65,7 @@ Hoje o módulo guarda as **posições de cada pessoa no grupo**, a **configuraç
   - depois de publicados, cada mudança que o dono salva já aparece para todos. O dono pode voltar para rascunho, e os times somem para os outros até publicar de novo.
   - sem times salvos, publicar responde `TEAM_EMPTY` (Time 1); voltar para rascunho e descartar não mudam nada.
   - _Por quê:_ o dono monta com calma, sem a lista ver um time pela metade; depois de publicado, uma troca na hora (alguém se machucou) não precisa de outro rascunho.
-- **TIM-10. Aviso ao publicar:** na **primeira** publicação dos times do jogo, o aviso `teams_published` vai para todos da lista (dentro e fila), menos o dono. Publicar de novo depois de voltar para rascunho, ou mudar os times publicados, não avisa outra vez.
+- **TIM-10. Aviso ao publicar:** na **primeira** publicação dos times do jogo, o aviso `teams_published` vai para todos da lista (dentro e fila), menos quem publicou. _(Alterada em 2026-11-13: antes, menos o dono do grupo.)_ Publicar de novo depois de voltar para rascunho, ou mudar os times publicados, não avisa outra vez.
   - O link do aviso é o grupo; para o convidado, o link do jogo (como o GRP-22).
   - _Por quê:_ todo mundo quer saber em que time está, mas cada troca pequena virando aviso seria barulho.
 - **TIM-11. Até quando dá para mexer:** enquanto o jogo é o atual e não está cancelado, até o fim dele (início + 3 h, GRP-12). Com o jogo cancelado, mudar responde `GAME_CANCELLED`, e os times não aparecem; reaberto (GRP-44), eles voltam como estavam. Com o grupo arquivado, mudar responde `GROUP_ARCHIVED` (GRP-32), e ver responde que não há times (arquivado não tem jogo, GRP-37).
@@ -98,7 +99,7 @@ Hoje o módulo guarda as **posições de cada pessoa no grupo**, a **configuraç
   - as regras de **times opostos** (TIM-22);
   - a preferência **"Espalhar homens e mulheres"** (padrão: desligada, TIM-23);
   - **"Permitir publicar times fora das regras"** (padrão: não, TIM-20).
-  - Só o dono vê e muda (`GROUP_NOT_OWNER`; quem não participa recebe `GROUP_NOT_FOUND`). Com o grupo arquivado, mudar responde `GROUP_ARCHIVED` (GRP-32).
+  - Só quem tem `teams.manage` vê e muda (`GROUP_PERMISSION_DENIED`; quem não participa recebe `GROUP_NOT_FOUND`). _(Alterada em 2026-11-13: antes, só o dono.)_ Com o grupo arquivado, mudar responde `GROUP_ARCHIVED` (GRP-32).
   - Mudar a configuração não mexe em times já montados: vale para o próximo sorteio e para o que a tela aponta como fora das regras (TIM-20).
   - _Por quê:_ as regras são do grupo, não de cada jogo. O vôlei de sexta sempre quer um levantador em cada time, e o dono não precisa repetir isso toda semana.
   - _Alterada em 2026-11-12:_ times opostos e a preferência de gênero.
@@ -203,13 +204,13 @@ Não há lookup: quem aparece na lista já vem dos membros e do jogo atual (mód
 | Rota                                                         | Quem                  | Regras                                  |
 | ------------------------------------------------------------ | --------------------- | --------------------------------------- |
 | `GET /groups/{id}/players`                                   | membros e reservas    | TIM-01–04                               |
-| `PUT /groups/{id}/players/{userId}`                          | dono                  | TIM-02–04                               |
+| `PUT /groups/{id}/players/{userId}`                          | `teams.manage`        | TIM-02–04                               |
 | `GET /groups/{id}/games/{date}/teams`                        | membros e reservas    | TIM-06, 09, 12, 13                      |
-| `PUT /groups/{id}/games/{date}/teams`                        | dono                  | TIM-06–08, 11, 13, 16, 24               |
-| `POST /groups/{id}/games/{date}/teams/publish`, `/unpublish` | dono                  | TIM-08–11, 20                           |
-| `POST /groups/{id}/games/{date}/teams/draw`                  | dono                  | TIM-11, 15, 16, 19                      |
-| `GET /groups/{id}/team-settings`, `PUT`                      | dono                  | TIM-17, 18, 22, 23                      |
-| `DELETE /groups/{id}/games/{date}/teams`                     | dono                  | TIM-06, 11                              |
+| `PUT /groups/{id}/games/{date}/teams`                        | `teams.manage`        | TIM-06–08, 11, 13, 16, 24               |
+| `POST /groups/{id}/games/{date}/teams/publish`, `/unpublish` | `teams.manage`        | TIM-08–11, 20                           |
+| `POST /groups/{id}/games/{date}/teams/draw`                  | `teams.manage`        | TIM-11, 15, 16, 19                      |
+| `GET /groups/{id}/team-settings`, `PUT`                      | `teams.manage`        | TIM-17, 18, 22, 23                      |
+| `DELETE /groups/{id}/games/{date}/teams`                     | `teams.manage`        | TIM-06, 11                              |
 | `GET /play/{token}/teams`                                    | logado (link do jogo) | TIM-09: só os times publicados (GRP-09) |
 
 O `GET /players` devolve todos os membros, reservas e convidados da lista atual, cada um com as suas posições. O `PUT /players` recebe `{ positions }` (a primeira é a principal) e devolve o jogador.
@@ -218,7 +219,7 @@ O `GET /teams` devolve os times (ou que não há times), com cada pessoa marcada
 
 O `PUT /team-settings` recebe a configuração inteira (`{ teamCount, rules, apart, spreadGender, allowOutsideRules }`) e a devolve, com o nome de cada pessoa dos times opostos.
 
-Erros: `TEAM_PLAYER_NOT_FOUND`, `TEAM_POSITION_INVALID`, `TEAM_EMPTY`, `TEAM_RULES_CONFLICT` (`details.conflicts`), `TEAM_RULES_VIOLATED` (`details.violations`), e os do grupo (`GROUP_NOT_FOUND`, `GROUP_NOT_OWNER`, `GROUP_ARCHIVED`, `GAME_NOT_FOUND`, `GAME_CANCELLED`).
+Erros: `TEAM_PLAYER_NOT_FOUND`, `TEAM_POSITION_INVALID`, `TEAM_EMPTY`, `TEAM_RULES_CONFLICT` (`details.conflicts`), `TEAM_RULES_VIOLATED` (`details.violations`), e os do grupo (`GROUP_NOT_FOUND`, `GROUP_PERMISSION_DENIED`, `GROUP_ARCHIVED`, `GAME_NOT_FOUND`, `GAME_CANCELLED`).
 
 ## 4. Limites conhecidos
 

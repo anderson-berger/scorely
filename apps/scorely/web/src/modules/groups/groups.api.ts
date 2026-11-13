@@ -11,6 +11,7 @@ import {
   MemberInviteSchema,
   MemberSchema,
   MyGroupSchema,
+  type StaffRoleId,
   type UpdateGameInput,
   type UpdateGroupInput,
 } from '@scorely/contracts';
@@ -48,6 +49,13 @@ export const groupsApi = {
     request({ url: `/groups/${id}/member-invite/accept`, method: 'POST' }, GroupSchema),
   declineMemberInvite: (id: string) => send({ url: `/groups/${id}/member-invite/decline`, method: 'POST' }),
   leaveGroup: (id: string) => send({ url: `/groups/${id}/leave`, method: 'POST' }),
+  /** Cargos (GRP-51) e passar o grupo (GRP-54): só o dono. */
+  setStaffRole: (id: string, userId: string, staffRoleId: StaffRoleId) =>
+    send({ url: `/groups/${id}/members/${userId}/staff-role`, method: 'PUT', data: { staffRoleId } }),
+  clearStaffRole: (id: string, userId: string) =>
+    send({ url: `/groups/${id}/members/${userId}/staff-role`, method: 'DELETE' }),
+  transfer: (id: string, userId: string) =>
+    request({ url: `/groups/${id}/transfer`, method: 'POST', data: { userId } }, GroupSchema),
   currentGame: (id: string) => request({ url: `/groups/${id}/games/current` }, GameSchema),
   confirm: (id: string, date: string) =>
     request({ url: `${game(id, date)}/attendance`, method: 'POST' }, GameSchema),

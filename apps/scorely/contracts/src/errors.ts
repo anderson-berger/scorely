@@ -1,3 +1,4 @@
+import { PermissionSchema } from '@scorely/contracts/src/groups';
 import { TeamRuleConflictSchema, TeamViolationSchema } from '@scorely/contracts/src/teams';
 import { z } from 'zod';
 
@@ -31,6 +32,7 @@ export const ErrorCodeSchema = z.enum([
   // groups
   'GROUP_NOT_FOUND',
   'GROUP_NOT_OWNER',
+  'GROUP_PERMISSION_DENIED',
   'GROUP_INVITE_INVALID',
   'GROUP_MEMBER_NOT_FOUND',
   'GROUP_OWNER_NOT_REMOVABLE',
@@ -74,6 +76,8 @@ export const ErrorDetailsSchemas = {
     width: z.number().int().positive(),
     height: z.number().int().positive(),
   }),
+  /** A permissão que faltou (GRP-04, 52). */
+  GROUP_PERMISSION_DENIED: z.object({ permission: PermissionSchema }),
   GAME_LIST_NOT_OPEN: z.object({ opensAt: z.iso.datetime() }),
   GROUP_LAYERS_INVALID: z.object({ field: z.enum(['reservesOpenHoursBefore', 'guestsOpenHoursBefore']) }),
   TEAM_POSITION_INVALID: z.object({ position: z.string() }),

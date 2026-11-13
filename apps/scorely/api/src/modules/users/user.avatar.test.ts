@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { appError } from '@scorely/api/src/lib/errors';
-import type { UserId } from '@scorely/api/src/lib/ids';
+import { asUserId, type UserId } from '@scorely/api/src/lib/ids';
 import type { MediaService } from '@scorely/api/src/modules/media/media.service';
 import type { MeRecord, UserRecord, UserRepository } from '@scorely/api/src/modules/users/user.repository';
 import { createUserService } from '@scorely/api/src/modules/users/user.service';
@@ -233,5 +233,35 @@ describe('foto de perfil pela mídia (USR-08)', () => {
     const user = await t.service.setAvatar(t.userId, { mediaId: randomUUID() });
     expect(user.avatarUrl).toContain(`/public/user/${PUBLIC_ID}/avatar/`);
     expect(user.avatarUrl).not.toContain(t.userId);
+  });
+});
+
+describe('foto de perfil de conta que não existe mais (AUTH-16)', () => {
+  const ghost = asUserId('00000000-0000-4000-8000-0000000000ff');
+  const ghostService = () => {
+    const clock = { now: new Date('2026-11-13T12:00:00.000Z') };
+    // A mídia não acha o item para ligar: o dublê só ignora; quem responde é o serviço de usuários.
+    const fake = fakeMedia(() => undefined);
+    return createUserService(
+      memoryUserRepo().repo,
+      () => clock.now,
+      fake.media,
+      () => PUBLIC_ID,
+    );
+  };
+
+  it('AUTH-16: POST /me/avatar/upload com conta inexistente → SESSION_INVALID (401)', async () => {
+    const err = await errorOf(ghostService().requestAvatarUpload(ghost, { contentType: 'image/webp' }));
+    expect(err).toMatchObject({ code: 'SESSION_INVALID', status: 401 });
+  });
+
+  it('AUTH-16: PUT /me/avatar com conta inexistente → SESSION_INVALID (401)', async () => {
+    const err = await errorOf(ghostService().setAvatar(ghost, { mediaId: randomUUID() }));
+    expect(err).toMatchObject({ code: 'SESSION_INVALID', status: 401 });
+  });
+
+  it('AUTH-16: DELETE /me/avatar com conta inexistente → SESSION_INVALID (401)', async () => {
+    const err = await errorOf(ghostService().clearAvatar(ghost));
+    expect(err).toMatchObject({ code: 'SESSION_INVALID', status: 401 });
   });
 });

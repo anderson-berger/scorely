@@ -8,6 +8,7 @@ import {
   TeamExtraSchema,
 } from '@scorely/contracts';
 import BottomSheet from '@scorely/web/src/components/BottomSheet.vue';
+import { uuid } from '@scorely/web/src/lib/uuid';
 import PositionsPicker from '@scorely/web/src/modules/teams/components/PositionsPicker.vue';
 import { sportPositions } from '@scorely/web/src/modules/teams/players';
 import { defineComponent, type PropType } from 'vue';
@@ -76,7 +77,7 @@ export default defineComponent({
   watch: {
     modelValue(open: boolean) {
       if (!open) return;
-      this.id = this.extra?.id ?? crypto.randomUUID();
+      this.id = this.extra?.id ?? uuid();
       this.name = this.extra?.name ?? '';
       this.gender = this.extra?.gender ?? '';
       this.positions = [...(this.extra?.positions ?? [])];

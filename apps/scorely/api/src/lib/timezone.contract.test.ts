@@ -23,6 +23,7 @@ const group = (timeZone: string) => ({
   maxReserves: 30,
   ownerId: '7K3QX9TA',
   myRole: 'member',
+  myPermissions: [],
 });
 const createGroup = (timeZone: string) => ({
   name: 'Vôlei de sexta',
