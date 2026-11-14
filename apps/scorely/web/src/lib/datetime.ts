@@ -51,3 +51,15 @@ export function formatDateTime(
   const timeZone = opts.timeZone ?? displayTimeZone.value;
   return formatter(locale, style, timeZone).format(new Date(iso));
 }
+
+/** A data local (`YYYY-MM-DD`) de um instante num fuso (ex.: "hoje" no fuso do grupo, para as temporadas). */
+export function localDateIn(timeZone: string, at: Date = new Date()): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(at);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? '';
+  return `${part('year')}-${part('month')}-${part('day')}`;
+}

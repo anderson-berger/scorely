@@ -59,6 +59,16 @@ const CATALOG = {
   TEAM_EMPTY: { status: 422, message: 'Every team needs at least one person to publish' },
   TEAM_RULES_CONFLICT: { status: 422, message: 'The group team rules cannot be met by this draw' },
   TEAM_RULES_VIOLATED: { status: 422, message: 'Some teams are outside the group team rules' },
+  COMPETITION_TRIAL_USED: { status: 409, message: 'The group already used the competition trial' },
+  COMPETITION_INACTIVE: { status: 409, message: 'The competition is not active in this group' },
+  GAME_NOT_STARTED: { status: 409, message: 'The game has not started yet' },
+  RESULT_INVALID: { status: 422, message: 'The game result does not match the game list or teams' },
+  MATCH_INVALID: { status: 422, message: 'The match teams do not match the game list' },
+  GAME_MATCHES_FULL: { status: 409, message: 'The game already has the maximum number of matches' },
+  MATCH_NOT_FOUND: { status: 404, message: 'Match not found' },
+  SEASON_INVALID: { status: 422, message: 'The season dates or name are not valid' },
+  SEASON_NOT_FOUND: { status: 404, message: 'Season not found' },
+  SEASON_CLOSED: { status: 409, message: 'The season of this game is closed' },
 } as const satisfies Record<ErrorCode, { status: number; message: string }>;
 
 /** Código com `details` obrigatório pede o objeto; os demais não aceitam nada. */

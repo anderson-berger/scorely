@@ -13,6 +13,7 @@ import { detectTimeZone } from '@scorely/web/src/lib/datetime';
 import { prepareImage } from '@scorely/web/src/lib/media';
 import { effectiveTimeZone } from '@scorely/web/src/lib/preferences';
 import { useAuthStore } from '@scorely/web/src/modules/auth/auth.store';
+import TrophyRoom from '@scorely/web/src/modules/competition/components/TrophyRoom.vue';
 import { initials } from '@scorely/web/src/modules/groups/scoreboard';
 import { displayName } from '@scorely/web/src/modules/users/user.display';
 import { copyToClipboard } from 'quasar';
@@ -36,7 +37,7 @@ type Editor = '' | 'you' | 'prefs';
 export default defineComponent({
   name: 'ProfilePage',
 
-  components: { BottomSheet },
+  components: { BottomSheet, TrophyRoom },
 
   setup() {
     return { auth: useAuthStore() };
@@ -300,6 +301,8 @@ export default defineComponent({
             </q-btn>
           </div>
         </section>
+
+        <TrophyRoom />
 
         <section class="sc-card card" :aria-label="$t('profile.preferences')">
           <div class="card-head">

@@ -1,7 +1,7 @@
 import { asUserId } from '@scorely/api/src/lib/ids';
 import type { StoredGroup } from '@scorely/api/src/modules/groups/group.repository';
 import { permissionsOf } from '@scorely/api/src/modules/groups/groups.deps';
-import { type Permission, PublicUserIdSchema, STAFF_ROLES } from '@scorely/contracts';
+import { type Permission, PermissionSchema, PublicUserIdSchema, STAFF_ROLES } from '@scorely/contracts';
 import { describe, expect, it } from 'vitest';
 
 // Cargos e permissões (docs/modules/grupos.md, GRP-48–52): a conta pura de quem pode o quê.
@@ -29,7 +29,14 @@ const GROUP: StoredGroup = {
   maxReserves: 30,
 };
 
-const EVERY_PERMISSION: Permission[] = ['game.manage', 'members.manage', 'settings.edit', 'teams.manage'];
+const EVERY_PERMISSION: Permission[] = [
+  'game.manage',
+  'members.manage',
+  'results.record',
+  'seasons.manage',
+  'settings.edit',
+  'teams.manage',
+];
 /** Aceita lista ou conjunto: o que importa é quais permissões saem. */
 const sorted = (perms: Iterable<Permission>) => [...perms].sort();
 
@@ -43,7 +50,11 @@ describe('permissões do grupo (GRP-49–52)', () => {
     expect(sorted(permissionsOf(GROUP, A, undefined))).toEqual([]);
   });
 
-  it('GRP-50: o cargo Admin tem as quatro permissões do catálogo', () => {
+  it('GRP-49: o catálogo tem as 6 permissões, com seasons.manage (o regulamento, CMP-07) e results.record (fechar os jogos, CMP-11)', () => {
+    expect(sorted(PermissionSchema.options)).toEqual(EVERY_PERMISSION);
+  });
+
+  it('GRP-50: o cargo Admin tem todas as permissões do catálogo, inclusive seasons.manage e results.record', () => {
     expect(STAFF_ROLES.admin.name).toBe('Admin');
     expect(sorted(STAFF_ROLES.admin.permissions)).toEqual(EVERY_PERMISSION);
     expect(sorted(permissionsOf(GROUP, A, 'admin'))).toEqual(EVERY_PERMISSION);

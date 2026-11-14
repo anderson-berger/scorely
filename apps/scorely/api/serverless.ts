@@ -1,6 +1,7 @@
 import { devAuthSecret, project, tableNameFor, uploadsBucketFor } from '@scorely/api/project';
 import { AUTHORIZER } from '@scorely/api/src/lib/auth';
 import { authFunctions } from '@scorely/api/src/modules/auth/functions';
+import { competitionFunctions } from '@scorely/api/src/modules/competition/functions';
 import { groupsFunctions } from '@scorely/api/src/modules/groups/functions';
 import { healthFunctions } from '@scorely/api/src/modules/health/functions';
 import { notificationsFunctions } from '@scorely/api/src/modules/notifications/functions';
@@ -150,6 +151,7 @@ const config: AWS = {
     ...notificationsFunctions,
     ...groupsFunctions,
     ...teamsFunctions,
+    ...competitionFunctions,
   },
 };
 

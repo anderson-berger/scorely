@@ -1,6 +1,6 @@
 # Módulo Grupos
 
-> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Se o código e este doc discordarem, um dos dois está errado. Conferido com o código em 2026-11-13.
+> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Se o código e este doc discordarem, um dos dois está errado. Conferido com o código em 2026-11-14.
 
 Código: `apps/scorely/api/src/modules/groups/`, `apps/scorely/web/src/modules/groups/`, contrato em `apps/scorely/contracts/src/groups.ts`.
 
@@ -223,17 +223,20 @@ Cada regra tem um id fixo (`GRP-NN`). O id não é reaproveitado: se uma regra s
   - _Por quê:_ ajudar a organizar não tem relação com a prioridade na lista. A reserva que monta os times continua confirmando depois dos membros, e dar um cargo não ocupa lugar de membro. Um cargo só por pessoa deixa claro o que cada um pode, sem somar listas.
 - **GRP-49. As permissões são um catálogo fixo,** por assunto:
 
-  | Permissão        | O que libera                                                                                                                        |
-  | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-  | `game.manage`    | as vagas e o mínimo só do jogo atual (GRP-45, 46), cancelar (GRP-24) e reabrir o jogo (GRP-44)                                      |
-  | `teams.manage`   | as posições (TIM-03, 04), os times do jogo, o sorteio e os avulsos (TIM-07, 15, 16, 24) e a configuração de times do grupo (TIM-17) |
-  | `members.manage` | ver e gerar os links (GRP-05, 07), remover alguém (GRP-25) e o convite para membro (GRP-40)                                         |
-  | `settings.edit`  | as camadas, os limites, as vagas e o mínimo padrão (GRP-16, 38, 45, 46) e o logo e a capa (GRP-35)                                  |
-  - **Só do dono, sempre:** arquivar e desarquivar (GRP-31, 33), dar e tirar cargo (GRP-51), remover quem tem cargo (GRP-53) e passar o grupo (GRP-54). Nenhum cargo libera isso. Quem não é dono recebe `GROUP_NOT_OWNER`.
+  | Permissão        | O que libera                                                                                                                                                                              |
+  | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | `game.manage`    | as vagas e o mínimo só do jogo atual (GRP-45, 46), cancelar (GRP-24) e reabrir o jogo (GRP-44)                                                                                            |
+  | `teams.manage`   | as posições (TIM-03, 04), os times do jogo, o sorteio e os avulsos (TIM-07, 15, 16, 24) e a configuração de times do grupo (TIM-17)                                                       |
+  | `members.manage` | ver e gerar os links (GRP-05, 07), remover alguém (GRP-25) e o convite para membro (GRP-40)                                                                                               |
+  | `settings.edit`  | as camadas, os limites, as vagas e o mínimo padrão (GRP-16, 38, 45, 46) e o logo e a capa (GRP-35)                                                                                        |
+  | `seasons.manage` | o regulamento da competição ([CMP-07](competicao.md)) e as temporadas (abrir, programar e encerrar, CMP-30, 32). Só vale com a competição ativa no grupo (CMP-04)                         |
+  | `results.record` | fechar os jogos na competição: a chamada, o resultado do dia e o amistoso ([CMP-11](competicao.md)), e corrigir os já fechados (CMP-15). Só vale com a competição ativa no grupo (CMP-04) |
+  - **Só do dono, sempre:** arquivar e desarquivar (GRP-31, 33), dar e tirar cargo (GRP-51), remover quem tem cargo (GRP-53), passar o grupo (GRP-54) e começar o teste da competição ([CMP-02](competicao.md)). Nenhum cargo libera isso. Quem não é dono recebe `GROUP_NOT_OWNER`.
+  - _(Alterada em 2026-11-14: entraram `seasons.manage` e `results.record`, com a competição.)_
   - O dono tem todas as permissões. Quem não tem cargo não tem nenhuma.
   - _Por quê:_ por assunto, o dono entende o cargo de uma vez ("cuida dos times"), sem uma caixinha por botão. O que fica só com o dono é o que muda quem manda no grupo: se um cargo pudesse dar cargos, alguém daria a si mesmo o que não tem.
 
-- **GRP-50. Todo grupo tem o cargo "Admin",** com as quatro permissões (GRP-49). Por enquanto é o único cargo, e ninguém muda o nome nem as permissões dele. Criar outros cargos fica para depois (seção 5).
+- **GRP-50. Todo grupo tem o cargo "Admin",** com todas as permissões do catálogo (GRP-49). Por enquanto é o único cargo, e ninguém muda o nome nem as permissões dele. Criar outros cargos fica para depois (seção 5).
 - **GRP-51. Só o dono dá e tira o cargo** de um membro ou reserva (`PUT`/`DELETE /groups/{id}/members/{userId}/staff-role`).
   - Dar o cargo que a pessoa já tem, ou tirar de quem não tem, não muda nada.
   - Para quem não participa do grupo, a resposta é `GROUP_MEMBER_NOT_FOUND`. Para o próprio dono, `VALIDATION_ERROR` (ele não tem cargo, GRP-48).
@@ -274,14 +277,15 @@ Cada regra tem um id fixo (`GRP-NN`). O id não é reaproveitado: se uma regra s
   4. "na fila · Nº";
   5. "abre {data}" (a camada de quem lê ainda não abriu);
   6. vagas que faltam, ou lotado. Com o mínimo (GRP-46), "faltam N para fechar" até chegar nele, e "jogo confirmado" depois. _(Alterada em 2026-11-11.)_
-- **GRP-29. A página do grupo tem quatro abas, cada uma com um assunto só:** Jogo, Times, Membros e Ajustes (este, só para quem tem `settings.edit`, `teams.manage` ou `game.manage`). O nome da aba não leva contagem: as contagens ficam nas seções de dentro.
+- **GRP-29. A página do grupo tem quatro abas, e uma quinta com a competição, cada uma com um assunto só:** Jogo, Times, Membros, **Competição** (só quando a competição do grupo não está desativada, [CMP-09](competicao.md)) e Ajustes (este, só para quem tem `settings.edit`, `teams.manage`, `game.manage` ou `seasons.manage`, ou é o dono). _(Alterada em 2026-11-14: entrou a aba Competição.)_ O nome da aba não leva contagem: as contagens ficam nas seções de dentro.
   - Cada ação de administração aparece só para quem tem a permissão dela (GRP-49, 56). Abaixo, "o dono" quer dizer quem tem a permissão daquela ação, e "só o dono" é o que GRP-49 deixa só para ele. _(Alterada em 2026-11-13: antes, todas as ações eram do dono.)_
   - **Jogo** ("eu jogo?"): placar confirmados:vagas, com o mínimo embaixo ("faltam 2 para fechar · mínimo 10" ou "Jogo confirmado ✓", GRP-46). Para quem tem `game.manage`, antes do início e com o jogo valendo, o botão "Vagas deste jogo" embaixo do placar abre o painel (vagas, mínimo e "Usar o padrão do grupo", GRP-45), e um valor só do jogo aparece marcado ("só neste jogo"). Depois, ação conforme o estado, abertura das camadas, a **linha Times**, Escalação (uma linha por vaga) e Banco (só com fila). Cada pessoa da lista mostra as suas posições, convidados inclusive, e o dono as muda ali ([TIM-05](times.md));
     - a **linha Times** é um atalho de uma linha para a aba Times. Para quem está num time publicado: "Você está no Time 2". Com times publicados e a pessoa fora deles: "Times publicados". Para o dono, o estado: "Times: ainda não montados", "Times: rascunho" ou "Times: publicados". Sem times publicados, quem não é dono não vê a linha. Com o jogo cancelado, a linha some;
+    - a **linha Competição**, para quem tem `results.record`, com o jogo já começado (em andamento, ou cancelado com o horário passado) e a competição ativa: "Fechar o jogo" ou "Jogo fechado · corrigir", que abre o painel de fechar ([CMP-17](competicao.md)). _(Alterada em 2026-11-14.)_
   - **Times**: os times do jogo da semana ([TIM-14](times.md));
   - **Membros**: membros e reservas separados, cada parte com a contagem e o limite ("Membros · 13/14"). Cada pessoa mostra as suas posições, e o dono as muda ali ([TIM-05](times.md)). As ações do dono sobre a pessoa ficam no menu "⋮" da linha: "Remover" e, na reserva, "Convidar para membro" (só com lugar livre) ou, com o convite pendente, a marca "convite enviado" e "Cancelar convite". No fim da aba, quem não é dono tem "Sair do grupo" (GRP-43);
     - **os links moram aqui:** o "Convidar" do dono abre o painel com o link de membro e o de reserva (e o do jogo, com os convidados ligados), cada um com Copiar e "Gerar outro link" (GRP-07, 08);
-  - **Ajustes**: é **uma lista**: cada linha tem o nome, o resumo do valor de agora e abre o lugar de mudar. Nada é editado direto na lista. Cada um vê só as linhas que pode mudar: 1–3 e 7 com `settings.edit`, 4–6 com `teams.manage`, cancelar e reabrir com `game.manage`, e arquivar só o dono:
+  - **Ajustes**: é **uma lista**: cada linha tem o nome, o resumo do valor de agora e abre o lugar de mudar. Nada é editado direto na lista. Cada um vê só as linhas que pode mudar: 1–3 e 7 com `settings.edit`, 4–6 com `teams.manage`, 8 conforme a [CMP-10](competicao.md), cancelar e reabrir com `game.manage`, e arquivar só o dono:
     1. **Abertura da lista**: "Membros 07/11, 19:00 · Reservas 09/11, 19:00 · Convidados desligado" → o editor de camadas;
     2. **Vagas e mínimo**: "14 vagas · sem mínimo" → o painel das vagas padrão (GRP-45, 46);
     3. **Limites**: "30 membros · 30 reservas" → o painel dos limites (GRP-38);
@@ -289,7 +293,8 @@ Cada regra tem um id fixo (`GRP-NN`). O id não é reaproveitado: se uma regra s
     5. **Regras dos times**: "3 regras" → o painel das regras ([TIM-21](times.md));
     6. **Times opostos**: "2 regras" → o painel dos times opostos ([TIM-21](times.md));
     7. **Logo e capa**: as miniaturas → o painel com Trocar e Remover de cada um (GRP-35);
-    8. no fim, separada, a **zona de perigo**, com cancelar o jogo (ou **reabrir o jogo**, quando ele está cancelado, GRP-44) e **arquivar o grupo**.
+    8. **Competição**: o estado e o resumo dos pontos → o painel de começar o teste (dono) ou o do regulamento ([CMP-10](competicao.md));
+    9. no fim, separada, a **zona de perigo**, com cancelar o jogo (ou **reabrir o jogo**, quando ele está cancelado, GRP-44) e **arquivar o grupo**.
   - _Por quê:_ cada aba responde a uma pergunta só. Montar os times é trabalho do dono que empurrava a Escalação para baixo e mostrava as mesmas pessoas duas vezes na aba Jogo. Nos Ajustes, o resumo mostra como o grupo está sem abrir nada, e os campos só aparecem quando o dono vai mudar. Os links servem para convidar, então ficam onde se convida. Toda linha dos Ajustes abre um painel de baixo, e nenhuma leva para outra página.
   - A reserva com convite pendente vê, no topo da página, a faixa "Você foi convidado para ser membro", com Aceitar e Recusar (GRP-41). Ao aceitar, a página recarrega com o papel novo.
   - Arquivar pede confirmação: "O grupo sai da lista de todos, os links param de funcionar e o jogo desta semana é cancelado. Dá para desarquivar depois." Depois de arquivar, a pessoa continua na página, que passa a ser a do grupo arquivado (GRP-37).
@@ -409,11 +414,9 @@ Erros: `GROUP_NOT_FOUND`, `GROUP_NOT_OWNER`, `GROUP_PERMISSION_DENIED`, `GROUP_I
 ## 5. Em discussão (ainda não é regra)
 
 - Remover o local do grupo: [plano 012-remover-local](../plans/012-remover-local-do-grupo.md), aguardando aprovação.
-- Próximas entregas: times (E3, em andamento no módulo [Times](times.md)), histórico e partidas (E4a), ranking e temporadas (E4b), MVP (E5) e nível automático (E6), em [PRODUCT.md](../product/PRODUCT.md).
-- **Histórico e partidas (E4a)**, desenhada e pausada em 2026-11-10 (a E3 vem antes): todo jogo que começou fica no histórico; cada partida guarda time 1 × time 2 e quem ganhou, registrada pelo dono a partir do início do jogo, sem prazo; a partida nova repete os times da anterior; vencedor do dia = mais vitórias no jogo (empate mostra todos, convidado incluído). Protótipo: https://claude.ai/artifact/HMuwy1PW3suJmuwwd93KNK. A recomendação é que partidas, contagem e, depois, ranking fiquem num módulo próprio (Resultados).
-- **Ranking e temporadas (E4b)**, decidido em 2026-11-10: posição pelo total de vitórias, desempate pelo aproveitamento e depois pelos dias como vencedor do dia; geral (desde sempre) e por temporada, cada temporada com o seu pódio (top 3) congelado ao encerrar; recortes geral, masculino e feminino (gênero do perfil); **convidados aparecem nas partidas, mas não entram no ranking**; quem vira membro conta desde o começo.
-- **Resultado com placar e scout** (depois da E4b): o grupo escolhe como conta: só vitória (como na E4a), placar por partida (ex.: 25×21) ou scout, com quem fez cada ponto e como (saque, bloqueio, ataque, erro do adversário). O placar entra na partida; cada ponto do scout vira um item ligado à partida.
-- **Cargos criados pelo grupo** (decidido em 2026-11-13, depois dos GRP-48–56, se fizer falta): o dono cria, renomeia e apaga cargos (ex.: "Organizador", só com `teams.manage`), até 10 por grupo, guardados no `META` do grupo. O Admin continua existindo. As permissões continuam por assunto (GRP-49), e as próximas entram com as entregas: `results.record` (registrar partidas, E4a) e `seasons.manage` (temporadas, E4b).
+- Próximas entregas: a competição (pontos, ranking, temporadas e prêmios) é o módulo [Competição](competicao.md), que substitui as antigas E4a e E4b. O roteiro está na seção 5 dele.
+- **Resultado com placar e scout** (depois das temporadas, no módulo [Competição](competicao.md)): o grupo escolhe como conta: só vitória, placar por partida (ex.: 25×21) ou scout, com quem fez cada ponto e como (saque, bloqueio, ataque, erro do adversário). O placar entra na partida; cada ponto do scout vira um item ligado à partida.
+- **Cargos criados pelo grupo** (decidido em 2026-11-13, depois dos GRP-48–56, se fizer falta): o dono cria, renomeia e apaga cargos (ex.: "Organizador", só com `teams.manage`), até 10 por grupo, guardados no `META` do grupo. O Admin continua existindo. As permissões continuam por assunto (GRP-49), e as próximas entram com as entregas (ex.: as temporadas na [Competição](competicao.md)).
 - **Agenda** (decidido em 2026-11-10, vira tarefa própria depois do GRP-44): horários fixos mais exceções, como num calendário.
   - O grupo passa a ter 1 ou mais horários semanais, e os jogos desses horários continuam calculados (GRP-10).
   - O dono cria **jogo avulso**, que é um jogo a mais (não substitui o da semana), com vagas próprias; e **remarca** um jogo específico.
