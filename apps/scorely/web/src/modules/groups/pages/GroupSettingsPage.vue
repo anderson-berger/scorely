@@ -1,6 +1,9 @@
 <script lang="ts">
-import type { Game, Group } from '@scorely/contracts';
+import type { Competition, Game, Group } from '@scorely/contracts';
 import { formatDateTime } from '@scorely/web/src/lib/datetime';
+import { showsCompetitionRow } from '@scorely/web/src/modules/competition/competition';
+import CompetitionSettingsRow from '@scorely/web/src/modules/competition/components/CompetitionSettingsRow.vue';
+import SeasonSettingsRow from '@scorely/web/src/modules/competition/components/SeasonSettingsRow.vue';
 import CapacityCard from '@scorely/web/src/modules/groups/components/CapacityCard.vue';
 import GroupImagesCard from '@scorely/web/src/modules/groups/components/GroupImagesCard.vue';
 import LayersCard from '@scorely/web/src/modules/groups/components/LayersCard.vue';
@@ -12,13 +15,21 @@ import { defineComponent, type PropType } from 'vue';
 /**
  * Aba Ajustes (GRP-29): uma lista, cada linha com o resumo e o lugar de mudar, e a zona de perigo no fim. Cada um vê só
  * o que pode mudar (GRP-49): Abertura, Vagas e mínimo, Limites e Logo e capa com `settings.edit`; as linhas de times
- * com `teams.manage`; cancelar ou reabrir (GRP-44) com `game.manage`; arquivar só o dono.
+ * com `teams.manage`; a Competição com a CMP-10 (o dono sempre; `seasons.manage` com ela já ativada); cancelar ou reabrir (GRP-44) com `game.manage`; arquivar só o dono.
  * Grupo arquivado (GRP-37): só o dono, com "Desarquivar grupo".
  */
 export default defineComponent({
   name: 'GroupSettingsPage',
 
-  components: { CapacityCard, GroupImagesCard, LayersCard, LimitsCard, TeamSettingsRows },
+  components: {
+    CapacityCard,
+    CompetitionSettingsRow,
+    SeasonSettingsRow,
+    GroupImagesCard,
+    LayersCard,
+    LimitsCard,
+    TeamSettingsRows,
+  },
 
   inheritAttrs: false,
 
@@ -30,6 +41,7 @@ export default defineComponent({
     access: { type: Object as PropType<GroupAccess>, default: () => NO_ACCESS },
     canCancel: { type: Boolean, default: false },
     canReopen: { type: Boolean, default: false },
+    competition: { type: Object as PropType<Competition | undefined>, default: undefined },
   },
 
   emits: {
@@ -38,12 +50,24 @@ export default defineComponent({
     reopen: () => true,
     archive: () => true,
     unarchive: () => true,
+    'competition-changed': (_c: Competition) => true,
+    'competition-reload': () => true,
   },
 
   computed: {
     /** A zona de perigo só aparece com alguma ação dentro. */
     hasDanger(): boolean {
       return this.canCancel || this.canReopen || this.isOwner;
+    },
+
+    /** CMP-35: a linha Temporadas: quem tem `seasons.manage`, com a competição ativa. */
+    showsSeasons(): boolean {
+      return this.access.seasons && this.competition?.status === 'active';
+    },
+
+    /** CMP-10: a linha Competição. */
+    showsCompetition(): boolean {
+      return showsCompetitionRow(this.competition, this.access);
     },
 
     gameDate(): string {
@@ -72,13 +96,22 @@ export default defineComponent({
   </div>
 
   <div v-else-if="game && !group.archivedAt" class="sections">
-    <div v-if="access.settings || access.teams" class="sc-card settings-list">
+    <div v-if="access.settings || access.teams || showsCompetition" class="sc-card settings-list">
       <template v-if="access.settings">
         <LayersCard :group="group" :game="game" :is-owner="access.settings" @saved="$emit('saved')" />
         <CapacityCard :group="group" @saved="$emit('saved')" />
         <LimitsCard :group="group" @saved="$emit('saved')" />
       </template>
       <TeamSettingsRows v-if="access.teams" :group="group" />
+      <CompetitionSettingsRow
+        v-if="showsCompetition && competition"
+        :group="group"
+        :competition="competition"
+        :access="access"
+        @changed="$emit('competition-changed', $event)"
+        @reload="$emit('competition-reload')"
+      />
+      <SeasonSettingsRow v-if="showsSeasons" :group="group" />
       <GroupImagesCard v-if="access.settings" :group="group" @saved="$emit('saved')" />
     </div>
 

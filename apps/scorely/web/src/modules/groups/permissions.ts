@@ -11,6 +11,10 @@ export interface GroupAccess {
   teams: boolean;
   members: boolean;
   settings: boolean;
+  /** `seasons.manage`: o regulamento da competição (CMP-07). */
+  seasons: boolean;
+  /** `results.record`: fechar os jogos na competição (CMP-11). */
+  results: boolean;
 }
 
 export const NO_ACCESS: GroupAccess = {
@@ -19,6 +23,8 @@ export const NO_ACCESS: GroupAccess = {
   teams: false,
   members: false,
   settings: false,
+  seasons: false,
+  results: false,
 };
 
 export function groupAccess(
@@ -32,6 +38,8 @@ export function groupAccess(
     teams: has('teams.manage'),
     members: has('members.manage'),
     settings: has('settings.edit'),
+    seasons: has('seasons.manage'),
+    results: has('results.record'),
   };
 }
 
@@ -40,7 +48,7 @@ export function groupAccess(
  */
 export function showsSettings(access: GroupAccess, archived: boolean): boolean {
   if (archived) return access.owner;
-  return access.settings || access.teams || access.game || access.owner;
+  return access.settings || access.teams || access.game || access.seasons || access.owner;
 }
 
 /** GRP-57: o erro de uma ação barrada por permissão (a tela recarrega o grupo em vez de só avisar). */

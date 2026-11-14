@@ -11,4 +11,7 @@ export const notificationIcon: Record<NotificationType, string> = {
   game_confirmed: 'check_circle',
   staff_role_granted: 'add_moderator',
   group_transferred: 'key',
+  season_closed: 'emoji_events',
+  trophy_awarded: 'workspace_premium',
+  podium_entered: 'trending_up',
 };

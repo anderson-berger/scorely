@@ -103,3 +103,30 @@ export function timeStatus(occurrence: Occurrence, now: Date): TimeStatus {
 export function layerOpensAt(startsAt: string, hoursBefore: number): string {
   return new Date(new Date(startsAt).getTime() - hoursBefore * HOUR_MS).toISOString();
 }
+
+/** Dia da semana (0 = domingo) da data local `YYYY-MM-DD`. */
+function weekdayOf(date: string): number {
+  return new Date(`${date}T00:00:00Z`).getUTCDay();
+}
+
+/** A ocorrência do grupo nessa data local, ou `undefined` se não é o dia da semana do grupo (CMP-11). */
+export function occurrenceOnDate(schedule: WeeklySchedule, date: string): Occurrence | undefined {
+  return weekdayOf(date) === schedule.weekday ? occurrenceOn(schedule, date) : undefined;
+}
+
+/**
+ * As ocorrências que começaram entre `from` e `to` (`from <= startsAt <= to`), da mais recente para a mais antiga
+ * (CMP-11, 16). Andam de 7 em 7 dias pela data local, então a hora de parede segue o fuso (horário de verão).
+ */
+export function occurrencesBetween(schedule: WeeklySchedule, from: Date, to: Date): Occurrence[] {
+  const today = localDate(to, schedule.timeZone);
+  const lastOnWeekday = addDays(today, -((weekdayOf(today) - schedule.weekday + 7) % 7));
+  const latest = occurrenceOn(schedule, lastOnWeekday);
+  const start = Date.parse(latest.startsAt) <= to.getTime() ? lastOnWeekday : addDays(lastOnWeekday, -7);
+  function back(date: string): Occurrence[] {
+    const occ = occurrenceOn(schedule, date);
+    if (Date.parse(occ.startsAt) < from.getTime()) return [];
+    return [occ, ...back(addDays(date, -7))];
+  }
+  return back(start);
+}

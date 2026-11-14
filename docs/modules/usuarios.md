@@ -1,6 +1,6 @@
 # Módulo Usuários
 
-> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-13.
+> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-14.
 
 Código: `apps/scorely/api/src/modules/users/`, `apps/scorely/web/src/modules/users/`, `apps/scorely/web/src/lib/preferences.ts`. Contrato: `apps/scorely/contracts/src/users.ts`.
 
@@ -67,6 +67,8 @@ Os dados da pessoa ficam em três partes, cada uma com quem pode ler:
   - Mudou num aparelho: os outros passam a usar na próxima renovação da sessão.
   - Ao sair da conta, o navegador volta para o idioma da tela de login (USR-06, passos 2 e 3) e para o fuso dele.
   - _Por quê:_ idioma e fuso quase nunca mudam. Perguntar ao servidor a cada abertura só atrasaria a tela, e a renovação da sessão já acontece de qualquer jeito.
+
+- A tela do perfil também mostra a **sala de troféus** da competição, que é do módulo de competição e só lê `GET /me/trophies` ([CMP-41](competicao.md)). Ela não muda nenhuma regra deste módulo.
 
 ### Foto de perfil
 

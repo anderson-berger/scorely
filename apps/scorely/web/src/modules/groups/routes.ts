@@ -37,6 +37,12 @@ export const groupsRoutes: RouteRecordRaw[] = [
         name: 'group-members',
         component: () => import('@scorely/web/src/modules/groups/pages/GroupMembersPage.vue'),
       },
+      // CMP-09: a competição do grupo (módulo próprio), com a competição já ativada alguma vez.
+      {
+        path: 'competition',
+        name: 'group-competition',
+        component: () => import('@scorely/web/src/modules/competition/pages/GroupCompetitionPage.vue'),
+      },
       {
         path: 'settings',
         name: 'group-settings',

@@ -54,7 +54,14 @@ export type MemberRole = z.infer<typeof MemberRoleSchema>;
  * Permissões de administração do grupo (GRP-49), por assunto. O dono tem todas; quem não tem cargo, nenhuma.
  * Só do dono, fora do catálogo: arquivar, desarquivar, cargos e passar o grupo.
  */
-export const PermissionSchema = z.enum(['game.manage', 'teams.manage', 'members.manage', 'settings.edit']);
+export const PermissionSchema = z.enum([
+  'game.manage',
+  'teams.manage',
+  'members.manage',
+  'settings.edit',
+  'seasons.manage',
+  'results.record',
+]);
 export type Permission = z.infer<typeof PermissionSchema>;
 export const ALL_PERMISSIONS: readonly Permission[] = PermissionSchema.options;
 

@@ -4200,7 +4200,14 @@ describe('ação sobre outra pessoa pelo id público (USR-17)', () => {
 // ---------------------------------------------------------------------------------------------
 // Cargos e permissões (GRP-48–55), a parte que não depende de alguém ter cargo.
 
-const EVERY_PERMISSION: Permission[] = ['game.manage', 'members.manage', 'settings.edit', 'teams.manage'];
+const EVERY_PERMISSION: Permission[] = [
+  'game.manage',
+  'members.manage',
+  'results.record',
+  'seasons.manage',
+  'settings.edit',
+  'teams.manage',
+];
 const sorted = (list: readonly string[]) => [...list].sort();
 
 describe('permissões sem cargo (GRP-49, 55)', () => {
@@ -4390,7 +4397,7 @@ describe('papel e cargo (GRP-48)', () => {
 });
 
 describe('o que o Admin vê (GRP-05, 55)', () => {
-  it('GRP-55: o Admin recebe as quatro permissões no `myPermissions`', async () => {
+  it('GRP-55: o Admin recebe todas as permissões do catálogo no `myPermissions` (GRP-50), inclusive seasons.manage', async () => {
     const t = await withAdmin();
     const read = await t.groups.get(A, t.group.id);
     expect(GroupSchema.parse(read)).toEqual(read);

@@ -1,9 +1,19 @@
 <script lang="ts">
-import type { Game, Group, InviteKind, Member, Player, PlayerPosition } from '@scorely/contracts';
+import type {
+  Competition,
+  Game,
+  Group,
+  InviteKind,
+  Member,
+  Player,
+  PlayerPosition,
+} from '@scorely/contracts';
 import { errorMessage } from '@scorely/web/src/i18n/errors';
 import { currentTimeZone, formatDateTime } from '@scorely/web/src/lib/datetime';
 import { ApiRequestError } from '@scorely/web/src/lib/http';
 import { useAuthStore } from '@scorely/web/src/modules/auth/auth.store';
+import { showsCompetitionTab } from '@scorely/web/src/modules/competition/competition';
+import { competitionApi } from '@scorely/web/src/modules/competition/competition.api';
 import GroupHero from '@scorely/web/src/modules/groups/components/GroupHero.vue';
 import { gameUnlessArchived } from '@scorely/web/src/modules/groups/groups';
 import { groupsApi } from '@scorely/web/src/modules/groups/groups.api';
@@ -31,6 +41,7 @@ const TAB_LABELS: Record<GroupTab, string> = {
   group: 'groups.tabs.game',
   'group-teams': 'groups.tabs.teams',
   'group-members': 'groups.tabs.members',
+  'group-competition': 'groups.tabs.competition',
   'group-settings': 'groups.tabs.settings',
 };
 
@@ -59,6 +70,8 @@ export default defineComponent({
       /** `null`: grupo arquivado, sem jogo (GRP-37). `undefined`: ainda carregando. */
       game: undefined as Game | null | undefined,
       members: [] as Member[],
+      /** CMP-05, 09: a competição do grupo; `undefined` sem ela carregada (a página funciona sem). */
+      competition: undefined as Competition | undefined,
       loadError: '',
       busy: false,
       /** Posições de cada pessoa (TIM-03, 05): todos do grupo, em esporte com posições. */
@@ -102,6 +115,11 @@ export default defineComponent({
       return Boolean(this.group && showsSettings(this.access, Boolean(this.group.archivedAt)));
     },
 
+    /** CMP-09: a aba Competição, com a competição já ativada alguma vez. */
+    showsCompetition(): boolean {
+      return showsCompetitionTab(this.competition);
+    },
+
     /** TIM-03, 05: todos do grupo veem as posições, só em esporte que tem posições. */
     showsPositions(): boolean {
       return Boolean(this.group && sportPositions(this.group.sport).length > 0);
@@ -118,7 +136,10 @@ export default defineComponent({
 
     /** GRP-29: o nome da aba não leva contagem; as contagens ficam nas seções de dentro. */
     tabs(): { name: GroupTab; label: string }[] {
-      return groupTabs(this.showsSettings).map((name) => ({ name, label: this.$t(TAB_LABELS[name]) }));
+      return groupTabs(this.showsSettings, this.showsCompetition).map((name) => ({
+        name,
+        label: this.$t(TAB_LABELS[name]),
+      }));
     },
 
     /** A aba marcada: o nome da rota filha. */
@@ -197,14 +218,16 @@ export default defineComponent({
 
     /** Lê o grupo, o jogo, os membros e as posições, e confere a aba (GRP-29). */
     async fetch() {
-      const [group, game, members] = await Promise.all([
+      const [group, game, members, competition] = await Promise.all([
         groupsApi.get(this.groupId),
         gameUnlessArchived(() => groupsApi.currentGame(this.groupId)),
         groupsApi.members(this.groupId),
+        this.loadCompetition(),
       ]);
       this.group = group;
       this.game = game;
       this.members = members;
+      this.competition = competition;
       this.players = this.showsPositions ? await this.loadPlayers() : [];
       await this.guardTab();
     },
@@ -223,6 +246,26 @@ export default defineComponent({
       }
     },
 
+    /** CMP-05: uma leitura própria (o grupo não sabe da competição). Sem ela, a página funciona sem a aba. */
+    async loadCompetition(): Promise<Competition | undefined> {
+      try {
+        return await competitionApi.get(this.groupId);
+      } catch {
+        return undefined;
+      }
+    },
+
+    /** CMP-10: começou o teste ou salvou o regulamento: a aba aparece ou mostra o novo. */
+    onCompetitionChanged(c: Competition) {
+      this.competition = c;
+    },
+
+    /** CMP-10: a competição mudou por fora (venceu): relê só ela e confere a aba. */
+    async reloadCompetition() {
+      this.competition = await this.loadCompetition();
+      await this.guardTab();
+    },
+
     /** TIM-05: sem as posições a página continua funcionando; elas só não aparecem. */
     async loadPlayers(): Promise<Player[]> {
       try {
@@ -235,7 +278,7 @@ export default defineComponent({
     /** Quem não pode ver os Ajustes e abriu a aba cai no Jogo (D4, GRP-29). */
     async guardTab() {
       if (!this.group) return;
-      const to = tabRedirect(String(this.$route.name), this.showsSettings);
+      const to = tabRedirect(String(this.$route.name), this.showsSettings, this.showsCompetition);
       if (to) await this.$router.replace({ name: to, params: { id: this.groupId } });
     },
 
@@ -478,6 +521,7 @@ export default defineComponent({
             :group="group"
             :game="game"
             :members="members"
+            :competition="competition"
             :busy="busy"
             :is-owner="isOwner"
             :access="access"
@@ -501,6 +545,8 @@ export default defineComponent({
             @archive="archive"
             @unarchive="unarchive"
             @saved="load"
+            @competition-changed="onCompetitionChanged"
+            @competition-reload="reloadCompetition"
           />
         </router-view>
       </template>

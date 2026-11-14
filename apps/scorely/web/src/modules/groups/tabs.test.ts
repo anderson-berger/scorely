@@ -61,3 +61,39 @@ describe('nome das abas', () => {
     }
   });
 });
+
+describe('a aba Competição (GRP-29)', () => {
+  it('GRP-29: com a competição não desativada, a aba Competição entra antes dos Ajustes', () => {
+    expect(groupTabs(true, true)).toEqual([
+      'group',
+      'group-teams',
+      'group-members',
+      'group-competition',
+      'group-settings',
+    ]);
+  });
+
+  it('GRP-29: quem não vê os Ajustes vê a Competição depois de Membros', () => {
+    expect(groupTabs(false, true)).toEqual(['group', 'group-teams', 'group-members', 'group-competition']);
+  });
+
+  it('GRP-29: sem a competição (desativada), não há aba Competição', () => {
+    expect(groupTabs(true, false)).not.toContain('group-competition');
+    expect(groupTabs(false)).not.toContain('group-competition');
+  });
+
+  it('GRP-29: abrir a Competição quando a aba não aparece → volta para o Jogo', () => {
+    expect(tabRedirect('group-competition', true, false)).toBe('group');
+    expect(tabRedirect('group-competition', false)).toBe('group');
+  });
+
+  it('GRP-29: abrir a Competição quando a aba aparece → fica, com ou sem os Ajustes', () => {
+    expect(tabRedirect('group-competition', false, true)).toBeUndefined();
+    expect(tabRedirect('group-competition', true, true)).toBeUndefined();
+  });
+
+  it('GRP-29: a Competição não muda o redirecionamento dos Ajustes', () => {
+    expect(tabRedirect('group-settings', false, true)).toBe('group');
+    expect(tabRedirect('group-settings', true, true)).toBeUndefined();
+  });
+});

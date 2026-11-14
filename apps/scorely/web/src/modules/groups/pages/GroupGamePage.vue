@@ -1,6 +1,7 @@
 <script lang="ts">
-import type { Game, Group, PlayerPosition } from '@scorely/contracts';
+import type { Competition, Game, Group, PlayerPosition } from '@scorely/contracts';
 import { errorMessage } from '@scorely/web/src/i18n/errors';
+import CompetitionGameLine from '@scorely/web/src/modules/competition/components/CompetitionGameLine.vue';
 import { gameCapacityPatch } from '@scorely/web/src/modules/groups/capacity';
 import CapacitySheet from '@scorely/web/src/modules/groups/components/CapacitySheet.vue';
 import GameCard from '@scorely/web/src/modules/groups/components/GameCard.vue';
@@ -22,7 +23,7 @@ import { defineComponent, type PropType } from 'vue';
 export default defineComponent({
   name: 'GroupGamePage',
 
-  components: { CapacitySheet, GameCard, TeamsLine },
+  components: { CapacitySheet, CompetitionGameLine, GameCard, TeamsLine },
 
   inject: permissionLostInject,
 
@@ -32,6 +33,8 @@ export default defineComponent({
     group: { type: Object as PropType<Group>, required: true },
     game: { type: Object as PropType<Game | null>, default: null },
     access: { type: Object as PropType<GroupAccess>, default: () => NO_ACCESS },
+    /** CMP-17: a competição do grupo, para a linha de fechar o jogo. */
+    competition: { type: Object as PropType<Competition | undefined>, default: undefined },
     busy: { type: Boolean, default: false },
     /** TIM-05: posições de cada pessoa (ausente = o esporte não tem posições). */
     playerPositions: {
@@ -41,7 +44,7 @@ export default defineComponent({
     canEditPositions: { type: Boolean, default: false },
   },
 
-  emits: ['confirm', 'leave', 'editPlayer', 'saved'],
+  emits: ['confirm', 'leave', 'editPlayer', 'saved', 'competition-reload'],
 
   data() {
     return { capacityOpen: false, savingCapacity: false };
@@ -99,6 +102,13 @@ export default defineComponent({
   >
     <template #teams>
       <TeamsLine :group-id="group.id" :game="game" :can-manage="access.teams" />
+      <CompetitionGameLine
+        :group="group"
+        :game="game"
+        :competition="competition"
+        :access="access"
+        @reload="$emit('competition-reload')"
+      />
     </template>
   </GameCard>
   <CapacitySheet

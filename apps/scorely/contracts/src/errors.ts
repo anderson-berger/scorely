@@ -1,5 +1,9 @@
 import { PermissionSchema } from '@scorely/contracts/src/groups';
-import { TeamRuleConflictSchema, TeamViolationSchema } from '@scorely/contracts/src/teams';
+import {
+  TeamPersonIdSchema,
+  TeamRuleConflictSchema,
+  TeamViolationSchema,
+} from '@scorely/contracts/src/teams';
 import { z } from 'zod';
 
 /**
@@ -55,6 +59,17 @@ export const ErrorCodeSchema = z.enum([
   'TEAM_EMPTY',
   'TEAM_RULES_CONFLICT',
   'TEAM_RULES_VIOLATED',
+  // competition
+  'COMPETITION_TRIAL_USED',
+  'COMPETITION_INACTIVE',
+  'GAME_NOT_STARTED',
+  'RESULT_INVALID',
+  'MATCH_INVALID',
+  'GAME_MATCHES_FULL',
+  'MATCH_NOT_FOUND',
+  'SEASON_INVALID',
+  'SEASON_NOT_FOUND',
+  'SEASON_CLOSED',
 ]);
 export type ErrorCode = z.infer<typeof ErrorCodeSchema>;
 
@@ -89,6 +104,28 @@ export const ErrorDetailsSchemas = {
   TEAM_RULES_VIOLATED: z.object({ violations: z.array(TeamViolationSchema).min(1) }),
   /** As vagas que valem (GRP-46): o mínimo não passa delas. */
   GROUP_MIN_PLAYERS_INVALID: z.object({ max: z.number().int().positive() }),
+  /** Por que a temporada foi recusada (CMP-29, 30). */
+  SEASON_INVALID: z.object({
+    reason: z.enum(['duration', 'past_start', 'too_far', 'overlap', 'started']),
+  }),
+  /** Por que a partida foi recusada (CMP-19–21); `userId` quando é uma pessoa. */
+  MATCH_INVALID: z.object({
+    reason: z.enum(['day_unit', 'person_unknown', 'team_empty', 'person_repeated', 'person_absent']),
+    userId: TeamPersonIdSchema.optional(),
+  }),
+  /** Por que o fechamento do jogo foi recusado (CMP-12, 13); `userId` quando é uma pessoa. */
+  RESULT_INVALID: z.object({
+    reason: z.enum([
+      'attendance_missing',
+      'attendance_unknown',
+      'winner_without_teams',
+      'winner_out_of_range',
+      'winner_with_match_unit',
+      'cancelled_with_result',
+      'absent_played',
+    ]),
+    userId: TeamPersonIdSchema.optional(),
+  }),
   /** Quantos já estão dentro (GRP-45): as vagas não descem abaixo disso. */
   GAME_SLOTS_BELOW_CONFIRMED: z.object({ confirmed: z.number().int().nonnegative() }),
 } satisfies Partial<Record<ErrorCode, z.ZodType>>;
