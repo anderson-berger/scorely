@@ -24,6 +24,7 @@ const CATALOG = {
     status: 409,
     message: 'Could not create the user due to a concurrent request; retry',
   },
+  USER_NICKNAME_IS_PUBLIC_ID: { status: 422, message: 'The nickname cannot be your own public id' },
 
   MEDIA_NOT_FOUND: { status: 404, message: 'Media not found or expired' },
   MEDIA_NOT_UPLOADED: { status: 404, message: 'Media file was not uploaded' },

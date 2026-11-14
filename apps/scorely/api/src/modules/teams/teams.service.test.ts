@@ -176,7 +176,7 @@ const MEMBERS: Record<string, MemberRole> = {
 const attendee = (userId: UserId, role: Attendee['role'], minute: number): RosterAttendee => ({
   userId,
   publicId: pub(userId),
-  name: NAMES[userId],
+  nickname: NAMES[userId] ?? pub(userId),
   role,
   confirmedAt: new Date(Date.UTC(2026, 10, 4, 22, minute)).toISOString(),
 });
@@ -302,7 +302,9 @@ function setup(opts: { group?: Partial<StoredGroup>; game?: RosterGame; random?:
   const users = {
     getMany: async (userIds: readonly UserId[]): Promise<UserRecord[]> =>
       userIds.flatMap((id) =>
-        NAMES[id] ? [{ id, publicId: pub(id), name: NAMES[id], createdAt: '2026-01-01T00:00:00.000Z' }] : [],
+        NAMES[id]
+          ? [{ id, publicId: pub(id), nickname: NAMES[id], createdAt: '2026-01-01T00:00:00.000Z' }]
+          : [],
       ),
     /** USR-17: id público → id do sistema; o desconhecido (e o avulso) fica de fora. */
     resolve: async (publicIds: readonly PublicUserId[]) => resolveIn(publicIds),
@@ -551,9 +553,19 @@ describe('times do jogo: como são montados (TIM-08)', () => {
       [OWNER, A],
       [G, B, H],
     ]);
-    expect(find(res.teams, B)).toMatchObject({ name: 'Beatriz', role: 'member', bench: true, inList: true });
-    expect(find(res.teams, H)).toMatchObject({ name: 'Heitor', role: 'guest', bench: true, inList: true });
-    expect(find(res.teams, G)).toMatchObject({ name: 'Gabi', role: 'guest', bench: false, inList: true });
+    expect(find(res.teams, B)).toMatchObject({
+      nickname: 'Beatriz',
+      role: 'member',
+      bench: true,
+      inList: true,
+    });
+    expect(find(res.teams, H)).toMatchObject({
+      nickname: 'Heitor',
+      role: 'guest',
+      bench: true,
+      inList: true,
+    });
+    expect(find(res.teams, G)).toMatchObject({ nickname: 'Gabi', role: 'guest', bench: false, inList: true });
     expect(find(res.teams, R)).toMatchObject({ role: 'reserve', bench: false });
     expect(ids(res.teams?.unassigned ?? [])).toEqual([R]);
   });
@@ -858,8 +870,8 @@ describe('times do jogo: quem saiu da lista continua no time (TIM-12)', () => {
         [OWNER, A],
         [G, H],
       ]);
-      expect(find(res.teams, A)).toMatchObject({ name: 'Ana', inList: false });
-      expect(find(res.teams, H)).toMatchObject({ name: 'Heitor', inList: false });
+      expect(find(res.teams, A)).toMatchObject({ nickname: 'Ana', inList: false });
+      expect(find(res.teams, H)).toMatchObject({ nickname: 'Heitor', inList: false });
       expect(find(res.teams, G)).toMatchObject({ inList: true });
     }
   });
@@ -874,7 +886,7 @@ describe('times do jogo: quem saiu da lista continua no time (TIM-12)', () => {
     );
 
     const res = await t.service.get(OWNER, GROUP_ID, DATE);
-    expect(find(res.teams, A)).toMatchObject({ name: 'Ana', inList: false });
+    expect(find(res.teams, A)).toMatchObject({ nickname: 'Ana', inList: false });
   });
 
   it('TIM-12: o dono pode salvar mantendo quem saiu (sem TEAM_PLAYER_NOT_FOUND), e depois tirar', async () => {
@@ -923,7 +935,12 @@ describe('times do jogo: quem saiu da lista continua no time (TIM-12)', () => {
 
     const res = await t.service.get(OWNER, GROUP_ID, DATE);
     expect(ids(res.teams?.unassigned ?? [])).toEqual([C]);
-    expect(find(res.teams, C)).toMatchObject({ name: 'Caio', inList: true, bench: false, role: 'member' });
+    expect(find(res.teams, C)).toMatchObject({
+      nickname: 'Caio',
+      inList: true,
+      bench: false,
+      role: 'member',
+    });
   });
 
   it('TIM-12: os times não mudam sozinhos: quem saiu continua gravado no time', async () => {

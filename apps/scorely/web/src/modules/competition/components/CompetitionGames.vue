@@ -79,7 +79,7 @@ export default defineComponent({
     },
 
     nameOf(p: GamePerson): string {
-      return p.name ?? this.$t('groups.unnamed');
+      return p.nickname;
     },
 
     partsOf(p: GamePerson): string {

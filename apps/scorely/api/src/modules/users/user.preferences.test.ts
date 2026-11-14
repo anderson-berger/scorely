@@ -18,21 +18,21 @@ const PUBLIC_ID = PublicUserIdSchema.parse('7K3QX9TA');
 type ReadOpts = { consistent?: boolean };
 
 /**
- * Repositório em memória com as três partes da pessoa (usuarios.md, seção 3): perfil, email e preferências.
- * `null` no patch remove o atributo; `writes` conta as gravações (para conferir "nada gravado").
+ * Repositório em memória com as três partes da pessoa (usuarios.md, seção 3): perfil (apelido, gênero), parte
+ * privada (email e nome, USR-13) e preferências; `writes` conta as gravações (para conferir "nada gravado").
  */
 function memoryUserRepo() {
   const profiles = new Map<UserId, UserRecord>();
-  const emails = new Map<UserId, string>();
+  const privates = new Map<UserId, { email: string; name?: string }>();
   const prefs = new Map<UserId, Preferences>();
   const writes = { count: 0 };
   const me = (id: UserId): MeRecord | undefined => {
     const profile = profiles.get(id);
-    const email = emails.get(id);
-    if (!profile || email === undefined) return undefined;
-    return structuredClone({ ...profile, email, preferences: prefs.get(id) ?? {} });
+    const priv = privates.get(id);
+    if (!profile || priv === undefined) return undefined;
+    return structuredClone({ ...profile, ...priv, preferences: prefs.get(id) ?? {} });
   };
-  const idOf = (email: string) => [...emails.entries()].find(([, e]) => e === email)?.[0];
+  const idOf = (email: string) => [...privates.entries()].find(([, p]) => p.email === email)?.[0];
   const assign = (target: Record<string, unknown>, patch: Record<string, unknown>) =>
     Object.entries(patch).forEach(([k, v]) => {
       if (v === null) delete target[k];
@@ -49,17 +49,19 @@ function memoryUserRepo() {
     async create(user: UserRecord, email: string) {
       if (idOf(email) !== undefined) return 'email_taken';
       profiles.set(user.id, structuredClone(user));
-      emails.set(user.id, email);
+      privates.set(user.id, { email });
       prefs.set(user.id, {});
       return 'created';
     },
     async update(id: UserId, patch: UpdateMeInput) {
       const profile = profiles.get(id);
       const preferences = prefs.get(id);
-      if (!profile || !preferences) return undefined;
+      const priv = privates.get(id);
+      if (!profile || !preferences || !priv) return undefined;
       writes.count += 1;
-      const { locale, timeZone, ...rest } = patch;
+      const { locale, timeZone, name, ...rest } = patch;
       assign(preferences, { locale, timeZone });
+      assign(priv, { name });
       assign(profile, rest);
       return me(id);
     },
@@ -70,7 +72,7 @@ function memoryUserRepo() {
           .map((u) => [u.publicId, u.id] as const),
       ),
   };
-  return { repo, writes, profiles, prefs };
+  return { repo, writes, profiles, privates, prefs };
 }
 
 async function withUser() {
@@ -114,7 +116,7 @@ describe('perfil: idioma e fuso nas preferências', () => {
     expect(t.memory.prefs.get(t.userId)).toEqual({ locale: 'en', timeZone: 'Europe/Lisbon' });
   });
 
-  it('USR-03: PATCH /me misto → nome e apelido no perfil, idioma nas preferências', async () => {
+  it('USR-03: PATCH /me misto → apelido no perfil, nome na parte privada (USR-13), idioma nas preferências', async () => {
     const t = await withUser();
     const res = await t.patchMe({ name: 'Ana Souza', nickname: 'Aninha', locale: 'en' });
     expect(res).toMatchObject({ statusCode: 200 });
@@ -123,7 +125,9 @@ describe('perfil: idioma e fuso nas preferências', () => {
       nickname: 'Aninha',
       preferences: { locale: 'en' },
     });
-    expect(t.memory.profiles.get(t.userId)).toMatchObject({ name: 'Ana Souza', nickname: 'Aninha' });
+    expect(t.memory.profiles.get(t.userId)).toMatchObject({ nickname: 'Aninha' });
+    expect(t.memory.profiles.get(t.userId)).not.toHaveProperty('name');
+    expect(t.memory.privates.get(t.userId)).toEqual({ email: EMAIL, name: 'Ana Souza' });
     expect(t.memory.prefs.get(t.userId)).toEqual({ locale: 'en' });
   });
 
@@ -141,11 +145,32 @@ describe('perfil: idioma e fuso nas preferências', () => {
     expect(bodyOf(res)).toMatchObject({ name: 'Ana', nickname: 'Aninha', gender: 'F' });
   });
 
-  it('USR-03: apelido null remove o apelido', async () => {
+  it('USR-03: apelido null → 422 VALIDATION_ERROR, nada gravado e o apelido continua', async () => {
     const t = await withUser();
-    await t.patchMe({ name: 'Ana', nickname: 'Aninha' });
+    await t.patchMe({ nickname: 'Aninha' });
+    const before = t.writes.count;
     const res = await t.patchMe({ nickname: null });
-    expect(bodyOf(res)).not.toHaveProperty('nickname');
+    expect(res).toMatchObject({ statusCode: 422 });
+    const { error } = bodyOf(res);
+    expect(error.code).toBe('VALIDATION_ERROR');
+    expect(error.details.issues[0]).toMatchObject({ path: ['nickname'] });
+    expect(t.writes.count).toBe(before);
+    expect((await t.service.get(t.userId)).nickname).toBe('Aninha');
+  });
+
+  it('USR-03: apelido vazio (só espaços) → 422 VALIDATION_ERROR e o apelido continua o código (USR-02)', async () => {
+    const t = await withUser();
+    const res = await t.patchMe({ nickname: '   ' });
+    expect(res).toMatchObject({ statusCode: 422 });
+    expect(bodyOf(res).error.code).toBe('VALIDATION_ERROR');
+    expect(t.writes.count).toBe(0);
+    expect((await t.service.get(t.userId)).nickname).toBe(PUBLIC_ID);
+  });
+
+  it('USR-03: apelido com 40 caracteres passa; com 41 → 422 VALIDATION_ERROR', async () => {
+    const t = await withUser();
+    expect(await t.patchMe({ nickname: 'a'.repeat(40) })).toMatchObject({ statusCode: 200 });
+    expect(await t.patchMe({ nickname: 'a'.repeat(41) })).toMatchObject({ statusCode: 422 });
   });
 
   it('USR-05: PATCH /me { timeZone: Mars/Olympus } → 422 VALIDATION_ERROR e nada gravado', async () => {

@@ -45,7 +45,7 @@ export default defineComponent({
 
   computed: {
     title(): string {
-      return this.player?.name ?? this.$t('groups.unnamed');
+      return this.player?.nickname ?? '';
     },
 
     /** Quem está dentro da lista fica "sem time"; os outros saem dos times (TIM-08, 12). */

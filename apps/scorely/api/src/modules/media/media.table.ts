@@ -12,10 +12,8 @@ export interface MediaRecord {
   purpose: MediaPurpose;
   ownerType: MediaOwnerType;
   ownerId: string;
-  /** Quem aparece no caminho público (MID-12): o id do grupo ou o id público da pessoa. Sem ele, o `ownerId`. */
-  ownerRef?: string;
   status: 'pending' | 'ready';
-  /** `tmp/<id>` na pendente; `public/<ownerType>/<ownerRef>/<purpose>/<id>.<ext>` na pronta. */
+  /** `tmp/<id>` na pendente; `public/<purpose>/<id>` na pronta (MID-12). */
   key: string;
   uploadedBy: string;
   contentType?: ImageContentType;
@@ -26,7 +24,7 @@ export interface MediaRecord {
   expiresAt?: string;
 }
 
-/** Onde a área guarda a mídia: `<field>MediaId` e `<field>Url` no item `key` (MID-08). */
+/** Onde a área guarda a mídia: só o `<field>MediaId` no item `key` (MID-08); a URL é montada na resposta (MID-12). */
 export interface MediaTarget {
   key: { PK: string; SK: string };
   field: 'avatar' | 'logo' | 'cover';
@@ -36,14 +34,15 @@ export interface MediaTarget {
 
 /**
  * Entidade: `PK=MEDIA#<id>`, `SK=META`. Leitura: GetItem consistente.
- * Escrita: Put da pendente (com `ttl`); na confirmação, Put da pronta (sem `ttl`) com a condição de ainda
- * estar pendente, na mesma transação do Update da área e do Delete da anterior.
+ * Escrita: Put da pendente (com `ttl`); na confirmação, Update que troca a pendente pela pronta (sem `ttl`, a
+ * `version` segue, ADR 0013) com a condição de ainda estar pendente, na mesma transação do Update da área e do Delete
+ * da anterior.
  */
 export function mediaKey(id: string) {
   return { PK: `MEDIA#${id}`, SK: 'META' };
 }
 
-/** Nomes dos dois campos que a área guarda. */
+/** Nome do campo que a área guarda. */
 export function targetFields(field: MediaTarget['field']) {
-  return { id: `${field}MediaId`, url: `${field}Url` };
+  return { id: `${field}MediaId` };
 }

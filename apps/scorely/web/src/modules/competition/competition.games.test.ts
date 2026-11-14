@@ -150,6 +150,7 @@ describe('os jogos na aba Competição (CMP-18)', () => {
   it('CMP-18: cada pessoa com o que aconteceu: "veio · Time 2", "faltou", "não confirmou"', () => {
     const came: GamePerson = {
       id: P1,
+      nickname: 'Ana',
       kind: 'member',
       inside: true,
       attendance: 'present',
@@ -162,6 +163,7 @@ describe('os jogos na aba Competição (CMP-18)', () => {
     expect(line(personParts(cameNoTeam))).toBe('veio');
     const absent: GamePerson = {
       id: P2,
+      nickname: 'Bia',
       kind: 'member',
       inside: true,
       attendance: 'absent',
@@ -169,17 +171,30 @@ describe('os jogos na aba Competição (CMP-18)', () => {
       points: -2,
     };
     expect(line(personParts(absent))).toBe('faltou');
-    const notConfirmed: GamePerson = { id: P3, kind: 'member', event: 'notConfirmed', points: 0 };
+    const notConfirmed: GamePerson = {
+      id: P3,
+      nickname: 'Caio',
+      kind: 'member',
+      event: 'notConfirmed',
+      points: 0,
+    };
     expect(line(personParts(notConfirmed))).toBe('não confirmou');
   });
 
   it('CMP-18: no jogo cancelado, quem estava dentro aparece como "estava na lista"', () => {
-    const inCancelled: GamePerson = { id: P1, kind: 'member', inside: true, event: 'cancelled', points: 0 };
+    const inCancelled: GamePerson = {
+      id: P1,
+      nickname: 'Ana',
+      kind: 'member',
+      inside: true,
+      event: 'cancelled',
+      points: 0,
+    };
     expect(line(personParts(inCancelled))).toBe('estava na lista');
   });
 
   it('CMP-18: o avulso mostra o time em que jogou', () => {
-    const extra: GamePerson = { id: EXTRA, name: 'Avulso', kind: 'extra', team: 0 };
+    const extra: GamePerson = { id: EXTRA, nickname: 'Avulso', kind: 'extra', team: 0 };
     expect(personParts(extra).map(render)).toContain('Time 1');
   });
 
@@ -193,11 +208,11 @@ describe('os jogos na aba Competição (CMP-18)', () => {
 
 describe('a chamada no painel de fechar (CMP-12)', () => {
   const people: GamePerson[] = [
-    { id: OWNER, kind: 'member', inside: true },
-    { id: P1, kind: 'reserve', inside: true },
-    { id: P2, kind: 'guest', inside: false },
-    { id: P3, kind: 'member' },
-    { id: EXTRA, kind: 'extra', team: 0 },
+    { id: OWNER, nickname: 'Dono', kind: 'member', inside: true },
+    { id: P1, nickname: 'Ana', kind: 'reserve', inside: true },
+    { id: P2, nickname: 'Bia', kind: 'guest', inside: false },
+    { id: P3, nickname: 'Caio', kind: 'member' },
+    { id: EXTRA, nickname: 'Avulso', kind: 'extra', team: 0 },
   ];
   const detail = (
     list: GamePerson[],

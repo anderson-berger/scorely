@@ -27,6 +27,7 @@ export const ErrorCodeSchema = z.enum([
   // users
   'USER_NOT_FOUND',
   'USER_CREATE_CONFLICT',
+  'USER_NICKNAME_IS_PUBLIC_ID',
   // media
   'MEDIA_NOT_FOUND',
   'MEDIA_NOT_UPLOADED',

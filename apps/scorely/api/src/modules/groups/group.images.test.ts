@@ -17,8 +17,8 @@ import {
 import { describe, expect, it } from 'vitest';
 
 // GRP-35 (docs/modules/grupos.md) e MID-01 (docs/modules/midia.md): só o dono troca e remove o logo e a capa,
-// conferido nos dois passos. A mídia é um dublê que grava `<slot>MediaId`/`<slot>Url` no item do grupo, como a
-// transação dela faria (MID-08); as regras do arquivo ficam em media/media.service.test.ts.
+// conferido nos dois passos. A mídia é um dublê que grava só o `<slot>MediaId` no item do grupo, como a transação
+// dela faria (MID-08); a URL sai montada pelo `urlOf` (MID-12). As regras do arquivo ficam em media/media.service.test.ts.
 
 const OWNER = asUserId('11111111-1111-4111-8111-111111111111');
 const A = asUserId('22222222-2222-4222-8222-222222222222');
@@ -93,20 +93,11 @@ function setup() {
   );
 
   /** O que a transação da mídia grava no item do grupo. */
-  const link = (
-    key: { PK: string; SK: string },
-    field: string,
-    value: { mediaId: string; url: string } | null,
-  ) => {
+  const link = (key: { PK: string; SK: string }, field: string, mediaId: string | null) => {
     expect(key).toEqual(groupKey(GROUP_ID));
     const next: Row = { ...store.group };
-    if (value) {
-      next[`${field}MediaId`] = value.mediaId;
-      next[`${field}Url`] = value.url;
-    } else {
-      delete next[`${field}MediaId`];
-      delete next[`${field}Url`];
-    }
+    if (mediaId) next[`${field}MediaId`] = mediaId;
+    else delete next[`${field}MediaId`];
     store.group = next;
   };
 
@@ -115,7 +106,9 @@ function setup() {
     attach: [] as (MediaCall<'attach'> & { current: string | undefined })[],
     detach: [] as (MediaCall<'detach'> & { current: string | undefined })[],
   };
+  const urlOf = (purpose: string, mediaId: string) => `${BASE}/public/${purpose}/${mediaId}`;
   const media: MediaService = {
+    urlOf,
     async requestUpload(input) {
       calls.requestUpload.push(input);
       const policy = MEDIA_PURPOSES[input.purpose];
@@ -131,9 +124,8 @@ function setup() {
     async attach(input) {
       const current = await input.target.readCurrent();
       calls.attach.push({ ...input, current });
-      const url = `${BASE}/public/group/${input.ownerId}/${input.purpose}/${input.mediaId}.webp`;
-      link(input.target.key, input.target.field, { mediaId: input.mediaId, url });
-      return { url };
+      link(input.target.key, input.target.field, input.mediaId);
+      return { url: urlOf(input.purpose, input.mediaId) };
     },
     async detach(input) {
       const current = await input.target.readCurrent();
@@ -196,11 +188,22 @@ describe('grupos: logo e capa (GRP-35)', () => {
       expect(t.calls.attach).toHaveLength(1);
       expect(t.calls.attach[0]).toMatchObject({ mediaId, purpose: PURPOSE[slot], ownerId: GROUP_ID });
       expect(t.calls.attach[0]?.target).toMatchObject({ key: groupKey(GROUP_ID), field: slot });
-      const url = `${BASE}/public/group/${GROUP_ID}/${PURPOSE[slot]}/${mediaId}.webp`;
+      const url = `${BASE}/public/${PURPOSE[slot]}/${mediaId}`;
       expect(group).toMatchObject({ id: GROUP_ID, [`${slot}Url`]: url });
       expect(group).not.toHaveProperty(`${slot}MediaId`);
+      expect(t.store.group).toMatchObject({ [`${slot}MediaId`]: mediaId });
+      expect(t.store.group).not.toHaveProperty(`${slot}Url`);
     },
   );
+
+  it('MID-12: o grupo guarda só o id do logo; a resposta monta a `logoUrl` a partir dele', async () => {
+    const t = setup();
+    const logo = randomUUID();
+    t.store.group = { ...t.store.group, logoMediaId: logo };
+    const group = await t.images.attach(OWNER, GROUP_ID, 'cover', { mediaId: randomUUID() });
+    expect(group.logoUrl).toBe(`${BASE}/public/group.logo/${logo}`);
+    expect(group).not.toHaveProperty('logoMediaId');
+  });
 
   it('GRP-35: trocar o logo → a mídia recebe o id do logo ligado agora, e a capa fica como está', async () => {
     const t = setup();

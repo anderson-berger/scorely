@@ -42,7 +42,7 @@ export async function classifiablePeople(
 ): Promise<Person[]> {
   const members = await roster.members(userId, group.id);
   const fromMembers = members.map(
-    ({ userId: id, publicId, name, role }): Person => ({ userId: id, publicId, ...(name && { name }), role }),
+    ({ userId: id, publicId, nickname, role }): Person => ({ userId: id, publicId, nickname, role }),
   );
   if (group.archivedAt) return fromMembers;
   const game = await roster.currentGame(userId, group.id);
@@ -50,10 +50,10 @@ export async function classifiablePeople(
   const guests = [...game.confirmed, ...game.waitlist]
     .filter((a) => !known.has(a.userId))
     .map(
-      ({ userId: id, publicId, name }): Person => ({
+      ({ userId: id, publicId, nickname }): Person => ({
         userId: id,
         publicId,
-        ...(name && { name }),
+        nickname,
         role: 'guest',
       }),
     );

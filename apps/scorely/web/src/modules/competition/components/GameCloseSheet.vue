@@ -101,7 +101,7 @@ export default defineComponent({
     },
 
     nameOf(p: GamePerson): string {
-      return p.name ?? this.$t('groups.unnamed');
+      return p.nickname;
     },
 
     kindLabel(p: GamePerson): string {

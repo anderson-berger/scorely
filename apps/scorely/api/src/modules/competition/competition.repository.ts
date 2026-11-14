@@ -1,5 +1,5 @@
 import { GetCommand, PutCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
-import { dbItem, isConditionFailed, stripKeys } from '@scorely/api/src/lib/db';
+import { dbItem, isConditionFailed, stripKeys, touch } from '@scorely/api/src/lib/db';
 import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
 import { appError } from '@scorely/api/src/lib/errors';
 import { COMPETITION_ENTITY, competitionKey } from '@scorely/api/src/modules/competition/competition.table';
@@ -51,14 +51,16 @@ export const dynamoCompetitionRepository: CompetitionRepository = {
   async updateRules(groupId, rules, now) {
     try {
       await dynamo().send(
-        new UpdateCommand({
-          TableName: tableName(),
-          Key: competitionKey(groupId),
-          UpdateExpression: 'SET #rules = :rules, updatedAt = :now',
-          ConditionExpression: 'attribute_exists(PK) AND activeUntil > :now',
-          ExpressionAttributeNames: { '#rules': 'rules' },
-          ExpressionAttributeValues: { ':rules': rules, ':now': now },
-        }),
+        new UpdateCommand(
+          touch({
+            TableName: tableName(),
+            Key: competitionKey(groupId),
+            UpdateExpression: 'SET #rules = :rules, updatedAt = :now',
+            ConditionExpression: 'attribute_exists(PK) AND activeUntil > :now',
+            ExpressionAttributeNames: { '#rules': 'rules' },
+            ExpressionAttributeValues: { ':rules': rules, ':now': now },
+          }),
+        ),
       );
     } catch (err) {
       if (isConditionFailed(err)) throw appError('COMPETITION_INACTIVE');

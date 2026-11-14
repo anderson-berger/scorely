@@ -82,8 +82,8 @@ export default defineComponent({
       try {
         const result = await this.auth.login(this.email, parsed.data);
         const redirect = safeRedirect(this.$route.query.redirect);
-        // Conta nova passa pelo perfil e depois segue para onde ia (ex.: o link de convite).
-        if (!result.user.name) {
+        // AUTH-13: apelido ainda igual ao código (USR-02) passa pelo perfil e depois segue para onde ia (ex.: o convite).
+        if (result.user.nickname === result.user.id) {
           return this.$router.replace({ name: 'profile', query: { welcome: '1', redirect } });
         }
         return this.$router.replace(redirect);

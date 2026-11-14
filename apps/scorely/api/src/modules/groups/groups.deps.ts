@@ -6,6 +6,7 @@ import {
   limitsOf,
   type StoredGroup,
 } from '@scorely/api/src/modules/groups/group.repository';
+import { type MediaService, mediaService } from '@scorely/api/src/modules/media/media.service';
 import type { NotificationService } from '@scorely/api/src/modules/notifications/notification.service';
 import type { UserDirectory } from '@scorely/api/src/modules/users/user.repository';
 import {
@@ -23,8 +24,15 @@ export interface GroupsDeps {
   games: GameRepository;
   users: UserDirectory;
   notifications: Pick<NotificationService, 'notify'>;
+  /** MID-12: monta a URL do logo e da capa pelo id da mídia. Sem ele, a mídia de produção. */
+  media?: Pick<MediaService, 'urlOf'>;
   now?: () => Date;
 }
+
+/** MID-12: a URL pública de uma mídia pela finalidade e o id. */
+export type UrlOf = MediaService['urlOf'];
+
+const productionUrlOf: UrlOf = (purpose, mediaId) => mediaService.urlOf(purpose, mediaId);
 
 /** Abertura das reservas: grupo de antes da E2 abre junto com os membros (plano 007, D3). */
 export function reservesHours(group: StoredGroup): number {
@@ -32,7 +40,18 @@ export function reservesHours(group: StoredGroup): number {
 }
 
 /** Ids das mídias do logo e da capa (GRP-35): internos, gravados pela transação da mídia (MID-08). */
-export type GroupImageIds = { logoMediaId?: string; coverMediaId?: string };
+export type GroupImageIds = { logoMediaId?: string | undefined; coverMediaId?: string | undefined };
+
+/** GRP-36, MID-12: as URLs do logo e da capa, montadas pelos ids (o item do grupo não guarda URL). */
+export function imageUrls(
+  group: GroupImageIds,
+  urlOf: UrlOf = productionUrlOf,
+): Pick<Group, 'logoUrl' | 'coverUrl'> {
+  return {
+    ...(group.logoMediaId !== undefined && { logoUrl: urlOf('group.logo', group.logoMediaId) }),
+    ...(group.coverMediaId !== undefined && { coverUrl: urlOf('group.cover', group.coverMediaId) }),
+  };
+}
 
 /** O cargo pelo id, se ele existe (GRP-52: um id desconhecido conta como sem cargo). */
 export function staffRoleOf(staffRoleId: string | undefined): { id: StaffRoleId; name: string } | undefined {
@@ -54,25 +73,21 @@ export function permissionsOf(
 
 /**
  * O grupo para quem pede: com as camadas e os limites efetivos (GRP-15, 38), o papel e as permissões (GRP-55);
- * os 3 tokens só para quem tem `members.manage` (GRP-05); sem os ids das mídias (GRP-36). O `ownerId` sai com
- * o id público do dono (USR-16).
+ * os 3 tokens só para quem tem `members.manage` (GRP-05); sem os ids das mídias, com as URLs montadas por eles
+ * (GRP-36, MID-12). O `ownerId` sai com o id público do dono (USR-16).
  */
 export function forViewer(
   group: StoredGroup,
   userId: UserId,
   myRole: MemberRole,
   staffRoleId?: string,
+  urlOf: UrlOf = productionUrlOf,
 ): Group {
   const myPermissions = permissionsOf(group, userId, staffRoleId);
-  const {
-    logoMediaId: _l,
-    coverMediaId: _c,
-    ownerId: _owner,
-    ownerPublicId,
-    ...clean
-  } = group as StoredGroup & GroupImageIds;
+  const { logoMediaId: _l, coverMediaId: _c, ownerId: _owner, ownerPublicId, ...clean } = group;
   const view = {
     ...clean,
+    ...imageUrls(group, urlOf),
     ownerId: ownerPublicId,
     ...limitsOf(group),
     reservesOpenHoursBefore: reservesHours(group),

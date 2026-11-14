@@ -46,7 +46,7 @@ export function draftOf(teams: Teams): TeamsDraft {
       .filter((p) => p.extra)
       .map((p) => ({
         id: p.userId,
-        name: p.name ?? '',
+        name: p.nickname,
         ...(p.gender && { gender: p.gender }),
         positions: [...p.positions],
       })),

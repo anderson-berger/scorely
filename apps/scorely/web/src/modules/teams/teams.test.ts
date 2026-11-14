@@ -88,6 +88,7 @@ describe('Times: − N +', () => {
 
 const player = (userId: string, pinned: boolean): TeamPlayer => ({
   userId,
+  nickname: userId.slice(-1),
   role: 'member',
   positions: [],
   adjusted: false,

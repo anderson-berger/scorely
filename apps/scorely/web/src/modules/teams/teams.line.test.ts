@@ -15,7 +15,7 @@ const DUDA = 'a0000000-0000-4000-8000-000000000005';
 
 const player = (userId: string): TeamPlayer => ({
   userId,
-  name: userId.slice(-1),
+  nickname: userId.slice(-1),
   role: 'member',
   positions: [],
   adjusted: false,

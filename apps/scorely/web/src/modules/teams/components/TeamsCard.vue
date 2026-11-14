@@ -192,7 +192,7 @@ export default defineComponent({
           ...this.game.confirmed,
           ...this.game.waitlist,
         ];
-        const names = namesIn(people, c.people, this.$t('groups.unnamed'));
+        const names = namesIn(people, c.people);
         return this.text(conflictText(c, joinNames(names, this.$t('teams.rules.and'))));
       }
       const reason = this.text(conflictText(c));

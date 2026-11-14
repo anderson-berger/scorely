@@ -143,7 +143,7 @@ function storedGroup(extra: Partial<StoredGroup> = {}): StoredGroup {
 const member = (userId: UserId, name: string, role: MemberRole = 'member'): RosterMember => ({
   userId,
   publicId: pub(userId),
-  name,
+  nickname: name,
   isOwner: userId === OWNER,
   role,
 });
@@ -151,7 +151,7 @@ const member = (userId: UserId, name: string, role: MemberRole = 'member'): Rost
 const attendee = (userId: UserId, name: string, role: Attendee['role'], minute: number): RosterAttendee => ({
   userId,
   publicId: pub(userId),
-  name,
+  nickname: name,
   role,
   confirmedAt: new Date(Date.UTC(2026, 10, 4, 22, minute)).toISOString(),
 });
@@ -302,7 +302,7 @@ describe('times: posições por pessoa no grupo (TIM-01)', () => {
       [G, 'guest'],
       [H, 'guest'],
     ]);
-    expect(list.find((p) => p.userId === G)?.name).toBe('Gabi');
+    expect(list.find((p) => p.userId === G)?.nickname).toBe('Gabi');
   });
 
   it('TIM-01: as posições são da pessoa naquele grupo; as de outro grupo não aparecem', async () => {
@@ -320,7 +320,7 @@ describe('times: posições por pessoa no grupo (TIM-01)', () => {
     const t = setup();
     const saved = await t.service.update(OWNER, GROUP_ID, G, { positions: ['libero'] });
 
-    expect(saved).toEqual({ userId: G, name: 'Gabi', role: 'guest', positions: ['libero'] });
+    expect(saved).toEqual({ userId: G, nickname: 'Gabi', role: 'guest', positions: ['libero'] });
     const list = await t.service.list(OWNER, GROUP_ID);
     expect(list.find((p) => p.userId === G)?.positions).toEqual(['libero']);
   });
@@ -351,7 +351,7 @@ describe('times: posições do esporte (TIM-02)', () => {
     expect(many.positions).toEqual(['setter', 'middle', 'libero']);
 
     const one = await t.service.update(OWNER, GROUP_ID, A, { positions: ['libero'] });
-    expect(one).toEqual({ userId: A, name: 'Ana', role: 'member', positions: ['libero'] });
+    expect(one).toEqual({ userId: A, nickname: 'Ana', role: 'member', positions: ['libero'] });
     expect(t.saved.at(-1)).toEqual({
       groupId: GROUP_ID,
       userId: A,
@@ -655,7 +655,7 @@ describe('jogadores pelo id público (USR-16, USR-17)', () => {
   it('USR-17: o PUT recebe o id público, grava pelo id do sistema e devolve o público', async () => {
     const t = setup();
     const saved = await t.raw.update(OWNER, GROUP_ID, pub(A), { positions: ['setter'] });
-    expect(saved).toEqual({ userId: pub(A), name: 'Ana', role: 'member', positions: ['setter'] });
+    expect(saved).toEqual({ userId: pub(A), nickname: 'Ana', role: 'member', positions: ['setter'] });
     expect(t.saved.at(-1)).toMatchObject({ groupId: GROUP_ID, userId: A, positions: ['setter'] });
   });
 

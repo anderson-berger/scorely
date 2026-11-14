@@ -28,7 +28,7 @@ export default defineComponent({
 
   methods: {
     name(p: TeamPlayer): string {
-      return p.name ?? this.$t('groups.unnamed');
+      return p.nickname;
     },
 
     main(p: TeamPlayer): string {
@@ -52,7 +52,7 @@ export default defineComponent({
     /** TIM-22: "Ana e Bia". */
     names(ids: string[]): string {
       const people = [...this.teams.teams.flat(), ...this.teams.unassigned];
-      return joinNames(namesIn(people, ids, this.$t('groups.unnamed')), this.$t('teams.rules.and'));
+      return joinNames(namesIn(people, ids), this.$t('teams.rules.and'));
     },
 
     /** TIM-23: "3 H · 3 M" do time, quando a api manda (preferência ligada). */

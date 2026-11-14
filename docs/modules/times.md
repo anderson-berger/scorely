@@ -1,6 +1,6 @@
 # Módulo Times
 
-> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Se o código e este doc discordarem, um dos dois está errado. Conferido com o código em 2026-11-13.
+> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Se o código e este doc discordarem, um dos dois está errado. Conferido com o código em 2026-11-14.
 
 Código: `apps/scorely/api/src/modules/teams/`, `apps/scorely/web/src/modules/teams/`. Contrato: `apps/scorely/contracts/src/teams.ts`.
 
@@ -217,7 +217,7 @@ O `GET /players` devolve todos os membros, reservas e convidados da lista atual,
 
 O `GET /teams` devolve os times (ou que não há times), com cada pessoa marcada se saiu da lista e as posições valendo no jogo. Para o dono, também o que está fora das regras em cada time (TIM-20). O `PUT /teams` recebe `{ teams, positions, pinned, extras }` (os avulsos inteiros, TIM-24) e salva sem mudar o estado (rascunho continua rascunho, publicado continua publicado).
 
-O `PUT /team-settings` recebe a configuração inteira (`{ teamCount, rules, apart, spreadGender, allowOutsideRules }`) e a devolve, com o nome de cada pessoa dos times opostos.
+O `PUT /team-settings` recebe a configuração inteira (`{ teamCount, rules, apart, spreadGender, allowOutsideRules }`) e a devolve, com o apelido de cada pessoa dos times opostos (`nicknames`, USR-04 em [usuarios.md](usuarios.md)). Nas pessoas das respostas (`Player`, `TeamPlayer`), o campo é o `nickname`; do avulso, o nome digitado.
 
 Erros: `TEAM_PLAYER_NOT_FOUND`, `TEAM_POSITION_INVALID`, `TEAM_EMPTY`, `TEAM_RULES_CONFLICT` (`details.conflicts`), `TEAM_RULES_VIOLATED` (`details.violations`), e os do grupo (`GROUP_NOT_FOUND`, `GROUP_PERMISSION_DENIED`, `GROUP_ARCHIVED`, `GAME_NOT_FOUND`, `GAME_CANCELLED`).
 

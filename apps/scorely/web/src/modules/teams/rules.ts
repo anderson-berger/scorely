@@ -42,14 +42,16 @@ export function joinNames(names: readonly string[], and: string): string {
   return `${names.slice(0, -1).join(', ')} ${and} ${names[names.length - 1]}`;
 }
 
-/** Os nomes das pessoas pelos ids, procurando em `people` (`unnamed` para quem não tem nome ou não está lá). */
+/**
+ * Os apelidos das pessoas pelos ids, procurando em `people`. Quem não está lá aparece pelo próprio id, o código de
+ * amigo (o apelido com que a conta nasce, USR-02).
+ */
 export function namesIn(
-  people: readonly { userId: string; name?: string | undefined }[],
+  people: readonly { userId: string; nickname: string }[],
   ids: readonly string[],
-  unnamed: string,
 ): string[] {
-  const byId = new Map(people.flatMap((p) => (p.name ? [[p.userId, p.name] as const] : [])));
-  return ids.map((id) => byId.get(id) ?? unnamed);
+  const byId = new Map(people.map((p) => [p.userId, p.nickname] as const));
+  return ids.map((id) => byId.get(id) ?? id);
 }
 
 /**

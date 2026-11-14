@@ -36,7 +36,7 @@ export default defineComponent({
 
   computed: {
     title(): string {
-      return this.$t('teams.editPositions', { name: this.player?.name ?? this.$t('groups.unnamed') });
+      return this.$t('teams.editPositions', { name: this.player?.nickname });
     },
   },
 

@@ -9,6 +9,7 @@ import {
   type PublicUserId,
   PublicUserIdSchema,
   type UpdateMeInput,
+  UpdateMeInputSchema,
 } from '@scorely/contracts';
 import { describe, expect, it } from 'vitest';
 
@@ -18,23 +19,23 @@ type ReadOpts = { consistent?: boolean };
 const pid = (code: string): PublicUserId => PublicUserIdSchema.parse(code);
 
 /**
- * Repositório em memória (usuarios.md, seção 3): perfil (`META`, com `publicId`), email, preferências e os dois
- * lookups (email e id público). `taken` são códigos já em uso por outra conta (USR-15: o código é único).
- * `created` guarda o que cada `create` recebeu.
+ * Repositório em memória (usuarios.md, seção 3): perfil (`META`, com `publicId` e `nickname`), parte privada
+ * (`PRIVATE`: email e nome, USR-13), preferências e os dois lookups (email e id público). `taken` são códigos já em
+ * uso por outra conta (USR-15: o código é único). `created` guarda o que cada `create` recebeu.
  */
 function memoryUserRepo(taken: readonly string[] = []) {
   const profiles = new Map<UserId, UserRecord>();
-  const emails = new Map<UserId, string>();
+  const privates = new Map<UserId, { email: string; name?: string }>();
   const prefs = new Map<UserId, Preferences>();
   const publicIds = new Map<string, UserId>(taken.map((code) => [code, asUserId(randomUUID())]));
   const created: { user: UserRecord; email: string }[] = [];
   const me = (id: UserId): MeRecord | undefined => {
     const profile = profiles.get(id);
-    const email = emails.get(id);
-    if (!profile || email === undefined) return undefined;
-    return structuredClone({ ...profile, email, preferences: prefs.get(id) ?? {} });
+    const priv = privates.get(id);
+    if (!profile || priv === undefined) return undefined;
+    return structuredClone({ ...profile, ...priv, preferences: prefs.get(id) ?? {} });
   };
-  const idOf = (email: string) => [...emails.entries()].find(([, e]) => e === email)?.[0];
+  const idOf = (email: string) => [...privates.entries()].find(([, p]) => p.email === email)?.[0];
   const repo: UserRepository = {
     get: async (id: UserId, _opts?: ReadOpts) => structuredClone(profiles.get(id)),
     getMe: async (id: UserId, _opts?: ReadOpts) => me(id),
@@ -48,19 +49,21 @@ function memoryUserRepo(taken: readonly string[] = []) {
       if (idOf(email) !== undefined) return 'email_taken';
       if (publicIds.has(user.publicId)) return 'public_id_taken';
       profiles.set(user.id, structuredClone(user));
-      emails.set(user.id, email);
+      privates.set(user.id, { email });
       prefs.set(user.id, {});
       publicIds.set(user.publicId, user.id);
       return 'created';
     },
     async update(id: UserId, patch: UpdateMeInput) {
       const profile = profiles.get(id);
-      if (!profile) return undefined;
-      const { locale, timeZone, ...rest } = patch;
+      const priv = privates.get(id);
+      if (!profile || !priv) return undefined;
+      const { locale, timeZone, name, ...rest } = patch;
       Object.assign(prefs.get(id) ?? {}, {
         ...(locale && { locale }),
         ...(timeZone && { timeZone }),
       });
+      Object.assign(priv, name !== undefined ? { name } : {});
       Object.assign(profile, rest);
       return me(id);
     },
@@ -73,7 +76,7 @@ function memoryUserRepo(taken: readonly string[] = []) {
       );
     },
   };
-  return { repo, profiles, emails, created };
+  return { repo, profiles, privates, created };
 }
 
 /** Gerador de códigos fake: devolve os da lista, na ordem, e conta as chamadas. */
@@ -93,6 +96,7 @@ const winnerId = asUserId('00000000-0000-4000-8000-000000000001');
 const winner: MeRecord = {
   id: winnerId,
   publicId: pid('7K3QX9TA'),
+  nickname: '7K3QX9TA',
   createdAt: '2026-01-01T00:00:00.000Z',
   email: EMAIL,
   preferences: {},
@@ -141,10 +145,49 @@ describe('conta e email (USR-01, USR-13)', () => {
     expect(me).not.toHaveProperty('timeZone');
   });
 
-  it('USR-02: a conta nasce sem nome', async () => {
-    const service = createUserService(memoryUserRepo().repo, () => clock.now);
+  it('USR-02: a conta nasce com o apelido igual ao código de amigo e sem nome', async () => {
+    const memory = memoryUserRepo();
+    const service = createUserService(memory.repo, () => clock.now, undefined, codes('7K3QX9TA').next);
+    const { userId, me } = await service.findOrCreateByEmail(EMAIL);
+    expect(me.nickname).toBe('7K3QX9TA');
+    expect(me.nickname).toBe(me.id);
+    expect(me.name).toBeUndefined();
+    expect(memory.created[0]?.user).toMatchObject({ publicId: '7K3QX9TA', nickname: '7K3QX9TA' });
+    const read = await service.get(userId);
+    expect(read.nickname).toBe('7K3QX9TA');
+    expect(read.name).toBeUndefined();
+  });
+
+  it('USR-02: o código sorteado de novo (USR-15) também vira o apelido', async () => {
+    const memory = memoryUserRepo(['AAAAAAAA']);
+    const service = createUserService(
+      memory.repo,
+      () => clock.now,
+      undefined,
+      codes('AAAAAAAA', 'BBBBBBBB').next,
+    );
+    const { me } = await service.findOrCreateByEmail(EMAIL);
+    expect(me).toMatchObject({ id: 'BBBBBBBB', nickname: 'BBBBBBBB' });
+    expect(memory.created.map((c) => c.user.nickname)).toEqual(['AAAAAAAA', 'BBBBBBBB']);
+  });
+
+  it('USR-13: o primeiro login não grava nome nem email no perfil', async () => {
+    const memory = memoryUserRepo();
+    await createUserService(memory.repo, () => clock.now).findOrCreateByEmail(EMAIL);
+    expect(memory.created[0]?.user).not.toHaveProperty('name');
+    expect(memory.created[0]?.user).not.toHaveProperty('email');
+  });
+
+  it('USR-13: o nome salvo pelo PATCH /me volta no GET /me, mas não no perfil que os outros módulos leem', async () => {
+    const memory = memoryUserRepo();
+    const service = createUserService(memory.repo, () => clock.now);
     const { userId } = await service.findOrCreateByEmail(EMAIL);
-    expect((await service.get(userId)).name).toBeUndefined();
+    const patched = await service.update(userId, { name: 'Ana Souza' });
+    expect(patched.name).toBe('Ana Souza');
+    expect((await service.get(userId)).name).toBe('Ana Souza');
+    const profile = await memory.repo.get(userId);
+    expect(profile).not.toHaveProperty('name');
+    expect(profile).not.toHaveProperty('email');
   });
 
   it('USR-01: cada email tem uma conta só (o segundo login acha a mesma)', async () => {
@@ -249,22 +292,30 @@ describe('o id do sistema não sai (USR-16)', () => {
     }
   });
 
-  it('USR-16: toMe troca o `id` pelo público e tira `publicId` e `avatarMediaId`', () => {
-    const record: MeRecord = {
-      ...winner,
-      name: 'Ana',
-      avatarUrl: 'https://cdn.test/public/user/7K3QX9TA/avatar/x.webp',
-      avatarMediaId: randomUUID(),
-    };
-    const me = toMe(record);
+  it('USR-16: toMe troca o `id` pelo público e tira `publicId`; o nome e o email vão só para a própria pessoa', () => {
+    const record: MeRecord = { ...winner, name: 'Ana', nickname: 'Aninha' };
+    const me = toMe(record, () => 'unused');
     expect(me).toEqual({
       id: '7K3QX9TA',
       createdAt: winner.createdAt,
+      nickname: 'Aninha',
       name: 'Ana',
-      avatarUrl: record.avatarUrl,
       email: EMAIL,
       preferences: {},
     });
+  });
+
+  it('MID-12: toMe monta a `avatarUrl` a partir do `avatarMediaId` (finalidade avatar) e não expõe o id da mídia', () => {
+    const mediaId = randomUUID();
+    const record: MeRecord = { ...winner, avatarMediaId: mediaId };
+    const calls: [string, string][] = [];
+    const me = toMe(record, (purpose, id) => {
+      calls.push([purpose, id]);
+      return `https://cdn.test/${purpose}/${id}`;
+    });
+    expect(calls).toEqual([['avatar', mediaId]]);
+    expect(me.avatarUrl).toBe(`https://cdn.test/avatar/${mediaId}`);
+    expect(me).not.toHaveProperty('avatarMediaId');
   });
 });
 
@@ -329,5 +380,75 @@ describe('conta que não existe mais (AUTH-16)', () => {
     const err = await service.update(ghost, { name: 'Ana' }).catch((e: unknown) => e);
     expect(err).toMatchObject({ code: 'SESSION_INVALID', status: 401 });
     expect(memory.profiles.size).toBe(0);
+  });
+});
+
+describe('campos do perfil (USR-03)', () => {
+  it('USR-03: apelido igual ao próprio código de amigo → USER_NICKNAME_IS_PUBLIC_ID (422), nada gravado', async () => {
+    const memory = memoryUserRepo();
+    const service = createUserService(memory.repo, () => clock.now, undefined, codes('7K3QX9TA').next);
+    const { userId } = await service.findOrCreateByEmail(EMAIL);
+    await service.update(userId, { nickname: 'Aninha' });
+    const err = await service.update(userId, { nickname: '7K3QX9TA', name: 'Ana' }).catch((e: unknown) => e);
+    expect(err).toMatchObject({ code: 'USER_NICKNAME_IS_PUBLIC_ID', status: 422 });
+    const after = await service.get(userId);
+    expect(after.nickname).toBe('Aninha');
+    expect(after.name).toBeUndefined();
+  });
+
+  it('USR-03: o código com espaços em volta (o PATCH /me faz trim) também é recusado', async () => {
+    const memory = memoryUserRepo();
+    const service = createUserService(memory.repo, () => clock.now, undefined, codes('7K3QX9TA').next);
+    const { userId } = await service.findOrCreateByEmail(EMAIL);
+    const input = UpdateMeInputSchema.parse({ nickname: '  7K3QX9TA  ' });
+    const err = await service.update(userId, input).catch((e: unknown) => e);
+    expect(err).toMatchObject({ code: 'USER_NICKNAME_IS_PUBLIC_ID', status: 422 });
+  });
+
+  it('USR-03: a comparação é exata: o código em minúsculas é aceito como apelido', async () => {
+    const memory = memoryUserRepo();
+    const service = createUserService(memory.repo, () => clock.now, undefined, codes('7K3QX9TA').next);
+    const { userId } = await service.findOrCreateByEmail(EMAIL);
+    const patched = await service.update(userId, { nickname: '7k3qx9ta' });
+    expect(patched.nickname).toBe('7k3qx9ta');
+  });
+
+  it('USR-03: o código de amigo de outra pessoa não é o da própria: é aceito como apelido', async () => {
+    const memory = memoryUserRepo();
+    const gen = codes('AAAAAAAA', 'BBBBBBBB');
+    const service = createUserService(memory.repo, () => clock.now, undefined, gen.next);
+    const ana = await service.findOrCreateByEmail('ana@example.com');
+    await service.findOrCreateByEmail('bia@example.com');
+    const patched = await service.update(ana.userId, { nickname: 'BBBBBBBB' });
+    expect(patched.nickname).toBe('BBBBBBBB');
+  });
+
+  it('USR-03: o nome não volta a ficar vazio: vazio, só espaços ou null são recusados no PATCH /me', () => {
+    for (const name of ['', '   ', null]) {
+      expect(UpdateMeInputSchema.safeParse({ name }).success).toBe(false);
+    }
+  });
+
+  it('USR-03: o nome preenchido pode ser trocado', async () => {
+    const memory = memoryUserRepo();
+    const service = createUserService(memory.repo, () => clock.now);
+    const { userId } = await service.findOrCreateByEmail(EMAIL);
+    await service.update(userId, { name: 'Ana' });
+    const patched = await service.update(userId, { name: 'Ana Souza' });
+    expect(patched.name).toBe('Ana Souza');
+  });
+});
+
+describe('updatedAt e version nas respostas (ADR 0013)', () => {
+  it('ADR 0013: toMe mantém o `updatedAt` e a `version` do perfil', () => {
+    const record = {
+      ...winner,
+      nickname: 'Aninha',
+      updatedAt: '2026-11-10T09:00:00.000Z',
+      version: 4,
+    } as MeRecord;
+    const me = toMe(record, () => 'unused');
+    expect(me).toMatchObject({ updatedAt: '2026-11-10T09:00:00.000Z', version: 4 });
+    expect(me).not.toHaveProperty('publicId');
   });
 });

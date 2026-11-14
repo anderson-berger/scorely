@@ -56,6 +56,8 @@ const config: AWS = {
       // Só no dev local (S3Mock): endpoint interno e o que o navegador alcança (a assinatura inclui o host)
       S3_ENDPOINT: "${env:S3_ENDPOINT, ''}",
       S3_PUBLIC_ENDPOINT: "${env:S3_PUBLIC_ENDPOINT, ''}",
+      // MID-12: base pública das mídias (ex.: CDN). Vazio = o endereço do bucket
+      MEDIA_BASE_URL: "${env:MEDIA_BASE_URL, ''}",
       AUTH_SECRET: authSecret,
       // Sem domínio verificado no SES ainda: o código de login vai para o log (CloudWatch / terminal).
       EMAIL_MODE: "${env:EMAIL_MODE, 'console'}",

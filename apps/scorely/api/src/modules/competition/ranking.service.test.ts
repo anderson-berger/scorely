@@ -319,7 +319,7 @@ function setup(
           return {
             id,
             publicId: pub(id),
-            name: NAMES[id],
+            nickname: NAMES[id] ?? pub(id),
             createdAt: '2026-01-01T00:00:00.000Z',
             ...(gender ? { gender } : {}),
           };
@@ -376,10 +376,22 @@ describe('o ranking do grupo (CMP-24)', () => {
     expect(rowOf(res, D)?.points).toBe(0);
   });
 
+  it('USR-04: o ranking e o histórico mostram a pessoa pelo apelido, sem `name` (USR-13)', async () => {
+    const t = setup();
+    const res = await t.service.ranking(A, GROUP_ID);
+    for (const row of res.rows) {
+      expect(typeof row.nickname).toBe('string');
+      expect(row).not.toHaveProperty('name');
+    }
+    const history = await t.service.person(A, GROUP_ID, pub(OWNER));
+    expect(history.nickname).toBe('Dono');
+    expect(history).not.toHaveProperty('name');
+  });
+
   it('CMP-24: a linha traz o id público, o nome e o gênero, sem vazar o id do sistema', async () => {
     const t = setup();
     const res = await t.service.ranking(A, GROUP_ID);
-    expect(rowOf(res, A)).toMatchObject({ userId: pub(A), name: 'Ana', gender: 'F' });
+    expect(rowOf(res, A)).toMatchObject({ userId: pub(A), nickname: 'Ana', gender: 'F' });
     expect(rowOf(res, C)?.gender).toBeUndefined();
     expect(leaksSystemId(res)).toBe(false);
   });
@@ -564,7 +576,7 @@ describe('o histórico da pessoa (CMP-27)', () => {
     expect(PersonHistorySchema.parse(res)).toEqual(res);
     expect(res).toMatchObject({
       userId: pub(OWNER),
-      name: 'Dono',
+      nickname: 'Dono',
       points: 12,
       attendance: 2,
       streak: 2,

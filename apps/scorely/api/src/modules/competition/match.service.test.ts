@@ -358,12 +358,17 @@ function setup(
     getMany: async (ids: readonly UserId[]): Promise<UserRecord[]> =>
       ids
         .filter((id) => PEOPLE.includes(id))
-        .map((id) => ({ id, publicId: pub(id), name: NAMES[id], createdAt: '2026-01-01T00:00:00.000Z' })),
+        .map((id) => ({
+          id,
+          publicId: pub(id),
+          nickname: NAMES[id] ?? pub(id),
+          createdAt: '2026-01-01T00:00:00.000Z',
+        })),
     // A entrada da partida chega pelo id público: quem resolve pode usar esta busca.
     getByPublicId: async (publicId: string): Promise<UserRecord | undefined> => {
       const id = PEOPLE.find((p) => pub(p) === publicId);
       return id
-        ? { id, publicId: pub(id), name: NAMES[id], createdAt: '2026-01-01T00:00:00.000Z' }
+        ? { id, publicId: pub(id), nickname: NAMES[id] ?? pub(id), createdAt: '2026-01-01T00:00:00.000Z' }
         : undefined;
     },
   };

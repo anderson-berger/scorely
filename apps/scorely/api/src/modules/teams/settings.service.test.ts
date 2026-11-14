@@ -137,7 +137,7 @@ const NOW = new Date('2026-11-12T13:00:00.000Z');
 
 const DEFAULTS = { teamCount: 2, rules: [], allowOutsideRules: false };
 /** A resposta com o que falta no input: sem opostos, sem a preferência e sem nomes. */
-const full = <T extends object>(input: T) => ({ apart: [], spreadGender: false, names: {}, ...input });
+const full = <T extends object>(input: T) => ({ apart: [], spreadGender: false, nicknames: {}, ...input });
 
 const SETTER_ONE: TeamRule = { target: { kind: 'position', position: 'setter' }, min: 1, max: 1 };
 const WOMEN_TWO: TeamRule = { target: { kind: 'gender', gender: 'F' }, min: 2 };
@@ -172,7 +172,7 @@ const unused = () => Promise.reject(new Error('not used by the team settings'));
 const attendee = (userId: UserId, role: Attendee['role'], minute: number): RosterAttendee => ({
   userId,
   publicId: pub(userId),
-  name: NAMES[userId],
+  nickname: NAMES[userId] ?? pub(userId as UserId),
   role,
   confirmedAt: new Date(Date.UTC(2026, 10, 11, 22, minute)).toISOString(),
 });
@@ -251,7 +251,7 @@ function setup(opts: { group?: Partial<StoredGroup> } = {}) {
         ? Object.entries(state.members).map(([id, role]) => ({
             userId: asUserId(id),
             publicId: pub(asUserId(id)),
-            name: NAMES[id],
+            nickname: NAMES[id] ?? pub(id as UserId),
             isOwner: id === OWNER,
             role,
           }))
@@ -268,7 +268,7 @@ function setup(opts: { group?: Partial<StoredGroup> } = {}) {
       ids.map((id) => ({
         id,
         publicId: pub(id),
-        name: NAMES[id],
+        nickname: NAMES[id] ?? pub(id as UserId),
         createdAt: '2026-01-01T00:00:00.000Z',
       })),
     /** USR-17: id público → id do sistema; o desconhecido fica de fora. */
@@ -370,7 +370,7 @@ describe('configuração de times do grupo (TIM-17)', () => {
         teamCount: 3,
         rules: [SETTER_ONE],
         apart: [{ people: [A, R] }],
-        names: { [A]: 'Ana', [R]: 'Rafa' },
+        nicknames: { [A]: 'Ana', [R]: 'Rafa' },
         allowOutsideRules: false,
       }),
     );
@@ -505,7 +505,7 @@ describe('times opostos na configuração (TIM-22)', () => {
     };
     const expected = full({
       ...input,
-      names: { [A]: 'Ana', [R]: 'Rafa', [G]: 'Gabi', [H]: 'Heitor' },
+      nicknames: { [A]: 'Ana', [R]: 'Rafa', [G]: 'Gabi', [H]: 'Heitor' },
     });
     const res = await t.service.update(OWNER, GROUP_ID, input);
 
@@ -551,7 +551,7 @@ describe('times opostos na configuração (TIM-22)', () => {
     const { [LEFT]: _gone, ...rest } = t.state.members;
     t.state.members = rest;
     expect(await t.service.get(OWNER, GROUP_ID)).toEqual(
-      full({ ...DEFAULTS, apart, names: { [A]: 'Ana', [LEFT]: 'Lia' } }),
+      full({ ...DEFAULTS, apart, nicknames: { [A]: 'Ana', [LEFT]: 'Lia' } }),
     );
 
     const res = await t.service.update(OWNER, GROUP_ID, {
@@ -561,7 +561,7 @@ describe('times opostos na configuração (TIM-22)', () => {
       allowOutsideRules: true,
     });
     expect(res.apart).toEqual(apart);
-    expect(res.names).toEqual({ [A]: 'Ana', [LEFT]: 'Lia' });
+    expect(res.nicknames).toEqual({ [A]: 'Ana', [LEFT]: 'Lia' });
   });
 
   it('TIM-22: quem saiu do grupo e não estava na regra salva não pode entrar numa regra nova → TEAM_PLAYER_NOT_FOUND', async () => {
@@ -655,7 +655,7 @@ describe('times opostos pelo id público (USR-16, USR-17)', () => {
     t.state.members = rest;
     const res = await t.raw.get(OWNER, GROUP_ID);
     expect(res.apart).toEqual([{ people: [pub(A), pub(LEFT)] }]);
-    expect(res.names).toEqual({ [pub(A)]: 'Ana', [pub(LEFT)]: 'Lia' });
+    expect(res.nicknames).toEqual({ [pub(A)]: 'Ana', [pub(LEFT)]: 'Lia' });
     expect(leaksSystemId(res)).toBe(false);
   });
 

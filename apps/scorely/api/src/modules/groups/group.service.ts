@@ -109,6 +109,9 @@ function selfTargetError(message: string) {
 
 export function createGroupService(deps: GroupsDeps) {
   const now = deps.now ?? (() => new Date());
+  /** O grupo para quem pede (`forViewer`), com as URLs das imagens pela mídia dos deps (MID-12). */
+  const viewFor = (group: StoredGroup, userId: UserId, role: MemberRole, staffRoleId?: string): Group =>
+    forViewer(group, userId, role, staffRoleId, deps.media?.urlOf);
   const games = createGameService(deps);
 
   /** Uma tentativa da remoção (D12 do 003); `stale` → relê o grupo e o plano e tenta de novo. */
@@ -206,14 +209,13 @@ export function createGroupService(deps: GroupsDeps) {
     return ordered.map(({ userId: id, role, memberInviteExpiresAt, staffRoleId }): RosterMember => {
       const user = users.get(id);
       if (!user) throw new Error('Member without a user profile');
-      const name = user.nickname ?? user.name;
       const invite = viewerManages ? pendingInvite(memberInviteExpiresAt) : undefined;
       // GRP-55: o cargo é de todos verem; o dono não tem cargo (GRP-48).
       const staffRole = isOwner(id) ? undefined : staffRoleOf(staffRoleId);
       return {
         userId: id,
         publicId: user.publicId,
-        ...(name && { name }),
+        nickname: user.nickname,
         isOwner: isOwner(id),
         role,
         ...(staffRole && { staffRole }),
@@ -267,12 +269,12 @@ export function createGroupService(deps: GroupsDeps) {
         now(),
       );
       await deps.groups.create(group);
-      return forViewer(group, ownerId, 'member');
+      return viewFor(group, ownerId, 'member');
     },
 
     async get(userId: UserId, groupId: string): Promise<Group> {
       const { group, role, staffRoleId } = await requireMember(deps, userId, groupId);
-      const view = forViewer(group, userId, role, staffRoleId);
+      const view = viewFor(group, userId, role, staffRoleId);
       if (role !== 'reserve') return view;
       // GRP-40, 41: a reserva com convite pendente vê o prazo para aceitar ou recusar.
       const expiresAt = pendingInvite(
@@ -287,7 +289,7 @@ export function createGroupService(deps: GroupsDeps) {
       const rows = (await deps.groups.groupsOf(userId)).filter(({ group }) => !group.archivedAt);
       return Promise.all(
         rows.map(async ({ group, role, staffRoleId }) => ({
-          ...forViewer(group, userId, role, staffRoleId),
+          ...viewFor(group, userId, role, staffRoleId),
           game: await games.summary(userId, group),
         })),
       );
@@ -299,7 +301,7 @@ export function createGroupService(deps: GroupsDeps) {
       return rows
         .flatMap((row) => (row.group.archivedAt ? [{ ...row, at: row.group.archivedAt }] : []))
         .sort((a, b) => b.at.localeCompare(a.at))
-        .map(({ group, role, staffRoleId }) => forViewer(group, userId, role, staffRoleId));
+        .map(({ group, role, staffRoleId }) => viewFor(group, userId, role, staffRoleId));
     },
 
     /** GRP-31: arquiva (links param na hora) e cancela o jogo aberto. Arquivar de novo só completa o cancelamento. */
@@ -307,13 +309,13 @@ export function createGroupService(deps: GroupsDeps) {
       const group = await requireOwner(deps, userId, groupId);
       const archived = await attemptArchive(group, 1);
       await games.cancelForArchive(archived);
-      return forViewer(archived, userId, 'member');
+      return viewFor(archived, userId, 'member');
     },
 
     /** GRP-33: volta com 3 links novos. Grupo ativo → devolve como está. */
     async unarchive(userId: UserId, groupId: string): Promise<Group> {
       const group = await requireOwner(deps, userId, groupId);
-      if (!group.archivedAt) return forViewer(group, userId, 'member');
+      if (!group.archivedAt) return viewFor(group, userId, 'member');
       const tokens = {
         inviteToken: randomToken(),
         reserveInviteToken: randomToken(),
@@ -321,12 +323,12 @@ export function createGroupService(deps: GroupsDeps) {
       };
       if ((await deps.groups.unarchive(group, tokens)) === 'unarchived') {
         const { archivedAt: _a, ...rest } = group;
-        return forViewer({ ...rest, ...tokens }, userId, 'member');
+        return viewFor({ ...rest, ...tokens }, userId, 'member');
       }
       // Outra requisição desarquivou antes: devolve o grupo como ficou.
       const fresh = await deps.groups.get(groupId, { consistent: true });
       if (!fresh) throw appError('GROUP_NOT_FOUND');
-      return forViewer(fresh, userId, 'member');
+      return viewFor(fresh, userId, 'member');
     },
 
     /** GRP-16: quem tem `settings.edit` muda as camadas. Junta com o atual e confere a ordem antes de gravar. */
@@ -354,7 +356,7 @@ export function createGroupService(deps: GroupsDeps) {
         reservesOpenHoursBefore: layers.reservesOpenHoursBefore,
       });
       await plan?.afterUpdate(updated, userId);
-      return forViewer(updated, userId, role, staffRoleId);
+      return viewFor(updated, userId, role, staffRoleId);
     },
 
     /** Gera outro link do tipo: o anterior deixa de valer (D9 do 003, D5 do 007). */
@@ -373,7 +375,7 @@ export function createGroupService(deps: GroupsDeps) {
       if (!found || found.kind === 'guest') throw appError('GROUP_INVITE_INVALID');
       await attemptJoin(found.group, userId, found.kind, 1);
       const membership = await deps.groups.getMembership(found.group.id, userId);
-      return forViewer(found.group, userId, membership?.role ?? found.kind, membership?.staffRoleId);
+      return viewFor(found.group, userId, membership?.role ?? found.kind, membership?.staffRoleId);
     },
 
     async members(userId: UserId, groupId: string): Promise<Member[]> {
@@ -443,7 +445,7 @@ export function createGroupService(deps: GroupsDeps) {
       if (role !== 'reserve') throw appError('GROUP_MEMBER_INVITE_INVALID');
       const promoted = await attemptAccept(group, userId, 1);
       // GRP-48: virar membro não muda o cargo.
-      return forViewer(promoted, userId, 'member', staffRoleId);
+      return viewFor(promoted, userId, 'member', staffRoleId);
     },
 
     /** GRP-41: a reserva recusa; o convite some e o dono não é avisado. */
@@ -507,7 +509,7 @@ export function createGroupService(deps: GroupsDeps) {
         body: `Você recebeu o grupo ${group.name}.`,
         link: `/groups/${groupId}`,
       });
-      return forViewer({ ...group, ownerId: userId, ownerPublicId: target }, ownerId, 'member', 'admin');
+      return viewFor({ ...group, ownerId: userId, ownerPublicId: target }, ownerId, 'member', 'admin');
     },
   };
 }

@@ -6,29 +6,35 @@ import {
   setCreatedAtIfNew,
   stripKeys,
   type TransactItem,
+  touch,
   transactWrite,
 } from '@scorely/api/src/lib/db';
 import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
 import { asUserId, type UserId } from '@scorely/api/src/lib/ids';
 import {
-  USER_EMAIL_ENTITY,
   USER_ENTITY,
   USER_PREFERENCES_ENTITY,
-  userEmailKey,
+  USER_PRIVATE_ENTITY,
   userEmailLookupKey,
   userKey,
   userPreferencesKey,
+  userPrivateKey,
   userPublicIdLookupKey,
 } from '@scorely/api/src/modules/users/user.table';
 import type { Me, Preferences, PublicUserId, UpdateMeInput, User } from '@scorely/contracts';
 
 /**
  * O perfil como fica no banco (`META`): `id` é o id do sistema, `publicId` o código de amigo (USR-15) e
- * `avatarMediaId` a mídia da foto (USR-08). Interno da api: a resposta sai pelo `toMe`/`publicId`.
+ * `avatarMediaId` a mídia da foto (USR-08; a URL é montada na resposta, MID-12). Sem email nem nome (USR-13).
+ * Interno da api: a resposta sai pelo `toMe`/`publicId`.
  */
-export type UserRecord = Omit<User, 'id'> & { id: UserId; publicId: PublicUserId; avatarMediaId?: string };
-/** A própria pessoa como fica no banco: perfil + email + preferências (USR-13, 14). */
-export type MeRecord = UserRecord & Pick<Me, 'email' | 'preferences'>;
+export type UserRecord = Omit<User, 'id' | 'avatarUrl'> & {
+  id: UserId;
+  publicId: PublicUserId;
+  avatarMediaId?: string;
+};
+/** A própria pessoa como fica no banco: perfil + parte privada (email e nome) + preferências (USR-13, 14). */
+export type MeRecord = UserRecord & Pick<Me, 'email' | 'name' | 'preferences'>;
 /** Resultado da criação: o lookup de email ou o do id público já existia. */
 export type CreateUserResult = 'created' | 'email_taken' | 'public_id_taken';
 
@@ -43,21 +49,22 @@ export interface ReadOptions {
 export interface UserRepository {
   /** Só o perfil (`META`): sem email nem preferências (USR-13). */
   get(id: UserId, opts?: ReadOptions): Promise<UserRecord | undefined>;
-  /** Perfil + email + preferências: o `GET /me` (USR-13, 14). */
+  /** Perfil + parte privada + preferências: o `GET /me` (USR-13, 14). */
   getMe(id: UserId, opts?: ReadOptions): Promise<MeRecord | undefined>;
   /** Pelo email (login): a pessoa inteira, como o `getMe`. */
   getByEmail(email: string, opts?: ReadOptions): Promise<MeRecord | undefined>;
   /** Só as preferências (refresh, GRP-13). Sem item → `{}`. */
   getPreferences(id: UserId): Promise<Preferences>;
-  /** Perfil + email + preferências vazias + lookups do email e do id público, numa transação (USR-15). */
+  /** Perfil + parte privada + preferências vazias + lookups do email e do id público, numa transação (USR-15). */
   create(user: UserRecord, email: string): Promise<CreateUserResult>;
-  /** Cada campo na sua parte (perfil ou preferências), numa transação. `null` remove o atributo (apelido). */
+  /** Cada campo na sua parte (perfil, privado ou preferências), numa transação. */
   update(id: UserId, patch: UserPatch): Promise<MeRecord | undefined>;
   /** USR-17: ids públicos → ids do sistema. Só os encontrados entram no mapa. */
   resolve(publicIds: readonly PublicUserId[]): Promise<Map<PublicUserId, UserId>>;
 }
 
-const PROFILE_FIELDS = ['name', 'nickname', 'gender'] as const;
+const PROFILE_FIELDS = ['nickname', 'gender'] as const;
+const PRIVATE_FIELDS = ['name'] as const;
 const PREFERENCE_FIELDS = ['locale', 'timeZone'] as const;
 
 /** Só os campos de preferência de um item (sem chaves, `createdAt`, `updatedAt`). */
@@ -103,12 +110,19 @@ export const dynamoUserRepository: UserRepository = {
   },
 
   async getMe(id, opts) {
-    const rows = await batchGetOrdered([userKey(id), userEmailKey(id), userPreferencesKey(id)], opts);
+    const rows = await batchGetOrdered([userKey(id), userPrivateKey(id), userPreferencesKey(id)], opts);
     const bySk = new Map(rows.map((row) => [row.SK as string, row]));
     const profile = bySk.get('META');
-    const email = bySk.get('EMAIL')?.email as string | undefined;
+    const priv = bySk.get('PRIVATE');
+    const email = priv?.email as string | undefined;
     if (!profile || email === undefined) return undefined;
-    return { ...stripKeys<UserRecord>(profile), email, preferences: preferencesOf(bySk.get('PREFERENCES')) };
+    const name = priv?.name as string | undefined;
+    return {
+      ...stripKeys<UserRecord>(profile),
+      email,
+      ...(name !== undefined && { name }),
+      preferences: preferencesOf(bySk.get('PREFERENCES')),
+    };
   },
 
   async getByEmail(email, opts) {
@@ -135,9 +149,10 @@ export const dynamoUserRepository: UserRepository = {
       Put: { TableName: tableName(), Item, ConditionExpression: 'attribute_not_exists(PK)' },
     });
     // A ordem importa: o índice que falhou diz qual lookup já existia (3 = email, 4 = id público).
+    // USR-13: a parte privada nasce só com o email (o nome vem pelo PATCH /me).
     const result = await transactWrite([
       put(dbItem(userKey(user.id), USER_ENTITY, user)),
-      put(dbItem(userEmailKey(user.id), USER_EMAIL_ENTITY, { email }, user.createdAt)),
+      put(dbItem(userPrivateKey(user.id), USER_PRIVATE_ENTITY, { email }, user.createdAt)),
       put(
         dbItem(
           userPreferencesKey(user.id),
@@ -156,6 +171,7 @@ export const dynamoUserRepository: UserRepository = {
 
   async update(id, patch) {
     const profile = pick(patch, PROFILE_FIELDS);
+    const privateFields = pick(patch, PRIVATE_FIELDS);
     const preferences = pick(patch, PREFERENCE_FIELDS);
     const now = new Date();
     const created = setCreatedAtIfNew(now);
@@ -163,12 +179,15 @@ export const dynamoUserRepository: UserRepository = {
     const items: TransactItem[] = [
       profile.length > 0
         ? {
-            Update: {
-              TableName: tableName(),
-              Key: userKey(id),
-              ConditionExpression: 'attribute_exists(PK)',
-              ...updateParts(profile),
-            },
+            Update: touch(
+              {
+                TableName: tableName(),
+                Key: userKey(id),
+                ConditionExpression: 'attribute_exists(PK)',
+                ...updateParts(profile),
+              },
+              now,
+            ),
           }
         : {
             ConditionCheck: {
@@ -177,22 +196,35 @@ export const dynamoUserRepository: UserRepository = {
               ConditionExpression: 'attribute_exists(PK)',
             },
           },
+      ...(privateFields.length > 0
+        ? [
+            {
+              Update: touch(
+                {
+                  TableName: tableName(),
+                  Key: userPrivateKey(id),
+                  ConditionExpression: 'attribute_exists(PK)',
+                  ...updateParts(privateFields),
+                },
+                now,
+              ),
+            },
+          ]
+        : []),
       ...(preferences.length > 0
         ? [
             {
-              Update: {
-                TableName: tableName(),
-                Key: userPreferencesKey(id),
-                ...updateParts(
-                  preferences,
-                  ['updatedAt = :updatedAt', 'entity = :entity', created.expression],
-                  {
-                    ':updatedAt': now.toISOString(),
+              Update: touch(
+                {
+                  TableName: tableName(),
+                  Key: userPreferencesKey(id),
+                  ...updateParts(preferences, ['entity = :entity', created.expression], {
                     ':entity': USER_PREFERENCES_ENTITY,
                     ...created.values,
-                  },
-                ),
-              },
+                  }),
+                },
+                now,
+              ),
             },
           ]
         : []),

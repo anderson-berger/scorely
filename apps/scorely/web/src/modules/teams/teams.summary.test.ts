@@ -23,7 +23,7 @@ const base: TeamSettings = {
   apart: [],
   spreadGender: false,
   allowOutsideRules: false,
-  names: { [ANA]: 'Ana', [BIA]: 'Bia', [CAI]: 'Cai' },
+  nicknames: { [ANA]: 'Ana', [BIA]: 'Bia', [CAI]: 'Cai' },
 };
 
 function render(parts: Text | Text[]): string {

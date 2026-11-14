@@ -44,6 +44,7 @@ function season(extra: Partial<Season> = {}): Season {
 function row(id: string, position: number): RankingRow {
   return {
     userId: PublicUserIdSchema.parse(id),
+    nickname: id,
     position,
     points: 10,
     attendance: 1,

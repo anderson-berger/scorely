@@ -6,6 +6,7 @@ import type { AttendanceRecord, GameRecord } from '@scorely/api/src/modules/grou
 import type { StoredGroup } from '@scorely/api/src/modules/groups/group.repository';
 import {
   type GroupsDeps,
+  imageUrls,
   requireActive,
   requireMember,
   requirePermission,
@@ -140,11 +141,10 @@ export function createGameService(deps: GroupsDeps) {
     const attendees = list.map((a): RosterAttendee => {
       const user = byId.get(a.userId);
       if (!user) throw new Error('Attendee without a user profile');
-      const name = user.nickname ?? user.name;
       return {
         userId: a.userId,
         publicId: user.publicId,
-        ...(name && { name }),
+        nickname: user.nickname,
         confirmedAt: a.confirmedAt,
         role: roles.get(a.userId) ?? ('guest' as const),
       };
@@ -182,7 +182,7 @@ export function createGameService(deps: GroupsDeps) {
   async function guestRoster(userId: UserId, token: string): Promise<GuestRoster> {
     const { group, role } = await byGuestLink(userId, token);
     const game = await rosterView(userId, await load(group, now()), role);
-    const { id, name, sport, weekday, time, timeZone, location, logoUrl, coverUrl } = group;
+    const { id, name, sport, weekday, time, timeZone, location } = group;
     return {
       // GRP-36: o convidado também vê o logo e a capa
       group: {
@@ -193,8 +193,7 @@ export function createGameService(deps: GroupsDeps) {
         time,
         timeZone,
         ...(location && { location }),
-        ...(logoUrl && { logoUrl }),
-        ...(coverUrl && { coverUrl }),
+        ...imageUrls(group, deps.media?.urlOf),
       },
       myRole: role,
       game,

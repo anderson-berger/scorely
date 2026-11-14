@@ -3,7 +3,6 @@ import type { UserId } from '@scorely/api/src/lib/ids';
 import { groupKey } from '@scorely/api/src/modules/groups/group.table';
 import {
   forViewer,
-  type GroupImageIds,
   type GroupsDeps,
   requireActive,
   requirePermission,
@@ -33,13 +32,13 @@ export function createGroupImages(deps: GroupsDeps & { media: MediaService }) {
     return group;
   }
 
-  /** Onde a imagem fica ligada (MID-08): `<slot>MediaId`/`<slot>Url` no item do grupo. */
+  /** Onde a imagem fica ligada (MID-08): só o `<slot>MediaId` no item do grupo (MID-12). */
   function target(groupId: string, slot: GroupImageSlot): MediaTarget {
     return {
       key: groupKey(groupId),
       field: slot,
       async readCurrent() {
-        const group = (await deps.groups.get(groupId, { consistent: true })) as GroupImageIds | undefined;
+        const group = await deps.groups.get(groupId, { consistent: true });
         return slot === 'logo' ? group?.logoMediaId : group?.coverMediaId;
       },
     };
@@ -52,7 +51,7 @@ export function createGroupImages(deps: GroupsDeps & { media: MediaService }) {
       deps.groups.getMembership(groupId, userId),
     ]);
     if (!group || !membership) throw appError('GROUP_NOT_FOUND');
-    return forViewer(group, userId, membership.role, membership.staffRoleId);
+    return forViewer(group, userId, membership.role, membership.staffRoleId, deps.media.urlOf);
   }
 
   return {

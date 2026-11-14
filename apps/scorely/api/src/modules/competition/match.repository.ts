@@ -6,6 +6,7 @@ import {
   queryLookupRows,
   setCreatedAtIfNew,
   stripKeys,
+  touch,
   transactWrite,
 } from '@scorely/api/src/lib/db';
 import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
@@ -99,17 +100,19 @@ export const dynamoMatchRepository: MatchRepository = {
 
   async update(id, patch) {
     await dynamo().send(
-      new UpdateCommand({
-        TableName: tableName(),
-        Key: matchKey(id),
-        UpdateExpression: 'SET teams = :teams, winner = :winner, updatedAt = :updatedAt',
-        ConditionExpression: 'attribute_exists(PK)',
-        ExpressionAttributeValues: {
-          ':teams': patch.teams,
-          ':winner': patch.winner,
-          ':updatedAt': patch.updatedAt,
-        },
-      }),
+      new UpdateCommand(
+        touch({
+          TableName: tableName(),
+          Key: matchKey(id),
+          UpdateExpression: 'SET teams = :teams, winner = :winner, updatedAt = :updatedAt',
+          ConditionExpression: 'attribute_exists(PK)',
+          ExpressionAttributeValues: {
+            ':teams': patch.teams,
+            ':winner': patch.winner,
+            ':updatedAt': patch.updatedAt,
+          },
+        }),
+      ),
     );
   },
 

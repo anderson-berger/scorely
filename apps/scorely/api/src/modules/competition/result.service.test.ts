@@ -334,7 +334,12 @@ function setup(
     getMany: async (ids: readonly UserId[]): Promise<UserRecord[]> =>
       ids
         .filter((id) => PEOPLE.includes(id))
-        .map((id) => ({ id, publicId: pub(id), name: NAMES[id], createdAt: '2026-01-01T00:00:00.000Z' })),
+        .map((id) => ({
+          id,
+          publicId: pub(id),
+          nickname: NAMES[id] ?? pub(id),
+          createdAt: '2026-01-01T00:00:00.000Z',
+        })),
   };
 
   const service = createResultService({
@@ -587,7 +592,7 @@ describe('a chamada (CMP-12)', () => {
     const t = setup();
     const res = await t.service.close(OWNER, GROUP_ID, NOV13, { attendance: wire(FULL_NOV13), winner: 0 });
     for (const [id, mark] of Object.entries(FULL_NOV13)) expect(personOf(res, id)?.attendance).toBe(mark);
-    expect(personOf(res, OWNER)).toMatchObject({ kind: 'member', inside: true, name: 'Dono' });
+    expect(personOf(res, OWNER)).toMatchObject({ kind: 'member', inside: true, nickname: 'Dono' });
     expect(personOf(res, B)).toMatchObject({ kind: 'member', inside: false });
     expect(personOf(res, R)).toMatchObject({ kind: 'reserve', inside: true });
     expect(personOf(res, G)).toMatchObject({ kind: 'guest', inside: true });

@@ -1,4 +1,4 @@
 import type { Me } from '@scorely/contracts';
 
-/** Nome mostrado nas listas: apelido, se houver. */
-export const displayName = (u: Pick<Me, 'name' | 'nickname' | 'email'>) => u.nickname ?? u.name ?? u.email;
+/** Nome mostrado: sempre o apelido (USR-04). */
+export const displayName = (u: Pick<Me, 'nickname'>) => u.nickname;

@@ -16,7 +16,8 @@ import { describe, expect, it } from 'vitest';
 
 // USR-08 (docs/modules/usuarios.md): a foto é a mídia `avatar`, e só a própria pessoa mexe nela.
 // As regras do arquivo (MID-02 a MID-13) são testadas em media/media.service.test.ts; aqui a mídia é um dublê
-// que grava `avatarMediaId`/`avatarUrl` no item do usuário, como a transação da mídia faria (MID-08).
+// que grava só o `avatarMediaId` no item do usuário, como a transação da mídia faria (MID-08); a URL é montada na
+// resposta pelo `urlOf` da mídia (MID-12).
 
 const EMAIL = 'ana@example.com';
 const BASE = 'https://uploads.test';
@@ -74,24 +75,19 @@ function memoryUserRepo() {
         [...users.values()].filter((u) => codes.includes(u.publicId)).map((u) => [u.publicId, u.id] as const),
       ),
   };
-  /** O que a transação da mídia grava no item do usuário (`key` = `userKey(id)`). */
-  const link = (key: { PK: string; SK: string }, value: { mediaId: string; url: string } | null) => {
+  /** O que a transação da mídia grava no item do usuário (`key` = `userKey(id)`): só o id (MID-12). */
+  const link = (key: { PK: string; SK: string }, mediaId: string | null) => {
     const user = [...users.values()].find((u) => userKey(u.id).PK === key.PK && key.SK === 'META');
     if (!user) throw new Error('user not found in memory store');
-    if (value) {
-      user.avatarMediaId = value.mediaId;
-      user.avatarUrl = value.url;
-    } else {
-      delete user.avatarMediaId;
-      delete user.avatarUrl;
-    }
+    if (mediaId) user.avatarMediaId = mediaId;
+    else delete user.avatarMediaId;
   };
   return { repo, users, link };
 }
 
 /**
- * Dublê da mídia: registra as chamadas e o que `target.readCurrent()` devolveu em cada uma. O caminho público
- * usa o `ownerRef` do pedido de envio (MID-12), como a mídia real.
+ * Dublê da mídia: registra as chamadas e o que `target.readCurrent()` devolveu em cada uma. A URL pública é
+ * `<base>/public/<purpose>/<mediaId>` (MID-12), como a mídia real.
  */
 function fakeMedia(link: ReturnType<typeof memoryUserRepo>['link']) {
   const calls = {
@@ -100,11 +96,11 @@ function fakeMedia(link: ReturnType<typeof memoryUserRepo>['link']) {
     detach: [] as (MediaCall<'detach'> & { current: string | undefined })[],
   };
   const failNext: { attach?: Error } = {};
-  const ref = { current: 'NOREF' };
+  const urlOf = (purpose: string, mediaId: string) => `${BASE}/public/${purpose}/${mediaId}`;
   const media: MediaService = {
+    urlOf,
     async requestUpload(input) {
       calls.requestUpload.push(input);
-      ref.current = input.ownerRef ?? input.ownerId;
       const policy = MEDIA_PURPOSES[input.purpose];
       return {
         mediaId: randomUUID(),
@@ -123,9 +119,8 @@ function fakeMedia(link: ReturnType<typeof memoryUserRepo>['link']) {
         delete failNext.attach;
         throw err;
       }
-      const url = `${BASE}/public/user/${ref.current}/avatar/${input.mediaId}.webp`;
-      link(input.target.key, { mediaId: input.mediaId, url });
-      return { url };
+      link(input.target.key, input.mediaId);
+      return { url: urlOf(input.purpose, input.mediaId) };
     },
     async detach(input) {
       const current = await input.target.readCurrent();
@@ -162,7 +157,6 @@ describe('foto de perfil pela mídia (USR-08)', () => {
       {
         purpose: 'avatar',
         ownerId: t.userId,
-        ownerRef: PUBLIC_ID,
         uploadedBy: t.userId,
         contentType: 'image/webp',
       },
@@ -177,7 +171,7 @@ describe('foto de perfil pela mídia (USR-08)', () => {
     expect(t.calls.attach).toHaveLength(1);
     expect(t.calls.attach[0]).toMatchObject({ mediaId, purpose: 'avatar', ownerId: t.userId });
     expect(t.calls.attach[0]?.target).toMatchObject({ key: userKey(t.userId), field: 'avatar' });
-    const url = `${BASE}/public/user/${PUBLIC_ID}/avatar/${mediaId}.webp`;
+    const url = `${BASE}/public/avatar/${mediaId}`;
     expect(user).toMatchObject({ id: PUBLIC_ID, email: EMAIL, preferences: {}, avatarUrl: url });
     expect((await t.service.get(t.userId)).avatarUrl).toBe(url);
   });
@@ -226,13 +220,15 @@ describe('foto de perfil pela mídia (USR-08)', () => {
     expect(user.avatarUrl).toBeUndefined();
   });
 
-  it('USR-16: o caminho público da foto leva o id público (`ownerRef`), nunca o id do sistema', async () => {
+  it('MID-12: a URL da foto é só a finalidade e o id da mídia: sem o id do sistema nem o código de amigo (USR-16)', async () => {
     const t = await withUser();
-    await t.service.requestAvatarUpload(t.userId, { contentType: 'image/webp' });
-    expect(t.calls.requestUpload[0]).toMatchObject({ ownerId: t.userId, ownerRef: PUBLIC_ID });
-    const user = await t.service.setAvatar(t.userId, { mediaId: randomUUID() });
-    expect(user.avatarUrl).toContain(`/public/user/${PUBLIC_ID}/avatar/`);
+    const mediaId = randomUUID();
+    const user = await t.service.setAvatar(t.userId, { mediaId });
+    expect(user.avatarUrl).toBe(`${BASE}/public/avatar/${mediaId}`);
     expect(user.avatarUrl).not.toContain(t.userId);
+    expect(user.avatarUrl).not.toContain(PUBLIC_ID);
+    expect(t.users.get(t.userId)).not.toHaveProperty('avatarUrl');
+    expect(t.users.get(t.userId)).toMatchObject({ avatarMediaId: mediaId });
   });
 });
 

@@ -411,7 +411,7 @@ function setup(opts: { competition?: Partial<StoredCompetition>; results?: Store
   const record = (id: UserId): UserRecord => ({
     id,
     publicId: pub(id),
-    name: NAMES[id],
+    nickname: NAMES[id] ?? pub(id),
     createdAt: '2026-01-01T00:00:00.000Z',
   });
   const users = {

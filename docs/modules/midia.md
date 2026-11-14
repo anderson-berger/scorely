@@ -1,6 +1,6 @@
 # Módulo Mídia
 
-> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-13.
+> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-14.
 
 Código: `apps/scorely/api/src/modules/media/`, `apps/scorely/api/src/lib/storage.ts`, `apps/scorely/web/src/lib/media.ts`. Contrato: `apps/scorely/contracts/src/media.ts`.
 
@@ -65,28 +65,32 @@ Guardar os arquivos enviados pelas pessoas (por enquanto, só imagens) do mesmo 
 ### Acesso
 
 - **MID-12. Mídia pública:** qualquer pessoa com a URL vê. Só a pasta pública do bucket é aberta.
+  - O endereço é só a finalidade e o id da mídia (`public/<purpose>/<mediaId>`), sem o dono e sem extensão. O formato vai no próprio arquivo (`Content-Type`).
+  - Nenhum item guarda a URL: a área guarda só o id da mídia, e a api monta a URL na resposta com o endereço base do bucket (uma configuração por stage).
   - Cada troca gera uma URL nova, então nenhum cache mostra a imagem antiga.
+  - _Por quê:_ com a URL montada na hora, trocar o S3 por uma CDN ou um domínio próprio é só trocar a configuração, sem reescrever o banco. Sem o dono no caminho, nada da URL fica preso a um id que pode mudar (o código de amigo, USR-15).
+  - _Alterada em 2026-11-14:_ antes o caminho era `public/<ownerType>/<ownerRef>/<purpose>/<mediaId>.<ext>`, e a URL inteira ficava gravada no item da área.
 - **MID-13. Envios que nunca foram confirmados somem sozinhos:** o arquivo temporário é apagado pelo S3 em 1 dia, e a mídia pendente, pelo TTL do banco.
 
 ## 3. Como funciona
 
 ### Dados
 
-| Item  | Chave                 | Para quê                                                                                                                                                                                                                                                                                                      |
-| ----- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Mídia | `MEDIA#<id>` / `META` | `kind`, `purpose`, `ownerType`, `ownerId`, `ownerRef` (o que vai no caminho público, MID-12; sem ele, o `ownerId`), `status` (`pending`/`ready`), `key`, `contentType`, `size`, `width`, `height`, `uploadedBy`. Na pendente, também `expiresAt` e `ttl` ([ADR 0004](../decisions/0004-ttl-com-expiresat.md)) |
+| Item  | Chave                 | Para quê                                                                                                                                                                                                                                                                                                                         |
+| ----- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Mídia | `MEDIA#<id>` / `META` | `kind`, `purpose`, `ownerType`, `ownerId`, `status` (`pending`/`ready`), `key`, `contentType`, `size`, `width`, `height`, `uploadedBy`, `createdAt`, `updatedAt`, `version` ([ADR 0013](../decisions/0013-version-e-updatedat.md)). Na pendente, também `expiresAt` e `ttl` ([ADR 0004](../decisions/0004-ttl-com-expiresat.md)) |
 
-A área guarda o id e a URL da mídia no próprio item: `avatarMediaId` e `avatarUrl` no usuário; `logoMediaId`, `logoUrl`, `coverMediaId` e `coverUrl` no grupo. Esses campos são gravados na mesma transação da troca (MID-08), então nunca ficam diferentes da mídia.
+A área guarda só o id da mídia no próprio item: `avatarMediaId` no usuário; `logoMediaId` e `coverMediaId` no grupo. Ele é gravado na mesma transação da troca (MID-08), então nunca fica diferente da mídia. A resposta da área leva a URL (`avatarUrl`, `logoUrl`, `coverUrl`), montada a partir do id (MID-12).
 
 ### Arquivos (um bucket por projeto e stage)
 
 ```
-tmp/<mediaId>                                              envio ainda não confirmado; o S3 apaga em 1 dia (MID-13)
-public/<ownerType>/<ownerRef>/<purpose>/<mediaId>.<ext>    leitura pública (MID-12)
-private/...                                                reservado para mídias com acesso restrito (ainda sem uso)
+tmp/<mediaId>                envio ainda não confirmado; o S3 apaga em 1 dia (MID-13)
+public/<purpose>/<mediaId>   leitura pública, com o Content-Type do arquivo (MID-12)
+private/...                  reservado para mídias com acesso restrito (ainda sem uso)
 ```
 
-O `<ownerRef>` é o id do grupo, ou o id público da pessoa (USR-16 em [usuarios.md](usuarios.md)): a URL pública nunca leva o id do sistema de ninguém.
+A URL pública é `<endereço base>/<purpose>/<mediaId>`, e o endereço base é a configuração `MEDIA_BASE_URL` da api (hoje o bucket; depois, se houver, a CDN). Ela nunca leva o id do sistema de ninguém, nem o código de amigo (USR-16 em [usuarios.md](usuarios.md)).
 
 ### Como as áreas usam
 

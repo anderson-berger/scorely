@@ -301,10 +301,7 @@ export function trophyText(trophy: Trophy): Text[] {
 export function shareText(season: Season, groupName: string, tr: (t: Text) => string): string {
   const byPosition = new Map<number, string[]>();
   for (const row of podiumOf(season)) {
-    byPosition.set(row.position, [
-      ...(byPosition.get(row.position) ?? []),
-      row.name ?? tr({ key: 'groups.unnamed' }),
-    ]);
+    byPosition.set(row.position, [...(byPosition.get(row.position) ?? []), row.nickname]);
   }
   const podium = [...byPosition]
     .map(
@@ -314,7 +311,7 @@ export function shareText(season: Season, groupName: string, tr: (t: Text) => st
     .join(' · ');
   const highlights = (season.highlights ?? []).map(
     (h) =>
-      `${tr({ key: `competition.trophies.kind.${h.kind}` })}: ${h.rows.map((r) => r.name ?? tr({ key: 'groups.unnamed' })).join(', ')}`,
+      `${tr({ key: `competition.trophies.kind.${h.kind}` })}: ${h.rows.map((r) => r.nickname).join(', ')}`,
   );
   return [`🏆 ${tr(seasonTitle(season))} · ${groupName}`, podium, ...highlights].filter(Boolean).join('\n');
 }

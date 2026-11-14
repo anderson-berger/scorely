@@ -97,7 +97,7 @@ export default defineComponent({
     },
 
     nameOf(p: GamePerson): string {
-      return p.name ?? this.$t('groups.unnamed');
+      return p.nickname;
     },
 
     setSide(id: string, side: Side) {

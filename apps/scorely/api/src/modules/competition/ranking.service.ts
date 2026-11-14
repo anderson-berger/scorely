@@ -58,7 +58,7 @@ export function createRankingService(deps: RankingDeps) {
     return scoreGames(deps, groupId);
   }
 
-  /** As linhas com o id público, o nome e o gênero de agora, no recorte (o ranking final usa os mesmos). */
+  /** As linhas com o id público, o apelido (USR-04) e o gênero de agora, no recorte (o ranking final usa os mesmos). */
   async function publicRows(
     entries: readonly RankingEntry[],
     tiebreak: readonly Tiebreak[],
@@ -73,7 +73,7 @@ export function createRankingService(deps: RankingDeps) {
       return [
         {
           userId: user.publicId,
-          ...(user.name !== undefined && { name: user.name }),
+          nickname: user.nickname,
           ...(user.gender !== undefined && { gender: user.gender }),
           position: row.position,
           points: row.points,
@@ -246,7 +246,8 @@ export function createRankingService(deps: RankingDeps) {
       });
       return {
         userId: user?.publicId ?? publicUserId,
-        ...(user?.name !== undefined && { name: user.name }),
+        // USR-04: o apelido; sem perfil, o código (o apelido com que a conta nasce, USR-02).
+        nickname: user?.nickname ?? publicUserId,
         points: Math.max(0, stats.points),
         attendance: stats.attendance,
         streak: stats.streak,

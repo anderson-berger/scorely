@@ -128,7 +128,7 @@ export default defineComponent({
       return (season.highlights ?? [])
         .map(
           (h) =>
-            `${this.$t(`competition.trophies.kind.${h.kind}`)}: ${h.rows.map((r) => r.name ?? this.$t('groups.unnamed')).join(', ')}`,
+            `${this.$t(`competition.trophies.kind.${h.kind}`)}: ${h.rows.map((r) => r.nickname).join(', ')}`,
         )
         .join(' · ');
     },
@@ -154,7 +154,7 @@ export default defineComponent({
 
     podium(season: Season): string {
       return podiumOf(season)
-        .map((r) => `${this.text(positionText(r))} ${r.name ?? this.$t('groups.unnamed')}`)
+        .map((r) => `${this.text(positionText(r))} ${r.nickname}`)
         .join(' · ');
     },
 
@@ -273,7 +273,7 @@ export default defineComponent({
           <span class="sc-number pos">{{ position(row) }}</span>
           <span class="who">
             <span class="name">
-              {{ row.name ?? $t('groups.unnamed') }}
+              {{ row.nickname }}
               <span v-if="isMe(row)" class="sc-caption me">{{ $t('competition.ranking.you') }}</span>
             </span>
             <span class="sc-caption">{{ line(row) }}</span>
@@ -317,7 +317,7 @@ export default defineComponent({
       v-model="personOpen"
       :group-id="group.id"
       :user-id="person.userId"
-      :name="person.name ?? $t('groups.unnamed')"
+      :name="person.nickname"
     />
   </section>
 </template>

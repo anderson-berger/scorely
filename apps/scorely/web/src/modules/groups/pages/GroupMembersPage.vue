@@ -105,7 +105,7 @@ export default defineComponent({
   },
 
   methods: {
-    initials(m: Pick<Member, 'name'>): string {
+    initials(m: Pick<Member, 'nickname'>): string {
       return initials(this.personName(m));
     },
 
@@ -131,8 +131,8 @@ export default defineComponent({
       return this.isOwner || !m.staffRole;
     },
 
-    personName(p: Pick<Member, 'name'>): string {
-      return p.name ?? this.$t('groups.unnamed');
+    personName(p: Pick<Member, 'nickname'>): string {
+      return p.nickname;
     },
   },
 });

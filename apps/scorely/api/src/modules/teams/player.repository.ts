@@ -1,5 +1,5 @@
 import { UpdateCommand } from '@aws-sdk/lib-dynamodb';
-import { batchGetOrdered, setCreatedAtIfNew, stripKeys } from '@scorely/api/src/lib/db';
+import { batchGetOrdered, setCreatedAtIfNew, stripKeys, touch } from '@scorely/api/src/lib/db';
 import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
 import { PLAYER_ENTITY, playerKey } from '@scorely/api/src/modules/teams/player.table';
 import type { PlayerPosition } from '@scorely/contracts';
@@ -30,20 +30,22 @@ export const dynamoPlayerRepository: PlayerRepository = {
   async save(groupId, userId, positions, now) {
     const created = setCreatedAtIfNew(new Date(now));
     const { Attributes } = await dynamo().send(
-      new UpdateCommand({
-        TableName: tableName(),
-        Key: playerKey(groupId, userId),
-        UpdateExpression: `SET entity = :entity, groupId = :groupId, userId = :userId, positions = :positions, updatedAt = :now, ${created.expression}`,
-        ExpressionAttributeValues: {
-          ':entity': PLAYER_ENTITY,
-          ':groupId': groupId,
-          ':userId': userId,
-          ':positions': positions,
-          ':now': now,
-          ...created.values,
-        },
-        ReturnValues: 'ALL_NEW',
-      }),
+      new UpdateCommand(
+        touch({
+          TableName: tableName(),
+          Key: playerKey(groupId, userId),
+          UpdateExpression: `SET entity = :entity, groupId = :groupId, userId = :userId, positions = :positions, updatedAt = :now, ${created.expression}`,
+          ExpressionAttributeValues: {
+            ':entity': PLAYER_ENTITY,
+            ':groupId': groupId,
+            ':userId': userId,
+            ':positions': positions,
+            ':now': now,
+            ...created.values,
+          },
+          ReturnValues: 'ALL_NEW',
+        }),
+      ),
     );
     return stripKeys<StoredPlayer>(Attributes ?? {});
   },

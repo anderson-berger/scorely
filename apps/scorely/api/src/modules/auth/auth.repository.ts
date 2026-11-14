@@ -1,5 +1,5 @@
 import { DeleteCommand, GetCommand, PutCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
-import { dbItem, isConditionFailed, stripKeys, ttlFrom } from '@scorely/api/src/lib/db';
+import { dbItem, isConditionFailed, replaceItem, stripKeys, touch, ttlFrom } from '@scorely/api/src/lib/db';
 import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
 import {
   LOGIN_CODE_ENTITY,
@@ -35,10 +35,11 @@ export const dynamoAuthRepository: AuthRepository = {
   },
 
   async putCode(code, expireAt) {
+    // O código novo substitui o anterior no mesmo item: a `version` segue (ADR 0013).
     await dynamo().send(
-      new PutCommand({
+      new UpdateCommand({
         TableName: tableName(),
-        Item: { ...dbItem(loginCodeKey(code.email), LOGIN_CODE_ENTITY, code), ttl: ttlFrom(expireAt) },
+        ...replaceItem(loginCodeKey(code.email), LOGIN_CODE_ENTITY, { ...code, ttl: ttlFrom(expireAt) }),
       }),
     );
   },
@@ -46,14 +47,16 @@ export const dynamoAuthRepository: AuthRepository = {
   async registerAttempt(email, maxAttempts) {
     try {
       const { Attributes } = await dynamo().send(
-        new UpdateCommand({
-          TableName: tableName(),
-          Key: loginCodeKey(email),
-          UpdateExpression: 'ADD attempts :one',
-          ConditionExpression: 'attribute_exists(PK) AND attempts < :max',
-          ExpressionAttributeValues: { ':one': 1, ':max': maxAttempts },
-          ReturnValues: 'ALL_NEW',
-        }),
+        new UpdateCommand(
+          touch({
+            TableName: tableName(),
+            Key: loginCodeKey(email),
+            UpdateExpression: 'ADD attempts :one',
+            ConditionExpression: 'attribute_exists(PK) AND attempts < :max',
+            ExpressionAttributeValues: { ':one': 1, ':max': maxAttempts },
+            ReturnValues: 'ALL_NEW',
+          }),
+        ),
       );
       return Attributes ? stripKeys<LoginCode>(Attributes) : undefined;
     } catch (err) {
@@ -100,19 +103,21 @@ export const dynamoAuthRepository: AuthRepository = {
   async rotateSession(id, currentHash, nextHash, expiresAt) {
     try {
       await dynamo().send(
-        new UpdateCommand({
-          TableName: tableName(),
-          Key: sessionKey(id),
-          UpdateExpression: 'SET tokenHash = :next, expiresAt = :expiresAt, #ttl = :ttl',
-          ConditionExpression: 'tokenHash = :current',
-          ExpressionAttributeNames: { '#ttl': 'ttl' },
-          ExpressionAttributeValues: {
-            ':next': nextHash,
-            ':current': currentHash,
-            ':expiresAt': expiresAt,
-            ':ttl': ttlFrom(new Date(expiresAt)),
-          },
-        }),
+        new UpdateCommand(
+          touch({
+            TableName: tableName(),
+            Key: sessionKey(id),
+            UpdateExpression: 'SET tokenHash = :next, expiresAt = :expiresAt, #ttl = :ttl',
+            ConditionExpression: 'tokenHash = :current',
+            ExpressionAttributeNames: { '#ttl': 'ttl' },
+            ExpressionAttributeValues: {
+              ':next': nextHash,
+              ':current': currentHash,
+              ':expiresAt': expiresAt,
+              ':ttl': ttlFrom(new Date(expiresAt)),
+            },
+          }),
+        ),
       );
       return true;
     } catch (err) {

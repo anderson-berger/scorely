@@ -181,7 +181,7 @@ const MEMBERS: Record<string, MemberRole> = {
 const attendee = (userId: UserId, role: Attendee['role'], minute: number): RosterAttendee => ({
   userId,
   publicId: pub(userId),
-  name: `P-${userId.slice(-2)}`,
+  nickname: `P-${userId.slice(-2)}`,
   role,
   confirmedAt: new Date(Date.UTC(2026, 10, 4, 22, minute)).toISOString(),
 });
@@ -323,7 +323,7 @@ function setup(
           return {
             id,
             publicId: pub(id),
-            name: `P-${id.slice(-2)}`,
+            nickname: `P-${id.slice(-2)}`,
             createdAt: '2026-01-01T00:00:00.000Z',
             ...(gender && { gender }),
           };
@@ -1104,7 +1104,7 @@ describe('preferência: espalhar homens e mulheres (TIM-23)', () => {
 describe('avulso: pessoa sem conta só neste jogo (TIM-24, TIM-08)', () => {
   const ZE_VIEW = {
     userId: X1,
-    name: 'Zé',
+    nickname: 'Zé',
     role: 'guest',
     positions: ['setter'],
     adjusted: false,
@@ -1125,7 +1125,7 @@ describe('avulso: pessoa sem conta só neste jogo (TIM-24, TIM-08)', () => {
     expect(res.teams?.teams[0]?.[1]).toMatchObject({ ...ZE_VIEW, gender: 'M' });
     expect(res.teams?.unassigned.find((p) => p.userId === X2)).toMatchObject({
       userId: X2,
-      name: 'Lu',
+      nickname: 'Lu',
       extra: true,
       inList: true,
       bench: false,
@@ -1145,7 +1145,12 @@ describe('avulso: pessoa sem conta só neste jogo (TIM-24, TIM-08)', () => {
       await t.service.guestGet(OUTSIDER, 'tok-guest'),
     ]) {
       expect(teamIds(res.teams)).toEqual([[A, X1], [G]]);
-      expect(res.teams?.teams[0]?.[1]).toMatchObject({ userId: X1, name: 'Zé', extra: true, pinned: false });
+      expect(res.teams?.teams[0]?.[1]).toMatchObject({
+        userId: X1,
+        nickname: 'Zé',
+        extra: true,
+        pinned: false,
+      });
     }
   });
 
@@ -1176,7 +1181,7 @@ describe('avulso: pessoa sem conta só neste jogo (TIM-24, TIM-08)', () => {
     });
     expect(res.teams?.teams[0]?.[0]).toMatchObject({
       userId: X1,
-      name: 'José',
+      nickname: 'José',
       gender: 'F',
       positions: ['libero', 'outside'],
     });

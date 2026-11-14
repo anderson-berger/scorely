@@ -18,9 +18,9 @@ import {
 
 /**
  * A configuração que o sorteio e os times usam, com os opostos pelo id do sistema (interno). A resposta troca pelo
- * id público e acrescenta os nomes (`TeamSettings.names`, USR-16).
+ * id público e acrescenta os apelidos (`TeamSettings.nicknames`, USR-04, 16).
  */
-export type TeamConfig = Omit<TeamSettings, 'names' | 'apart'> & { apart: TeamApartRule[] };
+export type TeamConfig = Omit<TeamSettings, 'nicknames' | 'apart'> & { apart: TeamApartRule[] };
 
 /** Sem nada salvo (TIM-17): 2 times, sem regras, sem opostos, não espalha, não permite publicar fora das regras. */
 export const DEFAULT_TEAM_SETTINGS: TeamConfig = {
@@ -71,8 +71,8 @@ export function createTeamSettingsService(deps: TeamSettingsDeps) {
       if (!found) throw new Error('Apart rule person without a user profile');
       return found;
     };
-    const names = Object.fromEntries(users.flatMap((u) => (u.name ? [[u.publicId, u.name]] : [])));
-    return { ...config, apart: config.apart.map((r) => ({ people: r.people.map(publicOf) })), names };
+    const nicknames = Object.fromEntries(users.map((u) => [u.publicId, u.nickname]));
+    return { ...config, apart: config.apart.map((r) => ({ people: r.people.map(publicOf) })), nicknames };
   }
 
   /** USR-17: os opostos chegam pelo id público; desconhecido → TEAM_PLAYER_NOT_FOUND, sem gravar. */

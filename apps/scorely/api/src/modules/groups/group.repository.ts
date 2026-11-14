@@ -8,6 +8,7 @@ import {
   setCreatedAtIfNew,
   stripKeys,
   type TransactItem,
+  touch,
   transactWrite,
 } from '@scorely/api/src/lib/db';
 import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
@@ -45,6 +46,8 @@ import {
  */
 export type StoredGroup = Omit<
   Group,
+  | 'logoUrl'
+  | 'coverUrl'
   | 'ownerId'
   | 'myRole'
   | 'myPermissions'
@@ -55,6 +58,9 @@ export type StoredGroup = Omit<
 > & {
   /** Dono pelo id do sistema (interno). */
   ownerId: UserId;
+  /** GRP-35: as mídias do logo e da capa; a URL é montada na resposta (MID-12). */
+  logoMediaId?: string | undefined;
+  coverMediaId?: string | undefined;
   /** USR-16: cópia do id público do dono, que é o que sai no `ownerId` da resposta. O código não muda (USR-15). */
   ownerPublicId: PublicUserId;
   reservesOpenHoursBefore?: number | undefined;
@@ -246,7 +252,7 @@ function tokenSwap(group: StoredGroup, kind: InviteKind, newToken: string): Tran
       },
     },
     {
-      Update: {
+      Update: touch({
         TableName: tableName(),
         Key: groupKey(group.id),
         UpdateExpression: 'SET #token = :new',
@@ -254,7 +260,7 @@ function tokenSwap(group: StoredGroup, kind: InviteKind, newToken: string): Tran
         ConditionExpression: `${old ? '#token = :old' : 'attribute_not_exists(#token)'} AND attribute_not_exists(archivedAt)`,
         ExpressionAttributeNames: { '#token': field },
         ExpressionAttributeValues: { ':new': newToken, ...(old && { ':old': old }) },
-      },
+      }),
     },
   ];
 }
@@ -279,7 +285,7 @@ async function readMembership(groupId: string, userId: UserId): Promise<Membersh
  */
 function promoteUpdate(groupId: string, userId: UserId, at: string, byInvite: boolean): TransactItem {
   return {
-    Update: {
+    Update: touch({
       TableName: tableName(),
       Key: membershipKey(groupId, userId),
       UpdateExpression: 'SET #role = :member, roleChangedAt = :now REMOVE memberInviteExpiresAt',
@@ -288,7 +294,7 @@ function promoteUpdate(groupId: string, userId: UserId, at: string, byInvite: bo
         : '#role = :reserve',
       ExpressionAttributeNames: { '#role': 'role' },
       ExpressionAttributeValues: { ':member': 'member', ':reserve': 'reserve', ':now': at },
-    },
+    }),
   };
 }
 
@@ -441,13 +447,15 @@ export const dynamoGroupRepository: GroupRepository = {
   async setStaffRole(groupId, userId, staffRoleId) {
     try {
       await dynamo().send(
-        new UpdateCommand({
-          TableName: tableName(),
-          Key: membershipKey(groupId, userId),
-          UpdateExpression: staffRoleId === null ? 'REMOVE staffRoleId' : 'SET staffRoleId = :role',
-          ConditionExpression: 'attribute_exists(PK)',
-          ...(staffRoleId !== null && { ExpressionAttributeValues: { ':role': staffRoleId } }),
-        }),
+        new UpdateCommand(
+          touch({
+            TableName: tableName(),
+            Key: membershipKey(groupId, userId),
+            UpdateExpression: staffRoleId === null ? 'REMOVE staffRoleId' : 'SET staffRoleId = :role',
+            ConditionExpression: 'attribute_exists(PK)',
+            ...(staffRoleId !== null && { ExpressionAttributeValues: { ':role': staffRoleId } }),
+          }),
+        ),
       );
       return 'set';
     } catch (err) {
@@ -460,32 +468,32 @@ export const dynamoGroupRepository: GroupRepository = {
     // [0] o grupo (dono ainda é `from`, ativo), [1] o novo dono (membro, perde o cargo), [2] o antigo vira Admin.
     const result = await transactWrite([
       {
-        Update: {
+        Update: touch({
           TableName: tableName(),
           Key: groupKey(group.id),
           UpdateExpression: 'SET ownerId = :to, ownerPublicId = :toPublic',
           ConditionExpression: 'ownerId = :from AND attribute_not_exists(archivedAt)',
           ExpressionAttributeValues: { ':to': to, ':toPublic': toPublicId, ':from': from },
-        },
+        }),
       },
       {
-        Update: {
+        Update: touch({
           TableName: tableName(),
           Key: membershipKey(group.id, to),
           UpdateExpression: 'REMOVE staffRoleId',
           ConditionExpression: '#role = :member',
           ExpressionAttributeNames: { '#role': 'role' },
           ExpressionAttributeValues: { ':member': 'member' },
-        },
+        }),
       },
       {
-        Update: {
+        Update: touch({
           TableName: tableName(),
           Key: membershipKey(group.id, from),
           UpdateExpression: 'SET staffRoleId = :admin',
           ConditionExpression: 'attribute_exists(PK)',
           ExpressionAttributeValues: { ':admin': 'admin' },
-        },
+        }),
       },
     ]);
     if (result.ok) return 'transferred';
@@ -498,14 +506,16 @@ export const dynamoGroupRepository: GroupRepository = {
   async setMemberInvite(groupId, userId, expiresAt) {
     try {
       await dynamo().send(
-        new UpdateCommand({
-          TableName: tableName(),
-          Key: membershipKey(groupId, userId),
-          UpdateExpression: 'SET memberInviteExpiresAt = :at',
-          ConditionExpression: '#role = :reserve',
-          ExpressionAttributeNames: { '#role': 'role' },
-          ExpressionAttributeValues: { ':at': expiresAt, ':reserve': 'reserve' },
-        }),
+        new UpdateCommand(
+          touch({
+            TableName: tableName(),
+            Key: membershipKey(groupId, userId),
+            UpdateExpression: 'SET memberInviteExpiresAt = :at',
+            ConditionExpression: '#role = :reserve',
+            ExpressionAttributeNames: { '#role': 'role' },
+            ExpressionAttributeValues: { ':at': expiresAt, ':reserve': 'reserve' },
+          }),
+        ),
       );
       return 'set';
     } catch (err) {
@@ -517,12 +527,14 @@ export const dynamoGroupRepository: GroupRepository = {
   async clearMemberInvite(groupId, userId) {
     try {
       await dynamo().send(
-        new UpdateCommand({
-          TableName: tableName(),
-          Key: membershipKey(groupId, userId),
-          UpdateExpression: 'REMOVE memberInviteExpiresAt',
-          ConditionExpression: 'attribute_exists(PK)',
-        }),
+        new UpdateCommand(
+          touch({
+            TableName: tableName(),
+            Key: membershipKey(groupId, userId),
+            UpdateExpression: 'REMOVE memberInviteExpiresAt',
+            ConditionExpression: 'attribute_exists(PK)',
+          }),
+        ),
       );
     } catch (err) {
       if (!isConditionFailed(err)) throw err;
@@ -601,7 +613,7 @@ export const dynamoGroupRepository: GroupRepository = {
     });
     const result = await transactWrite([
       {
-        Update: {
+        Update: touch({
           TableName: tableName(),
           Key: groupKey(group.id),
           UpdateExpression: 'SET archivedAt = :at REMOVE #member, #reserve, #guest',
@@ -615,7 +627,7 @@ export const dynamoGroupRepository: GroupRepository = {
             ':at': archivedAt,
             ...Object.fromEntries(present.map(({ kind, token }) => [`:${kind}`, token])),
           },
-        },
+        }),
       },
       ...present.map(({ kind, token }) => ({
         Delete: { TableName: tableName(), Key: TOKEN_LOOKUP[kind](token) },
@@ -627,7 +639,7 @@ export const dynamoGroupRepository: GroupRepository = {
   async unarchive(group, tokens) {
     const result = await transactWrite([
       {
-        Update: {
+        Update: touch({
           TableName: tableName(),
           Key: groupKey(group.id),
           UpdateExpression:
@@ -638,7 +650,7 @@ export const dynamoGroupRepository: GroupRepository = {
             ':reserve': tokens.reserveInviteToken,
             ':guest': tokens.guestToken,
           },
-        },
+        }),
       },
       ...KINDS.map((kind) => ({
         Put: {
@@ -664,17 +676,19 @@ export const dynamoGroupRepository: GroupRepository = {
       ...(remove.length > 0 ? [`REMOVE ${remove.map(([k]) => `#${k}`).join(', ')}`] : []),
     ];
     const { Attributes } = await dynamo().send(
-      new UpdateCommand({
-        TableName: tableName(),
-        Key: groupKey(groupId),
-        UpdateExpression: clauses.join(' '),
-        ConditionExpression: 'attribute_exists(PK)',
-        ExpressionAttributeNames: Object.fromEntries(entries.map(([k]) => [`#${k}`, k])),
-        ...(set.length > 0 && {
-          ExpressionAttributeValues: Object.fromEntries(set.map(([k, v]) => [`:${k}`, v])),
+      new UpdateCommand(
+        touch({
+          TableName: tableName(),
+          Key: groupKey(groupId),
+          UpdateExpression: clauses.join(' '),
+          ConditionExpression: 'attribute_exists(PK)',
+          ExpressionAttributeNames: Object.fromEntries(entries.map(([k]) => [`#${k}`, k])),
+          ...(set.length > 0 && {
+            ExpressionAttributeValues: Object.fromEntries(set.map(([k, v]) => [`:${k}`, v])),
+          }),
+          ReturnValues: 'ALL_NEW',
         }),
-        ReturnValues: 'ALL_NEW',
-      }),
+      ),
     );
     return stripKeys<StoredGroup>(Attributes ?? {});
   },

@@ -360,7 +360,7 @@ export default defineComponent({
     async inviteToMember(m: Member) {
       await this.run(
         () => groupsApi.inviteToMember(this.groupId, m.userId),
-        this.$t('groups.memberInvite.sentToast', { name: m.name ?? this.$t('groups.unnamed') }),
+        this.$t('groups.memberInvite.sentToast', { name: m.nickname }),
       );
     },
 
@@ -418,20 +418,20 @@ export default defineComponent({
     async setAdmin(m: Member) {
       await this.run(
         () => groupsApi.setStaffRole(this.groupId, m.userId, 'admin'),
-        this.$t('groups.staff.grantedToast', { name: m.name ?? this.$t('groups.unnamed') }),
+        this.$t('groups.staff.grantedToast', { name: m.nickname }),
       );
     },
 
     async clearAdmin(m: Member) {
       await this.run(
         () => groupsApi.clearStaffRole(this.groupId, m.userId),
-        this.$t('groups.staff.clearedToast', { name: m.name ?? this.$t('groups.unnamed') }),
+        this.$t('groups.staff.clearedToast', { name: m.nickname }),
       );
     },
 
     /** GRP-54, 56: confirma antes, porque o dono antigo não desfaz sozinho. A página recarrega com as permissões novas. */
     async transfer(m: Member) {
-      const name = m.name ?? this.$t('groups.unnamed');
+      const name = m.nickname;
       if (!(await this.ask(this.$t('groups.staff.transferConfirm', { name })))) return;
       await this.run(
         () => groupsApi.transfer(this.groupId, m.userId),
@@ -440,7 +440,7 @@ export default defineComponent({
     },
 
     async removeMember(m: Member) {
-      const name = m.name ?? this.$t('groups.unnamed');
+      const name = m.nickname;
       const key = m.role === 'reserve' ? 'groups.removeReserveConfirm' : 'groups.removeConfirm';
       if (!(await this.ask(this.$t(key, { name })))) return;
       await this.run(() => groupsApi.removeMember(this.groupId, m.userId), this.$t('groups.removed'));

@@ -1,5 +1,6 @@
 // Como o User é salvo e buscado (single-table, sem GSI). A pessoa tem três itens na mesma partição: o perfil
-// (`META`, o `UserSchema` de @scorely/contracts), o email (`EMAIL`, USR-13) e as preferências (`PREFERENCES`, USR-14).
+// (`META`, o `UserSchema` de @scorely/contracts), a parte privada (`PRIVATE`: email e nome, USR-13) e as preferências
+// (`PREFERENCES`, USR-14). Os três têm `createdAt`, `updatedAt` e `version` (ADR 0013).
 import type { UserId } from '@scorely/api/src/lib/ids';
 import type { Me, PublicUserId } from '@scorely/contracts';
 
@@ -7,7 +8,8 @@ export const USER_ENTITY = 'User';
 
 /**
  * Perfil: `PK=USER#<id>`, `SK=META`, com os atributos do `UserSchema` (o `id` aqui é o do sistema), o `publicId`
- * (USR-15) e o `avatarMediaId` (sem email nem preferências). Leitura: GetItem.
+ * (USR-15), o `nickname` (nasce = `publicId`, USR-02) e o `avatarMediaId` (sem email, nome nem preferências; a URL
+ * da foto é montada na resposta, MID-12). Leitura: GetItem.
  */
 export function userKey(id: UserId) {
   return { PK: `USER#${id}`, SK: 'META' };
@@ -24,23 +26,24 @@ export function userPublicIdLookupKey(publicId: PublicUserId) {
 
 /**
  * Lookup único por email: `PK=LOOKUP#USER#EMAIL#<email>`, `SK=META`, `{ id }`.
- * Escrita: na mesma transação do perfil e do email, com `attribute_not_exists(PK)` (email em uso → falha).
- * Leitura: GetItem no lookup → BatchGet do perfil, do email e das preferências (`getMe`).
+ * Escrita: na mesma transação do perfil e da parte privada, com `attribute_not_exists(PK)` (email em uso → falha).
+ * Leitura: GetItem no lookup → BatchGet do perfil, da parte privada e das preferências (`getMe`).
  * O email já chega normalizado (minúsculas, sem espaços) pelo `EmailSchema`.
  */
 export function userEmailLookupKey(email: Me['email']) {
   return { PK: `LOOKUP#USER#EMAIL#${email}`, SK: 'META' };
 }
 
-export const USER_EMAIL_ENTITY = 'UserEmail';
+export const USER_PRIVATE_ENTITY = 'UserPrivate';
 export const USER_PREFERENCES_ENTITY = 'UserPreferences';
 
 /**
- * Email da conta (USR-13): `PK=USER#<id>`, `SK=EMAIL`, `{ email }`. Fora do perfil: só o auth e o `GET /me` leem.
- * Escrita: na transação da criação (com o perfil, as preferências e o lookup). Nunca muda (USR-01).
+ * Parte privada (USR-13): `PK=USER#<id>`, `SK=PRIVATE`, `{ email, name? }`. Fora do perfil: só o auth e o `GET /me`
+ * leem. Escrita: na transação da criação (com o perfil, as preferências e os lookups); o `name` muda pelo
+ * `PATCH /me`, na mesma transação do perfil. O email nunca muda (USR-01).
  */
-export function userEmailKey(id: UserId) {
-  return { PK: `USER#${id}`, SK: 'EMAIL' };
+export function userPrivateKey(id: UserId) {
+  return { PK: `USER#${id}`, SK: 'PRIVATE' };
 }
 
 /**

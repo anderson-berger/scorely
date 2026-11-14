@@ -98,6 +98,8 @@ const LISBON_OWNER = asUserId('77777777-7777-4777-8777-777777777777');
 const R = asUserId('88888888-8888-4888-8888-888888888888');
 /** Convidado (só pelo link do jogo). */
 const G = asUserId('99999999-9999-4999-8999-999999999999');
+/** Conta que nunca trocou o apelido: ele continua igual ao código de amigo (USR-02). */
+const N = asUserId('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee');
 
 /**
  * Id público de cada pessoa do teste (USR-15): os 8 primeiros caracteres do id do sistema, em maiúsculas. `sys` faz
@@ -108,20 +110,22 @@ const pub = (id: UserId): PublicUserId => PublicUserIdSchema.parse(id.slice(0, 8
 const user = (id: UserId, extra: Partial<UserRecord> = {}): UserRecord => ({
   id,
   publicId: pub(id),
+  nickname: pub(id),
   createdAt: '2026-01-01T00:00:00.000Z',
   ...extra,
 });
 
 const USERS: UserRecord[] = [
-  user(OWNER, { name: 'Dono' }),
-  user(A, { name: 'Ana' }),
-  user(B, { name: 'Beatriz', nickname: 'Bia' }),
-  user(C, { name: 'Caio' }),
-  user(D, { name: 'Duda' }),
-  user(OUTSIDER, { name: 'Fora' }),
-  user(LISBON_OWNER, { name: 'Lis' }),
-  user(R, { name: 'Rafa' }),
-  user(G, { name: 'Gabi' }),
+  user(OWNER, { nickname: 'Dono' }),
+  user(A, { nickname: 'Ana' }),
+  user(B, { nickname: 'Bia' }),
+  user(C, { nickname: 'Caio' }),
+  user(D, { nickname: 'Duda' }),
+  user(OUTSIDER, { nickname: 'Fora' }),
+  user(LISBON_OWNER, { nickname: 'Lis' }),
+  user(R, { nickname: 'Rafa' }),
+  user(G, { nickname: 'Gabi' }),
+  user(N),
 ];
 
 const BY_PUBLIC = new Map<string, UserId>(USERS.map((u) => [u.publicId, u.id]));
@@ -649,6 +653,10 @@ function setupServices(now: Date = THURSDAY_10H) {
         return { id: randomUUID(), createdAt: clock.now.toISOString(), ...input };
       },
     },
+    /** MID-12: a URL é montada pelo id da mídia, com o endereço base. */
+    media: {
+      urlOf: (purpose: string, mediaId: string) => `https://uploads.test/public/${purpose}/${mediaId}`,
+    },
     now: () => clock.now,
   };
   const tick = () => {
@@ -757,7 +765,7 @@ describe('grupos: criar (caso 1)', () => {
     const s = setupServices();
     const group = await s.groups.create(OWNER, INPUT);
     const members = await s.groups.members(OWNER, group.id);
-    expect(members).toEqual([{ userId: pub(OWNER), name: 'Dono', isOwner: true, role: 'member' }]);
+    expect(members).toEqual([{ userId: pub(OWNER), nickname: 'Dono', isOwner: true, role: 'member' }]);
     const mine = await s.groups.myGroups(OWNER);
     expect(mine.map((g) => g.id)).toEqual([group.id]);
     expect(MyGroupSchema.parse(mine[0])).toBeTruthy();
@@ -856,7 +864,7 @@ describe('grupos: convite (casos 2 e 3)', () => {
     const t = await setup();
     await t.groups.acceptInvite(OWNER, tokenOf(t.group));
     expect(await t.groups.members(OWNER, t.group.id)).toEqual([
-      { userId: pub(OWNER), name: 'Dono', isOwner: true, role: 'member' },
+      { userId: pub(OWNER), nickname: 'Dono', isOwner: true, role: 'member' },
     ]);
   });
 
@@ -1156,24 +1164,47 @@ describe('listas e meus grupos (caso 8)', () => {
     const t = await setup({ slots: 2, members: [A, C, D] });
     await t.confirmInOrder(A, C, D);
     const game = await t.games.current(A, t.group.id);
-    expect(game.confirmed.map((x) => [sys(x.userId), x.name])).toEqual([
+    expect(game.confirmed.map((x) => [sys(x.userId), x.nickname])).toEqual([
       [A, 'Ana'],
       [C, 'Caio'],
     ]);
-    expect(game.waitlist.map((x) => [sys(x.userId), x.name])).toEqual([[D, 'Duda']]);
+    expect(game.waitlist.map((x) => [sys(x.userId), x.nickname])).toEqual([[D, 'Duda']]);
     expect(iso(game.waitlist[0]?.confirmedAt ?? '')).toBe(
       new Date(THURSDAY_10H.getTime() + 2 * MINUTE).toISOString(),
     );
   });
 
-  it('caso 8: lista de membros com o dono primeiro e name = nickname ?? name', async () => {
+  it('USR-04: lista de membros com o dono primeiro, cada um pelo apelido', async () => {
     const t = await setup({ members: [B, A] });
     const members = await t.groups.members(A, t.group.id);
-    expect(members[0]).toEqual({ userId: pub(OWNER), name: 'Dono', isOwner: true, role: 'member' });
+    expect(members[0]).toEqual({ userId: pub(OWNER), nickname: 'Dono', isOwner: true, role: 'member' });
     expect(members.slice(1).sort((x, y) => x.userId.localeCompare(y.userId))).toEqual([
-      { userId: pub(A), name: 'Ana', isOwner: false, role: 'member' },
-      { userId: pub(B), name: 'Bia', isOwner: false, role: 'member' },
+      { userId: pub(A), nickname: 'Ana', isOwner: false, role: 'member' },
+      { userId: pub(B), nickname: 'Bia', isOwner: false, role: 'member' },
     ]);
+  });
+
+  it('USR-02: quem nunca trocou o apelido aparece na lista pelo código de amigo, nunca "Sem nome"', async () => {
+    const t = await setup({ members: [N] });
+    const members = await t.groups.members(OWNER, t.group.id);
+    expect(members.find((m) => m.userId === pub(N))).toEqual({
+      userId: pub(N),
+      nickname: pub(N),
+      isOwner: false,
+      role: 'member',
+    });
+  });
+
+  it('USR-13: as visões de pessoa do grupo (membros, lista do jogo) não trazem `name` nem email', async () => {
+    const t = await setup({ slots: 2, members: [A, C, D] });
+    await t.confirmInOrder(A, C, D);
+    const members = await t.groups.members(A, t.group.id);
+    const game = await t.games.current(A, t.group.id);
+    for (const person of [...members, ...game.confirmed, ...game.waitlist]) {
+      expect(person).not.toHaveProperty('name');
+      expect(person).not.toHaveProperty('email');
+      expect(typeof person.nickname).toBe('string');
+    }
   });
 
   it('caso 8: "meus grupos" traz o jogo atual de cada grupo (confirmedCount = min(lista, vagas) e me)', async () => {
@@ -1482,8 +1513,8 @@ describe('E2: link de reserva (casos 3 e 4)', () => {
     const mine = await t.groups.myGroups(R);
     expect(mine.map((g) => [g.id, g.myRole])).toEqual([[t.group.id, 'reserve']]);
     expect(await t.groups.members(OWNER, t.group.id)).toEqual([
-      { userId: pub(OWNER), name: 'Dono', isOwner: true, role: 'member' },
-      { userId: pub(R), name: 'Rafa', isOwner: false, role: 'reserve' },
+      { userId: pub(OWNER), nickname: 'Dono', isOwner: true, role: 'member' },
+      { userId: pub(R), nickname: 'Rafa', isOwner: false, role: 'reserve' },
     ]);
   });
 
@@ -1513,7 +1544,7 @@ describe('E2: link de reserva (casos 3 e 4)', () => {
     expect(await t.store.groups.roleOf(t.group.id, R)).toBe('member');
     const list = await t.groups.members(OWNER, t.group.id);
     expect(list.filter((m) => m.userId === pub(R))).toEqual([
-      { userId: pub(R), name: 'Rafa', isOwner: false, role: 'member' },
+      { userId: pub(R), nickname: 'Rafa', isOwner: false, role: 'member' },
     ]);
     expect(list.some((m) => m.role === 'reserve')).toBe(false);
   });
@@ -1523,8 +1554,8 @@ describe('E2: link de reserva (casos 3 e 4)', () => {
     expect((await t.groups.acceptInvite(A, reserveTokenOf(t.group))).myRole).toBe('member');
     expect((await t.groups.acceptInvite(OWNER, reserveTokenOf(t.group))).myRole).toBe('member');
     expect(await t.groups.members(OWNER, t.group.id)).toEqual([
-      { userId: pub(OWNER), name: 'Dono', isOwner: true, role: 'member' },
-      { userId: pub(A), name: 'Ana', isOwner: false, role: 'member' },
+      { userId: pub(OWNER), nickname: 'Dono', isOwner: true, role: 'member' },
+      { userId: pub(A), nickname: 'Ana', isOwner: false, role: 'member' },
     ]);
   });
 });
@@ -1650,7 +1681,7 @@ describe('E2: link do jogo (casos 8–10)', () => {
     await t.confirmInOrder(A);
     const game = await t.games.guestConfirm(G, guestTokenOf(t.group), DATE);
     expect(GameSchema.parse(game)).toBeTruthy();
-    expect(game.confirmed.map((x) => [sys(x.userId), x.name, x.role])).toEqual([
+    expect(game.confirmed.map((x) => [sys(x.userId), x.nickname, x.role])).toEqual([
       [A, 'Ana', 'member'],
       [G, 'Gabi', 'guest'],
     ]);
@@ -1999,7 +2030,7 @@ describe('plano 013: entrar e o papel (casos 1–7)', () => {
     const s = setupServices();
     const group = await s.groups.create(OWNER, INPUT);
     expect(await s.groups.members(OWNER, group.id)).toEqual([
-      { userId: pub(OWNER), name: 'Dono', isOwner: true, role: 'member' },
+      { userId: pub(OWNER), nickname: 'Dono', isOwner: true, role: 'member' },
     ]);
     expect((await s.groups.myGroups(OWNER)).map((g) => [g.id, g.myRole])).toEqual([[group.id, 'member']]);
     expect(await s.store.groups.roleOf(group.id, OWNER)).toBe('member');
@@ -2786,17 +2817,18 @@ describe('desarquivar o grupo (GRP-33)', () => {
 });
 
 describe('grupos: logo e capa visíveis (GRP-36)', () => {
-  const LOGO_URL = 'https://uploads.test/public/group/g/group.logo/l.webp';
-  const COVER_URL = 'https://uploads.test/public/group/g/group.cover/c.webp';
+  const LOGO_ID = 'aaaaaaaa-0000-4000-8000-00000000000a';
+  const COVER_ID = 'cccccccc-0000-4000-8000-00000000000c';
+  /** MID-12: a URL é montada na resposta a partir do id (o item do grupo não guarda URL). */
+  const LOGO_URL = `https://uploads.test/public/group.logo/${LOGO_ID}`;
+  const COVER_URL = `https://uploads.test/public/group.cover/${COVER_ID}`;
 
-  /** Grupo com logo e capa já ligados (como a transação da mídia grava, MID-08). */
+  /** Grupo com logo e capa já ligados: só os ids, como a transação da mídia grava (MID-08, MID-12). */
   async function withImages() {
     const t = await setup({ members: [A], reserves: [R], guestsOpenHoursBefore: 6 });
     await t.store.groups.update(t.group.id, {
-      logoMediaId: randomUUID(),
-      logoUrl: LOGO_URL,
-      coverMediaId: randomUUID(),
-      coverUrl: COVER_URL,
+      logoMediaId: LOGO_ID,
+      coverMediaId: COVER_ID,
     } as unknown as GroupPatch);
     return t;
   }

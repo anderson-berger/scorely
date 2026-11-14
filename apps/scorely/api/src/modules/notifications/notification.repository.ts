@@ -7,6 +7,7 @@ import {
   queryLookupIds,
   setCreatedAtIfNew,
   stripKeys,
+  touch,
   transactWrite,
 } from '@scorely/api/src/lib/db';
 import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
@@ -95,13 +96,13 @@ export const dynamoNotificationRepository: NotificationRepository = {
   async markRead(userId, id, readAt) {
     const result = await transactWrite([
       {
-        Update: {
+        Update: touch({
           TableName: tableName(),
           Key: notificationKey(id),
           UpdateExpression: 'SET readAt = :readAt',
           ConditionExpression: 'attribute_exists(PK) AND userId = :userId AND attribute_not_exists(readAt)',
           ExpressionAttributeValues: { ':readAt': readAt, ':userId': userId },
-        },
+        }),
       },
       inboxDelta(userId, -1),
     ]);

@@ -39,7 +39,7 @@ export default defineComponent({
 
   computed: {
     names(): Map<string, string> {
-      return new Map(this.detail.people.map((p) => [p.id, p.name ?? this.$t('groups.unnamed')]));
+      return new Map(this.detail.people.map((p) => [p.id, p.nickname]));
     },
 
     dayWinner(): string {
@@ -60,7 +60,8 @@ export default defineComponent({
 
   methods: {
     nameOf(id: string): string {
-      return this.names.get(id) ?? this.$t('groups.unnamed');
+      // USR-02: quem não está na lista aparece pelo código de amigo (o próprio id)
+      return this.names.get(id) ?? id;
     },
 
     side(ids: string[]): string {

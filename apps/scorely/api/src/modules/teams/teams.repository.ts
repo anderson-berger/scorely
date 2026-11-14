@@ -1,5 +1,5 @@
-import { DeleteCommand, GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
-import { dbItem, stripKeys } from '@scorely/api/src/lib/db';
+import { DeleteCommand, GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { replaceItem, stripKeys } from '@scorely/api/src/lib/db';
 import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
 import type { TeamApartRule } from '@scorely/api/src/modules/teams/engine/rules';
 import { TEAMS_ENTITY, teamsKey } from '@scorely/api/src/modules/teams/teams.table';
@@ -29,9 +29,12 @@ export interface StoredTeams {
   updatedAt: string;
 }
 
+/** Campos opcionais: ausentes no item novo, saem do gravado (o `Put` de antes fazia isso). */
+const OPTIONAL = ['pinned', 'publishedAt', 'rules', 'apart', 'extras'] as const;
+
 export interface TeamsRepository {
   get(groupId: string, date: string): Promise<StoredTeams | undefined>;
-  /** Grava o item inteiro (o service mantém `createdAt` e `publishedAt`). */
+  /** Grava o item inteiro (o service mantém `createdAt` e `publishedAt`); a `version` segue (ADR 0013). */
   put(teams: StoredTeams): Promise<void>;
   delete(groupId: string, date: string): Promise<void>;
 }
@@ -46,9 +49,9 @@ export const dynamoTeamsRepository: TeamsRepository = {
 
   async put(teams) {
     await dynamo().send(
-      new PutCommand({
+      new UpdateCommand({
         TableName: tableName(),
-        Item: dbItem(teamsKey(teams.groupId, teams.date), TEAMS_ENTITY, teams, teams.createdAt),
+        ...replaceItem(teamsKey(teams.groupId, teams.date), TEAMS_ENTITY, { ...teams }, OPTIONAL),
       }),
     );
   },

@@ -4,6 +4,7 @@ import { ptBR } from '@scorely/web/src/i18n/locales/pt-BR';
 import {
   availableTargets,
   conflictText,
+  namesIn,
   putRule,
   removeRule,
   ruleText,
@@ -123,5 +124,20 @@ describe('editar as regras (TIM-21)', () => {
     ];
     expect(violationsOfTeam(v, 2)).toEqual([{ kind: 'count', team: 2, rule: SETTER, count: 0 }]);
     expect(violationsOfTeam(undefined, 1)).toEqual([]);
+  });
+});
+
+// USR-02 (docs/modules/usuarios.md): o apelido nunca fica vazio, então nenhuma lista precisa de um "sem nome".
+// Quem não está na lista aparece pelo próprio id público (o código de amigo).
+describe('pessoa fora da lista aparece pelo código (USR-02)', () => {
+  const ANA = { userId: 'AAAAAAAA', nickname: 'Aninha' };
+
+  it('USR-02: namesIn devolve o apelido de quem está na lista e o código de quem não está', () => {
+    expect(namesIn([ANA], ['AAAAAAAA', 'ZZZZZZZZ'])).toEqual(['Aninha', 'ZZZZZZZZ']);
+  });
+
+  it('USR-02: o fallback "Sem nome" (`groups.unnamed`) saiu dos dois idiomas', () => {
+    expect(ptBR.groups).not.toHaveProperty('unnamed');
+    expect(en.groups).not.toHaveProperty('unnamed');
   });
 });

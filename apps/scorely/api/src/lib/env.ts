@@ -17,6 +17,8 @@ const EnvSchema = z
     /** Só no dev local (S3Mock): endpoint que a api usa e o que o navegador alcança. */
     S3_ENDPOINT: optional,
     S3_PUBLIC_ENDPOINT: optional,
+    /** MID-12: endereço base das mídias públicas (ex.: uma CDN). Sem ele, `<bucket>/public`. */
+    MEDIA_BASE_URL: optional,
     /** Definido pelo serverless-offline. */
     IS_OFFLINE: z
       .string()

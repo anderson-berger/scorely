@@ -45,15 +45,18 @@ export const TimeZoneSchema = z
   .transform((tz) => canonicalTimeZone(tz) as string);
 export type TimeZone = z.infer<typeof TimeZoneSchema>;
 
+/** Limites do nome e do apelido (USR-03). */
+export const USER_LIMITS = { name: { min: 1, max: 80 }, nickname: { min: 1, max: 40 } } as const;
+
 /**
- * O perfil da pessoa: o que os outros módulos podem ler. Sem email (USR-13) e sem preferências (USR-14).
+ * O perfil da pessoa: o que os outros módulos podem ler. Sem email nem nome (USR-13) e sem preferências (USR-14).
  * `id` é o id público (USR-16): não estende o `EntitySchema`, cujo `id` é o uuid do sistema.
+ * `nickname` sempre existe: nasce igual ao `id` (USR-02) e é o nome mostrado (USR-04).
  */
 export const UserSchema = z.object({
   id: PublicUserIdSchema,
   createdAt: z.iso.datetime(),
-  name: z.string().min(1).max(80).optional(),
-  nickname: z.string().min(1).max(40).optional(),
+  nickname: z.string().min(USER_LIMITS.nickname.min).max(USER_LIMITS.nickname.max),
   gender: GenderSchema.optional(),
   /** URL pública da foto de perfil (USR-08: mídia `avatar`). */
   avatarUrl: z.url().optional(),
@@ -68,18 +71,23 @@ export const PreferencesSchema = z.object({
 });
 export type Preferences = z.infer<typeof PreferencesSchema>;
 
-/** `GET /me`, `PATCH /me` e as rotas da foto: o perfil, o email (só para a própria pessoa, USR-13) e as preferências. */
+/** `GET /me`, `PATCH /me` e as rotas da foto: o perfil, o email e o nome (só para a própria pessoa, USR-13) e as preferências. */
 export const MeSchema = UserSchema.extend({
   email: z.email(),
+  name: z.string().min(USER_LIMITS.name.min).max(USER_LIMITS.name.max).optional(),
   preferences: PreferencesSchema,
 });
 export type Me = z.infer<typeof MeSchema>;
 
-/** PATCH /me. `nickname: null` remove o apelido. */
+/** PATCH /me. O apelido não pode ser removido (USR-03). */
 export const UpdateMeInputSchema = z
   .object({
-    name: z.string().trim().min(1, 'Name is required').max(80),
-    nickname: z.string().trim().min(1).max(40).nullable(),
+    name: z.string().trim().min(USER_LIMITS.name.min, 'Name is required').max(USER_LIMITS.name.max),
+    nickname: z
+      .string()
+      .trim()
+      .min(USER_LIMITS.nickname.min, 'Nickname is required')
+      .max(USER_LIMITS.nickname.max),
     gender: GenderSchema,
     locale: LocaleSchema,
     timeZone: TimeZoneSchema,

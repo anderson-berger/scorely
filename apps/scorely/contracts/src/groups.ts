@@ -226,7 +226,8 @@ export type Invite = z.infer<typeof InviteSchema>;
 
 export const MemberSchema = z.object({
   userId: PublicUserIdSchema,
-  name: z.string().optional(),
+  /** O apelido (USR-04). O nome da pessoa nunca sai aqui (USR-13). */
+  nickname: z.string(),
   isOwner: z.boolean(),
   role: MemberRoleSchema,
   /** O cargo da pessoa (GRP-48, 55). Ausente = sem cargo. Todos veem. */
@@ -245,7 +246,8 @@ export type GameStatus = z.infer<typeof GameStatusSchema>;
 
 export const AttendeeSchema = z.object({
   userId: PublicUserIdSchema,
-  name: z.string().optional(),
+  /** O apelido (USR-04). O nome da pessoa nunca sai aqui (USR-13). */
+  nickname: z.string(),
   confirmedAt: z.iso.datetime(),
   role: GroupRoleSchema,
 });

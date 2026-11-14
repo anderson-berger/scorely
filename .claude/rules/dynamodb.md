@@ -34,7 +34,9 @@ Motivo: [docs/decisions/0002-single-table-sem-gsi.md](../../docs/decisions/0002-
   - Schema de entidade nos contracts estende `EntitySchema`: `EntitySchema.extend({...})`. Exceção: o `UserSchema`, cujo `id` é o público (USR-16, ADR 0011); o item do banco continua com o `id` do sistema e o `publicId`.
   - Todo `Put` usa `dbItem(keys, entity, data, createdAt?)` (`api/src/lib/db.ts`). Nos lookups da mesma transação, passe o `createdAt` da entidade.
   - Item criado por `Update` (upsert, ex.: `INBOX`) inclui `setCreatedAtIfNew()` no `SET`.
-- Marque cada item com `entity` (`'Item'`, `'User'`, `'Lookup'`, ...). Remova `PK`, `SK` e `entity` antes de devolver (`toItem` no base, `stripKeys` no scorely, que também remove `ttl`).
+- **Toda entidade tem `updatedAt` e `version`** (scorely, [ADR 0013](../../docs/decisions/0013-version-e-updatedat.md)): nasce com `updatedAt = createdAt` e `version = 1` (o `dbItem` põe os dois); toda alteração grava `updatedAt` e soma 1 na `version` (`ADD version :one`), pelo helper de alteração do `db.ts`. Substituir o item inteiro não é `Put` (a `version` voltaria a 1): use o `replaceItem` do `db.ts`, que vira um `Update` com todos os campos e apaga os opcionais ausentes. Lookups e contadores ficam de fora.
+- Mídia: o item da área guarda só `<field>MediaId`; nunca grave URL no banco. A URL é montada na resposta (MID-12).
+- Marque cada item com `entity` (`'Item'`, `'User'`, `'Lookup'`, ...). Remova `PK`, `SK` e `entity` antes de devolver (`toItem` no base, `stripKeys` no scorely, que também remove `ttl` e mantém `updatedAt` e `version` na resposta, ADR 0013).
 - Item que expira (códigos, sessões, convites): grave `ttl` (epoch em segundos, via `ttlFrom`) **e** um `expiresAt` que o código confere ao ler. O TTL do DynamoDB atrasa até ~48h. Motivo: [0004](../../docs/decisions/0004-ttl-com-expiresat.md).
 - Contadores (ex.: não lidas) ficam em item próprio (`PK=INBOX#<userId>`) e mudam com `ADD` na mesma transação da entidade.
 - Operação nova do DynamoDB: adicione a permissão no IAM em `apps/<projeto>/api/serverless.ts`. Check: `checks/dynamodb.test.ts` (Command × IAM).

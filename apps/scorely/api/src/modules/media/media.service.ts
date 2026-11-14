@@ -16,11 +16,10 @@ const PENDING_TTL_MS = 60 * 60 * 1000;
 /** Tentativas de trocar ou remover quando outra troca entra no meio (MID-08). */
 const ATTEMPTS = 3;
 
-const EXTENSIONS: Record<ImageContentType, string> = {
-  'image/webp': 'webp',
-  'image/jpeg': 'jpg',
-  'image/png': 'png',
-};
+/** MID-12: o caminho público é só a finalidade e o id, sem dono e sem extensão (o formato vai no `Content-Type`). */
+export function publicMediaKey(purpose: MediaPurpose, mediaId: string): string {
+  return `${MEDIA_PREFIXES.public}${purpose}/${mediaId}`;
+}
 
 export interface MediaDeps {
   repo: MediaRepository;
@@ -87,7 +86,6 @@ export function createMediaService({ repo, storage, now = () => new Date() }: Me
    */
   async function link(
     ready: MediaRecord,
-    url: string,
     target: MediaTarget,
     attempt: number,
   ): Promise<{ already: true } | { already: false; previous: MediaRecord | undefined }> {
@@ -96,13 +94,12 @@ export function createMediaService({ repo, storage, now = () => new Date() }: Me
     const previous = currentId ? await repo.get(currentId) : undefined;
     const result = await repo.attach({
       ready,
-      url,
       target: { key: target.key, field: target.field },
       ...(previous && { previous }),
     });
     if (result === 'attached') return { already: false, previous };
     if (attempt >= ATTEMPTS) throw new Error('Media attach kept conflicting with other writes');
-    return link(ready, url, target, attempt + 1);
+    return link(ready, target, attempt + 1);
   }
 
   async function unlink(target: MediaTarget, attempt: number): Promise<MediaRecord | undefined> {
@@ -121,12 +118,15 @@ export function createMediaService({ repo, storage, now = () => new Date() }: Me
   }
 
   return {
+    /** MID-12: a URL pública de uma mídia pela finalidade e o id (nenhum item guarda a URL). */
+    urlOf(purpose: MediaPurpose, mediaId: string): string {
+      return storage.publicUrl(publicMediaKey(purpose, mediaId));
+    },
+
     /** MID-04: registra a pendente e devolve o POST assinado para `tmp/<id>`. */
     async requestUpload(input: {
       purpose: MediaPurpose;
       ownerId: string;
-      /** MID-12: o que vai no caminho público (padrão: o `ownerId`). A foto de perfil passa o id público. */
-      ownerRef?: string;
       uploadedBy: string;
       contentType: ImageContentType;
     }): Promise<MediaUpload> {
@@ -138,7 +138,6 @@ export function createMediaService({ repo, storage, now = () => new Date() }: Me
           purpose: input.purpose,
           ownerType: policy.ownerType,
           ownerId: input.ownerId,
-          ...(input.ownerRef !== undefined && { ownerRef: input.ownerRef }),
           status: 'pending',
           key: '',
           uploadedBy: input.uploadedBy,
@@ -171,13 +170,19 @@ export function createMediaService({ repo, storage, now = () => new Date() }: Me
       if (!media.expiresAt || new Date(media.expiresAt) <= now()) throw appError('MEDIA_NOT_FOUND');
 
       const file = await inspectUpload(media);
-      const finalKey = `${MEDIA_PREFIXES.public}${media.ownerType}/${media.ownerRef ?? media.ownerId}/${media.purpose}/${media.id}.${EXTENSIONS[file.contentType]}`;
-      await storage.copy(media.key, finalKey);
-      const { expiresAt: _expires, ...rest } = media;
+      const finalKey = publicMediaKey(media.purpose, media.id);
+      // MID-12: o formato real (MID-05) vai no `Content-Type` do arquivo público
+      await storage.copy(media.key, finalKey, file.contentType);
+      // ADR 0013: o `updatedAt` lido é o da pendente; sem ele, a gravação da pronta usa o instante dela.
+      const {
+        expiresAt: _expires,
+        updatedAt: _updated,
+        ...rest
+      } = media as MediaRecord & { updatedAt?: string };
       const ready: MediaRecord = { ...rest, ...file, status: 'ready', key: finalKey };
       const url = storage.publicUrl(finalKey);
 
-      const linked = await link(ready, url, input.target, 1).catch(async (err: unknown) => {
+      const linked = await link(ready, input.target, 1).catch(async (err: unknown) => {
         // A cópia em public/ não pode sobrar, a menos que outra confirmação já a tenha ligado (MID-07)
         const current = await input.target.readCurrent().catch(() => ready.id);
         if (current !== ready.id) await removeQuietly(finalKey);

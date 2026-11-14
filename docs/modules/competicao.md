@@ -262,7 +262,7 @@ Hoje o módulo tem a **ativação** (teste e plano), o **regulamento do grupo** 
   - _Por quê:_ de uma partida para a outra quase sempre muda um time só. Repetir os times faz o registro levar segundos, no celular, na beira da quadra.
 - **CMP-28. O ranking na aba Competição**, no topo, acima do regulamento:
   - o recorte em 3 opções: Geral, Masculino e Feminino;
-  - uma linha por membro: a posição (com o empate: "2º" duas vezes), o nome, os pontos e, embaixo, "12 presenças · sequência 5";
+  - uma linha por membro: a posição (com o empate: "2º" duas vezes), o apelido (USR-04 em [usuarios.md](usuarios.md)), os pontos e, embaixo, "12 presenças · sequência 5";
   - a linha de quem vê fica marcada ("você");
   - tocar numa linha abre o histórico da pessoa (CMP-27), no painel de baixo;
   - sem nenhum jogo fechado, o aviso "O ranking aparece quando o primeiro jogo for fechado", com os membros em 0.

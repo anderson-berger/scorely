@@ -238,7 +238,7 @@ export function createTeamsService(deps: TeamsServiceDeps) {
       config.spreadGender ? gendersOf(groupId, game, stored) : undefined,
     ]);
     const groupPositions = new Map(defaults.map((p) => [p.userId, p.positions]));
-    const names = new Map(users.map((u) => [u.id, u.name]));
+    const nicknames = new Map(users.map((u) => [u.id, u.nickname]));
     const outsideRoles = new Map<string, GroupRole>(roles);
     const publicIds = new Map<string, PublicUserId>([
       ...[...inList.values()].map(({ attendee }) => [attendee.userId, attendee.publicId] as const),
@@ -248,7 +248,8 @@ export function createTeamsService(deps: TeamsServiceDeps) {
     /** TIM-24: o avulso, sempre "na lista"; o gênero dele só para o dono editar. */
     const extraPerson = (extra: TeamExtra): TeamPlayer => ({
       userId: extra.id,
-      name: extra.name,
+      // TIM-24: o avulso não tem conta; o nome digitado é o que aparece.
+      nickname: extra.name,
       role: 'guest',
       positions: extra.positions,
       adjusted: false,
@@ -264,11 +265,12 @@ export function createTeamsService(deps: TeamsServiceDeps) {
       if (extra) return extraPerson(extra);
       const adjusted = stored.positions[userId];
       const listed = inList.get(userId);
-      const name = listed ? listed.attendee.name : names.get(userId as UserId);
+      const nickname =
+        (listed ? listed.attendee.nickname : nicknames.get(userId as UserId)) ?? publicOf(publicIds, userId);
       return {
         // USR-16: a pessoa sai pelo id público.
         userId: publicOf(publicIds, userId),
-        ...(name && { name }),
+        nickname,
         role: listed ? listed.attendee.role : (outsideRoles.get(userId) ?? 'guest'),
         positions: adjusted ?? groupPositions.get(userId) ?? [],
         adjusted: adjusted !== undefined,

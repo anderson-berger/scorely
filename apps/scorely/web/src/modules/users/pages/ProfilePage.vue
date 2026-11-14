@@ -58,6 +58,11 @@ export default defineComponent({
   },
 
   computed: {
+    /** USR-03: o nome é opcional até ser salvo; depois, não volta a ficar vazio. */
+    nameRequired(): boolean {
+      return Boolean(this.auth.user?.name);
+    },
+
     avatarInitials(): string {
       return this.auth.user ? initials(displayName(this.auth.user)) : '?';
     },
@@ -143,7 +148,8 @@ export default defineComponent({
       const u = this.auth.user;
       if (!u) return;
       this.name = u.name ?? '';
-      this.nickname = u.nickname ?? '';
+      // USR-02: o apelido com que a conta nasce é o código; o campo abre vazio para a pessoa escolher.
+      this.nickname = u.nickname === u.id ? '' : u.nickname;
       this.gender = u.gender;
       // Sem idioma/fuso nas preferências: o painel mostra os efetivos (o idioma atual e o fuso detectado).
       this.locale = u.preferences.locale ?? (this.$i18n.locale as Locale);
@@ -202,14 +208,14 @@ export default defineComponent({
     },
 
     /**
-     * Cada painel manda só os seus campos no `PATCH /me` (USR-03): "Seus dados" leva o que é do perfil (nome, apelido,
-     * gênero); "Preferências", o idioma e o fuso.
+     * Cada painel manda só os seus campos no `PATCH /me` (USR-03): "Seus dados" leva o nome (vazio só vale enquanto
+     * nunca foi salvo; depois o form o exige, `nameRequired`), o apelido (obrigatório) e o gênero; "Preferências", o idioma e o fuso.
      */
     async save() {
       // No primeiro acesso, "Seus dados" também grava o idioma e o fuso detectados (como antes do painel).
       const you = {
-        name: this.name,
-        nickname: this.nickname.trim() ? this.nickname : null,
+        ...(this.name.trim() && { name: this.name }),
+        nickname: this.nickname,
         ...(this.gender && { gender: this.gender }),
       };
       const fields =
@@ -264,7 +270,7 @@ export default defineComponent({
             </div>
             <div class="who-text">
               <div class="sc-display who-name">{{ shownName }}</div>
-              <div v-if="auth.user.nickname && auth.user.name" class="sc-caption">{{ auth.user.name }}</div>
+              <div v-if="auth.user.name" class="sc-caption">{{ auth.user.name }}</div>
               <div class="sc-caption">{{ auth.user.email }}</div>
             </div>
           </div>
@@ -327,19 +333,26 @@ export default defineComponent({
       <div class="sc-caption q-mt-xs">{{ welcome ? $t('profile.welcomeHint') : $t('profile.nicknameHint') }}</div>
       <q-form class="fields" @submit.prevent="save">
         <div>
+          <label for="profile-nickname" class="sc-label field-label">{{ $t('profile.nickname') }}</label>
+          <q-input
+            v-model="nickname"
+            for="profile-nickname"
+            outlined
+            autofocus
+            autocomplete="nickname"
+            :rules="[(v) => !!v?.trim() || $t('validation.nickname.too_small')]"
+          />
+        </div>
+        <div>
           <label for="profile-name" class="sc-label field-label">{{ $t('profile.name') }}</label>
           <q-input
             v-model="name"
             for="profile-name"
             outlined
-            autofocus
             autocomplete="name"
-            :rules="[(v) => !!v?.trim() || $t('validation.name.too_small')]"
+            :rules="nameRequired ? [(v) => !!v?.trim() || $t('validation.name.too_small')] : []"
           />
-        </div>
-        <div>
-          <label for="profile-nickname" class="sc-label field-label">{{ $t('profile.nickname') }}</label>
-          <q-input v-model="nickname" for="profile-nickname" outlined />
+          <div class="sc-caption q-mt-xs">{{ $t('profile.nameHint') }}</div>
         </div>
         <fieldset class="group">
           <legend class="sc-label field-label">{{ $t('profile.gender') }}</legend>

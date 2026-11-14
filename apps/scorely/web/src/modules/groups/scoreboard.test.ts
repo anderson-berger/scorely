@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest';
 function attendees(n: number): Attendee[] {
   return Array.from({ length: n }, (_, i) => ({
     userId: PublicUserIdSchema.parse(String(i).padStart(8, '0')),
-    name: `Pessoa ${i}`,
+    nickname: `Pessoa ${i}`,
     confirmedAt: '2026-11-04T22:00:00.000Z',
     role: 'member',
   }));

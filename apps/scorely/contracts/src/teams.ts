@@ -41,7 +41,8 @@ const PlayerPositionsSchema = z
 /** Jogador no grupo (TIM-01): membro, reserva ou convidado da lista atual, com as suas posições (a primeira é a principal). */
 export const PlayerSchema = z.object({
   userId: PublicUserIdSchema,
-  name: z.string().optional(),
+  /** O apelido (USR-04). O nome da pessoa nunca sai aqui (USR-13). */
+  nickname: z.string(),
   role: GroupRoleSchema,
   positions: z.array(PlayerPositionSchema),
 });
@@ -119,12 +120,12 @@ export type UpdateTeamSettingsInput = z.input<typeof UpdateTeamSettingsInputSche
 
 /**
  * Configuração de times do grupo (TIM-17). Sem nada salvo: 2 times, sem regras, sem opostos, não espalha, não permite
- * publicar fora. `names`: o nome de cada pessoa dos times opostos (inclusive quem saiu do grupo), para a tela.
+ * publicar fora. `nicknames`: o apelido de cada pessoa dos times opostos (inclusive quem saiu do grupo), para a tela (USR-04).
  */
 export const TeamSettingsSchema = UpdateTeamSettingsInputSchema.extend({
   apart: z.array(TeamApartRuleSchema).max(TEAM_APART_LIMITS.rules),
   spreadGender: z.boolean(),
-  names: z.record(PublicUserIdSchema, z.string()),
+  nicknames: z.record(PublicUserIdSchema, z.string()),
 });
 export type TeamSettings = z.infer<typeof TeamSettingsSchema>;
 
@@ -203,7 +204,8 @@ export type TeamExtra = z.infer<typeof TeamExtraSchema>;
 /** Uma pessoa nos times (ou sem time), como a tela mostra. `userId`: o id público, ou o id do avulso (TIM-24). */
 export const TeamPlayerSchema = z.object({
   userId: TeamPersonIdSchema,
-  name: z.string().optional(),
+  /** O apelido (USR-04); do avulso, o nome digitado (TIM-24). */
+  nickname: z.string(),
   role: GroupRoleSchema,
   /** As posições que valem no jogo: o ajuste do jogo ou, sem ele, as do grupo (TIM-13). A primeira é a principal. */
   positions: z.array(PlayerPositionSchema),

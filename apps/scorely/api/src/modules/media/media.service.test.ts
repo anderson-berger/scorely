@@ -22,22 +22,17 @@ type AttachResult = Awaited<ReturnType<MediaRepository['attach']>>;
 type Field = MediaTarget['field'];
 type ItemKey = MediaTarget['key'];
 
-/** Itens da área (usuário, grupo) em memória: só os campos `<field>MediaId`/`<field>Url` que a mídia grava. */
+/** Itens da área (usuário, grupo) em memória: só o campo `<field>MediaId` que a mídia grava (MID-12: nenhum item guarda URL). */
 function memoryArea() {
   const items = new Map<string, Record<string, unknown>>();
   const id = (key: ItemKey) => `${key.PK}|${key.SK}`;
   const item = (key: ItemKey) => items.get(id(key)) ?? {};
   const reads = { count: 0 };
-  /** O que a área faria na mesma transação da troca (MID-08): grava ou remove o id e a URL. */
-  const link = (key: ItemKey, field: Field, value: { mediaId: string; url: string } | null) => {
+  /** O que a área faria na mesma transação da troca (MID-08): grava ou remove só o id da mídia. */
+  const link = (key: ItemKey, field: Field, mediaId: string | null) => {
     const next = { ...item(key) };
-    if (value) {
-      next[`${field}MediaId`] = value.mediaId;
-      next[`${field}Url`] = value.url;
-    } else {
-      delete next[`${field}MediaId`];
-      delete next[`${field}Url`];
-    }
+    if (mediaId) next[`${field}MediaId`] = mediaId;
+    else delete next[`${field}MediaId`];
     items.set(id(key), next);
   };
   const currentId = (key: ItemKey, field: Field) => item(key)[`${field}MediaId`] as string | undefined;
@@ -65,11 +60,11 @@ function memoryMediaRepo(area: Area) {
   const detachCalls: DetachArgs[] = [];
   const attachScript: ((args: AttachArgs) => Promise<AttachResult>)[] = [];
 
-  const naturalAttach = ({ ready, url, target, previous }: AttachArgs): AttachResult => {
+  const naturalAttach = ({ ready, target, previous }: AttachArgs): AttachResult => {
     if (records.get(ready.id)?.status !== 'pending') return 'conflict';
     if (area.currentId(target.key, target.field) !== previous?.id) return 'conflict';
     records.set(ready.id, structuredClone(ready));
-    area.link(target.key, target.field, { mediaId: ready.id, url });
+    area.link(target.key, target.field, ready.id);
     if (previous) records.delete(previous.id);
     return 'attached';
   };
@@ -331,7 +326,7 @@ describe('mídia: confirmar (MID-05 a MID-07)', () => {
     await t.attachAvatar(upload.mediaId);
     const record = t.db.records.get(upload.mediaId);
     expect(record?.contentType).toBe('image/png');
-    expect(record?.key).toBe(`public/user/${USER}/avatar/${upload.mediaId}.png`);
+    expect(record?.key).toBe(`public/avatar/${upload.mediaId}`);
   });
 
   it('MID-05: de outro dono, de outra finalidade ou inexistente → o mesmo MEDIA_NOT_FOUND, sem dizer qual foi', async () => {
@@ -383,7 +378,7 @@ describe('mídia: confirmar (MID-05 a MID-07)', () => {
       ownerType: 'user',
       ownerId: USER,
       status: 'ready',
-      key: `public/user/${USER}/avatar/${upload.mediaId}.webp`,
+      key: `public/avatar/${upload.mediaId}`,
       contentType: 'image/webp',
       size: 123_456,
       width: 512,
@@ -393,7 +388,7 @@ describe('mídia: confirmar (MID-05 a MID-07)', () => {
     expect(record?.expiresAt).toBeUndefined();
   });
 
-  it('MID-06: confirmar liga a mídia na área (id e URL pública) e devolve a URL', async () => {
+  it('MID-06: confirmar liga só o id da mídia na área e devolve a URL pública (MID-12)', async () => {
     const t = setup();
     const upload = await t.uploaded('group.cover', GROUP);
     const { url } = await t.media.attach({
@@ -402,12 +397,11 @@ describe('mídia: confirmar (MID-05 a MID-07)', () => {
       ownerId: GROUP,
       target: t.groupSlot('cover'),
     });
-    const key = `public/group/${GROUP}/group.cover/${upload.mediaId}.webp`;
+    const key = `public/group.cover/${upload.mediaId}`;
     expect(url).toBe(`${BASE}/${key}`);
     expect(t.bucket.files.has(key)).toBe(true);
     expect(t.area.item({ PK: `GROUP#${GROUP}`, SK: 'META' })).toEqual({
       coverMediaId: upload.mediaId,
-      coverUrl: url,
     });
   });
 
@@ -422,7 +416,7 @@ describe('mídia: confirmar (MID-05 a MID-07)', () => {
     expect(t.db.attachCalls).toHaveLength(callsBefore);
     expect(t.bucket.removed).toEqual(removedBefore);
     expect(t.db.records.get(upload.mediaId)?.status).toBe('ready');
-    expect(t.userItem()).toEqual({ avatarMediaId: upload.mediaId, avatarUrl: first.url });
+    expect(t.userItem()).toEqual({ avatarMediaId: upload.mediaId });
   });
 
   it('MID-07: duas confirmações da mesma mídia ao mesmo tempo → mesma URL, mídia pronta e ligada, arquivo no ar', async () => {
@@ -430,7 +424,7 @@ describe('mídia: confirmar (MID-05 a MID-07)', () => {
     const upload = await t.uploaded();
     const [a, b] = await Promise.all([t.attachAvatar(upload.mediaId), t.attachAvatar(upload.mediaId)]);
     expect(b.url).toBe(a.url);
-    expect(t.userItem()).toEqual({ avatarMediaId: upload.mediaId, avatarUrl: a.url });
+    expect(t.userItem()).toEqual({ avatarMediaId: upload.mediaId });
     const record = t.db.records.get(upload.mediaId);
     expect(record?.status).toBe('ready');
     expect(record?.key.startsWith('public/')).toBe(true);
@@ -454,13 +448,13 @@ describe('mídia: trocar e remover (MID-08 a MID-11)', () => {
   it('MID-08: a transação falha → nada muda no banco: a antiga continua ligada e a nova continua pendente', async () => {
     const t = setup();
     const old = await t.uploaded();
-    const { url: oldUrl } = await t.attachAvatar(old.mediaId);
+    await t.attachAvatar(old.mediaId);
     const next = await t.uploaded();
     t.db.attachScript.push(async () => {
       throw new Error('TransactionCanceledException');
     });
     await expect(t.attachAvatar(next.mediaId)).rejects.toThrow();
-    expect(t.userItem()).toEqual({ avatarMediaId: old.mediaId, avatarUrl: oldUrl });
+    expect(t.userItem()).toEqual({ avatarMediaId: old.mediaId });
     expect(t.db.records.get(old.mediaId)?.status).toBe('ready');
     expect(t.db.records.get(next.mediaId)?.status).toBe('pending');
   });
@@ -474,10 +468,10 @@ describe('mídia: trocar e remover (MID-08 a MID-11)', () => {
       return 'conflict';
     });
     const readsBefore = t.area.reads.count;
-    const { url } = await t.attachAvatar(mine.mediaId);
+    await t.attachAvatar(mine.mediaId);
     expect(t.area.reads.count - readsBefore).toBeGreaterThanOrEqual(2);
     expect(t.db.attachCalls.at(-1)?.previous?.id).toBe(rival.mediaId);
-    expect(t.userItem()).toEqual({ avatarMediaId: mine.mediaId, avatarUrl: url });
+    expect(t.userItem()).toEqual({ avatarMediaId: mine.mediaId });
     expect(t.db.records.has(rival.mediaId)).toBe(false);
   });
 
@@ -490,7 +484,7 @@ describe('mídia: trocar e remover (MID-08 a MID-11)', () => {
     expect([a.mediaId, b.mediaId]).toContain(linked);
     const ready = [...t.db.records.values()].filter((m) => m.ownerId === USER && m.status === 'ready');
     expect(ready.map((m) => m.id)).toEqual([linked]);
-    expect(t.userItem().avatarUrl).toBe(`${BASE}/${ready[0]?.key}`);
+    expect(ready[0]?.key).toBe(`public/avatar/${linked}`);
   });
 
   it('MID-09: trocar apaga a antiga do banco e do S3; a nova fica', async () => {
@@ -543,7 +537,7 @@ describe('mídia: trocar e remover (MID-08 a MID-11)', () => {
       ownerId: GROUP,
       target: t.groupSlot('logo'),
     });
-    const { url } = await t.media.attach({
+    await t.media.attach({
       mediaId: cover.mediaId,
       purpose: 'group.cover',
       ownerId: GROUP,
@@ -552,7 +546,6 @@ describe('mídia: trocar e remover (MID-08 a MID-11)', () => {
     await t.media.detach({ purpose: 'group.logo', ownerId: GROUP, target: t.groupSlot('logo') });
     expect(t.area.item({ PK: `GROUP#${GROUP}`, SK: 'META' })).toEqual({
       coverMediaId: cover.mediaId,
-      coverUrl: url,
     });
     expect(t.db.records.get(cover.mediaId)?.status).toBe('ready');
   });
@@ -564,8 +557,8 @@ describe('mídia: trocar e remover (MID-08 a MID-11)', () => {
     await t.attachAvatar(old.mediaId);
     t.bucket.failRemove.add(t.db.records.get(old.mediaId)?.key ?? '');
     const next = await t.uploaded();
-    const { url } = await t.attachAvatar(next.mediaId);
-    expect(t.userItem()).toEqual({ avatarMediaId: next.mediaId, avatarUrl: url });
+    await t.attachAvatar(next.mediaId);
+    expect(t.userItem()).toEqual({ avatarMediaId: next.mediaId });
     expect(t.db.records.has(old.mediaId)).toBe(false);
     expect(logs.logged()).toBeGreaterThan(0);
   });
@@ -640,29 +633,19 @@ describe('mídia: acesso (MID-12)', () => {
     expect(second.url).not.toBe(first.url);
   });
 
-  it('MID-12: o caminho público usa o `ownerRef` do pedido (id público da pessoa), não o `ownerId`', async () => {
+  it('MID-12: o caminho público é só a finalidade e o id da mídia, sem dono e sem extensão', async () => {
     const t = setup();
-    const ownerRef = '7K3QX9TA';
-    const upload = await t.media.requestUpload({
-      purpose: 'avatar',
-      ownerId: USER,
-      ownerRef,
-      uploadedBy: USER,
-      contentType: 'image/webp',
-    });
-    t.bucket.files.set(`tmp/${upload.mediaId}`, {
-      size: 50_000,
-      format: 'image/webp',
-      width: 512,
-      height: 512,
-    });
+    const upload = await t.uploaded('avatar', USER, { format: 'image/png' });
     const { url } = await t.attachAvatar(upload.mediaId);
-    expect(url).toBe(`${BASE}/public/user/${ownerRef}/avatar/${upload.mediaId}.webp`);
+    const key = `public/avatar/${upload.mediaId}`;
+    expect(t.db.records.get(upload.mediaId)?.key).toBe(key);
+    expect(t.bucket.files.has(key)).toBe(true);
+    expect(url).toBe(`${BASE}/${key}`);
     expect(url).not.toContain(USER);
-    expect(t.db.records.get(upload.mediaId)).toMatchObject({ ownerId: USER, ownerRef });
+    expect(url).not.toMatch(/\.(webp|png|jpe?g)$/);
   });
 
-  it('MID-12: sem `ownerRef`, o caminho usa o `ownerId` (o id do grupo)', async () => {
+  it('MID-12: no grupo, o caminho também não leva o id do grupo', async () => {
     const t = setup();
     const upload = await t.uploaded('group.logo', GROUP);
     const { url } = await t.media.attach({
@@ -671,6 +654,25 @@ describe('mídia: acesso (MID-12)', () => {
       ownerId: GROUP,
       target: t.groupSlot('logo'),
     });
-    expect(url.startsWith(`${BASE}/public/group/${GROUP}/group.logo/`)).toBe(true);
+    expect(url).toBe(`${BASE}/public/group.logo/${upload.mediaId}`);
+    expect(url).not.toContain(GROUP);
+  });
+
+  it('MID-12: a mídia não guarda o `ownerRef` (o caminho não depende do dono)', async () => {
+    const t = setup();
+    const upload = await t.uploaded();
+    await t.attachAvatar(upload.mediaId);
+    expect(t.db.records.get(upload.mediaId)).not.toHaveProperty('ownerRef');
+  });
+
+  it('MID-12: nenhum item guarda a URL: a transação recebe a mídia e a área, sem URL para gravar', async () => {
+    const t = setup();
+    const upload = await t.uploaded();
+    await t.attachAvatar(upload.mediaId);
+    const call = t.db.attachCalls[0];
+    expect(call).toBeDefined();
+    expect(call).not.toHaveProperty('url');
+    expect(JSON.stringify(call)).not.toContain(BASE);
+    expect(t.db.records.get(upload.mediaId)).not.toHaveProperty('url');
   });
 });

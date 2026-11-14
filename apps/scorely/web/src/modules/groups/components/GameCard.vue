@@ -162,11 +162,11 @@ export default defineComponent({
       if (this.canEditPositions) this.$emit('editPlayer', userId);
     },
 
-    personName(p: Pick<Attendee, 'name'>): string {
-      return p.name ?? this.$t('groups.unnamed');
+    personName(p: Pick<Attendee, 'nickname'>): string {
+      return p.nickname;
     },
 
-    initials(p: Pick<Attendee, 'name'>): string {
+    initials(p: Pick<Attendee, 'nickname'>): string {
       return initials(this.personName(p));
     },
   },

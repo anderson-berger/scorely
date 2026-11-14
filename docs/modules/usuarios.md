@@ -10,11 +10,11 @@ O perfil de quem usa o scorely: como a pessoa aparece nas listas dos grupos (nom
 
 Os dados da pessoa ficam em três partes, cada uma com quem pode ler:
 
-| Parte        | O que tem                               | Quem lê                                                |
-| ------------ | --------------------------------------- | ------------------------------------------------------ |
-| Perfil       | id público, nome, apelido, gênero, foto | a própria pessoa e os outros módulos (listas, times)   |
-| Email        | o email da conta                        | só o login (auth) e a própria pessoa (`GET /me`)       |
-| Preferências | idioma e fuso                           | a própria pessoa (e o navegador dela guarda uma cópia) |
+| Parte        | O que tem                         | Quem lê                                                |
+| ------------ | --------------------------------- | ------------------------------------------------------ |
+| Perfil       | id público, apelido, gênero, foto | a própria pessoa e os outros módulos (listas, times)   |
+| Privado      | o email e o nome da conta         | só o login (auth) e a própria pessoa (`GET /me`)       |
+| Preferências | idioma e fuso                     | a própria pessoa (e o navegador dela guarda uma cópia) |
 
 ## 2. Regras de negócio
 
@@ -23,8 +23,9 @@ Os dados da pessoa ficam em três partes, cada uma com quem pode ler:
 - **USR-01. A conta é o email.** Ela é criada no primeiro login (AUTH-05 em [auth.md](auth.md)).
   - O email é guardado em minúsculas e sem espaços, e cada email tem uma conta só.
   - O email não muda pelo perfil.
-- **USR-13. O email fica fora do perfil.** Ele é guardado à parte, e só o login e a própria pessoa (`GET /me`) o leem. Quando outro módulo busca pessoas (membros, lista do jogo, times), o email nem vem junto.
-  - _Por quê:_ o email é o dado mais sensível da conta. Guardado longe do perfil, um erro numa resposta de lista não tem como vazá-lo.
+- **USR-13. O email e o nome ficam fora do perfil.** Os dois são guardados à parte, na parte privada, e só o login e a própria pessoa (`GET /me`) os leem. Quando outro módulo busca pessoas (membros, lista do jogo, times, ranking), nenhum dos dois vem junto.
+  - _Por quê:_ o email é o dado mais sensível da conta, e o nome completo não serve para os outros (na pelada todo mundo é o apelido, USR-04). Guardados longe do perfil, um erro numa resposta de lista não tem como vazá-los.
+  - _Alterada em 2026-11-14:_ antes só o email ficava à parte, e o nome ia para o ranking, os times e a configuração de times.
 - **USR-15. Cada pessoa tem um id público, o código de amigo.** São 8 caracteres de letras maiúsculas e dígitos, sem `I`, `L`, `O` e `U` (ex.: `7K3QX9TA`).
   - Nasce no primeiro login, é único e não muda.
   - A pessoa vê o próprio código no perfil, com um botão para copiar.
@@ -37,21 +38,23 @@ Os dados da pessoa ficam em três partes, cada uma com quem pode ler:
   - Ação sobre outra pessoa (remover membro, convite para membro, posições, times, times opostos) recebe o id público, e a api traduz para o id do sistema na entrada. A permissão continua vindo do login (quem pede), nunca do id recebido.
   - Id público que não existe responde o mesmo erro de uma pessoa que não está no grupo (ex.: `GROUP_MEMBER_NOT_FOUND`).
   - _Por quê:_ editar a si mesmo pelo login garante que ninguém edita o perfil de outro mudando um id. E o erro igual não deixa ninguém descobrir, chutando, se um código existe.
-- **USR-02. A conta nasce sem nome.** Enquanto não houver nome, o web leva a pessoa para o perfil (AUTH-13).
+- **USR-02. A conta nasce com o apelido igual ao código de amigo** (USR-15) e sem nome. Enquanto o apelido for igual ao código, o web leva a pessoa para o perfil (AUTH-13).
+  - _Por quê:_ o apelido nunca fica vazio, então nenhuma lista precisa de um "sem nome". O código já é público, é único e não depende de idioma; um apelido gerado ("Craque Azul") ninguém trocaria, e um tirado do email vazaria o email (USR-13).
+  - _Alterada em 2026-11-14:_ antes a conta nascia sem nome, e o web cobrava o nome.
 
 ### Perfil
 
 - **USR-03. Campos que a pessoa muda** (`PATCH /me`, pelo menos um):
-  - nome: de 1 a 80 caracteres;
-  - apelido: de 1 a 40 caracteres, e `null` remove;
+  - nome: de 1 a 80 caracteres. É opcional enquanto a pessoa nunca preencheu; depois de preenchido, pode ser trocado, mas não volta a ficar vazio;
+  - apelido: de 1 a 40 caracteres. Ele é obrigatório, não pode ser removido e não pode ser o código de amigo da própria pessoa (`USER_NICKNAME_IS_PUBLIC_ID`, 422), porque esse é o apelido de quem ainda não escolheu (USR-02);
   - gênero: `M` ou `F`;
   - idioma: `pt-BR` ou `en`;
   - fuso: nome IANA.
-- **USR-04. Nome mostrado:** o apelido, se houver; senão, o nome.
-  - Para a própria pessoa (cabeçalho, perfil), sem nome aparece o email dela.
-  - Nas listas dos grupos, sem nome aparece "Sem nome": o email de uma pessoa nunca aparece para as outras (USR-13).
+  - _Alterada em 2026-11-14:_ o nome não pode mais ser apagado, e o apelido não pode ser o código.
+- **USR-04. Nome mostrado é sempre o apelido,** para os outros e para a própria pessoa (cabeçalho, perfil). O nome só aparece para a própria pessoa, no perfil (USR-13).
   - _Por quê:_ na pelada todo mundo se conhece pelo apelido.
   - _Alterada em 2026-11-12:_ antes dizia que as listas caíam para o email, o que o código nunca fez.
+  - _Alterada em 2026-11-14:_ antes, sem apelido, aparecia o nome. O ranking, os times e a configuração de times mostravam o nome mesmo com apelido.
 - **USR-05. O fuso é validado e gravado no nome canônico.** Por exemplo, `Brazil/East` vira `America/Sao_Paulo`.
   - Um fuso inválido é recusado ao gravar.
 - **USR-06. Idioma efetivo,** nesta ordem:
@@ -83,15 +86,17 @@ Os dados da pessoa ficam em três partes, cada uma com quem pode ler:
 
 ### Dados
 
-| Item                 | Chave                                    | Observação                                                                                                            |
-| -------------------- | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| Perfil               | `USER#<id>` / `META`                     | `id`, `publicId` (USR-15), `createdAt`, `name`, `nickname`, `gender`, `avatarUrl` e `avatarMediaId` (a mídia da foto) |
-| Email                | `USER#<id>` / `EMAIL`                    | `email` (USR-13). Lido só pelo auth e pelo `GET /me`                                                                  |
-| Preferências         | `USER#<id>` / `PREFERENCES`              | `locale`, `timeZone`, `updatedAt` (USR-06, 07, 14)                                                                    |
-| Email → usuário      | `LOOKUP#USER#EMAIL#<email>` / `META`     | email único (USR-01)                                                                                                  |
-| Id público → usuário | `LOOKUP#USER#PUBLIC#<publicId>` / `META` | código único (USR-15); a tradução da entrada (USR-17)                                                                 |
+| Item                 | Chave                                    | Observação                                                                                                                        |
+| -------------------- | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Perfil               | `USER#<id>` / `META`                     | `id`, `publicId` (USR-15), `nickname` (USR-02), `gender` e `avatarMediaId` (a mídia da foto; a URL é montada na resposta, MID-12) |
+| Privado              | `USER#<id>` / `PRIVATE`                  | `email` e `name` (USR-13). Lido só pelo auth e pelo `GET /me`                                                                     |
+| Preferências         | `USER#<id>` / `PREFERENCES`              | `locale`, `timeZone` (USR-06, 07, 14)                                                                                             |
+| Email → usuário      | `LOOKUP#USER#EMAIL#<email>` / `META`     | email único (USR-01)                                                                                                              |
+| Id público → usuário | `LOOKUP#USER#PUBLIC#<publicId>` / `META` | código único (USR-15); a tradução da entrada (USR-17)                                                                             |
 
-O primeiro login grava o perfil, o email, as preferências e os dois lookups numa transação só. Se o código sorteado já existir, a transação falha e o login sorteia outro (até 3 vezes). O `PATCH /me` grava no perfil e nas preferências, cada campo na sua parte, também numa transação.
+Os três itens da pessoa têm `createdAt`, `updatedAt` e `version` ([ADR 0013](../decisions/0013-version-e-updatedat.md)).
+
+O primeiro login grava o perfil (com o apelido igual ao código), a parte privada, as preferências e os dois lookups numa transação só. Se o código sorteado já existir, a transação falha e o login sorteia outro (até 3 vezes). O `PATCH /me` grava no perfil, na parte privada e nas preferências, cada campo na sua parte, também numa transação.
 
 Os outros módulos leem pessoas pelo `UserDirectory`, que só busca o perfil (`META`). Ele também traduz ids públicos para ids do sistema (USR-17); o que não existe fica de fora, e o módulo responde o erro de pessoa fora do grupo.
 
@@ -105,9 +110,9 @@ Os outros módulos leem pessoas pelo `UserDirectory`, que só busca o perfil (`M
 | `PUT /me/avatar`         | logado | USR-08 (MID-05–09)  |
 | `DELETE /me/avatar`      | logado | USR-08 (MID-10)     |
 
-O `GET /me` e o `PATCH /me` devolvem o perfil (com `id` = id público, USR-16), o email e as preferências (`preferences: { locale?, timeZone? }`). Nas rotas dos outros módulos, todo `{userId}` e todo `userId` do corpo é o id público.
+O `GET /me` e o `PATCH /me` devolvem o perfil (com `id` = id público, USR-16), o email, o nome e as preferências (`preferences: { locale?, timeZone? }`). Nas rotas dos outros módulos, todo `{userId}` e todo `userId` do corpo é o id público, e a pessoa vem com o `nickname` (USR-04). O `name` só existe no `GET /me` e no `PATCH /me`: nenhuma outra resposta tem esse campo para uma pessoa com conta (USR-13).
 
-Erros: `USER_CREATE_CONFLICT`, e `SESSION_INVALID` (401) quando a conta do token não existe mais (AUTH-16 em [auth.md](auth.md)). Os da foto vêm da mídia (`MEDIA_NOT_FOUND`, `MEDIA_NOT_UPLOADED` e `MEDIA_INVALID`).
+Erros: `USER_CREATE_CONFLICT`, `USER_NICKNAME_IS_PUBLIC_ID` (422, USR-03) e `SESSION_INVALID` (401) quando a conta do token não existe mais (AUTH-16 em [auth.md](auth.md)). Os da foto vêm da mídia (`MEDIA_NOT_FOUND`, `MEDIA_NOT_UPLOADED` e `MEDIA_INVALID`).
 
 ## 4. Limites conhecidos
 

@@ -5,6 +5,7 @@ import {
   LOOKUP_ENTITY,
   queryLookupRows,
   stripKeys,
+  touch,
   transactWrite,
 } from '@scorely/api/src/lib/db';
 import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
@@ -126,13 +127,15 @@ export const dynamoResultRepository: ResultRepository = {
       values[':winner'] = patch.winner;
     }
     await dynamo().send(
-      new UpdateCommand({
-        TableName: tableName(),
-        Key: gameResultKey(gameId),
-        UpdateExpression: `SET ${sets.join(', ')}${patch.winner === undefined ? ' REMOVE winner' : ''}`,
-        ConditionExpression: 'attribute_exists(PK)',
-        ExpressionAttributeValues: values,
-      }),
+      new UpdateCommand(
+        touch({
+          TableName: tableName(),
+          Key: gameResultKey(gameId),
+          UpdateExpression: `SET ${sets.join(', ')}${patch.winner === undefined ? ' REMOVE winner' : ''}`,
+          ConditionExpression: 'attribute_exists(PK)',
+          ExpressionAttributeValues: values,
+        }),
+      ),
     );
   },
 };

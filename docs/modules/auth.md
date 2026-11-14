@@ -1,6 +1,6 @@
 # Módulo Auth
 
-> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-13.
+> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-14.
 
 Código: `apps/scorely/api/src/modules/auth/`, `apps/scorely/api/src/lib/auth.ts`, `apps/scorely/web/src/modules/auth/`, `apps/scorely/web/src/app/guard.ts`. Contrato: `apps/scorely/contracts/src/auth.ts`.
 
@@ -58,9 +58,10 @@ Entrar no scorely **sem senha**. A pessoa digita o email, recebe um código de 6
 ### Navegação (web)
 
 - **AUTH-12. Sem sessão**, qualquer rota protegida leva para o login, lembrando o destino (`?redirect=`).
-- **AUTH-13. Conta sem nome** vai para o perfil (`?welcome=1`) antes de qualquer outra tela, lembrando o destino.
+- **AUTH-13. Conta com o apelido ainda igual ao código de amigo** (USR-02 em [usuarios.md](usuarios.md)) vai para o perfil (`?welcome=1`) antes de qualquer outra tela, lembrando o destino.
   - Depois de salvar o perfil, a pessoa segue para o destino.
-  - _Por quê:_ as listas dos grupos mostram nomes, e uma linha com só o email confunde.
+  - _Por quê:_ as listas dos grupos mostram o apelido, e uma linha com só um código confunde.
+  - _Alterada em 2026-11-14:_ antes valia para a conta sem nome.
 - **AUTH-14. O destino só pode ser um caminho do próprio app** (`/...`, nunca `//...` ou URL externa). Qualquer outra coisa leva para `/`.
   - _Por quê:_ evita redirecionamento aberto a partir de um link de login.
 - **AUTH-15. Um 401 que não consegue renovar** encerra a sessão no navegador e leva para o login.

@@ -215,12 +215,14 @@ export function createResultService(deps: ResultDeps) {
     const people: GamePerson[] = ordered.map((id) => {
       const entry = entryOf.get(id);
       const team = teams.findIndex((t) => t.includes(id));
-      const name = extraIds.has(id) ? extras.find((x) => x.id === id)?.name : byId.get(id)?.name;
+      // USR-04: o apelido; do avulso, o nome digitado (TIM-24). Sem perfil, o id mostrado.
+      const nickname =
+        (extraIds.has(id) ? extras.find((x) => x.id === id)?.name : byId.get(id)?.nickname) ?? shown(id);
       const attendance = attendanceFor(entry);
       const score = scores[id];
       return {
         id: shown(id),
-        ...(name !== undefined && { name }),
+        nickname,
         kind: kindOf(id),
         ...(entry && { inside: entry.inside }),
         ...(attendance && { attendance }),

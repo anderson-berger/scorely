@@ -1,5 +1,5 @@
-import { GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
-import { dbItem, stripKeys } from '@scorely/api/src/lib/db';
+import { GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { replaceItem, stripKeys } from '@scorely/api/src/lib/db';
 import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
 import type { TeamApartRule } from '@scorely/api/src/modules/teams/engine/rules';
 import { TEAM_SETTINGS_ENTITY, teamSettingsKey } from '@scorely/api/src/modules/teams/settings.table';
@@ -21,7 +21,7 @@ export interface StoredTeamSettings {
 
 export interface TeamSettingsRepository {
   get(groupId: string): Promise<StoredTeamSettings | undefined>;
-  /** Grava o item inteiro (o service mantém o `createdAt`). */
+  /** Grava o item inteiro (o service mantém o `createdAt`); a `version` segue (ADR 0013). */
   put(settings: StoredTeamSettings): Promise<void>;
 }
 
@@ -35,9 +35,12 @@ export const dynamoTeamSettingsRepository: TeamSettingsRepository = {
 
   async put(settings) {
     await dynamo().send(
-      new PutCommand({
+      new UpdateCommand({
         TableName: tableName(),
-        Item: dbItem(teamSettingsKey(settings.groupId), TEAM_SETTINGS_ENTITY, settings, settings.createdAt),
+        ...replaceItem(teamSettingsKey(settings.groupId), TEAM_SETTINGS_ENTITY, { ...settings }, [
+          'apart',
+          'spreadGender',
+        ]),
       }),
     );
   },

@@ -6,6 +6,7 @@ import {
   queryLookupRows,
   stripKeys,
   type TransactItem,
+  touch,
   transactWrite,
 } from '@scorely/api/src/lib/db';
 import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
@@ -87,14 +88,14 @@ export interface SeasonRepository {
 
 function updateItem(id: string, patch: SeasonPatch): NonNullable<TransactItem['Update']> {
   const entries = Object.entries(patch).filter(([, v]) => v !== undefined);
-  return {
+  return touch({
     TableName: tableName(),
     Key: seasonKey(id),
     UpdateExpression: `SET ${entries.map(([k]) => `#${k} = :${k}`).join(', ')}`,
     ConditionExpression: 'attribute_exists(PK)',
     ExpressionAttributeNames: Object.fromEntries(entries.map(([k]) => [`#${k}`, k])),
     ExpressionAttributeValues: Object.fromEntries(entries.map(([k, v]) => [`:${k}`, v])),
-  };
+  });
 }
 
 export const dynamoSeasonRepository: SeasonRepository = {
@@ -181,14 +182,14 @@ export const dynamoSeasonRepository: SeasonRepository = {
     // CMP-36, 39: o ranking final, os troféus e a saída da lista das que vão travar, numa transação só.
     const outcome = await transactWrite([
       {
-        Update: {
+        Update: touch({
           TableName: tableName(),
           Key: seasonKey(id),
           UpdateExpression: 'SET #final = :final',
           ConditionExpression: 'attribute_exists(PK) AND attribute_not_exists(#final)',
           ExpressionAttributeNames: { '#final': 'final' },
           ExpressionAttributeValues: { ':final': final },
-        },
+        }),
       },
       { Delete: { TableName: tableName(), Key: seasonOpenKey(current.endDate, id) } },
       ...trophies.flatMap((t): TransactItem[] => {

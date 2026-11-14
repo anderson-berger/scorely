@@ -103,7 +103,7 @@ export default defineComponent({
     apartOptions(): ApartOption[] {
       const listed = this.players.map((p) => ({
         userId: p.userId,
-        name: p.name ?? this.$t('groups.unnamed'),
+        name: p.nickname,
       }));
       const known = new Set(listed.map((p) => p.userId));
       const inRules = [...new Set((this.settings?.apart ?? []).flatMap((r) => r.people))]
@@ -132,9 +132,10 @@ export default defineComponent({
 
     nameOf(userId: PublicUserId): string {
       return (
-        this.settings?.names[userId] ??
-        this.players.find((p) => p.userId === userId)?.name ??
-        this.$t('groups.unnamed')
+        this.settings?.nicknames[userId] ??
+        this.players.find((p) => p.userId === userId)?.nickname ??
+        // USR-02: sem o perfil, o código (o apelido com que a conta nasce)
+        userId
       );
     },
 

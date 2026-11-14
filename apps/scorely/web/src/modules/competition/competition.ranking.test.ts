@@ -25,7 +25,7 @@ const ME = PublicUserIdSchema.parse('BBBB2222');
 function row(extra: Partial<RankingRow> = {}): RankingRow {
   return {
     userId: ME,
-    name: 'Ana',
+    nickname: 'Ana',
     position: 1,
     points: 20,
     attendance: 12,

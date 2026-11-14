@@ -143,7 +143,8 @@ export type GamePersonKind = z.infer<typeof GamePersonKindSchema>;
 
 export const GamePersonSchema = z.object({
   id: TeamPersonIdSchema,
-  name: z.string().optional(),
+  /** O apelido (USR-04); do avulso, o nome digitado (TIM-24). */
+  nickname: z.string(),
   kind: GamePersonKindSchema,
   /** Está na lista do jogo: dentro (`true`) ou na fila (`false`). Ausente = não está na lista (membro que não confirmou, ou avulso). */
   inside: z.boolean().optional(),
@@ -235,7 +236,8 @@ export type RankingQuery = z.infer<typeof RankingQuerySchema>;
 /** Uma linha do ranking (CMP-24–26). */
 export const RankingRowSchema = z.object({
   userId: PublicUserIdSchema,
-  name: z.string().optional(),
+  /** O apelido (USR-04). O nome da pessoa nunca sai aqui (USR-13). */
+  nickname: z.string(),
   gender: GenderSchema.optional(),
   /** Empate divide a posição (1, 2, 2, 4). */
   position: z.number().int().min(1),
@@ -284,7 +286,8 @@ export type PersonGame = z.infer<typeof PersonGameSchema>;
 /** GET /groups/{id}/competition/people/{userId} (CMP-27). */
 export const PersonHistorySchema = z.object({
   userId: PublicUserIdSchema,
-  name: z.string().optional(),
+  /** O apelido (USR-04). O nome da pessoa nunca sai aqui (USR-13). */
+  nickname: z.string(),
   points: z.number().int().min(0),
   attendance: z.number().int().min(0),
   streak: z.number().int().min(0),

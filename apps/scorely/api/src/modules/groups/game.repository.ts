@@ -6,6 +6,7 @@ import {
   LOOKUP_ENTITY,
   queryLookupRows,
   stripKeys,
+  touch,
   transactWrite,
 } from '@scorely/api/src/lib/db';
 import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
@@ -134,13 +135,15 @@ export const dynamoGameRepository: GameRepository = {
 
   async cancel(gameId, cancelledAt) {
     await dynamo().send(
-      new UpdateCommand({
-        TableName: tableName(),
-        Key: gameKey(gameId),
-        UpdateExpression: 'SET cancelledAt = if_not_exists(cancelledAt, :at)',
-        ConditionExpression: 'attribute_exists(PK)',
-        ExpressionAttributeValues: { ':at': cancelledAt },
-      }),
+      new UpdateCommand(
+        touch({
+          TableName: tableName(),
+          Key: gameKey(gameId),
+          UpdateExpression: 'SET cancelledAt = if_not_exists(cancelledAt, :at)',
+          ConditionExpression: 'attribute_exists(PK)',
+          ExpressionAttributeValues: { ':at': cancelledAt },
+        }),
+      ),
     );
   },
 
@@ -153,17 +156,19 @@ export const dynamoGameRepository: GameRepository = {
       ...(remove.length > 0 ? [`REMOVE ${remove.map(([k]) => `#${k}`).join(', ')}`] : []),
     ];
     const { Attributes } = await dynamo().send(
-      new UpdateCommand({
-        TableName: tableName(),
-        Key: gameKey(gameId),
-        UpdateExpression: clauses.join(' '),
-        ConditionExpression: 'attribute_exists(PK)',
-        ExpressionAttributeNames: Object.fromEntries(entries.map(([k]) => [`#${k}`, k])),
-        ...(set.length > 0 && {
-          ExpressionAttributeValues: Object.fromEntries(set.map(([k, v]) => [`:${k}`, v])),
+      new UpdateCommand(
+        touch({
+          TableName: tableName(),
+          Key: gameKey(gameId),
+          UpdateExpression: clauses.join(' '),
+          ConditionExpression: 'attribute_exists(PK)',
+          ExpressionAttributeNames: Object.fromEntries(entries.map(([k]) => [`#${k}`, k])),
+          ...(set.length > 0 && {
+            ExpressionAttributeValues: Object.fromEntries(set.map(([k, v]) => [`:${k}`, v])),
+          }),
+          ReturnValues: 'ALL_NEW',
         }),
-        ReturnValues: 'ALL_NEW',
-      }),
+      ),
     );
     return stripKeys<GameRecord>(Attributes ?? {});
   },
@@ -171,13 +176,15 @@ export const dynamoGameRepository: GameRepository = {
   async markMinReached(gameId, at) {
     try {
       await dynamo().send(
-        new UpdateCommand({
-          TableName: tableName(),
-          Key: gameKey(gameId),
-          UpdateExpression: 'SET minReachedAt = :at',
-          ConditionExpression: 'attribute_exists(PK) AND attribute_not_exists(minReachedAt)',
-          ExpressionAttributeValues: { ':at': at },
-        }),
+        new UpdateCommand(
+          touch({
+            TableName: tableName(),
+            Key: gameKey(gameId),
+            UpdateExpression: 'SET minReachedAt = :at',
+            ConditionExpression: 'attribute_exists(PK) AND attribute_not_exists(minReachedAt)',
+            ExpressionAttributeValues: { ':at': at },
+          }),
+        ),
       );
       return true;
     } catch (err) {
@@ -191,12 +198,12 @@ export const dynamoGameRepository: GameRepository = {
     // arquivamento simultâneo vir antes (reabertura falha) ou depois (o arquivamento cancela de novo).
     const result = await transactWrite([
       {
-        Update: {
+        Update: touch({
           TableName: tableName(),
           Key: gameKey(gameId),
           UpdateExpression: 'REMOVE cancelledAt',
           ConditionExpression: 'attribute_exists(cancelledAt)',
-        },
+        }),
       },
       {
         ConditionCheck: {
