@@ -8,17 +8,21 @@ import {
   type ErrorCode,
   type Game,
   type Member,
-  type MemberRole,
+  type MemberTier,
   type PlayerPosition,
   PlayerSchema,
   type PublicUserId,
   PublicUserIdSchema,
-  SPORT_POSITIONS,
+  type RoleId,
   type Sport,
-  type StaffRoleId,
   UpdatePlayerInputSchema,
 } from '@scorely/contracts';
 import { describe, expect, it } from 'vitest';
+
+/** ADR 0016: o que o banco faz na gravação condicionada pela versão (o repositório lança o mesmo erro). */
+function expectVersionIn(current: number, expected: number): void {
+  if (current !== expected) throw appError('VERSION_CONFLICT', { currentVersion: current });
+}
 
 // E3 etapa 1 (`.claude/work/e3-times-1.md`, retrabalho 1): posições por pessoa no grupo, TIM-01 a TIM-04.
 // O roster (membros e jogo atual) é um fake: quem confere participação e permissão é o service (`requireMember` no list, dono no update).
@@ -121,7 +125,7 @@ function storedGroup(extra: Partial<StoredGroup> = {}): StoredGroup {
     id: GROUP_ID,
     createdAt: '2026-01-01T00:00:00.000Z',
     name: 'Vôlei de sexta',
-    sport: 'volleyball',
+    sportId: 'volleyball',
     weekday: 5,
     time: '19:00',
     timeZone: 'America/Sao_Paulo',
@@ -129,30 +133,30 @@ function storedGroup(extra: Partial<StoredGroup> = {}): StoredGroup {
     listOpensHoursBefore: 48,
     reservesOpenHoursBefore: 24,
     guestsOpenHoursBefore: 12,
-    ownerId: OWNER,
-    ownerPublicId: pub(OWNER),
     inviteToken: 'tok-member',
     reserveInviteToken: 'tok-reserve',
     guestToken: 'tok-guest',
     maxMembers: 30,
     maxReserves: 30,
+    version: 1,
+    settingsVersion: 1,
     ...extra,
   };
 }
 
-const member = (userId: UserId, name: string, role: MemberRole = 'member'): RosterMember => ({
+const member = (userId: UserId, name: string, role: MemberTier = 'member'): RosterMember => ({
   userId,
   publicId: pub(userId),
   nickname: name,
-  isOwner: userId === OWNER,
-  role,
+  roleId: userId === OWNER ? 'owner' : 'member',
+  tier: role,
 });
 
-const attendee = (userId: UserId, name: string, role: Attendee['role'], minute: number): RosterAttendee => ({
+const attendee = (userId: UserId, name: string, role: Attendee['tier'], minute: number): RosterAttendee => ({
   userId,
   publicId: pub(userId),
   nickname: name,
-  role,
+  tier: role,
   confirmedAt: new Date(Date.UTC(2026, 10, 4, 22, minute)).toISOString(),
 });
 
@@ -188,6 +192,25 @@ const GAME = gameOf(
 const unused = () => Promise.reject(new Error('not used by the teams module'));
 
 /**
+ * Catálogo de esportes do teste (TIM-02, ESP-05): o `sports.get` do `SportService`, com as posições na ordem.
+ * No vôlei, `universal` está desativada (vale para quem já tem). `footvolley` não tem posições.
+ */
+const catalogPosition = (id: string, active = true) => ({ id, name: { 'pt-BR': id, en: id }, active });
+const catalogSport = (id: string, positions: string[], inactive: string[] = []): Sport => ({
+  id,
+  name: { 'pt-BR': id, en: id },
+  positions: [...positions.map((p) => catalogPosition(p)), ...inactive.map((p) => catalogPosition(p, false))],
+  active: true,
+});
+const TEST_SPORTS: Sport[] = [
+  catalogSport('volleyball', ['setter', 'opposite', 'outside', 'middle', 'libero'], ['universal']),
+  catalogSport('soccer', ['goalkeeper', 'defender', 'fullback', 'defensive_mid', 'midfielder', 'forward']),
+  catalogSport('basketball', ['guard', 'wing', 'center']),
+  catalogSport('footvolley', []),
+];
+const sports = { get: async (id: string) => TEST_SPORTS.find((s) => s.id === id) };
+
+/**
  * Contexto em memória. `state` é mutável de propósito (sair do grupo/da lista entre chamadas).
  * Participação do grupo: os membros do roster; o `currentGame` responde `GROUP_ARCHIVED` com o grupo arquivado
  * (o jogo só existe com o grupo ativo, GRP-37), então o service não deve chamá-lo nesse caso.
@@ -199,7 +222,7 @@ function setup(opts: { group?: Partial<StoredGroup>; members?: RosterMember[]; g
     members: opts.members ?? MEMBERS,
     game: opts.game ?? GAME,
     /** Cargo de cada pessoa (GRP-48): `admin` dá o `teams.manage`. */
-    staff: {} as Record<string, StaffRoleId>,
+    staff: {} as Record<string, RoleId>,
   };
   const saved: { groupId: string; userId: string; positions: PlayerPosition[]; now: string }[] = [];
   const store = new Map<string, StoredPlayer>();
@@ -208,17 +231,16 @@ function setup(opts: { group?: Partial<StoredGroup>; members?: RosterMember[]; g
   const groups: GroupRepository = {
     get: async (id) => (id === state.group.id ? state.group : undefined),
     roleOf: async (groupId, userId) =>
-      groupId === state.group.id ? state.members.find((m) => m.userId === userId)?.role : undefined,
+      groupId === state.group.id ? state.members.find((m) => m.userId === userId)?.tier : undefined,
     getByToken: unused,
     create: unused,
     addMember: unused,
     counts: unused,
     getMembership: async (groupId, userId) => {
       const role =
-        groupId === state.group.id ? state.members.find((m) => m.userId === userId)?.role : undefined;
+        groupId === state.group.id ? state.members.find((m) => m.userId === userId)?.tier : undefined;
       if (!role) return undefined;
-      const staffRoleId = state.staff[userId];
-      return staffRoleId === undefined ? { role } : { role, staffRoleId };
+      return { tier: role, roleId: state.staff[userId] ?? (userId === OWNER ? 'owner' : 'member') };
     },
     setStaffRole: unused,
     transfer: unused,
@@ -240,15 +262,18 @@ function setup(opts: { group?: Partial<StoredGroup>; members?: RosterMember[]; g
         const p = store.get(key(groupId, userId));
         return p ? [{ ...p }] : [];
       }),
-    save: async (groupId, userId, positions, now) => {
-      saved.push({ groupId, userId, positions: [...positions], now });
+    /** TIM-25 (ADR 0016): grava só com a versão atual (`0` = sem posição salva); a nova é a atual + 1. */
+    save: async (groupId, userId, positions, now, expectedVersion) => {
       const prev = store.get(key(groupId, userId));
+      expectVersionIn(prev?.version ?? 0, expectedVersion);
+      saved.push({ groupId, userId, positions: [...positions], now });
       const next: StoredPlayer = {
         groupId,
         userId,
         positions: [...positions],
         createdAt: prev?.createdAt ?? now,
         updatedAt: now,
+        version: (prev?.version ?? 0) + 1,
       };
       store.set(key(groupId, userId), next);
       return { ...next };
@@ -268,12 +293,22 @@ function setup(opts: { group?: Partial<StoredGroup>; members?: RosterMember[]; g
     resolve: async (publicIds: readonly PublicUserId[]) => resolveIn(publicIds),
   };
 
-  const raw = createPlayerService({ groups, roster, players, users, now: () => clock.now });
+  const raw = createPlayerService({ groups, sports, roster, players, users, now: () => clock.now });
   const service = atTheEdge(raw);
   /** Grava direto no repositório (posição definida antes, por exemplo em outra semana). */
   const seed = (userId: UserId, positions: PlayerPosition[], groupId = GROUP_ID) =>
-    players.save(groupId, userId, positions, '2026-10-01T00:00:00.000Z');
-  return { clock, state, saved, store, service, raw, seed };
+    players.save(
+      groupId,
+      userId,
+      positions,
+      '2026-10-01T00:00:00.000Z',
+      store.get(key(groupId, userId))?.version ?? 0,
+    );
+  /** TIM-25: a versão que a tela mostrou, a do jogador (`0` sem posição salva); aceita o id do sistema ou o público. */
+  const v = (userId: string, groupId: string = GROUP_ID) => ({
+    version: store.get(key(groupId, TO_SYSTEM.get(userId) ?? userId))?.version ?? 0,
+  });
+  return { clock, state, saved, store, service, raw, seed, v };
 }
 
 async function expectAppError(p: Promise<unknown>, code: ErrorCode, status: number): Promise<AppError> {
@@ -294,7 +329,7 @@ describe('times: posições por pessoa no grupo (TIM-01)', () => {
     const list = await t.service.list(OWNER, GROUP_ID);
 
     for (const p of list) expect(PlayerSchema.parse(toWire(p))).toEqual(toWire(p));
-    expect(list.map((p) => [p.userId, p.role])).toEqual([
+    expect(list.map((p) => [p.userId, p.tier])).toEqual([
       [OWNER, 'member'],
       [B, 'member'],
       [A, 'member'],
@@ -318,27 +353,16 @@ describe('times: posições por pessoa no grupo (TIM-01)', () => {
 
   it('TIM-01: o convidado tem posições como qualquer um (o dono define e a lista mostra)', async () => {
     const t = setup();
-    const saved = await t.service.update(OWNER, GROUP_ID, G, { positions: ['libero'] });
+    const saved = await t.service.update(OWNER, GROUP_ID, G, { ...t.v(G, GROUP_ID), positions: ['libero'] });
 
-    expect(saved).toEqual({ userId: G, nickname: 'Gabi', role: 'guest', positions: ['libero'] });
+    expect(saved).toEqual({ userId: G, nickname: 'Gabi', tier: 'guest', positions: ['libero'], version: 1 });
     const list = await t.service.list(OWNER, GROUP_ID);
     expect(list.find((p) => p.userId === G)?.positions).toEqual(['libero']);
   });
 });
 
 describe('times: posições do esporte (TIM-02)', () => {
-  it('TIM-02: catálogo do contrato = todas as posições de cada esporte, na ordem de exibição', () => {
-    const expected: Record<Sport, PlayerPosition[]> = {
-      volleyball: ['setter', 'opposite', 'outside', 'middle', 'libero'],
-      soccer: ['goalkeeper', 'defender', 'fullback', 'defensive_mid', 'midfielder', 'forward'],
-      basketball: ['guard', 'wing', 'center'],
-      other: [],
-    };
-    for (const sport of Object.keys(expected) as Sport[]) {
-      expect([...SPORT_POSITIONS[sport]]).toEqual(expected[sport]);
-    }
-  });
-
+  // O conteúdo do catálogo (vôlei, futebol, basquete e as posições) é provado em `sports/catalog.test.ts`.
   it('TIM-02: o padrão é nenhuma posição', async () => {
     const t = setup();
     const list = await t.service.list(OWNER, GROUP_ID);
@@ -347,11 +371,14 @@ describe('times: posições do esporte (TIM-02)', () => {
 
   it('TIM-02: a pessoa pode ter mais de uma posição do esporte, e gravar substitui as anteriores', async () => {
     const t = setup();
-    const many = await t.service.update(OWNER, GROUP_ID, A, { positions: ['setter', 'middle', 'libero'] });
+    const many = await t.service.update(OWNER, GROUP_ID, A, {
+      ...t.v(A, GROUP_ID),
+      positions: ['setter', 'middle', 'libero'],
+    });
     expect(many.positions).toEqual(['setter', 'middle', 'libero']);
 
-    const one = await t.service.update(OWNER, GROUP_ID, A, { positions: ['libero'] });
-    expect(one).toEqual({ userId: A, nickname: 'Ana', role: 'member', positions: ['libero'] });
+    const one = await t.service.update(OWNER, GROUP_ID, A, { ...t.v(A, GROUP_ID), positions: ['libero'] });
+    expect(one).toEqual({ userId: A, nickname: 'Ana', tier: 'member', positions: ['libero'], version: 2 });
     expect(t.saved.at(-1)).toEqual({
       groupId: GROUP_ID,
       userId: A,
@@ -365,7 +392,10 @@ describe('times: posições do esporte (TIM-02)', () => {
 
   it('TIM-02: a primeira é a principal: a ordem enviada é a gravada e a devolvida (no PUT e no GET)', async () => {
     const t = setup();
-    const first = await t.service.update(OWNER, GROUP_ID, A, { positions: ['outside', 'middle'] });
+    const first = await t.service.update(OWNER, GROUP_ID, A, {
+      ...t.v(A, GROUP_ID),
+      positions: ['outside', 'middle'],
+    });
     expect(first.positions).toEqual(['outside', 'middle']);
     expect(t.saved.at(-1)?.positions).toEqual(['outside', 'middle']);
     expect((await t.service.list(OWNER, GROUP_ID)).find((p) => p.userId === A)?.positions).toEqual([
@@ -374,7 +404,10 @@ describe('times: posições do esporte (TIM-02)', () => {
     ]);
 
     // Trocar a principal = mesma lista em outra ordem (fora da ordem do catálogo inclusive).
-    const swapped = await t.service.update(OWNER, GROUP_ID, A, { positions: ['middle', 'outside'] });
+    const swapped = await t.service.update(OWNER, GROUP_ID, A, {
+      ...t.v(A, GROUP_ID),
+      positions: ['middle', 'outside'],
+    });
     expect(swapped.positions).toEqual(['middle', 'outside']);
     expect(t.saved.at(-1)?.positions).toEqual(['middle', 'outside']);
     expect((await t.service.list(OWNER, GROUP_ID)).find((p) => p.userId === A)?.positions).toEqual([
@@ -393,7 +426,7 @@ describe('times: posições do esporte (TIM-02)', () => {
   it('TIM-02: tirar todas as posições ([]) volta ao padrão', async () => {
     const t = setup();
     await t.seed(A, ['setter']);
-    const cleared = await t.service.update(OWNER, GROUP_ID, A, { positions: [] });
+    const cleared = await t.service.update(OWNER, GROUP_ID, A, { ...t.v(A, GROUP_ID), positions: [] });
 
     expect(cleared.positions).toEqual([]);
     const list = await t.service.list(OWNER, GROUP_ID);
@@ -401,14 +434,14 @@ describe('times: posições do esporte (TIM-02)', () => {
   });
 
   it('TIM-02: cada esporte aceita todas as suas posições, na ordem enviada', async () => {
-    const cases: [Sport, PlayerPosition[]][] = [
+    const cases: [string, PlayerPosition[]][] = [
       ['volleyball', ['libero', 'opposite', 'outside', 'middle', 'setter']],
       ['soccer', ['forward', 'goalkeeper', 'defender', 'fullback', 'defensive_mid', 'midfielder']],
       ['basketball', ['center', 'guard', 'wing']],
     ];
-    for (const [sport, positions] of cases) {
-      const t = setup({ group: { sport } });
-      const saved = await t.service.update(OWNER, GROUP_ID, A, { positions });
+    for (const [sportId, positions] of cases) {
+      const t = setup({ group: { sportId } });
+      const saved = await t.service.update(OWNER, GROUP_ID, A, { ...t.v(A, GROUP_ID), positions });
       expect(saved.positions).toEqual(positions);
     }
   });
@@ -416,7 +449,10 @@ describe('times: posições do esporte (TIM-02)', () => {
   it('TIM-02: posição de outro esporte → TEAM_POSITION_INVALID (422) com details.position = a 1ª inválida, sem gravar', async () => {
     const t = setup();
     const err = await expectAppError(
-      t.service.update(OWNER, GROUP_ID, A, { positions: ['setter', 'goalkeeper', 'center'] }),
+      t.service.update(OWNER, GROUP_ID, A, {
+        ...t.v(A, GROUP_ID),
+        positions: ['setter', 'goalkeeper', 'center'],
+      }),
       'TEAM_POSITION_INVALID',
       422,
     );
@@ -425,9 +461,9 @@ describe('times: posições do esporte (TIM-02)', () => {
   });
 
   it('TIM-02: posição do futebol no basquete (atacante) → TEAM_POSITION_INVALID', async () => {
-    const t = setup({ group: { sport: 'basketball' } });
+    const t = setup({ group: { sportId: 'basketball' } });
     const err = await expectAppError(
-      t.service.update(OWNER, GROUP_ID, A, { positions: ['guard', 'forward'] }),
+      t.service.update(OWNER, GROUP_ID, A, { ...t.v(A, GROUP_ID), positions: ['guard', 'forward'] }),
       'TEAM_POSITION_INVALID',
       422,
     );
@@ -435,26 +471,100 @@ describe('times: posições do esporte (TIM-02)', () => {
     expect(t.saved).toEqual([]);
   });
 
-  it('TIM-02: outro não tem posição nenhuma (qualquer uma → TEAM_POSITION_INVALID; [] vale)', async () => {
-    const t = setup({ group: { sport: 'other' } });
+  it('TIM-02: esporte sem posições no catálogo (qualquer uma → TEAM_POSITION_INVALID; [] vale)', async () => {
+    const t = setup({ group: { sportId: 'footvolley' } });
     const err = await expectAppError(
-      t.service.update(OWNER, GROUP_ID, A, { positions: ['setter'] }),
+      t.service.update(OWNER, GROUP_ID, A, { ...t.v(A, GROUP_ID), positions: ['setter'] }),
       'TEAM_POSITION_INVALID',
       422,
     );
     expect(err.details).toEqual({ position: 'setter' });
-    const ok = await t.service.update(OWNER, GROUP_ID, A, { positions: [] });
+    const ok = await t.service.update(OWNER, GROUP_ID, A, { ...t.v(A, GROUP_ID), positions: [] });
     expect(ok.positions).toEqual([]);
   });
 
-  it('TIM-02: o contrato recusa posição repetida e posição fora do catálogo', () => {
-    expect(UpdatePlayerInputSchema.safeParse({ positions: ['setter', 'setter'] }).success).toBe(false);
-    expect(UpdatePlayerInputSchema.safeParse({ positions: ['striker'] }).success).toBe(false);
-    expect(UpdatePlayerInputSchema.safeParse({ roles: ['setter'] }).success).toBe(false);
-    expect(UpdatePlayerInputSchema.safeParse({ positions: ['middle', 'setter'] }).data).toEqual({
+  it('TIM-02: o contrato recusa posição repetida e id de posição fora do formato (ESP-02)', () => {
+    expect(UpdatePlayerInputSchema.safeParse({ version: 0, positions: ['setter', 'setter'] }).success).toBe(
+      false,
+    );
+    expect(UpdatePlayerInputSchema.safeParse({ version: 0, positions: ['Striker!'] }).success).toBe(false);
+    expect(UpdatePlayerInputSchema.safeParse({ version: 0, roles: ['setter'] }).success).toBe(false);
+    expect(UpdatePlayerInputSchema.safeParse({ version: 0, positions: ['middle', 'setter'] }).data).toEqual({
+      version: 0,
       positions: ['middle', 'setter'],
     });
-    expect(UpdatePlayerInputSchema.safeParse({ positions: [] }).success).toBe(true);
+    expect(UpdatePlayerInputSchema.safeParse({ version: 0, positions: [] }).success).toBe(true);
+  });
+
+  it('TIM-02: posição no formato certo que não existe no catálogo do esporte → TEAM_POSITION_INVALID, sem gravar', async () => {
+    const t = setup();
+    const err = await expectAppError(
+      t.service.update(OWNER, GROUP_ID, A, { ...t.v(A, GROUP_ID), positions: ['setter', 'striker'] }),
+      'TEAM_POSITION_INVALID',
+      422,
+    );
+    expect(err.details).toEqual({ position: 'striker' });
+    expect(t.saved).toEqual([]);
+  });
+});
+
+describe('times: posição desativada no catálogo (TIM-02, ESP-05)', () => {
+  it('TIM-02 / ESP-05: posição desativada nova → TEAM_POSITION_INVALID (422) com details.position, sem gravar', async () => {
+    const t = setup();
+    await t.seed(A, ['setter']);
+    const before = t.saved.length;
+    const err = await expectAppError(
+      t.service.update(OWNER, GROUP_ID, A, { ...t.v(A, GROUP_ID), positions: ['setter', 'universal'] }),
+      'TEAM_POSITION_INVALID',
+      422,
+    );
+    expect(err.details).toEqual({ position: 'universal' });
+    expect(t.saved.length).toBe(before);
+  });
+
+  it('TIM-02 / ESP-05: quem já tem a posição desativada continua com ela (mantém, troca a ordem, soma ativas)', async () => {
+    const t = setup();
+    await t.seed(A, ['universal', 'setter']);
+    expect((await t.service.list(OWNER, GROUP_ID)).find((p) => p.userId === A)?.positions).toEqual([
+      'universal',
+      'setter',
+    ]);
+    const swapped = await t.service.update(OWNER, GROUP_ID, A, {
+      ...t.v(A, GROUP_ID),
+      positions: ['setter', 'universal', 'libero'],
+    });
+    expect(swapped.positions).toEqual(['setter', 'universal', 'libero']);
+  });
+
+  it('TIM-02 / ESP-05: a desativada que alguém já tem não vale para outra pessoa', async () => {
+    const t = setup();
+    await t.seed(A, ['universal']);
+    await expectAppError(
+      t.service.update(OWNER, GROUP_ID, B, { ...t.v(B, GROUP_ID), positions: ['universal'] }),
+      'TEAM_POSITION_INVALID',
+      422,
+    );
+  });
+
+  it('TIM-02 / ESP-05: tirou a desativada, ela não volta (escolher de novo → TEAM_POSITION_INVALID)', async () => {
+    const t = setup();
+    await t.seed(A, ['universal', 'setter']);
+    await t.service.update(OWNER, GROUP_ID, A, { ...t.v(A, GROUP_ID), positions: ['setter'] });
+    await expectAppError(
+      t.service.update(OWNER, GROUP_ID, A, { ...t.v(A, GROUP_ID), positions: ['setter', 'universal'] }),
+      'TEAM_POSITION_INVALID',
+      422,
+    );
+  });
+
+  it('TIM-02 / ESP-05: a desativada de outro grupo não conta como já existente', async () => {
+    const t = setup();
+    await t.seed(A, ['universal'], OTHER_GROUP_ID);
+    await expectAppError(
+      t.service.update(OWNER, GROUP_ID, A, { ...t.v(A, GROUP_ID), positions: ['universal'] }),
+      'TEAM_POSITION_INVALID',
+      422,
+    );
   });
 });
 
@@ -477,12 +587,12 @@ describe('times: todos do grupo veem, só o dono muda (TIM-03)', () => {
     const t = setup();
     for (const who of [A, R]) {
       await expectAppError(
-        t.service.update(who, GROUP_ID, B, { positions: ['setter'] }),
+        t.service.update(who, GROUP_ID, B, { ...t.v(B, GROUP_ID), positions: ['setter'] }),
         'GROUP_PERMISSION_DENIED',
         403,
       );
       await expectAppError(
-        t.service.update(who, GROUP_ID, who, { positions: ['setter'] }),
+        t.service.update(who, GROUP_ID, who, { ...t.v(who, GROUP_ID), positions: ['setter'] }),
         'GROUP_PERMISSION_DENIED',
         403,
       );
@@ -495,14 +605,14 @@ describe('times: todos do grupo veem, só o dono muda (TIM-03)', () => {
     for (const who of [OUTSIDER, G]) {
       await expectAppError(t.service.list(who, GROUP_ID), 'GROUP_NOT_FOUND', 404);
       await expectAppError(
-        t.service.update(who, GROUP_ID, A, { positions: ['setter'] }),
+        t.service.update(who, GROUP_ID, A, { ...t.v(A, GROUP_ID), positions: ['setter'] }),
         'GROUP_NOT_FOUND',
         404,
       );
     }
     await expectAppError(t.service.list(OWNER, OTHER_GROUP_ID), 'GROUP_NOT_FOUND', 404);
     await expectAppError(
-      t.service.update(OWNER, OTHER_GROUP_ID, A, { positions: ['setter'] }),
+      t.service.update(OWNER, OTHER_GROUP_ID, A, { ...t.v(A, OTHER_GROUP_ID), positions: ['setter'] }),
       'GROUP_NOT_FOUND',
       404,
     );
@@ -510,9 +620,9 @@ describe('times: todos do grupo veem, só o dono muda (TIM-03)', () => {
   });
 
   it('TIM-03: a permissão vem antes da validação (sem teams.manage, com posição inválida e pessoa de fora → 403)', async () => {
-    const t = setup({ group: { sport: 'basketball' } });
+    const t = setup({ group: { sportId: 'basketball' } });
     await expectAppError(
-      t.service.update(A, GROUP_ID, OUTSIDER, { positions: ['setter'] }),
+      t.service.update(A, GROUP_ID, OUTSIDER, { ...t.v(OUTSIDER, GROUP_ID), positions: ['setter'] }),
       'GROUP_PERMISSION_DENIED',
       403,
     );
@@ -521,12 +631,12 @@ describe('times: todos do grupo veem, só o dono muda (TIM-03)', () => {
   it('TIM-03: grupo arquivado → mudar responde GROUP_ARCHIVED (antes de conferir pessoa e posição)', async () => {
     const t = setup({ group: { archivedAt: '2026-11-01T00:00:00.000Z' } });
     await expectAppError(
-      t.service.update(OWNER, GROUP_ID, A, { positions: ['setter'] }),
+      t.service.update(OWNER, GROUP_ID, A, { ...t.v(A, GROUP_ID), positions: ['setter'] }),
       'GROUP_ARCHIVED',
       409,
     );
     await expectAppError(
-      t.service.update(OWNER, GROUP_ID, OUTSIDER, { positions: ['goalkeeper'] }),
+      t.service.update(OWNER, GROUP_ID, OUTSIDER, { ...t.v(OUTSIDER, GROUP_ID), positions: ['goalkeeper'] }),
       'GROUP_ARCHIVED',
       409,
     );
@@ -570,7 +680,7 @@ describe('times: quem o dono classifica (TIM-04)', () => {
 
   it('TIM-04: o dono define para membro, reserva, convidado dentro e convidado na fila', async () => {
     const t = setup();
-    const cases: [UserId, Attendee['role']][] = [
+    const cases: [UserId, Attendee['tier']][] = [
       [OWNER, 'member'],
       [B, 'member'],
       [R, 'reserve'],
@@ -578,20 +688,23 @@ describe('times: quem o dono classifica (TIM-04)', () => {
       [H, 'guest'],
     ];
     for (const [who, role] of cases) {
-      const p = await t.service.update(OWNER, GROUP_ID, who, { positions: ['setter'] });
-      expect(p).toMatchObject({ userId: who, role, positions: ['setter'] });
+      const p = await t.service.update(OWNER, GROUP_ID, who, {
+        ...t.v(who, GROUP_ID),
+        positions: ['setter'],
+      });
+      expect(p).toMatchObject({ userId: who, tier: role, positions: ['setter'] });
     }
   });
 
   it('TIM-04: pessoa fora do grupo e da lista → TEAM_PLAYER_NOT_FOUND (404), antes de conferir a posição', async () => {
     const t = setup();
     await expectAppError(
-      t.service.update(OWNER, GROUP_ID, OUTSIDER, { positions: ['setter'] }),
+      t.service.update(OWNER, GROUP_ID, OUTSIDER, { ...t.v(OUTSIDER, GROUP_ID), positions: ['setter'] }),
       'TEAM_PLAYER_NOT_FOUND',
       404,
     );
     await expectAppError(
-      t.service.update(OWNER, GROUP_ID, OUTSIDER, { positions: ['goalkeeper'] }),
+      t.service.update(OWNER, GROUP_ID, OUTSIDER, { ...t.v(OUTSIDER, GROUP_ID), positions: ['goalkeeper'] }),
       'TEAM_PLAYER_NOT_FOUND',
       404,
     );
@@ -600,13 +713,13 @@ describe('times: quem o dono classifica (TIM-04)', () => {
 
   it('TIM-04: o convidado que saiu da lista não pode ser classificado, e o que tinha fica guardado para quando voltar', async () => {
     const t = setup();
-    await t.service.update(OWNER, GROUP_ID, G, { positions: ['libero'] });
+    await t.service.update(OWNER, GROUP_ID, G, { ...t.v(G, GROUP_ID), positions: ['libero'] });
 
     // Desistiu: sai da lista do jogo.
     t.state.game = gameOf([attendee(A, 'Ana', 'member', 0)], [attendee(H, 'Heitor', 'guest', 3)]);
     expect(ids(await t.service.list(OWNER, GROUP_ID))).not.toContain(G);
     await expectAppError(
-      t.service.update(OWNER, GROUP_ID, G, { positions: ['setter'] }),
+      t.service.update(OWNER, GROUP_ID, G, { ...t.v(G, GROUP_ID), positions: ['setter'] }),
       'TEAM_PLAYER_NOT_FOUND',
       404,
     );
@@ -615,19 +728,19 @@ describe('times: quem o dono classifica (TIM-04)', () => {
     t.clock.now = LATER;
     t.state.game = gameOf([attendee(G, 'Gabi', 'guest', 5)], []);
     const back = await t.service.list(OWNER, GROUP_ID);
-    expect(back.find((p) => p.userId === G)).toMatchObject({ role: 'guest', positions: ['libero'] });
+    expect(back.find((p) => p.userId === G)).toMatchObject({ tier: 'guest', positions: ['libero'] });
   });
 
   it('TIM-04: o membro que sai do grupo e volta mantém as posições', async () => {
     const t = setup();
-    await t.service.update(OWNER, GROUP_ID, B, { positions: ['setter'] });
+    await t.service.update(OWNER, GROUP_ID, B, { ...t.v(B, GROUP_ID), positions: ['setter'] });
 
     t.state.members = MEMBERS.filter((m) => m.userId !== B);
     expect(ids(await t.service.list(OWNER, GROUP_ID))).not.toContain(B);
 
     t.state.members = [...MEMBERS.filter((m) => m.userId !== B), member(B, 'Beatriz', 'reserve')];
     const back = await t.service.list(OWNER, GROUP_ID);
-    expect(back.find((p) => p.userId === B)).toMatchObject({ role: 'reserve', positions: ['setter'] });
+    expect(back.find((p) => p.userId === B)).toMatchObject({ tier: 'reserve', positions: ['setter'] });
   });
 
   it('TIM-04: mudar de novo grava com a hora atual e não apaga o que existe para outras pessoas', async () => {
@@ -635,7 +748,7 @@ describe('times: quem o dono classifica (TIM-04)', () => {
     await t.seed(A, ['setter']);
     await t.seed(G, ['libero']);
     t.clock.now = LATER;
-    await t.service.update(OWNER, GROUP_ID, A, { positions: ['libero'] });
+    await t.service.update(OWNER, GROUP_ID, A, { ...t.v(A, GROUP_ID), positions: ['libero'] });
 
     expect(t.saved.at(-1)?.now).toBe(LATER.toISOString());
     const list = await t.service.list(OWNER, GROUP_ID);
@@ -654,20 +767,32 @@ describe('jogadores pelo id público (USR-16, USR-17)', () => {
 
   it('USR-17: o PUT recebe o id público, grava pelo id do sistema e devolve o público', async () => {
     const t = setup();
-    const saved = await t.raw.update(OWNER, GROUP_ID, pub(A), { positions: ['setter'] });
-    expect(saved).toEqual({ userId: pub(A), nickname: 'Ana', role: 'member', positions: ['setter'] });
+    const saved = await t.raw.update(OWNER, GROUP_ID, pub(A), {
+      ...t.v(pub(A), GROUP_ID),
+      positions: ['setter'],
+    });
+    expect(saved).toEqual({
+      userId: pub(A),
+      nickname: 'Ana',
+      tier: 'member',
+      positions: ['setter'],
+      version: 1,
+    });
     expect(t.saved.at(-1)).toMatchObject({ groupId: GROUP_ID, userId: A, positions: ['setter'] });
   });
 
   it('USR-17: id público que não existe → TEAM_PLAYER_NOT_FOUND (o mesmo de quem não está), sem gravar', async () => {
     const t = setup();
     const unknown = await expectAppError(
-      t.raw.update(OWNER, GROUP_ID, UNKNOWN, { positions: ['setter'] }),
+      t.raw.update(OWNER, GROUP_ID, UNKNOWN, { ...t.v(UNKNOWN, GROUP_ID), positions: ['setter'] }),
       'TEAM_PLAYER_NOT_FOUND',
       404,
     );
     const outsider = await expectAppError(
-      t.raw.update(OWNER, GROUP_ID, pub(OUTSIDER), { positions: ['setter'] }),
+      t.raw.update(OWNER, GROUP_ID, pub(OUTSIDER), {
+        ...t.v(pub(OUTSIDER), GROUP_ID),
+        positions: ['setter'],
+      }),
       'TEAM_PLAYER_NOT_FOUND',
       404,
     );
@@ -678,7 +803,10 @@ describe('jogadores pelo id público (USR-16, USR-17)', () => {
   it('USR-17: o id do sistema no lugar do público não acha ninguém (TEAM_PLAYER_NOT_FOUND)', async () => {
     const t = setup();
     await expectAppError(
-      t.raw.update(OWNER, GROUP_ID, A as unknown as PublicUserId, { positions: ['setter'] }),
+      t.raw.update(OWNER, GROUP_ID, A as unknown as PublicUserId, {
+        ...t.v(A as unknown as PublicUserId, GROUP_ID),
+        positions: ['setter'],
+      }),
       'TEAM_PLAYER_NOT_FOUND',
       404,
     );
@@ -688,7 +816,7 @@ describe('jogadores pelo id público (USR-16, USR-17)', () => {
   it('USR-17: a permissão vem de quem pede: membro mudando a posição de outro → GROUP_PERMISSION_DENIED', async () => {
     const t = setup();
     await expectAppError(
-      t.raw.update(A, GROUP_ID, pub(B), { positions: ['setter'] }),
+      t.raw.update(A, GROUP_ID, pub(B), { ...t.v(pub(B), GROUP_ID), positions: ['setter'] }),
       'GROUP_PERMISSION_DENIED',
       403,
     );
@@ -701,7 +829,7 @@ describe('posições com cargo (TIM-03, GRP-49, 53)', () => {
     const t = setup();
     for (const who of [A, R]) {
       t.state.staff[who] = 'admin';
-      const p = await t.service.update(who, GROUP_ID, B, { positions: ['setter'] });
+      const p = await t.service.update(who, GROUP_ID, B, { ...t.v(B, GROUP_ID), positions: ['setter'] });
       expect(p).toMatchObject({ userId: B, positions: ['setter'] });
     }
     expect(t.saved).toHaveLength(2);
@@ -710,7 +838,7 @@ describe('posições com cargo (TIM-03, GRP-49, 53)', () => {
   it('TIM-03: sem cargo, a resposta traz a permissão que faltou (teams.manage)', async () => {
     const t = setup();
     const err = await expectAppError(
-      t.service.update(A, GROUP_ID, B, { positions: ['setter'] }),
+      t.service.update(A, GROUP_ID, B, { ...t.v(B, GROUP_ID), positions: ['setter'] }),
       'GROUP_PERMISSION_DENIED',
       403,
     );
@@ -720,7 +848,7 @@ describe('posições com cargo (TIM-03, GRP-49, 53)', () => {
   it('GRP-53: mudar as posições de quem tem cargo segue as regras normais (o dono muda as do Admin)', async () => {
     const t = setup();
     t.state.staff[A] = 'admin';
-    const p = await t.service.update(OWNER, GROUP_ID, A, { positions: ['libero'] });
+    const p = await t.service.update(OWNER, GROUP_ID, A, { ...t.v(A, GROUP_ID), positions: ['libero'] });
     expect(p).toMatchObject({ userId: A, positions: ['libero'] });
   });
 
@@ -728,10 +856,63 @@ describe('posições com cargo (TIM-03, GRP-49, 53)', () => {
     const t = setup();
     t.state.staff[A] = 'organizer' as never;
     await expectAppError(
-      t.service.update(A, GROUP_ID, B, { positions: ['setter'] }),
+      t.service.update(A, GROUP_ID, B, { ...t.v(B, GROUP_ID), positions: ['setter'] }),
       'GROUP_PERMISSION_DENIED',
       403,
     );
     expect(t.saved).toEqual([]);
+  });
+});
+
+describe('times: a versão que a tela mostrou nas posições (TIM-25)', () => {
+  it('TIM-25: pessoa sem posição vem com version 0, e o 1º PUT com 0 grava e devolve a version 1', async () => {
+    const t = setup();
+    expect((await t.service.list(OWNER, GROUP_ID)).find((p) => p.userId === A)?.version).toBe(0);
+    const saved = await t.service.update(OWNER, GROUP_ID, A, { version: 0, positions: ['setter'] });
+    expect(saved.version).toBe(1);
+    expect((await t.service.list(OWNER, GROUP_ID)).find((p) => p.userId === A)?.version).toBe(1);
+  });
+
+  it('TIM-25: a lista traz a version de cada um, e o PUT com ela soma 1', async () => {
+    const t = setup();
+    await t.seed(A, ['setter']);
+    await t.seed(A, ['middle']);
+    expect((await t.service.list(OWNER, GROUP_ID)).find((p) => p.userId === A)?.version).toBe(2);
+    const saved = await t.service.update(OWNER, GROUP_ID, A, { version: 2, positions: ['libero'] });
+    expect(saved).toMatchObject({ positions: ['libero'], version: 3 });
+  });
+
+  it('TIM-25: PUT com a versão velha → VERSION_CONFLICT (409, currentVersion) e as posições ficam', async () => {
+    const t = setup();
+    await t.seed(A, ['setter']);
+    await t.seed(A, ['middle']);
+    const before = t.saved.length;
+    const err = await expectAppError(
+      t.service.update(OWNER, GROUP_ID, A, { version: 1, positions: ['libero'] }),
+      'VERSION_CONFLICT',
+      409,
+    );
+    expect(err.details).toEqual({ currentVersion: 2 });
+    expect(t.saved.length).toBe(before);
+    expect((await t.service.list(OWNER, GROUP_ID)).find((p) => p.userId === A)?.positions).toEqual([
+      'middle',
+    ]);
+  });
+
+  it('TIM-25: alguém salvou as posições antes → o PUT com 0 dá VERSION_CONFLICT com a versão de agora', async () => {
+    const t = setup();
+    await t.seed(A, ['setter']);
+    const err = await expectAppError(
+      t.service.update(OWNER, GROUP_ID, A, { version: 0, positions: ['libero'] }),
+      'VERSION_CONFLICT',
+      409,
+    );
+    expect(err.details).toEqual({ currentVersion: 1 });
+  });
+
+  it('TIM-25: o contrato exige a version (inteiro ≥ 0) no PUT', () => {
+    expect(UpdatePlayerInputSchema.safeParse({ positions: ['setter'] }).success).toBe(false);
+    expect(UpdatePlayerInputSchema.safeParse({ version: 1.5, positions: ['setter'] }).success).toBe(false);
+    expect(UpdatePlayerInputSchema.safeParse({ version: 0, positions: ['setter'] }).success).toBe(true);
   });
 });

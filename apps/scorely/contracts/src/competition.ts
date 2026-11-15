@@ -1,3 +1,4 @@
+import { VersionSchema } from '@scorely/contracts/src/entity';
 import { LocalDateSchema } from '@scorely/contracts/src/groups';
 import { TeamPersonIdSchema } from '@scorely/contracts/src/teams';
 import { GenderSchema, PublicUserIdSchema } from '@scorely/contracts/src/users';
@@ -56,6 +57,10 @@ export const CompetitionRulesSchema = z.object({
 });
 export type CompetitionRules = z.infer<typeof CompetitionRulesSchema>;
 
+/** PUT /groups/{id}/competition/rules (CMP-07): o regulamento inteiro, com a versão da competição (CMP-42). */
+export const UpdateCompetitionRulesInputSchema = CompetitionRulesSchema.extend({ version: VersionSchema });
+export type UpdateCompetitionRulesInput = z.infer<typeof UpdateCompetitionRulesInputSchema>;
+
 /** Modelos prontos (CMP-08): só preenchem o regulamento; o app não guarda qual foi escolhido. */
 export const CompetitionPresetIdSchema = z.enum(['classic', 'winsOnly', 'attendance']);
 export type CompetitionPresetId = z.infer<typeof CompetitionPresetIdSchema>;
@@ -84,6 +89,8 @@ export const CompetitionSchema = z.object({
   activeUntil: z.iso.datetime().optional(),
   trialAvailable: z.boolean(),
   rules: CompetitionRulesSchema.optional(),
+  /** CMP-42: a versão da competição, que o regulamento manda. Ausente enquanto não há competição. */
+  version: VersionSchema.optional(),
 });
 export type Competition = z.infer<typeof CompetitionSchema>;
 
@@ -102,6 +109,8 @@ export type GameResultWinner = z.infer<typeof GameResultWinnerSchema>;
  * do jogo, pelo id público. Sem `winner` = sem resultado. Jogo cancelado: chamada vazia e sem vencedor.
  */
 export const CloseGameInputSchema = z.object({
+  /** CMP-42: a versão do fechamento que a tela mostrou (`0` = o 1º fechamento). */
+  version: VersionSchema,
   attendance: z.record(TeamPersonIdSchema, AttendanceMarkSchema),
   winner: GameResultWinnerSchema.optional(),
   friendly: z.boolean().default(false),
@@ -183,16 +192,24 @@ export const MatchInputSchema = z.object({
 });
 export type MatchInput = z.infer<typeof MatchInputSchema>;
 
+/** PUT de uma partida: como o POST, com a versão que a tela mostrou (CMP-42). */
+export const UpdateMatchInputSchema = MatchInputSchema.extend({ version: VersionSchema });
+export type UpdateMatchInput = z.infer<typeof UpdateMatchInputSchema>;
+
 /** Uma partida do jogo: o número sai da ordem de registro (Partida 1, 2...). */
 export const MatchSchema = MatchInputSchema.extend({
   id: z.uuid(),
   number: z.number().int().min(1),
+  /** CMP-42: editar e apagar mandam esta versão. */
+  version: VersionSchema,
 });
 export type Match = z.infer<typeof MatchSchema>;
 
 /** GET /groups/{id}/competition/games/{date} (CMP-12–16). */
 export const CompetitionGameDetailSchema = CompetitionGameSchema.extend({
   closed: z.boolean(),
+  /** CMP-42: a versão do fechamento, que o `PUT` manda. `0` = ainda não fechado. */
+  version: VersionSchema,
   /** A unidade que vale no jogo: a da cópia, se fechado; senão, a do regulamento de agora. */
   unit: CompetitionUnitSchema,
   /** Os times publicados (cópia, se fechado), pelo id da pessoa ou do avulso. */
@@ -315,6 +332,8 @@ export type SeasonInput = z.infer<typeof SeasonInputSchema>;
  * regulamento do grupo); a que já começou, só o nome.
  */
 export const SeasonUpdateInputSchema = z.object({
+  /** CMP-42: a versão da temporada que a tela mostrou. */
+  version: VersionSchema,
   name: SeasonNameSchema.optional(),
   startDate: LocalDateSchema.optional(),
   endDate: LocalDateSchema.optional(),
@@ -325,6 +344,8 @@ export type SeasonUpdateInput = z.infer<typeof SeasonUpdateInputSchema>;
 /** Uma temporada (CMP-34). `podium` só nas encerradas: as posições 1 a 3, com os empatados (CMP-33). */
 export const SeasonSchema = z.object({
   id: z.uuid(),
+  /** CMP-42: editar e cancelar mandam esta versão. */
+  version: VersionSchema,
   /** A ordem de criação no grupo (o "N" de "Temporada N"). */
   number: z.number().int().min(1),
   /** Sem nome, a tela mostra "Temporada {number}" (o texto é do web). */

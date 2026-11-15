@@ -24,17 +24,16 @@ import { describe, expect, it } from 'vitest';
 // jogos na aba Competição (CMP-18). Os textos são conferidos em pt-BR.
 
 const OWNER = PublicUserIdSchema.parse('AAAA1111');
-const ME = PublicUserIdSchema.parse('BBBB2222');
 const P1 = PublicUserIdSchema.parse('CCCC3333');
 const P2 = PublicUserIdSchema.parse('DDDD4444');
 const P3 = PublicUserIdSchema.parse('EEEE5555');
 const EXTRA = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
 
-const owner = groupAccess({ ownerId: OWNER, myPermissions: [...ALL_PERMISSIONS] }, OWNER);
-const admin = groupAccess({ ownerId: OWNER, myPermissions: [...ALL_PERMISSIONS] }, ME);
-const resultsOnly = groupAccess({ ownerId: OWNER, myPermissions: ['results.record'] as Permission[] }, ME);
-const seasonsOnly = groupAccess({ ownerId: OWNER, myPermissions: ['seasons.manage'] as Permission[] }, ME);
-const plain = groupAccess({ ownerId: OWNER, myPermissions: [] }, ME);
+const owner = groupAccess({ myRoleId: 'owner', myPermissions: [...ALL_PERMISSIONS] });
+const admin = groupAccess({ myRoleId: 'admin', myPermissions: [...ALL_PERMISSIONS] });
+const resultsOnly = groupAccess({ myRoleId: 'member', myPermissions: ['results.record'] as Permission[] });
+const seasonsOnly = groupAccess({ myRoleId: 'member', myPermissions: ['seasons.manage'] as Permission[] });
+const plain = groupAccess({ myRoleId: 'member', myPermissions: [] });
 
 const INACTIVE: Competition = { status: 'inactive', trialAvailable: true };
 const ACTIVE: Competition = {

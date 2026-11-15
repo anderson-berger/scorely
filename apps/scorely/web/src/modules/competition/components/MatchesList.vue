@@ -102,7 +102,9 @@ export default defineComponent({
       if (!(await this.ask(this.$t('competition.matches.removeConfirm', { n: m.number })))) return;
       this.busy = true;
       try {
-        const saved = await competitionApi.deleteMatch(this.groupId, this.detail.date, m.id);
+        const saved = await competitionApi.deleteMatch(this.groupId, this.detail.date, m.id, {
+          version: m.version,
+        });
         this.$q.notify({ type: 'positive', message: this.$t('competition.matches.removed') });
         this.$emit('changed', saved);
       } catch (err) {

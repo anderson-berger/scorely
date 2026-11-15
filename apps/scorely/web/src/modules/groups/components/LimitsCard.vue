@@ -72,7 +72,8 @@ export default defineComponent({
     },
 
     async save() {
-      const parsed = UpdateGroupInputSchema.safeParse(this.draft);
+      // GRP-59: a versão dos Ajustes que a tela mostra.
+      const parsed = UpdateGroupInputSchema.safeParse({ version: this.group.settingsVersion, ...this.draft });
       if (!parsed.success) {
         return this.$q.notify({ type: 'warning', message: issueMessage(parsed.error.issues[0]) });
       }

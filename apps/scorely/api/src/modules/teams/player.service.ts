@@ -3,15 +3,11 @@ import type { UserId } from '@scorely/api/src/lib/ids';
 import type { GroupRepository, StoredGroup } from '@scorely/api/src/modules/groups/group.repository';
 import { requireActive, requireMember, requirePermission } from '@scorely/api/src/modules/groups/groups.deps';
 import type { RosterGame, RosterMember } from '@scorely/api/src/modules/groups/roster';
+import type { SportService } from '@scorely/api/src/modules/sports/sport.service';
 import type { PlayerRepository } from '@scorely/api/src/modules/teams/player.repository';
+import { positionsOf } from '@scorely/api/src/modules/teams/positions';
 import type { UserDirectory } from '@scorely/api/src/modules/users/user.repository';
-import {
-  type Player,
-  type PlayerPosition,
-  type PublicUserId,
-  SPORT_POSITIONS,
-  type UpdatePlayerInput,
-} from '@scorely/contracts';
+import type { Player, PlayerPosition, PublicUserId, UpdatePlayerInput } from '@scorely/contracts';
 
 /** O que o módulo de times usa do módulo de grupos e o próprio repositório. */
 export interface TeamsDeps {
@@ -23,13 +19,18 @@ export interface TeamsDeps {
     currentGame(userId: UserId, groupId: string): Promise<RosterGame>;
   };
   players: PlayerRepository;
+  /** TIM-02: as posições vêm do catálogo do esporte do grupo (ESP). */
+  sports: Pick<SportService, 'get'>;
   /** USR-17: o `{userId}` da rota chega pelo id público. */
   users: Pick<UserDirectory, 'resolve'>;
   now?: () => Date;
 }
 
 /** Alguém classificável, com os dois ids (interno); a resposta sai com o público (USR-16). */
-export type Person = Omit<Player, 'positions' | 'userId'> & { userId: UserId; publicId: PublicUserId };
+export type Person = Omit<Player, 'positions' | 'userId' | 'version'> & {
+  userId: UserId;
+  publicId: PublicUserId;
+};
 
 /**
  * TIM-04: quem o dono pode classificar (e pôr em times opostos, TIM-22): membros (GRP-06) e depois os convidados da
@@ -42,7 +43,7 @@ export async function classifiablePeople(
 ): Promise<Person[]> {
   const members = await roster.members(userId, group.id);
   const fromMembers = members.map(
-    ({ userId: id, publicId, nickname, role }): Person => ({ userId: id, publicId, nickname, role }),
+    ({ userId: id, publicId, nickname, tier }): Person => ({ userId: id, publicId, nickname, tier }),
   );
   if (group.archivedAt) return fromMembers;
   const game = await roster.currentGame(userId, group.id);
@@ -54,15 +55,19 @@ export async function classifiablePeople(
         userId: id,
         publicId,
         nickname,
-        role: 'guest',
+        tier: 'guest',
       }),
     );
   return [...fromMembers, ...guests];
 }
 
-/** USR-16: a pessoa sai pelo id público. */
-function toPlayer({ userId: _id, publicId, ...rest }: Person, positions: PlayerPosition[]): Player {
-  return { ...rest, userId: publicId, positions };
+/** USR-16: a pessoa sai pelo id público, com a versão das posições (TIM-25; `0` = nunca salvas). */
+function toPlayer(
+  { userId: _id, publicId, ...rest }: Person,
+  positions: PlayerPosition[],
+  version: number,
+): Player {
+  return { ...rest, userId: publicId, positions, version };
 }
 
 export function createPlayerService(deps: TeamsDeps) {
@@ -80,8 +85,11 @@ export function createPlayerService(deps: TeamsDeps) {
       groupId,
       list.map((p) => p.userId),
     );
-    const positions = new Map(stored.map((s) => [s.userId, s.positions]));
-    return list.map((p) => toPlayer(p, positions.get(p.userId) ?? []));
+    const byUser = new Map(stored.map((s) => [s.userId, s]));
+    return list.map((p) => {
+      const saved = byUser.get(p.userId);
+      return toPlayer(p, saved?.positions ?? [], saved?.version ?? 0);
+    });
   }
 
   return {
@@ -104,11 +112,22 @@ export function createPlayerService(deps: TeamsDeps) {
       const targetUserId = (await deps.users.resolve([target])).get(target);
       const person = targetUserId && (await people(userId, group)).find((p) => p.userId === targetUserId);
       if (!person) throw appError('TEAM_PLAYER_NOT_FOUND');
-      const allowed: readonly PlayerPosition[] = SPORT_POSITIONS[group.sport];
-      const invalid = input.positions.find((p) => !allowed.includes(p));
+      // TIM-02, ESP-05: a desativada só continua para quem já a tinha.
+      const [stored] = await deps.players.getMany(group.id, [person.userId]);
+      const invalid = (await positionsOf(deps.sports, group.sportId)).invalid(
+        input.positions,
+        stored?.positions,
+      );
       if (invalid) throw appError('TEAM_POSITION_INVALID', { position: invalid });
-      const saved = await deps.players.save(group.id, person.userId, input.positions, now().toISOString());
-      return toPlayer(person, saved.positions);
+      // TIM-25: só grava na versão que a tela mostrou.
+      const saved = await deps.players.save(
+        group.id,
+        person.userId,
+        input.positions,
+        now().toISOString(),
+        input.version,
+      );
+      return toPlayer(person, saved.positions, saved.version);
     },
   };
 }

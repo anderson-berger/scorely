@@ -140,6 +140,8 @@ export default defineComponent({
         () =>
           editing
             ? competitionApi.updateSeason(this.group.id, editing.id, {
+                // CMP-42: a versão da temporada que a tela mostra.
+                version: editing.version,
                 ...(name && { name }),
                 startDate: this.form.startDate,
                 endDate: this.form.endDate,
@@ -157,7 +159,7 @@ export default defineComponent({
     async cancelSeason(s: Season) {
       if (!(await this.ask(this.$t('competition.seasons.cancelConfirm')))) return;
       await this.run(
-        () => competitionApi.deleteSeason(this.group.id, s.id),
+        () => competitionApi.deleteSeason(this.group.id, s.id, { version: s.version }),
         this.$t('competition.seasons.removed'),
       );
     },

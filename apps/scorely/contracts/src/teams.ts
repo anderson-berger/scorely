@@ -1,4 +1,6 @@
-import { GroupRoleSchema, LocalDateSchema, type Sport } from '@scorely/contracts/src/groups';
+import { VersionSchema } from '@scorely/contracts/src/entity';
+import { LocalDateSchema, TierSchema } from '@scorely/contracts/src/groups';
+import { PositionIdSchema } from '@scorely/contracts/src/sports';
 import { GenderSchema, PublicUserIdSchema } from '@scorely/contracts/src/users';
 import { z } from 'zod';
 
@@ -6,32 +8,9 @@ import { z } from 'zod';
 export const TeamPersonIdSchema = z.union([PublicUserIdSchema, z.uuid()]);
 export type TeamPersonId = z.infer<typeof TeamPersonIdSchema>;
 
-/** Posições do esporte (TIM-02). O web traduz (`teams.positions.<valor>`). */
-export const PlayerPositionSchema = z.enum([
-  'setter',
-  'opposite',
-  'outside',
-  'middle',
-  'libero',
-  'goalkeeper',
-  'defender',
-  'fullback',
-  'defensive_mid',
-  'midfielder',
-  'forward',
-  'guard',
-  'wing',
-  'center',
-]);
+/** Posição do esporte do grupo (TIM-02): o id de uma posição do catálogo (ESP-02). O web mostra o nome do catálogo. */
+export const PlayerPositionSchema = PositionIdSchema;
 export type PlayerPosition = z.infer<typeof PlayerPositionSchema>;
-
-/** Catálogo de posições por esporte, na ordem de exibição (TIM-02). Esporte novo = entrada nova aqui. */
-export const SPORT_POSITIONS = {
-  volleyball: ['setter', 'opposite', 'outside', 'middle', 'libero'],
-  soccer: ['goalkeeper', 'defender', 'fullback', 'defensive_mid', 'midfielder', 'forward'],
-  basketball: ['guard', 'wing', 'center'],
-  other: [],
-} as const satisfies Record<Sport, readonly PlayerPosition[]>;
 
 /** Posições sem repetição; a primeira é a principal. Se pertencem ao esporte do grupo, a api confere (`TEAM_POSITION_INVALID`). */
 const PlayerPositionsSchema = z
@@ -43,13 +22,15 @@ export const PlayerSchema = z.object({
   userId: PublicUserIdSchema,
   /** O apelido (USR-04). O nome da pessoa nunca sai aqui (USR-13). */
   nickname: z.string(),
-  role: GroupRoleSchema,
+  tier: TierSchema,
   positions: z.array(PlayerPositionSchema),
+  /** TIM-25: a versão das posições da pessoa no grupo; `0` = ainda sem posição salva. */
+  version: VersionSchema,
 });
 export type Player = z.infer<typeof PlayerSchema>;
 
 /** PUT /groups/{id}/players/{userId}: as posições da pessoa no grupo, a principal primeiro (substitui as anteriores). */
-export const UpdatePlayerInputSchema = z.object({ positions: PlayerPositionsSchema });
+export const UpdatePlayerInputSchema = z.object({ version: VersionSchema, positions: PlayerPositionsSchema });
 export type UpdatePlayerInput = z.infer<typeof UpdatePlayerInputSchema>;
 
 /** Times do jogo (TIM-06–14). Quantidade de times permitida (TIM-08). */
@@ -99,8 +80,10 @@ export const TeamApartRuleSchema = z.object({
 });
 export type TeamApartRule = z.infer<typeof TeamApartRuleSchema>;
 
-/** PUT /groups/{id}/team-settings: a configuração inteira (TIM-17). */
+/** PUT /groups/{id}/team-settings: a configuração inteira (TIM-17), com a versão que a tela mostrou (TIM-25). */
 export const UpdateTeamSettingsInputSchema = z.object({
+  /** TIM-25: `0` = o grupo ainda sem configuração salva. */
+  version: VersionSchema,
   teamCount: z.number().int().min(TEAM_COUNT.min).max(TEAM_COUNT.max),
   rules: z
     .array(TeamRuleSchema)
@@ -206,7 +189,7 @@ export const TeamPlayerSchema = z.object({
   userId: TeamPersonIdSchema,
   /** O apelido (USR-04); do avulso, o nome digitado (TIM-24). */
   nickname: z.string(),
-  role: GroupRoleSchema,
+  tier: TierSchema,
   /** As posições que valem no jogo: o ajuste do jogo ou, sem ele, as do grupo (TIM-13). A primeira é a principal. */
   positions: z.array(PlayerPositionSchema),
   /** O dono mudou as posições só neste jogo (TIM-13). */
@@ -217,7 +200,7 @@ export const TeamPlayerSchema = z.object({
   bench: z.boolean(),
   /** O dono fixou a pessoa no time: o sorteio não a move (TIM-16). Sempre `false` para quem não é dono. */
   pinned: z.boolean(),
-  /** Avulso do jogo (TIM-24): sem conta, `role` = `guest`, `inList` = true, `bench` = false. */
+  /** Avulso do jogo (TIM-24): sem conta, `tier` = `guest`, `inList` = true, `bench` = false. */
   extra: z.boolean(),
   /** Só do avulso: o gênero dele, para o dono editar (TIM-24). */
   gender: GenderSchema.optional(),
@@ -236,6 +219,8 @@ export const TeamsSchema = z.object({
   groupId: z.uuid(),
   date: LocalDateSchema,
   status: TeamsStatusSchema,
+  /** TIM-25: a versão dos times do jogo, que salvar, sortear, publicar, despublicar e descartar mandam. */
+  version: VersionSchema,
   teams: z.array(z.array(TeamPlayerSchema)),
   unassigned: z.array(TeamPlayerSchema),
   /** Quando foi a 1ª publicação (TIM-10). */
@@ -258,6 +243,8 @@ export type TeamsResponse = z.infer<typeof TeamsResponseSchema>;
 /** PUT dos times: ids por time, na ordem, os ajustes de posição só do jogo, quem está fixo e os avulsos (TIM-08, 13, 16, 24). Não muda o status. */
 export const SaveTeamsInputSchema = z
   .object({
+    /** TIM-25: a versão dos times que a tela mostrou (`0` = o jogo ainda sem times). */
+    version: VersionSchema,
     teams: z
       .array(z.array(TeamPersonIdSchema))
       .min(TEAM_COUNT.min)

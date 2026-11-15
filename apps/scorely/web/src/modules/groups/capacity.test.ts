@@ -12,7 +12,7 @@ function attendees(n: number): Attendee[] {
     userId: PublicUserIdSchema.parse(String(i).padStart(8, '0')),
     nickname: `Pessoa ${i}`,
     confirmedAt: '2026-11-10T22:00:00.000Z',
-    role: 'member',
+    tier: 'member',
   }));
 }
 
@@ -21,10 +21,10 @@ const HOUR = 3_600_000;
 const now = new Date('2026-11-11T12:00:00.000Z');
 const inHours = (h: number) => new Date(now.getTime() + h * HOUR).toISOString();
 
-type CardGroup = Pick<MyGroup, 'myRole' | 'listOpensHoursBefore' | 'reservesOpenHoursBefore' | 'game'>;
+type CardGroup = Pick<MyGroup, 'myTier' | 'listOpensHoursBefore' | 'reservesOpenHoursBefore' | 'game'>;
 
-const cardGroup = (game: Partial<CardGroup['game']>, myRole: CardGroup['myRole'] = 'member'): CardGroup => ({
-  myRole,
+const cardGroup = (game: Partial<CardGroup['game']>, myTier: CardGroup['myTier'] = 'member'): CardGroup => ({
+  myTier,
   listOpensHoursBefore: 48,
   reservesOpenHoursBefore: 24,
   game: {

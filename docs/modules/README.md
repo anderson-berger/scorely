@@ -11,6 +11,7 @@
 | `scorely/media`                                     | [midia.md](midia.md)               | `MID`              |
 | `scorely/teams`                                     | [times.md](times.md)               | `TIM`              |
 | `scorely/competition`                               | [competicao.md](competicao.md)     | `CMP`              |
+| `scorely/sports`                                    | [esportes.md](esportes.md)         | `ESP`              |
 | `scorely/health`                                    | —                                  | —                  |
 
 O `base` é template e não tem doc de módulo. Um módulo sem regra de negócio, como o `health`, fica na tabela com "—".

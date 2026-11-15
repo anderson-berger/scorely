@@ -5,6 +5,7 @@ import {
   TeamsResponseSchema,
   type UpdatePlayerInput,
   type UpdateTeamSettingsInput,
+  type VersionInput,
 } from '@scorely/contracts';
 import { request, send } from '@scorely/web/src/lib/http';
 
@@ -19,14 +20,19 @@ export const teamsApi = {
   teams: (groupId: string, date: string) => request({ url: teamsUrl(groupId, date) }, TeamsResponseSchema),
   saveTeams: (groupId: string, date: string, input: SaveTeamsInput) =>
     request({ url: teamsUrl(groupId, date), method: 'PUT', data: input }, TeamsResponseSchema),
-  publishTeams: (groupId: string, date: string) =>
-    request({ url: `${teamsUrl(groupId, date)}/publish`, method: 'POST' }, TeamsResponseSchema),
+  /** TIM-25: as ações mandam a versão dos times que a tela mostrou (0 = sem times). */
+  publishTeams: (groupId: string, date: string, input: VersionInput) =>
+    request({ url: `${teamsUrl(groupId, date)}/publish`, method: 'POST', data: input }, TeamsResponseSchema),
   /** Sorteia (TIM-15); com os times publicados, eles voltam para rascunho. */
-  drawTeams: (groupId: string, date: string) =>
-    request({ url: `${teamsUrl(groupId, date)}/draw`, method: 'POST' }, TeamsResponseSchema),
-  unpublishTeams: (groupId: string, date: string) =>
-    request({ url: `${teamsUrl(groupId, date)}/unpublish`, method: 'POST' }, TeamsResponseSchema),
-  discardTeams: (groupId: string, date: string) => send({ url: teamsUrl(groupId, date), method: 'DELETE' }),
+  drawTeams: (groupId: string, date: string, input: VersionInput) =>
+    request({ url: `${teamsUrl(groupId, date)}/draw`, method: 'POST', data: input }, TeamsResponseSchema),
+  unpublishTeams: (groupId: string, date: string, input: VersionInput) =>
+    request(
+      { url: `${teamsUrl(groupId, date)}/unpublish`, method: 'POST', data: input },
+      TeamsResponseSchema,
+    ),
+  discardTeams: (groupId: string, date: string, input: VersionInput) =>
+    send({ url: teamsUrl(groupId, date), method: 'DELETE', data: input }),
   /** Configuração de times do grupo (TIM-17): quantidade padrão, regras e "permitir publicar fora". Só o dono. */
   settings: (groupId: string) => request({ url: `/groups/${groupId}/team-settings` }, TeamSettingsSchema),
   updateSettings: (groupId: string, input: UpdateTeamSettingsInput) =>

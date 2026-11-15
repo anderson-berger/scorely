@@ -1,3 +1,4 @@
+import { appError } from '@scorely/api/src/lib/errors';
 import { asUserId, type UserId } from '@scorely/api/src/lib/ids';
 import type {
   CompetitionRepository,
@@ -37,16 +38,21 @@ import {
   COMPETITION_MATCH_LIMIT,
   type CompetitionRules,
   type MatchInput,
-  type MemberRole,
+  type MemberTier,
   type PublicUserId,
   PublicUserIdSchema,
+  type RoleId,
   type Season,
   type SeasonInput,
   SeasonSchema,
-  type StaffRoleId,
   TrophySchema,
 } from '@scorely/contracts';
 import { describe, expect, it } from 'vitest';
+
+/** ADR 0016: o que o banco faz na gravação condicionada pela versão (o repositório lança o mesmo erro). */
+function expectVersionIn(current: number, expected: number): void {
+  if (current !== expected) throw appError('VERSION_CONFLICT', { currentVersion: current });
+}
 
 // Competição, etapa 6 (`.claude/work/competicao-6.md`, D3–D6, D8): os troféus e os avisos ao travar a temporada
 // (CMP-36, 38, 39), onde os troféus aparecem (CMP-37) e a rotina diária (CMP-39).
@@ -79,7 +85,7 @@ const NAMES: Record<string, string> = {
 const pub = (id: UserId): PublicUserId =>
   PublicUserIdSchema.parse(`${id.slice(0, 4)}${id.slice(-4)}`.toUpperCase());
 
-const ROSTER: Record<string, MemberRole> = {
+const ROSTER: Record<string, MemberTier> = {
   [OWNER]: 'member',
   [A]: 'member',
   [B]: 'member',
@@ -144,6 +150,7 @@ function publishedTeams(date: string, teams: string[][]): StoredTeams {
     extras: [],
     createdAt: `${date}T20:00:00.000Z`,
     updatedAt: `${date}T21:00:00.000Z`,
+    version: 1,
   };
 }
 
@@ -165,7 +172,7 @@ function setup(opts: { competition?: Partial<StoredCompetition>; results?: Store
       id: GROUP_ID,
       createdAt: '2026-01-01T00:00:00.000Z',
       name: 'Vôlei de sexta',
-      sport: 'volleyball',
+      sportId: 'volleyball',
       weekday: 5,
       time: '19:00',
       timeZone: 'America/Sao_Paulo',
@@ -173,16 +180,14 @@ function setup(opts: { competition?: Partial<StoredCompetition>; results?: Store
       listOpensHoursBefore: 48,
       reservesOpenHoursBefore: 24,
       guestsOpenHoursBefore: 12,
-      ownerId: OWNER,
-      ownerPublicId: pub(OWNER),
       inviteToken: 'tok-member',
       reserveInviteToken: 'tok-reserve',
       guestToken: 'tok-guest',
       maxMembers: 30,
       maxReserves: 30,
     } as StoredGroup,
-    roster: { ...ROSTER } as Record<string, MemberRole>,
-    staff: { [A]: 'admin' } as Record<string, StaffRoleId>,
+    roster: { ...ROSTER } as Record<string, MemberTier>,
+    staff: { [A]: 'admin' } as Record<string, RoleId>,
     games: Object.fromEntries(Object.entries(LISTS).map(([date, list]) => [date, fakeGame(date, list)])),
     teams: {
       [OCT30]: publishedTeams(OCT30, [[OWNER], [A, B]]),
@@ -228,8 +233,7 @@ function setup(opts: { competition?: Partial<StoredCompetition>; results?: Store
     getMembership: async (groupId, userId) => {
       const role = groupId === state.group.id ? state.roster[userId] : undefined;
       if (!role) return undefined;
-      const staffRoleId = state.staff[userId];
-      return staffRoleId === undefined ? { role } : { role, staffRoleId };
+      return { tier: role, roleId: state.staff[userId] ?? (userId === OWNER ? 'owner' : 'member') };
     },
     setStaffRole: unused,
     transfer: unused,
@@ -239,12 +243,11 @@ function setup(opts: { competition?: Partial<StoredCompetition>; results?: Store
     listMembers: async (groupId) =>
       groupId === state.group.id
         ? Object.entries(state.roster).map(([userId, role]) => {
-            const staffRoleId = state.staff[userId];
             return {
               userId: asUserId(userId),
-              role,
+              tier: role,
+              roleId: state.staff[userId] ?? (userId === OWNER ? 'owner' : 'member'),
               createdAt: '2026-01-01T00:00:00.000Z',
-              ...(staffRoleId === undefined ? {} : { staffRoleId }),
             };
           })
         : [],
@@ -302,15 +305,17 @@ function setup(opts: { competition?: Partial<StoredCompetition>; results?: Store
         .filter((r) => r.groupId === groupId)
         .sort((x, y) => x.startsAt.localeCompare(y.startsAt))
         .map((r) => structuredClone(r)),
-    create: async (item) => {
-      if (resultStore.has(item.gameId)) return false;
-      resultStore.set(item.gameId, structuredClone(item));
+    /** CMP-42 (ADR 0016): o 1º fechamento manda 0; a correção, a versão atual (que soma 1). */
+    create: async (item, expectedVersion) => {
+      expectVersionIn(resultStore.get(item.gameId)?.version ?? 0, expectedVersion);
+      resultStore.set(item.gameId, { ...structuredClone(item), version: 1 });
       return true;
     },
-    update: async (id, patch) => {
+    update: async (id, patch, expectedVersion) => {
       const item = resultStore.get(id);
+      expectVersionIn(item?.version ?? 0, expectedVersion);
       if (!item) throw new Error('update without item');
-      resultStore.set(id, { ...item, ...structuredClone(patch) });
+      resultStore.set(id, { ...item, ...structuredClone(patch), version: item.version + 1 });
     },
   };
 
@@ -322,17 +327,20 @@ function setup(opts: { competition?: Partial<StoredCompetition>; results?: Store
     },
     create: async (m) => {
       if (matchStore.filter((x) => x.gameId === m.gameId).length >= COMPETITION_MATCH_LIMIT) return 'full';
-      matchStore.push(structuredClone(m));
+      matchStore.push({ ...structuredClone(m), version: 1 });
       return 'created';
     },
-    update: async (id, patch) => {
+    /** CMP-42: editar e apagar a partida gravam só com a versão atual dela. */
+    update: async (id, patch, expectedVersion) => {
       const index = matchStore.findIndex((m) => m.id === id);
       const item = matchStore[index];
+      expectVersionIn(item?.version ?? 0, expectedVersion);
       if (!item) throw new Error('update without match');
-      matchStore.splice(index, 1, { ...item, ...structuredClone(patch) });
+      matchStore.splice(index, 1, { ...item, ...structuredClone(patch), version: item.version + 1 });
     },
-    delete: async (m) => {
+    delete: async (m, expectedVersion) => {
       const index = matchStore.findIndex((x) => x.id === m.id);
+      expectVersionIn(matchStore[index]?.version ?? 0, expectedVersion);
       if (index < 0) throw new Error('delete without match');
       matchStore.splice(index, 1);
     },
@@ -346,14 +354,17 @@ function setup(opts: { competition?: Partial<StoredCompetition>; results?: Store
       return item ? structuredClone(item) : undefined;
     },
     create: async (s) => {
-      seasonStore.set(s.id, structuredClone(s));
+      seasonStore.set(s.id, { ...structuredClone(s), version: 1 });
     },
-    update: async (id, patch) => {
+    /** CMP-42: editar e cancelar a temporada gravam só com a versão atual dela. */
+    update: async (id, patch, _oldStartDate, expectedVersion) => {
       const item = seasonStore.get(id);
+      expectVersionIn(item?.version ?? 0, expectedVersion);
       if (!item) throw new Error('update without season');
-      seasonStore.set(id, { ...item, ...structuredClone(patch) });
+      seasonStore.set(id, { ...item, ...structuredClone(patch), version: item.version + 1 });
     },
-    delete: async (s) => {
+    delete: async (s, expectedVersion) => {
+      expectVersionIn(seasonStore.get(s.id)?.version ?? 0, expectedVersion);
       seasonStore.delete(s.id);
     },
     saveFinal: async (id, final, trophies) => {
@@ -413,6 +424,7 @@ function setup(opts: { competition?: Partial<StoredCompetition>; results?: Store
     publicId: pub(id),
     nickname: NAMES[id] ?? pub(id),
     createdAt: '2026-01-01T00:00:00.000Z',
+    version: 1,
   });
   const users = {
     getMany: async (ids: readonly UserId[]): Promise<UserRecord[]> =>
@@ -496,6 +508,9 @@ function setup(opts: { competition?: Partial<StoredCompetition>; results?: Store
     ranking: rankingService,
     trophies: trophyService,
     job,
+    /** CMP-42: a versão que a tela mostrou (`0` = não existe). */
+    rv: (date: string) => ({ version: resultStore.get(gameId(date))?.version ?? 0 }),
+    mv: (id: string) => ({ version: matchStore.find((m) => m.id === id)?.version ?? 0 }),
   };
 }
 
@@ -513,6 +528,7 @@ async function open(t: T, at: Date, input: SeasonInput): Promise<Season> {
 function closeGame(t: T, date: string, winner?: 0 | 1) {
   const attendance = Object.fromEntries((LISTS[date] ?? []).map((id) => [pub(id), 'present' as const]));
   return t.results.close(OWNER, GROUP_ID, date, {
+    ...t.rv(date),
     attendance,
     friendly: false,
     ...(winner === undefined ? {} : { winner }),
@@ -548,6 +564,7 @@ function stored(date: string, list: UserId[], teams: UserId[][]): StoredGameResu
     winner: 0,
     createdAt: `${date}T23:00:00.000Z`,
     updatedAt: `${date}T23:00:00.000Z`,
+    version: 1,
   };
 }
 
@@ -766,7 +783,10 @@ describe('entrou no pódio (CMP-38)', () => {
 
     // O Dono vence: Ana e Dono 1º, Caio 3º. Quem está no top 3 continua o mesmo.
     const matchId = detail.matches[0]?.id ?? '';
-    await t.matches.update(OWNER, GROUP_ID, NOV06, matchId, matchInput([C], [OWNER], 1));
+    await t.matches.update(OWNER, GROUP_ID, NOV06, matchId, {
+      ...matchInput([C], [OWNER], 1),
+      ...t.mv(matchId),
+    });
     expect(ofType(t, 'podium_entered').map((n) => n.userId)).toEqual([C]);
   });
 });

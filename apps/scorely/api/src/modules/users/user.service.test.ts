@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { appError } from '@scorely/api/src/lib/errors';
 import { asUserId, type UserId } from '@scorely/api/src/lib/ids';
 import { newPublicId } from '@scorely/api/src/modules/users/public-id';
 import type { MeRecord, UserRecord, UserRepository } from '@scorely/api/src/modules/users/user.repository';
@@ -13,6 +14,11 @@ import {
 } from '@scorely/contracts';
 import { describe, expect, it } from 'vitest';
 
+/** ADR 0016: o que o banco faz na gravação condicionada pela versão (o repositório lança o mesmo erro). */
+function expectVersionIn(current: number, expected: number): void {
+  if (current !== expected) throw appError('VERSION_CONFLICT', { currentVersion: current });
+}
+
 const EMAIL = 'ana@example.com';
 type ReadOpts = { consistent?: boolean };
 
@@ -24,7 +30,8 @@ const pid = (code: string): PublicUserId => PublicUserIdSchema.parse(code);
  * uso por outra conta (USR-15: o código é único). `created` guarda o que cada `create` recebeu.
  */
 function memoryUserRepo(taken: readonly string[] = []) {
-  const profiles = new Map<UserId, UserRecord>();
+  /** O `META` com a `version` do perfil (USR-18). */
+  const profiles = new Map<UserId, UserRecord & { version: number }>();
   const privates = new Map<UserId, { email: string; name?: string }>();
   const prefs = new Map<UserId, Preferences>();
   const publicIds = new Map<string, UserId>(taken.map((code) => [code, asUserId(randomUUID())]));
@@ -48,17 +55,20 @@ function memoryUserRepo(taken: readonly string[] = []) {
       created.push(structuredClone({ user, email }));
       if (idOf(email) !== undefined) return 'email_taken';
       if (publicIds.has(user.publicId)) return 'public_id_taken';
-      profiles.set(user.id, structuredClone(user));
+      profiles.set(user.id, { ...structuredClone(user), version: 1 });
       privates.set(user.id, { email });
       prefs.set(user.id, {});
       publicIds.set(user.publicId, user.id);
       return 'created';
     },
+    /** USR-18 (ADR 0016): condicionado na `version` do META, que soma 1 em toda mudança, mesmo só no privado ou nas preferências. */
     async update(id: UserId, patch: UpdateMeInput) {
       const profile = profiles.get(id);
       const priv = privates.get(id);
       if (!profile || !priv) return undefined;
-      const { locale, timeZone, name, ...rest } = patch;
+      expectVersionIn(profile.version, patch.version);
+      const { locale, timeZone, name, version: _version, ...rest } = patch;
+      profile.version += 1;
       Object.assign(prefs.get(id) ?? {}, {
         ...(locale && { locale }),
         ...(timeZone && { timeZone }),
@@ -76,7 +86,9 @@ function memoryUserRepo(taken: readonly string[] = []) {
       );
     },
   };
-  return { repo, profiles, privates, created };
+  /** USR-18: a versão do perfil que a tela mostrou (`0` sem conta). */
+  const v = (id: UserId) => ({ version: profiles.get(id)?.version ?? 0 });
+  return { repo, profiles, privates, created, v };
 }
 
 /** Gerador de códigos fake: devolve os da lista, na ordem, e conta as chamadas. */
@@ -98,6 +110,7 @@ const winner: MeRecord = {
   publicId: pid('7K3QX9TA'),
   nickname: '7K3QX9TA',
   createdAt: '2026-01-01T00:00:00.000Z',
+  version: 1,
   email: EMAIL,
   preferences: {},
 };
@@ -182,7 +195,7 @@ describe('conta e email (USR-01, USR-13)', () => {
     const memory = memoryUserRepo();
     const service = createUserService(memory.repo, () => clock.now);
     const { userId } = await service.findOrCreateByEmail(EMAIL);
-    const patched = await service.update(userId, { name: 'Ana Souza' });
+    const patched = await service.update(userId, { ...memory.v(userId), name: 'Ana Souza' });
     expect(patched.name).toBe('Ana Souza');
     expect((await service.get(userId)).name).toBe('Ana Souza');
     const profile = await memory.repo.get(userId);
@@ -242,7 +255,7 @@ describe('id público, o código de amigo (USR-15)', () => {
     const second = await service.findOrCreateByEmail(EMAIL);
     expect(second.me.id).toBe(first.me.id);
     expect(gen.state.calls).toBe(1);
-    await service.update(first.userId, { name: 'Ana' });
+    await service.update(first.userId, { ...memory.v(first.userId), name: 'Ana' });
     expect((await service.get(first.userId)).id).toBe('7K3QX9TA');
   });
 
@@ -284,7 +297,7 @@ describe('o id do sistema não sai (USR-16)', () => {
     const service = createUserService(memory.repo, () => clock.now, undefined, codes('7K3QX9TA').next);
     const { userId, me } = await service.findOrCreateByEmail(EMAIL);
     const read = await service.get(userId);
-    const patched = await service.update(userId, { name: 'Ana' });
+    const patched = await service.update(userId, { ...memory.v(userId), name: 'Ana' });
     for (const m of [me, read, patched]) {
       expect(m.id).toBe('7K3QX9TA');
       expect(m).not.toHaveProperty('publicId');
@@ -302,6 +315,7 @@ describe('o id do sistema não sai (USR-16)', () => {
       name: 'Ana',
       email: EMAIL,
       preferences: {},
+      version: 1,
     });
   });
 
@@ -326,7 +340,7 @@ describe('quem a ação atinge (USR-17)', () => {
     const service = createUserService(memory.repo, () => clock.now, undefined, gen.next);
     const ana = await service.findOrCreateByEmail('ana@example.com');
     const bia = await service.findOrCreateByEmail('bia@example.com');
-    await service.update(ana.userId, { name: 'Ana' });
+    await service.update(ana.userId, { ...memory.v(ana.userId), name: 'Ana' });
     expect((await service.get(ana.userId)).name).toBe('Ana');
     expect((await service.get(bia.userId)).name).toBeUndefined();
   });
@@ -377,7 +391,7 @@ describe('conta que não existe mais (AUTH-16)', () => {
   it('AUTH-16: PATCH /me com conta inexistente → SESSION_INVALID (401) e nada é criado', async () => {
     const memory = memoryUserRepo();
     const service = createUserService(memory.repo, () => clock.now);
-    const err = await service.update(ghost, { name: 'Ana' }).catch((e: unknown) => e);
+    const err = await service.update(ghost, { ...memory.v(ghost), name: 'Ana' }).catch((e: unknown) => e);
     expect(err).toMatchObject({ code: 'SESSION_INVALID', status: 401 });
     expect(memory.profiles.size).toBe(0);
   });
@@ -388,8 +402,10 @@ describe('campos do perfil (USR-03)', () => {
     const memory = memoryUserRepo();
     const service = createUserService(memory.repo, () => clock.now, undefined, codes('7K3QX9TA').next);
     const { userId } = await service.findOrCreateByEmail(EMAIL);
-    await service.update(userId, { nickname: 'Aninha' });
-    const err = await service.update(userId, { nickname: '7K3QX9TA', name: 'Ana' }).catch((e: unknown) => e);
+    await service.update(userId, { ...memory.v(userId), nickname: 'Aninha' });
+    const err = await service
+      .update(userId, { ...memory.v(userId), nickname: '7K3QX9TA', name: 'Ana' })
+      .catch((e: unknown) => e);
     expect(err).toMatchObject({ code: 'USER_NICKNAME_IS_PUBLIC_ID', status: 422 });
     const after = await service.get(userId);
     expect(after.nickname).toBe('Aninha');
@@ -400,7 +416,7 @@ describe('campos do perfil (USR-03)', () => {
     const memory = memoryUserRepo();
     const service = createUserService(memory.repo, () => clock.now, undefined, codes('7K3QX9TA').next);
     const { userId } = await service.findOrCreateByEmail(EMAIL);
-    const input = UpdateMeInputSchema.parse({ nickname: '  7K3QX9TA  ' });
+    const input = UpdateMeInputSchema.parse({ ...memory.v(userId), nickname: '  7K3QX9TA  ' });
     const err = await service.update(userId, input).catch((e: unknown) => e);
     expect(err).toMatchObject({ code: 'USER_NICKNAME_IS_PUBLIC_ID', status: 422 });
   });
@@ -409,7 +425,7 @@ describe('campos do perfil (USR-03)', () => {
     const memory = memoryUserRepo();
     const service = createUserService(memory.repo, () => clock.now, undefined, codes('7K3QX9TA').next);
     const { userId } = await service.findOrCreateByEmail(EMAIL);
-    const patched = await service.update(userId, { nickname: '7k3qx9ta' });
+    const patched = await service.update(userId, { ...memory.v(userId), nickname: '7k3qx9ta' });
     expect(patched.nickname).toBe('7k3qx9ta');
   });
 
@@ -419,13 +435,13 @@ describe('campos do perfil (USR-03)', () => {
     const service = createUserService(memory.repo, () => clock.now, undefined, gen.next);
     const ana = await service.findOrCreateByEmail('ana@example.com');
     await service.findOrCreateByEmail('bia@example.com');
-    const patched = await service.update(ana.userId, { nickname: 'BBBBBBBB' });
+    const patched = await service.update(ana.userId, { ...memory.v(ana.userId), nickname: 'BBBBBBBB' });
     expect(patched.nickname).toBe('BBBBBBBB');
   });
 
   it('USR-03: o nome não volta a ficar vazio: vazio, só espaços ou null são recusados no PATCH /me', () => {
     for (const name of ['', '   ', null]) {
-      expect(UpdateMeInputSchema.safeParse({ name }).success).toBe(false);
+      expect(UpdateMeInputSchema.safeParse({ version: 1, name }).success).toBe(false);
     }
   });
 
@@ -433,8 +449,8 @@ describe('campos do perfil (USR-03)', () => {
     const memory = memoryUserRepo();
     const service = createUserService(memory.repo, () => clock.now);
     const { userId } = await service.findOrCreateByEmail(EMAIL);
-    await service.update(userId, { name: 'Ana' });
-    const patched = await service.update(userId, { name: 'Ana Souza' });
+    await service.update(userId, { ...memory.v(userId), name: 'Ana' });
+    const patched = await service.update(userId, { ...memory.v(userId), name: 'Ana Souza' });
     expect(patched.name).toBe('Ana Souza');
   });
 });
@@ -450,5 +466,52 @@ describe('updatedAt e version nas respostas (ADR 0013)', () => {
     const me = toMe(record, () => 'unused');
     expect(me).toMatchObject({ updatedAt: '2026-11-10T09:00:00.000Z', version: 4 });
     expect(me).not.toHaveProperty('publicId');
+  });
+});
+
+describe('salvar o perfil com a versão que a tela mostrou (USR-18)', () => {
+  const fresh = async () => {
+    const memory = memoryUserRepo();
+    const service = createUserService(memory.repo, () => clock.now);
+    const { userId } = await service.findOrCreateByEmail(EMAIL);
+    return { memory, service, userId };
+  };
+
+  it('USR-18: o GET /me traz a version do perfil', async () => {
+    const t = await fresh();
+    expect((await t.service.get(t.userId)).version).toBe(1);
+  });
+
+  it('USR-18: o PATCH /me com a version atual grava e devolve a nova (soma 1)', async () => {
+    const t = await fresh();
+    const patched = await t.service.update(t.userId, { version: 1, nickname: 'Aninha' });
+    expect(patched).toMatchObject({ nickname: 'Aninha', version: 2 });
+    expect((await t.service.get(t.userId)).version).toBe(2);
+  });
+
+  it('USR-18: só o nome (parte privada) ou só as preferências também somam 1 na version do perfil', async () => {
+    const t = await fresh();
+    expect((await t.service.update(t.userId, { version: 1, name: 'Ana' })).version).toBe(2);
+    expect((await t.service.update(t.userId, { version: 2, locale: 'en' })).version).toBe(3);
+    expect((await t.service.update(t.userId, { version: 3, timeZone: 'America/Manaus' })).version).toBe(4);
+  });
+
+  it('USR-18: o perfil mudou em outro lugar → VERSION_CONFLICT (409, currentVersion) e nada é gravado', async () => {
+    const t = await fresh();
+    await t.service.update(t.userId, { version: 1, nickname: 'Aninha' });
+    const err = await t.service
+      .update(t.userId, { version: 1, nickname: 'Outra', name: 'Ana' })
+      .catch((e: unknown) => e);
+    expect(err).toMatchObject({ code: 'VERSION_CONFLICT', status: 409, details: { currentVersion: 2 } });
+    const me = await t.service.get(t.userId);
+    expect(me).toMatchObject({ nickname: 'Aninha', version: 2 });
+    expect(me.name).toBeUndefined();
+  });
+
+  it('USR-18: o contrato do PATCH /me exige a version (inteiro ≥ 0), e ela sozinha não é mudança', () => {
+    expect(UpdateMeInputSchema.safeParse({ name: 'Ana' }).success).toBe(false);
+    expect(UpdateMeInputSchema.safeParse({ version: -1, name: 'Ana' }).success).toBe(false);
+    expect(UpdateMeInputSchema.safeParse({ version: 1 }).success).toBe(false);
+    expect(UpdateMeInputSchema.safeParse({ version: 1, name: 'Ana' }).success).toBe(true);
   });
 });

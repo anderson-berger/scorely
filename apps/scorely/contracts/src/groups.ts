@@ -1,10 +1,8 @@
-import { EntitySchema } from '@scorely/contracts/src/entity';
+import { EntitySchema, hasChanges, VersionSchema } from '@scorely/contracts/src/entity';
+import { PlaceSchema } from '@scorely/contracts/src/places';
+import { SportIdSchema } from '@scorely/contracts/src/sports';
 import { PublicUserIdSchema, TimeZoneSchema } from '@scorely/contracts/src/users';
 import { z } from 'zod';
-
-/** Esportes do grupo. O web traduz o nome (`sports.<valor>`). */
-export const SportSchema = z.enum(['volleyball', 'soccer', 'basketball', 'other']);
-export type Sport = z.infer<typeof SportSchema>;
 
 /** Dia da semana no fuso do grupo: 0 = domingo ... 6 = sábado. */
 export const WeekdaySchema = z.number().int().min(0).max(6);
@@ -44,11 +42,14 @@ const ListOpensHoursBeforeSchema = z
 
 const LayerHoursSchema = z.number().int().min(0).max(144);
 
-/** Papel de quem participa do jogo (plano 007): membro e reserva são do grupo; convidado vem pelo link do jogo. */
-export const GroupRoleSchema = z.enum(['member', 'reserve', 'guest']);
-export type GroupRole = z.infer<typeof GroupRoleSchema>;
-export const MemberRoleSchema = GroupRoleSchema.exclude(['guest']);
-export type MemberRole = z.infer<typeof MemberRoleSchema>;
+/**
+ * O papel (`tier`) de quem participa do jogo (GRP-17): membro e reserva são do grupo; convidado vem pelo link do jogo.
+ * Diz a camada em que confirma e o limite em que conta (GRP-38). Não é o cargo (GRP-48, ADR 0015).
+ */
+export const TierSchema = z.enum(['member', 'reserve', 'guest']);
+export type Tier = z.infer<typeof TierSchema>;
+export const MemberTierSchema = TierSchema.exclude(['guest']);
+export type MemberTier = z.infer<typeof MemberTierSchema>;
 
 /**
  * Permissões de administração do grupo (GRP-49), por assunto. O dono tem todas; quem não tem cargo, nenhuma.
@@ -65,20 +66,25 @@ export const PermissionSchema = z.enum([
 export type Permission = z.infer<typeof PermissionSchema>;
 export const ALL_PERMISSIONS: readonly Permission[] = PermissionSchema.options;
 
-/** Cargos (GRP-48, 50). Por enquanto só o Admin, fixo no código, com todas as permissões. */
-export const StaffRoleIdSchema = z.enum(['admin']);
-export type StaffRoleId = z.infer<typeof StaffRoleIdSchema>;
-export const STAFF_ROLES: Record<StaffRoleId, { name: string; permissions: readonly Permission[] }> = {
-  admin: { name: 'Admin', permissions: ALL_PERMISSIONS },
+/**
+ * Cargos (GRP-48, 50): três, fixos no código. Toda participação tem um; `member` é o padrão de quem entra.
+ * O nome na tela vem do i18n do web, pelo id.
+ */
+export const RoleIdSchema = z.enum(['owner', 'admin', 'member']);
+export type RoleId = z.infer<typeof RoleIdSchema>;
+export const ROLES: Record<RoleId, { permissions: readonly Permission[] }> = {
+  owner: { permissions: ALL_PERMISSIONS },
+  admin: { permissions: ALL_PERMISSIONS },
+  member: { permissions: [] },
 };
 
-/** O cargo como sai na lista de membros (GRP-55). */
-export const StaffRoleSchema = z.object({ id: StaffRoleIdSchema, name: z.string() });
-export type StaffRole = z.infer<typeof StaffRoleSchema>;
+/** O cargo que o dono dá e tira (GRP-51). Tirar devolve o `member`. */
+export const GrantableRoleIdSchema = RoleIdSchema.extract(['admin']);
+export type GrantableRoleId = z.infer<typeof GrantableRoleIdSchema>;
 
 /** PUT /groups/{id}/members/{userId}/staff-role (dono, GRP-51). */
-export const SetStaffRoleInputSchema = z.object({ staffRoleId: StaffRoleIdSchema });
-export type SetStaffRoleInput = z.infer<typeof SetStaffRoleInputSchema>;
+export const SetRoleInputSchema = z.object({ roleId: GrantableRoleIdSchema });
+export type SetRoleInput = z.infer<typeof SetRoleInputSchema>;
 
 /** POST /groups/{id}/transfer (dono, GRP-54): o membro que vira o dono, pelo id público. */
 export const TransferGroupInputSchema = z.object({ userId: PublicUserIdSchema });
@@ -125,11 +131,11 @@ export const GroupLayersSchema = z
 export const CreateGroupInputSchema = z
   .object({
     name: z.string().trim().min(1, 'Name is required').max(80),
-    sport: SportSchema,
+    /** GRP-58: um esporte do catálogo (ESP), ativo. Não muda depois. */
+    sportId: SportIdSchema,
     weekday: WeekdaySchema,
     time: LocalTimeSchema,
     timeZone: TimeZoneSchema.optional(),
-    location: z.string().trim().min(1).max(120).optional(),
     slots: SlotsSchema,
     /**
      * Camadas opcionais (GRP-15): quem decide o padrão é a api. Sem nenhuma, membros 48h, reservas 24h e
@@ -167,6 +173,8 @@ export type CreateGroupInput = z.infer<typeof CreateGroupInputSchema>;
  */
 export const UpdateGroupInputSchema = z
   .object({
+    /** GRP-59: a `settingsVersion` que a tela mostrou. */
+    version: VersionSchema,
     listOpensHoursBefore: ListOpensHoursBeforeSchema.optional(),
     reservesOpenHoursBefore: LayerHoursSchema.optional(),
     guestsOpenHoursBefore: LayerHoursSchema.nullable().optional(),
@@ -174,30 +182,36 @@ export const UpdateGroupInputSchema = z
     maxReserves: MaxReservesSchema.optional(),
     slots: SlotsSchema.optional(),
     minPlayers: MinPlayersSchema.nullable().optional(),
+    /** GRP-62: o lugar padrão; `null` tira. */
+    defaultPlaceId: z.uuid().nullable().optional(),
   })
-  .refine((patch) => Object.keys(patch).length > 0, { message: 'Nothing to update' });
+  .refine(hasChanges, { message: 'Nothing to update' });
 export type UpdateGroupInput = z.infer<typeof UpdateGroupInputSchema>;
 
 /**
- * Grupo como a api devolve. Os 3 tokens só vêm para quem tem `members.manage` (GRP-05); `myRole` é o papel
- * de quem pede, e `myPermissions`, as permissões dele (GRP-55).
+ * Grupo como a api devolve. Os 3 tokens só vêm para quem tem `members.manage` (GRP-05); `myTier`, `myRoleId` e
+ * `myPermissions` são o papel, o cargo e as permissões de quem pede (GRP-55). Quem é o dono vem dos membros.
  * `timeZone` é texto livre na leitura: a api já validou ao gravar (plano 003, D13).
  */
 export const GroupSchema = EntitySchema.extend({
+  /** A versão da identidade: nome, esporte, logo e capa (ADR 0013). */
+  version: VersionSchema,
+  /** GRP-59: a versão dos Ajustes, que o `PATCH /groups/{id}` manda. */
+  settingsVersion: VersionSchema,
   name: z.string(),
-  sport: SportSchema,
+  /** GRP-58: o esporte do grupo, do catálogo (`GET /sports`, ESP-07). */
+  sportId: SportIdSchema,
   weekday: WeekdaySchema,
   time: LocalTimeSchema,
   timeZone: z.string(),
-  location: z.string().optional(),
+  /** GRP-62: o lugar padrão (um lugar ativo do grupo). Ausente = o jogo sem local. */
+  defaultPlaceId: z.uuid().optional(),
   slots: z.number().int(),
   /** Mínimo padrão para o jogo acontecer (GRP-46). Ausente = sem mínimo. */
   minPlayers: z.number().int().optional(),
   listOpensHoursBefore: z.number().int(),
   reservesOpenHoursBefore: z.number().int(),
   guestsOpenHoursBefore: z.number().int().optional(),
-  /** Id público do dono (USR-16). */
-  ownerId: PublicUserIdSchema,
   inviteToken: z.string().optional(),
   reserveInviteToken: z.string().optional(),
   guestToken: z.string().optional(),
@@ -208,7 +222,9 @@ export const GroupSchema = EntitySchema.extend({
   /** Limites (GRP-38). A contagem sai da lista de membros. */
   maxMembers: z.number().int(),
   maxReserves: z.number().int(),
-  myRole: MemberRoleSchema,
+  myTier: MemberTierSchema,
+  /** O cargo de quem pede (GRP-48, 55). */
+  myRoleId: RoleIdSchema,
   /** O que quem pede pode fazer no grupo (GRP-55). O dono recebe todas. */
   myPermissions: z.array(PermissionSchema),
   /** Só para a reserva com convite para membro pendente (GRP-40, 41). */
@@ -228,10 +244,9 @@ export const MemberSchema = z.object({
   userId: PublicUserIdSchema,
   /** O apelido (USR-04). O nome da pessoa nunca sai aqui (USR-13). */
   nickname: z.string(),
-  isOwner: z.boolean(),
-  role: MemberRoleSchema,
-  /** O cargo da pessoa (GRP-48, 55). Ausente = sem cargo. Todos veem. */
-  staffRole: StaffRoleSchema.optional(),
+  tier: MemberTierSchema,
+  /** O cargo da pessoa (GRP-48, 55): `owner` é o dono. Todos veem. */
+  roleId: RoleIdSchema,
   /** Só na resposta para quem tem `members.manage`: a reserva tem convite para membro pendente até essa data (GRP-40). */
   memberInviteExpiresAt: z.iso.datetime().optional(),
 });
@@ -249,7 +264,7 @@ export const AttendeeSchema = z.object({
   /** O apelido (USR-04). O nome da pessoa nunca sai aqui (USR-13). */
   nickname: z.string(),
   confirmedAt: z.iso.datetime(),
-  role: GroupRoleSchema,
+  tier: TierSchema,
 });
 export type Attendee = z.infer<typeof AttendeeSchema>;
 
@@ -280,6 +295,8 @@ export const GameSchema = z.object({
   /** `true` = as vagas / o mínimo são só deste jogo (GRP-45, 46). */
   slotsCustom: z.boolean().optional(),
   minPlayersCustom: z.boolean().optional(),
+  /** GRP-62, 63: onde é o jogo (o lugar padrão do grupo). Ausente = sem local. */
+  place: PlaceSchema.optional(),
   confirmed: z.array(AttendeeSchema),
   waitlist: z.array(AttendeeSchema),
   me: MyAttendanceSchema.optional(),
@@ -318,15 +335,14 @@ export const GuestGameSchema = z.object({
   group: GroupSchema.pick({
     id: true,
     name: true,
-    sport: true,
+    sportId: true,
     weekday: true,
     time: true,
     timeZone: true,
-    location: true,
     logoUrl: true,
     coverUrl: true,
   }),
-  myRole: GroupRoleSchema,
+  myTier: TierSchema,
   game: GameSchema,
 });
 export type GuestGame = z.infer<typeof GuestGameSchema>;

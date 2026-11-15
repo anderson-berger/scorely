@@ -6,30 +6,39 @@ import { createGameService } from '@scorely/api/src/modules/groups/game.service'
 import { createGroupImages } from '@scorely/api/src/modules/groups/group.images';
 import { dynamoGroupRepository } from '@scorely/api/src/modules/groups/group.repository';
 import { createGroupService } from '@scorely/api/src/modules/groups/group.service';
-import type { GroupsDeps } from '@scorely/api/src/modules/groups/groups.deps';
+import type { GroupsDeps, SportsDep } from '@scorely/api/src/modules/groups/groups.deps';
+import { dynamoPlaceRepository } from '@scorely/api/src/modules/groups/place.repository';
+import { createPlaceService } from '@scorely/api/src/modules/groups/place.service';
 import { mediaService } from '@scorely/api/src/modules/media/media.service';
 import { dynamoNotificationRepository } from '@scorely/api/src/modules/notifications/notification.repository';
 import { createNotificationService } from '@scorely/api/src/modules/notifications/notification.service';
+import { sportService } from '@scorely/api/src/modules/sports/sport.service';
 import { dynamoUserDirectory } from '@scorely/api/src/modules/users/user.repository';
 import {
   AttachMediaInputSchema,
   CreateGroupInputSchema,
   GroupImageSlotSchema,
   MediaUploadInputSchema,
+  PlaceInputSchema,
   RotateInviteInputSchema,
-  SetStaffRoleInputSchema,
+  SetRoleInputSchema,
   TransferGroupInputSchema,
   UpdateGameInputSchema,
   UpdateGroupInputSchema,
+  UpdatePlaceInputSchema,
+  VersionInputSchema,
 } from '@scorely/contracts';
 
-const deps: GroupsDeps = {
+const deps: GroupsDeps & SportsDep = {
   groups: dynamoGroupRepository,
   games: dynamoGameRepository,
+  places: dynamoPlaceRepository,
   users: dynamoUserDirectory,
   notifications: createNotificationService(dynamoNotificationRepository),
+  sports: sportService,
 };
 const groups = createGroupService(deps);
+const places = createPlaceService(deps);
 const games = createGameService(deps);
 const images = createGroupImages({ ...deps, media: mediaService });
 
@@ -130,12 +139,12 @@ export async function removeMember(event: HttpEvent) {
 /** GRP-51: o dono dá o cargo. */
 export async function setStaffRole(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    const { staffRoleId } = parseBody(event, SetStaffRoleInputSchema);
+    const { roleId } = parseBody(event, SetRoleInputSchema);
     await groups.setStaffRole(
       auth.userId,
       pathParam(event, 'id'),
       asPublicUserId(pathParam(event, 'userId')),
-      staffRoleId,
+      roleId,
     );
   });
 }
@@ -250,4 +259,52 @@ export async function playLeave(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     await games.guestLeave(auth.userId, pathParam(event, 'token'), pathParam(event, 'date'));
   });
+}
+
+/** GRP-63: os lugares do grupo, para membros e reservas. */
+export async function listPlaces(event: HttpEvent) {
+  return authRoute(event, async (auth) => places.list(auth.userId, pathParam(event, 'id')));
+}
+
+/** GRP-60: cadastra um lugar (`settings.edit`). */
+export async function createPlace(event: HttpEvent) {
+  return authRoute(event, async (auth) =>
+    created(await places.create(auth.userId, pathParam(event, 'id'), parseBody(event, PlaceInputSchema))),
+  );
+}
+
+/** GRP-60: edita o lugar, com a versão (ADR 0016). */
+export async function updatePlace(event: HttpEvent) {
+  return authRoute(event, async (auth) =>
+    places.update(
+      auth.userId,
+      pathParam(event, 'id'),
+      pathParam(event, 'placeId'),
+      parseBody(event, UpdatePlaceInputSchema),
+    ),
+  );
+}
+
+/** GRP-61: arquiva o lugar. */
+export async function archivePlace(event: HttpEvent) {
+  return authRoute(event, async (auth) =>
+    places.archive(
+      auth.userId,
+      pathParam(event, 'id'),
+      pathParam(event, 'placeId'),
+      parseBody(event, VersionInputSchema),
+    ),
+  );
+}
+
+/** GRP-61: desarquiva o lugar. */
+export async function unarchivePlace(event: HttpEvent) {
+  return authRoute(event, async (auth) =>
+    places.unarchive(
+      auth.userId,
+      pathParam(event, 'id'),
+      pathParam(event, 'placeId'),
+      parseBody(event, VersionInputSchema),
+    ),
+  );
 }

@@ -18,6 +18,7 @@ import HoursStepper from '@scorely/web/src/components/HoursStepper.vue';
 import { errorMessage } from '@scorely/web/src/i18n/errors';
 import SettingsRow from '@scorely/web/src/modules/groups/components/SettingsRow.vue';
 import { onPermissionError, permissionLostInject } from '@scorely/web/src/modules/groups/permissions';
+import { useSportsStore } from '@scorely/web/src/modules/sports/sports.store';
 import TeamApartEditor, {
   type ApartOption,
 } from '@scorely/web/src/modules/teams/components/TeamApartEditor.vue';
@@ -33,6 +34,8 @@ type Sheet = 'count' | 'rules' | 'apart' | null;
 /** A configuração sem os nomes (o que o PUT recebe). */
 function inputOf(s: TeamSettings): UpdateTeamSettingsInput {
   return {
+    // TIM-25: a versão da configuração que a tela mostra.
+    version: s.version,
     teamCount: s.teamCount,
     rules: s.rules,
     apart: s.apart,
@@ -52,6 +55,9 @@ export default defineComponent({
   name: 'TeamSettingsRows',
 
   components: { BottomSheet, HoursStepper, SettingsRow, TeamApartEditor, TeamRuleEditor },
+  setup() {
+    return { sports: useSportsStore() };
+  },
 
   inject: permissionLostInject,
 
@@ -123,7 +129,8 @@ export default defineComponent({
     },
 
     ruleLine(rule: TeamRule): string {
-      return `${this.text(targetText(rule.target))}: ${this.text(ruleText(rule))}`;
+      const name = (id: string) => this.sports.positionName(this.group.sportId, id);
+      return `${this.text(targetText(rule.target, name))}: ${this.text(ruleText(rule))}`;
     },
 
     key(rule: TeamRule): string {
@@ -311,7 +318,7 @@ export default defineComponent({
       >
         <TeamRuleEditor
           v-if="ruleEditor"
-          :sport="group.sport"
+          :sport-id="group.sportId"
           :rules="settings.rules"
           :rule="editing"
           :saving="saving"

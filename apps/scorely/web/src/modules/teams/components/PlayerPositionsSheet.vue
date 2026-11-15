@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { Player, PlayerPosition, Sport } from '@scorely/contracts';
+import type { Player, PlayerPosition } from '@scorely/contracts';
 import BottomSheet from '@scorely/web/src/components/BottomSheet.vue';
 import { errorMessage } from '@scorely/web/src/i18n/errors';
 import { onPermissionError, permissionLostInject } from '@scorely/web/src/modules/groups/permissions';
@@ -21,7 +21,7 @@ export default defineComponent({
   props: {
     modelValue: { type: Boolean, required: true },
     groupId: { type: String, required: true },
-    sport: { type: String as PropType<Sport>, required: true },
+    sportId: { type: String, required: true },
     player: { type: Object as PropType<Player | undefined>, default: undefined },
   },
 
@@ -52,7 +52,10 @@ export default defineComponent({
       if (!player) return;
       this.saving = true;
       try {
-        const saved = await teamsApi.updatePlayer(this.groupId, player.userId, { positions: this.draft });
+        const saved = await teamsApi.updatePlayer(this.groupId, player.userId, {
+          version: player.version,
+          positions: this.draft,
+        });
         this.$emit('saved', saved);
         this.$emit('update:modelValue', false);
       } catch (err) {
@@ -76,7 +79,7 @@ export default defineComponent({
   >
     <div class="sc-caption q-mt-xs">{{ $t('teams.positionsHint') }}</div>
 
-    <PositionsPicker v-model="draft" :sport="sport" class="picker" />
+    <PositionsPicker v-model="draft" :sport-id="sportId" class="picker" />
 
     <div class="actions">
       <q-btn

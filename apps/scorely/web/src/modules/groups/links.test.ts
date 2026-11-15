@@ -1,4 +1,4 @@
-import type { Game, GroupRole, GuestGame } from '@scorely/contracts';
+import type { Game, GuestGame, Tier } from '@scorely/contracts';
 import { inviteUrl, listGate, playRedirect } from '@scorely/web/src/modules/groups/links';
 import { describe, expect, it } from 'vitest';
 
@@ -28,17 +28,17 @@ function game(overrides: Partial<Game> = {}): Game {
   };
 }
 
-function guestGame(myRole: GroupRole): GuestGame {
+function guestGame(myTier: Tier): GuestGame {
   return {
     group: {
       id: groupId,
       name: 'Vôlei de sexta',
-      sport: 'volleyball',
+      sportId: 'volleyball',
       weekday: 5,
       time: '19:00',
       timeZone: 'America/Sao_Paulo',
     },
-    myRole,
+    myTier,
     game: game(),
   };
 }

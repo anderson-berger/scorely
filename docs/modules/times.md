@@ -1,6 +1,6 @@
 # Módulo Times
 
-> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Se o código e este doc discordarem, um dos dois está errado. Conferido com o código em 2026-11-14.
+> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Se o código e este doc discordarem, um dos dois está errado. Conferido com o código em 2026-11-15.
 
 Código: `apps/scorely/api/src/modules/teams/`, `apps/scorely/web/src/modules/teams/`. Contrato: `apps/scorely/contracts/src/teams.ts`.
 
@@ -30,14 +30,11 @@ Hoje o módulo guarda as **posições de cada pessoa no grupo**, a **configuraç
 
 - **TIM-01. As posições são da pessoa no grupo,** não do perfil. Valem para membros, reservas e convidados.
   - _Por quê:_ a mesma pessoa pode ser levantadora no vôlei de sexta e jogar de meia no futebol de domingo. O convidado entra nos times como qualquer um, então também precisa das posições.
-- **TIM-02. As posições vêm do esporte do grupo, e o catálogo tem todas as posições do esporte:**
-  - vôlei: levantador, oposto, ponteiro, central, líbero;
-  - futebol: goleiro, zagueiro, lateral, volante, meia, atacante;
-  - basquete: armador, ala, pivô;
-  - outro: nenhuma.
+- **TIM-02. As posições vêm do esporte do grupo (GRP-58), no catálogo de esportes** ([esportes.md](esportes.md)), que tem todas as posições do esporte (ex.: vôlei: levantador, oposto, ponteiro, central, líbero). Um esporte pode não ter posições.
   - A pessoa pode ter mais de uma posição, ou nenhuma (o padrão). **A primeira é a principal.** Uma posição de outro esporte responde `TEAM_POSITION_INVALID` (422, `details.position`).
+  - Uma posição desativada no catálogo (ESP-05) continua para quem já a tem, mas não pode ser escolhida de novo.
   - _Por quê:_ com todas as posições, qualquer uma pode virar regra dos times depois (ex.: 1 central por time). A principal diz onde a pessoa rende mais, sem impedir que ela jogue em outra. Um esporte novo é só uma entrada no catálogo.
-  - _Alterada em 2026-11-11:_ antes eram só as posições fixas (vôlei: levantador e líbero; futebol: goleiro), sem principal.
+  - _Alterada em 2026-11-11:_ antes eram só as posições fixas (vôlei: levantador e líbero; futebol: goleiro), sem principal. _Alterada em 2026-11-15:_ o catálogo saiu do código e foi para o módulo de esportes.
 - **TIM-03. Todos do grupo veem as posições; só o dono muda.** Membros e reservas veem (`GET`); quem não participa do grupo recebe `GROUP_NOT_FOUND` (GRP-04). Mudar, para quem não tem `teams.manage`, responde `GROUP_PERMISSION_DENIED` (403 com corpo). _(Alterada em 2026-11-13: antes, só o dono, com `GROUP_NOT_OWNER`.)_ Com o grupo arquivado, mudar responde `GROUP_ARCHIVED` (GRP-32), e ver continua valendo.
   - _Por quê:_ posição não é avaliação de ninguém, e a lista fica mais útil ("quem levanta hoje?"). Quem monta os times é o dono.
   - _Alterada em 2026-11-11:_ antes só o dono via.
@@ -104,7 +101,7 @@ Hoje o módulo guarda as **posições de cada pessoa no grupo**, a **configuraç
   - _Por quê:_ as regras são do grupo, não de cada jogo. O vôlei de sexta sempre quer um levantador em cada time, e o dono não precisa repetir isso toda semana.
   - _Alterada em 2026-11-12:_ times opostos e a preferência de gênero.
 - **TIM-18. Regra de quantidade por time:** "todo time tem no mínimo X e/ou no máximo Y" de
-  - **uma posição do esporte** (TIM-02). Conta quem tem essa posição como **principal no jogo** (com o ajuste do jogo, TIM-13). Uma posição de outro esporte responde `TEAM_POSITION_INVALID`; no esporte "outro" só há regra de gênero;
+  - **uma posição do esporte** (TIM-02). Conta quem tem essa posição como **principal no jogo** (com o ajuste do jogo, TIM-13). Uma posição de outro esporte responde `TEAM_POSITION_INVALID`; num esporte sem posições, só há regra de gênero;
   - ou **um gênero** (homens ou mulheres), pelo perfil da pessoa. Quem não informou o gênero não conta para nenhuma regra de gênero.
   - Mínimo e máximo de 0 a 50, pelo menos um dos dois, e o mínimo não passa do máximo. Até 10 regras, e cada posição ou gênero aparece numa regra só. Fora disso, `VALIDATION_ERROR` (422).
   - A regra vale para cada time. Quem saiu da lista (TIM-12) não conta.
@@ -142,6 +139,11 @@ Hoje o módulo guarda as **posições de cada pessoa no grupo**, a **configuraç
   - O dono muda o nome, o gênero e as posições dele, ou o remove, enquanto pode mexer nos times (TIM-07, TIM-11). Todos que veem os times veem o nome dele, com a marca "avulso".
   - Fica **fora do ranking** (E4b) e não vira membro: se a pessoa criar conta depois, é outra pessoa para o app.
   - _Por quê:_ na quadra sempre aparece alguém que não tem o app (o amigo de alguém, quem completou o time), e ele precisa entrar no sorteio e nas regras como qualquer um. Pedir conta para isso travaria o jogo.
+
+### Edição ao mesmo tempo
+
+- **TIM-25. Toda edição dos times manda a versão que a tela mostrou.** Vale para as posições de uma pessoa (`PUT /players/{userId}`), a configuração de times do grupo (`PUT /team-settings`) e os times do jogo: salvar, sortear, publicar, despublicar e descartar. Cada um manda a `version` do item que a tela mostrou: o jogador, a configuração ou os times do jogo. Quando o item ainda não existe (pessoa sem posição, grupo sem configuração, jogo sem times), a versão é `0`. Versão diferente da atual responde `VERSION_CONFLICT` (409, `details.currentVersion`), e nada é gravado. A tela relê o que estava editando, fecha o painel e avisa: "Alguém mudou isto antes de você. Atualizamos; faça a mudança de novo." _(Nova em 2026-11-15.)_
+  - _Por quê:_ com cargos, duas pessoas podem editar a mesma coisa ao mesmo tempo. Sem a versão, a segunda gravação apagaria a primeira sem ninguém perceber ([ADR 0016](../decisions/0016-version-confere-nas-edicoes.md)).
 
 ### Telas
 
@@ -182,7 +184,7 @@ Hoje o módulo guarda as **posições de cada pessoa no grupo**, a **configuraç
 | --------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Jogador no grupo      | `PLAYER#<groupId>#<userId>` / `META` | `positions`, na ordem (a primeira é a principal, TIM-02). Entidade de relação com chave natural ([ADR 0009](../decisions/0009-entidade-de-relacao-chave-natural.md)), separada da participação para valer também para convidados (TIM-01)                                                                                                                                                                                                        |
 | Times do jogo         | `TEAMS#<groupId>#<data>` / `META`    | `status` (`draft`/`published`), `teams` (ids por time, na ordem), `positions` (só os ajustes do jogo, TIM-13), `pinned` (ids de quem está fixo, TIM-16), `publishedAt` (a 1ª publicação, TIM-10). `rules` e `apart` (a cópia das regras do último sorteio, TIM-19). `extras` (os avulsos do jogo: id, nome, gênero, posições, TIM-24). Chave natural pelo jogo (grupo + data, como o `LOOKUP#GAME`), sem depender de o jogo já ter item (GRP-10) |
-| Configuração de times | `TEAM_SETTINGS#<groupId>` / `META`   | `teamCount`, `rules` (posição ou gênero, mínimo, máximo), `apart` (ids de cada regra de times opostos, TIM-22), `spreadGender` (TIM-23), `allowOutsideRules` (TIM-17). Sem item, vale o padrão (2 times, sem regras, não espalha, não permite)                                                                                                                                                                                                   |
+| Configuração de times | `GROUP#<groupId>` / `TEAM_SETTINGS`  | `teamCount`, `rules` (posição ou gênero, mínimo, máximo), `apart` (ids de cada regra de times opostos, TIM-22), `spreadGender` (TIM-23), `allowOutsideRules` (TIM-17). Sem item, vale o padrão (2 times, sem regras, não espalha, não permite)                                                                                                                                                                                                   |
 
 Não há lookup: quem aparece na lista já vem dos membros e do jogo atual (módulo de grupos), e as chaves se montam pelo par ou pela data.
 
@@ -190,7 +192,7 @@ Não há lookup: quem aparece na lista já vem dos membros e do jogo atual (mód
 
 | Arquivo                                                          | O que tem                                                                                      |
 | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `contracts/src/teams.ts`                                         | posições e o catálogo de posições por esporte (TIM-02)                                         |
+| `contracts/src/teams.ts`                                         | posições (TIM-02); o catálogo é do módulo de esportes                                          |
 | `api/.../teams/player.service.ts`                                | permissão e quem pode ser classificado (TIM-02, 03, 04)                                        |
 | `api/.../teams/teams.service.ts`                                 | times do jogo: montar, publicar, aviso, prazo, quem saiu, sortear, regras, avulsos (TIM-06–24) |
 | `api/.../teams/engine/draw.ts`                                   | sorteio puro: fixados, tamanhos, regras, preferência de gênero (TIM-15, 16, 19, 23)            |
@@ -213,20 +215,21 @@ Não há lookup: quem aparece na lista já vem dos membros e do jogo atual (mód
 | `DELETE /groups/{id}/games/{date}/teams`                     | `teams.manage`        | TIM-06, 11                              |
 | `GET /play/{token}/teams`                                    | logado (link do jogo) | TIM-09: só os times publicados (GRP-09) |
 
-O `GET /players` devolve todos os membros, reservas e convidados da lista atual, cada um com as suas posições. O `PUT /players` recebe `{ positions }` (a primeira é a principal) e devolve o jogador.
+O `GET /players` devolve todos os membros, reservas e convidados da lista atual, cada um com as suas posições. O `PUT /players` recebe `{ version, positions }` (a primeira é a principal) e devolve o jogador.
 
-O `GET /teams` devolve os times (ou que não há times), com cada pessoa marcada se saiu da lista e as posições valendo no jogo. Para o dono, também o que está fora das regras em cada time (TIM-20). O `PUT /teams` recebe `{ teams, positions, pinned, extras }` (os avulsos inteiros, TIM-24) e salva sem mudar o estado (rascunho continua rascunho, publicado continua publicado).
+O `GET /teams` devolve os times (ou que não há times), com cada pessoa marcada se saiu da lista e as posições valendo no jogo. Para o dono, também o que está fora das regras em cada time (TIM-20). O `PUT /teams` recebe `{ version, teams, positions, pinned, extras }` (os avulsos inteiros, TIM-24) e salva sem mudar o estado (rascunho continua rascunho, publicado continua publicado).
 
-O `PUT /team-settings` recebe a configuração inteira (`{ teamCount, rules, apart, spreadGender, allowOutsideRules }`) e a devolve, com o apelido de cada pessoa dos times opostos (`nicknames`, USR-04 em [usuarios.md](usuarios.md)). Nas pessoas das respostas (`Player`, `TeamPlayer`), o campo é o `nickname`; do avulso, o nome digitado.
+O `PUT /team-settings` recebe a configuração inteira (`{ version, teamCount, rules, apart, spreadGender, allowOutsideRules }`) e a devolve, com o apelido de cada pessoa dos times opostos (`nicknames`, USR-04 em [usuarios.md](usuarios.md)). Nas pessoas das respostas (`Player`, `TeamPlayer`), o campo é o `nickname`; do avulso, o nome digitado.
 
-Erros: `TEAM_PLAYER_NOT_FOUND`, `TEAM_POSITION_INVALID`, `TEAM_EMPTY`, `TEAM_RULES_CONFLICT` (`details.conflicts`), `TEAM_RULES_VIOLATED` (`details.violations`), e os do grupo (`GROUP_NOT_FOUND`, `GROUP_PERMISSION_DENIED`, `GROUP_ARCHIVED`, `GAME_NOT_FOUND`, `GAME_CANCELLED`).
+Sortear, publicar, despublicar e descartar recebem `{ version }`. As respostas trazem a `version` de cada item: o jogador, a configuração e os times do jogo (TIM-25).
+
+Erros: `VERSION_CONFLICT` (409, TIM-25), `TEAM_PLAYER_NOT_FOUND`, `TEAM_POSITION_INVALID`, `TEAM_EMPTY`, `TEAM_RULES_CONFLICT` (`details.conflicts`), `TEAM_RULES_VIOLATED` (`details.violations`), e os do grupo (`GROUP_NOT_FOUND`, `GROUP_PERMISSION_DENIED`, `GROUP_ARCHIVED`, `GAME_NOT_FOUND`, `GAME_CANCELLED`).
 
 ## 4. Limites conhecidos
 
 - A lista de jogadores é carregada junto com a página. Um convidado que confirma depois só pode ser classificado quando a página recarrega (qualquer ação do dono recarrega).
 - O dono não tem uma lista dos convidados de semanas passadas: só classifica um convidado enquanto ele está na lista do jogo atual (TIM-04).
 - Os times de um jogo que terminou ficam guardados, mas ninguém vê (não há histórico, GRP-11). As partidas (E4a) vão usá-los.
-- Se o dono mexer nos times em dois aparelhos ao mesmo tempo, vale o último que salvou.
 - As regras contam só a posição principal no jogo. Se o Fulano é ponteiro e às vezes levanta, ele só conta como levantador quando o dono muda a principal dele no jogo (TIM-13).
 - O avulso não tem histórico: na semana seguinte, o dono cadastra de novo (nome, gênero, posições).
 - A preferência de gênero não garante o melhor equilíbrio possível: o sorteio busca com um limite de passos, e na prática chega na diferença de no máximo 1 quando as regras deixam.

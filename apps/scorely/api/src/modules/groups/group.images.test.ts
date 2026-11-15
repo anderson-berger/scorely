@@ -10,9 +10,8 @@ import {
   type ErrorCode,
   type GroupImageSlot,
   MEDIA_PURPOSES,
-  type MemberRole,
-  PublicUserIdSchema,
-  type StaffRoleId,
+  type MemberTier,
+  type RoleId,
 } from '@scorely/contracts';
 import { describe, expect, it } from 'vitest';
 
@@ -52,41 +51,40 @@ function setup() {
     id: GROUP_ID,
     createdAt: '2026-11-01T12:00:00.000Z',
     name: 'Vôlei de sexta',
-    sport: 'volleyball',
+    sportId: 'volleyball',
     weekday: 5,
     time: '19:00',
     timeZone: 'America/Sao_Paulo',
     maxMembers: 30,
     maxReserves: 30,
+    version: 1,
+    settingsVersion: 1,
     slots: 12,
     listOpensHoursBefore: 48,
     reservesOpenHoursBefore: 24,
-    ownerId: OWNER,
-    ownerPublicId: PublicUserIdSchema.parse('11111111'),
     inviteToken: 'member-token',
     reserveInviteToken: 'reserve-token',
     guestToken: 'guest-token',
   };
   const store = { group };
-  const roles = new Map<string, MemberRole>([
+  const tiers = new Map<string, MemberTier>([
     [OWNER, 'member'],
     [A, 'member'],
     [R, 'reserve'],
   ]);
 
-  /** Cargo de cada pessoa (GRP-48); ausente = sem cargo. */
-  const staff = new Map<string, StaffRoleId>();
+  /** Cargo de cada pessoa (GRP-48, 50): o dono tem o `owner`; ausente aqui = o padrão, `member`. */
+  const staff = new Map<string, RoleId>([[OWNER, 'owner']]);
 
   const groups = only<GroupRepository>(
     {
       get: async (id: string) => (id === GROUP_ID ? structuredClone(store.group) : undefined),
       roleOf: async (groupId: string, userId: string) =>
-        groupId === GROUP_ID ? roles.get(userId) : undefined,
+        groupId === GROUP_ID ? tiers.get(userId) : undefined,
       getMembership: async (groupId: string, userId: string) => {
-        const role = groupId === GROUP_ID ? roles.get(userId) : undefined;
-        if (!role) return undefined;
-        const staffRoleId = staff.get(userId);
-        return staffRoleId === undefined ? { role } : { role, staffRoleId };
+        const tier = groupId === GROUP_ID ? tiers.get(userId) : undefined;
+        if (!tier) return undefined;
+        return { tier, roleId: staff.get(userId) ?? 'member' };
       },
     },
     'groups',
@@ -137,6 +135,7 @@ function setup() {
   const deps: GroupsDeps & { media: MediaService } = {
     groups,
     games: only<GroupsDeps['games']>({}, 'games'),
+    places: only<GroupsDeps['places']>({}, 'places'),
     users: only<GroupsDeps['users']>({}, 'users'),
     notifications: only<GroupsDeps['notifications']>({}, 'notifications'),
     now: () => clock.now,
@@ -271,7 +270,7 @@ describe('grupos: logo e capa (GRP-35)', () => {
     const t = setup();
     t.staff.set(A, 'admin');
     const upload = await t.images.requestUpload(A, GROUP_ID, 'cover', { contentType: 'image/webp' });
-    t.staff.delete(A);
+    t.staff.set(A, 'member');
     const err = await expectAppError(
       t.images.attach(A, GROUP_ID, 'cover', { mediaId: upload.mediaId }),
       'GROUP_PERMISSION_DENIED',
@@ -299,7 +298,8 @@ describe('grupos: logo e capa (GRP-35)', () => {
   it('MID-01: a permissão é conferida de novo ao confirmar: quem perdeu a permissão (settings.edit) no meio do envio recebe GROUP_PERMISSION_DENIED', async () => {
     const t = setup();
     const upload = await t.images.requestUpload(OWNER, GROUP_ID, 'logo', { contentType: 'image/webp' });
-    t.store.group = { ...t.store.group, ownerId: A };
+    t.staff.set(OWNER, 'member');
+    t.staff.set(A, 'owner');
     await expectAppError(
       t.images.attach(OWNER, GROUP_ID, 'logo', { mediaId: upload.mediaId }),
       'GROUP_PERMISSION_DENIED',

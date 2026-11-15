@@ -2,7 +2,6 @@ import {
   type CloseGameInput,
   CompetitionGameDetailSchema,
   CompetitionGameSchema,
-  type CompetitionRules,
   CompetitionSchema,
   type Gender,
   type MatchInput,
@@ -12,6 +11,9 @@ import {
   SeasonSchema,
   type SeasonUpdateInput,
   TrophySchema,
+  type UpdateCompetitionRulesInput,
+  type UpdateMatchInput,
+  type VersionInput,
 } from '@scorely/contracts';
 import { request, send } from '@scorely/web/src/lib/http';
 
@@ -22,8 +24,9 @@ export const competitionApi = {
   get: (groupId: string) => request({ url: url(groupId) }, CompetitionSchema),
   startTrial: (groupId: string) =>
     request({ url: `${url(groupId)}/trial`, method: 'POST' }, CompetitionSchema),
-  updateRules: (groupId: string, rules: CompetitionRules) =>
-    request({ url: `${url(groupId)}/rules`, method: 'PUT', data: rules }, CompetitionSchema),
+  /** CMP-07, 42: o regulamento inteiro, com a versão da competição. */
+  updateRules: (groupId: string, input: UpdateCompetitionRulesInput) =>
+    request({ url: `${url(groupId)}/rules`, method: 'PUT', data: input }, CompetitionSchema),
 
   games: (groupId: string) => request({ url: `${url(groupId)}/games` }, CompetitionGameSchema.array()),
   game: (groupId: string, date: string) =>
@@ -41,14 +44,14 @@ export const competitionApi = {
       { url: `${url(groupId)}/games/${date}/matches`, method: 'POST', data: input },
       CompetitionGameDetailSchema,
     ),
-  updateMatch: (groupId: string, date: string, matchId: string, input: MatchInput) =>
+  updateMatch: (groupId: string, date: string, matchId: string, input: UpdateMatchInput) =>
     request(
       { url: `${url(groupId)}/games/${date}/matches/${matchId}`, method: 'PUT', data: input },
       CompetitionGameDetailSchema,
     ),
-  deleteMatch: (groupId: string, date: string, matchId: string) =>
+  deleteMatch: (groupId: string, date: string, matchId: string, input: VersionInput) =>
     request(
-      { url: `${url(groupId)}/games/${date}/matches/${matchId}`, method: 'DELETE' },
+      { url: `${url(groupId)}/games/${date}/matches/${matchId}`, method: 'DELETE', data: input },
       CompetitionGameDetailSchema,
     ),
 
@@ -67,8 +70,8 @@ export const competitionApi = {
     request({ url: `${url(groupId)}/seasons`, method: 'POST', data: input }, SeasonSchema),
   updateSeason: (groupId: string, seasonId: string, input: SeasonUpdateInput) =>
     request({ url: `${url(groupId)}/seasons/${seasonId}`, method: 'PUT', data: input }, SeasonSchema),
-  deleteSeason: (groupId: string, seasonId: string) =>
-    send({ url: `${url(groupId)}/seasons/${seasonId}`, method: 'DELETE' }),
+  deleteSeason: (groupId: string, seasonId: string, input: VersionInput) =>
+    send({ url: `${url(groupId)}/seasons/${seasonId}`, method: 'DELETE', data: input }),
   closeSeason: (groupId: string, seasonId: string) =>
     request({ url: `${url(groupId)}/seasons/${seasonId}/close`, method: 'POST' }, SeasonSchema),
 

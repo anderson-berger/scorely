@@ -1,6 +1,5 @@
 <script lang="ts">
 import {
-  type Sport,
   TEAM_RULE_LIMITS,
   type TeamRule,
   TeamRuleSchema,
@@ -8,6 +7,8 @@ import {
   teamRuleKey,
 } from '@scorely/contracts';
 import HoursStepper from '@scorely/web/src/components/HoursStepper.vue';
+import { pickerPositions } from '@scorely/web/src/modules/sports/catalog';
+import { useSportsStore } from '@scorely/web/src/modules/sports/sports.store';
 import { availableTargets, type Text, targetText } from '@scorely/web/src/modules/teams/rules';
 import { defineComponent, type PropType } from 'vue';
 
@@ -22,9 +23,12 @@ export default defineComponent({
   name: 'TeamRuleEditor',
 
   components: { HoursStepper },
+  setup() {
+    return { sports: useSportsStore() };
+  },
 
   props: {
-    sport: { type: String as PropType<Sport>, required: true },
+    sportId: { type: String, required: true },
     /** As regras do grupo: o que já tem regra não aparece para escolher. */
     rules: { type: Array as PropType<TeamRule[]>, required: true },
     /** A regra em edição; sem ela, é uma regra nova. */
@@ -54,11 +58,22 @@ export default defineComponent({
     },
 
     targets(): TeamRuleTarget[] {
-      return availableTargets(this.sport, this.rules, this.rule?.target);
+      return availableTargets(
+        // TIM-02, ESP-05: a posição desativada só aparece se já tem regra.
+        pickerPositions(
+          this.sports.byId(this.sportId),
+          this.rules.flatMap((r) => (r.target.kind === 'position' ? [r.target.position] : [])),
+        ),
+        this.rules,
+        this.rule?.target,
+      );
     },
 
     options(): { label: string; value: string }[] {
-      return this.targets.map((t) => ({ label: this.text(targetText(t)), value: teamRuleKey(t) }));
+      return this.targets.map((t) => ({
+        label: this.text(targetText(t, (id) => this.sports.positionName(this.sportId, id))),
+        value: teamRuleKey(t),
+      }));
     },
 
     draft(): TeamRule | undefined {

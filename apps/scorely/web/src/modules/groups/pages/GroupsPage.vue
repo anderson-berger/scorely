@@ -58,7 +58,7 @@ export default defineComponent({
     },
 
     split(): { owned: MyGroup[]; joined: MyGroup[] } {
-      return splitGroups(sortByNextGame(this.groups.mine), this.auth.user?.id);
+      return splitGroups(sortByNextGame(this.groups.mine));
     },
 
     tabs(): TabOption[] {

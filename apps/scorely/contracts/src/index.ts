@@ -7,5 +7,7 @@ export * from '@scorely/contracts/src/errors';
 export * from '@scorely/contracts/src/groups';
 export * from '@scorely/contracts/src/media';
 export * from '@scorely/contracts/src/notifications';
+export * from '@scorely/contracts/src/places';
+export * from '@scorely/contracts/src/sports';
 export * from '@scorely/contracts/src/teams';
 export * from '@scorely/contracts/src/users';

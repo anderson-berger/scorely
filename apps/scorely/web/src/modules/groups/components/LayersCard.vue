@@ -126,6 +126,8 @@ export default defineComponent({
 
     async save() {
       const parsed = UpdateGroupInputSchema.safeParse({
+        // GRP-59: a versão dos Ajustes que a tela mostra.
+        version: this.group.settingsVersion,
         listOpensHoursBefore: this.draft.members,
         reservesOpenHoursBefore: this.draft.reserves,
         guestsOpenHoursBefore: this.draft.guests,

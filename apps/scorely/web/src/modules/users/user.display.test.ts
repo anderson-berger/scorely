@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 const ME = {
   id: PublicUserIdSchema.parse('7K3QX9TA'),
   createdAt: '2026-01-01T00:00:00.000Z',
+  version: 1,
   email: 'ana@example.com',
   preferences: {},
 };

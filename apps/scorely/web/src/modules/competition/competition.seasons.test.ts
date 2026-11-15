@@ -37,6 +37,7 @@ function season(extra: Partial<Season> = {}): Season {
     state: 'open',
     rules: COMPETITION_PRESETS.classic,
     graceUntil: '2026-11-28T03:00:00.000Z',
+    version: 1,
     ...extra,
   };
 }

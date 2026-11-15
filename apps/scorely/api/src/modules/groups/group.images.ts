@@ -51,7 +51,7 @@ export function createGroupImages(deps: GroupsDeps & { media: MediaService }) {
       deps.groups.getMembership(groupId, userId),
     ]);
     if (!group || !membership) throw appError('GROUP_NOT_FOUND');
-    return forViewer(group, userId, membership.role, membership.staffRoleId, deps.media.urlOf);
+    return forViewer(group, membership.tier, membership.roleId, deps.media.urlOf);
   }
 
   return {

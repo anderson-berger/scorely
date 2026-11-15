@@ -110,7 +110,11 @@ export default defineComponent({
       this.saving = true;
       try {
         const saved = this.match
-          ? await competitionApi.updateMatch(this.groupId, this.detail.date, this.match.id, input)
+          ? await competitionApi.updateMatch(this.groupId, this.detail.date, this.match.id, {
+              ...input,
+              // CMP-42: a versão da partida que a tela mostra.
+              version: this.match.version,
+            })
           : await competitionApi.createMatch(this.groupId, this.detail.date, input);
         this.$q.notify({ type: 'positive', message: this.$t('competition.matches.saved') });
         this.$emit('saved', saved);

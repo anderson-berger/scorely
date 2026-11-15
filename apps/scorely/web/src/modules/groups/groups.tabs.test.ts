@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest';
 // Plano 014: tela de Grupos em abas com cards de capa.
 
 type Status = MyGroup['game']['status'];
-type CardGroup = Pick<MyGroup, 'myRole' | 'listOpensHoursBefore' | 'reservesOpenHoursBefore' | 'game'>;
+type CardGroup = Pick<MyGroup, 'myTier' | 'listOpensHoursBefore' | 'reservesOpenHoursBefore' | 'game'>;
 
 const HOUR = 3_600_000;
 // segunda, 2026-11-09 12:00Z
@@ -22,12 +22,12 @@ const inHours = (h: number) => new Date(now.getTime() + h * HOUR).toISOString();
 const game = (id: string, startsAt: string, status: Status = 'open') => ({ id, game: { startsAt, status } });
 
 const cardGroup = (overrides: {
-  myRole?: CardGroup['myRole'];
+  myTier?: CardGroup['myTier'];
   listOpensHoursBefore?: number;
   reservesOpenHoursBefore?: number;
   game?: Partial<CardGroup['game']>;
 }): CardGroup => ({
-  myRole: overrides.myRole ?? 'member',
+  myTier: overrides.myTier ?? 'member',
   listOpensHoursBefore: overrides.listOpensHoursBefore ?? 48,
   reservesOpenHoursBefore: overrides.reservesOpenHoursBefore ?? 24,
   game: {
@@ -107,7 +107,7 @@ describe('cardLine', () => {
 
   it('caso 9: membro, camada de 48h, jogo daqui a 72h → opens em startsAt − 48h', () => {
     const g = cardGroup({
-      myRole: 'member',
+      myTier: 'member',
       listOpensHoursBefore: 48,
       game: { startsAt: inHours(72), status: 'scheduled' },
     });
@@ -118,7 +118,7 @@ describe('cardLine', () => {
 
   it('caso 10: reserva, camada de 24h, jogo daqui a 30h (aberto para membros) → opens em startsAt − 24h', () => {
     const g = cardGroup({
-      myRole: 'reserve',
+      myTier: 'reserve',
       reservesOpenHoursBefore: 24,
       listOpensHoursBefore: 48,
       game: { startsAt: inHours(30), status: 'open' },
@@ -130,7 +130,7 @@ describe('cardLine', () => {
 
   it('caso 11: camada abrindo exatamente em now conta como aberta (vagas)', () => {
     const g = cardGroup({
-      myRole: 'member',
+      myTier: 'member',
       listOpensHoursBefore: 48,
       game: { startsAt: inHours(48), status: 'open', confirmedCount: 6, slots: 8 },
     });
@@ -139,7 +139,7 @@ describe('cardLine', () => {
 
   it('caso 11: camada de reserva abrindo exatamente em now com lista cheia → full', () => {
     const g = cardGroup({
-      myRole: 'reserve',
+      myTier: 'reserve',
       reservesOpenHoursBefore: 24,
       game: { startsAt: inHours(24), status: 'open', confirmedCount: 8, slots: 8 },
     });
@@ -209,7 +209,7 @@ describe('arquivados', () => {
 
   it('GRP-28: grupo arquivado, sem jogo → "Arquivado em {data}" com o archivedAt', () => {
     const g = {
-      myRole: 'member' as const,
+      myTier: 'member' as const,
       listOpensHoursBefore: 48,
       reservesOpenHoursBefore: 24,
       archivedAt,

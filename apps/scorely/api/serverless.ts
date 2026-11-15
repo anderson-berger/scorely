@@ -5,6 +5,7 @@ import { competitionFunctions } from '@scorely/api/src/modules/competition/funct
 import { groupsFunctions } from '@scorely/api/src/modules/groups/functions';
 import { healthFunctions } from '@scorely/api/src/modules/health/functions';
 import { notificationsFunctions } from '@scorely/api/src/modules/notifications/functions';
+import { sportsFunctions } from '@scorely/api/src/modules/sports/functions';
 import { teamsFunctions } from '@scorely/api/src/modules/teams/functions';
 import { usersFunctions } from '@scorely/api/src/modules/users/functions';
 import type { AWS } from '@serverless/typescript';
@@ -148,6 +149,7 @@ const config: AWS = {
   // Cada módulo declara as próprias functions em src/modules/<mod>/functions.ts
   functions: {
     ...healthFunctions,
+    ...sportsFunctions,
     ...authFunctions,
     ...usersFunctions,
     ...notificationsFunctions,

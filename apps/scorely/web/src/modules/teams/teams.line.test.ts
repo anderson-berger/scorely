@@ -16,7 +16,7 @@ const DUDA = 'a0000000-0000-4000-8000-000000000005';
 const player = (userId: string): TeamPlayer => ({
   userId,
   nickname: userId.slice(-1),
-  role: 'member',
+  tier: 'member',
   positions: [],
   adjusted: false,
   inList: true,
@@ -29,6 +29,7 @@ const teams = (status: Teams['status'], ids: string[][]): Teams => ({
   groupId: GROUP,
   date: '2026-11-13',
   status,
+  version: 1,
   teams: ids.map((team) => team.map(player)),
   unassigned: [],
 });

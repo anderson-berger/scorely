@@ -13,19 +13,25 @@ import {
   type ErrorCode,
   type Game,
   type GuestGame,
-  type MemberRole,
+  type MemberTier,
   type Notification,
   type PlayerPosition,
   type PublicUserId,
   PublicUserIdSchema,
+  type RoleId,
   SaveTeamsInputSchema,
-  type StaffRoleId,
+  type Sport,
   TEAM_COUNT,
   type TeamPlayer,
   type Teams,
   TeamsResponseSchema,
 } from '@scorely/contracts';
 import { describe, expect, it } from 'vitest';
+
+/** ADR 0016: o que o banco faz na gravação condicionada pela versão (o repositório lança o mesmo erro). */
+function expectVersionIn(current: number, expected: number): void {
+  if (current !== expected) throw appError('VERSION_CONFLICT', { currentVersion: current });
+}
 
 // E3 etapa 2 (`.claude/work/e3-times-2.md`): times manuais, rascunho e publicação, TIM-06 a TIM-13 e GRP-09.
 // O roster (jogo atual e link do jogo) é um fake: o jogo atual é o que o módulo de grupos devolve.
@@ -135,7 +141,7 @@ function storedGroup(extra: Partial<StoredGroup> = {}): StoredGroup {
     id: GROUP_ID,
     createdAt: '2026-01-01T00:00:00.000Z',
     name: 'Vôlei de sexta',
-    sport: 'volleyball',
+    sportId: 'volleyball',
     weekday: 5,
     time: '19:00',
     timeZone: 'America/Sao_Paulo',
@@ -143,13 +149,13 @@ function storedGroup(extra: Partial<StoredGroup> = {}): StoredGroup {
     listOpensHoursBefore: 48,
     reservesOpenHoursBefore: 24,
     guestsOpenHoursBefore: 12,
-    ownerId: OWNER,
-    ownerPublicId: pub(OWNER),
     inviteToken: 'tok-member',
     reserveInviteToken: 'tok-reserve',
     guestToken: 'tok-guest',
     maxMembers: 30,
     maxReserves: 30,
+    version: 1,
+    settingsVersion: 1,
     ...extra,
   };
 }
@@ -165,7 +171,7 @@ const NAMES: Record<string, string> = {
   [OUTSIDER]: 'Fora',
 };
 
-const MEMBERS: Record<string, MemberRole> = {
+const MEMBERS: Record<string, MemberTier> = {
   [OWNER]: 'member',
   [A]: 'member',
   [B]: 'member',
@@ -173,11 +179,11 @@ const MEMBERS: Record<string, MemberRole> = {
   [R]: 'reserve',
 };
 
-const attendee = (userId: UserId, role: Attendee['role'], minute: number): RosterAttendee => ({
+const attendee = (userId: UserId, role: Attendee['tier'], minute: number): RosterAttendee => ({
   userId,
   publicId: pub(userId),
   nickname: NAMES[userId] ?? pub(userId),
-  role,
+  tier: role,
   confirmedAt: new Date(Date.UTC(2026, 10, 4, 22, minute)).toISOString(),
 });
 
@@ -224,14 +230,33 @@ function seeded(seed: number): () => number {
   };
 }
 
+/**
+ * Catálogo de esportes do teste (TIM-02, ESP-05): o `sports.get` do `SportService`, com as posições na ordem.
+ * No vôlei, `universal` está desativada (vale para quem já tem). `footvolley` não tem posições.
+ */
+const catalogPosition = (id: string, active = true) => ({ id, name: { 'pt-BR': id, en: id }, active });
+const catalogSport = (id: string, positions: string[], inactive: string[] = []): Sport => ({
+  id,
+  name: { 'pt-BR': id, en: id },
+  positions: [...positions.map((p) => catalogPosition(p)), ...inactive.map((p) => catalogPosition(p, false))],
+  active: true,
+});
+const TEST_SPORTS: Sport[] = [
+  catalogSport('volleyball', ['setter', 'opposite', 'outside', 'middle', 'libero'], ['universal']),
+  catalogSport('soccer', ['goalkeeper', 'defender', 'fullback', 'defensive_mid', 'midfielder', 'forward']),
+  catalogSport('basketball', ['guard', 'wing', 'center']),
+  catalogSport('footvolley', []),
+];
+const sports = { get: async (id: string) => TEST_SPORTS.find((s) => s.id === id) };
+
 function setup(opts: { group?: Partial<StoredGroup>; game?: RosterGame; random?: () => number } = {}) {
   const clock = { now: NOW };
   const state = {
     group: storedGroup(opts.group),
-    members: { ...MEMBERS } as Record<string, MemberRole>,
+    members: { ...MEMBERS } as Record<string, MemberTier>,
     game: opts.game ?? GAME,
     /** Cargo de cada pessoa (GRP-48): `admin` dá o `teams.manage`. */
-    staff: {} as Record<string, StaffRoleId>,
+    staff: {} as Record<string, RoleId>,
   };
   const sent: ({ userId: UserId } & NewNotification)[] = [];
   const puts: StoredTeams[] = [];
@@ -250,8 +275,7 @@ function setup(opts: { group?: Partial<StoredGroup>; game?: RosterGame; random?:
     getMembership: async (groupId, userId) => {
       const role = groupId === state.group.id ? state.members[userId] : undefined;
       if (!role) return undefined;
-      const staffRoleId = state.staff[userId];
-      return staffRoleId === undefined ? { role } : { role, staffRoleId };
+      return { tier: role, roleId: state.staff[userId] ?? (userId === OWNER ? 'owner' : 'member') };
     },
     setStaffRole: unused,
     transfer: unused,
@@ -280,12 +304,12 @@ function setup(opts: { group?: Partial<StoredGroup>; game?: RosterGame; random?:
         group: {
           id: g.id,
           name: g.name,
-          sport: g.sport,
+          sportId: g.sportId,
           weekday: g.weekday,
           time: g.time,
           timeZone: g.timeZone,
         },
-        myRole: 'guest',
+        myTier: 'guest',
         game: structuredClone(state.game),
       };
     },
@@ -303,7 +327,15 @@ function setup(opts: { group?: Partial<StoredGroup>; game?: RosterGame; random?:
     getMany: async (userIds: readonly UserId[]): Promise<UserRecord[]> =>
       userIds.flatMap((id) =>
         NAMES[id]
-          ? [{ id, publicId: pub(id), nickname: NAMES[id], createdAt: '2026-01-01T00:00:00.000Z' }]
+          ? [
+              {
+                id,
+                publicId: pub(id),
+                nickname: NAMES[id],
+                createdAt: '2026-01-01T00:00:00.000Z',
+                version: 1,
+              },
+            ]
           : [],
       ),
     /** USR-17: id público → id do sistema; o desconhecido (e o avulso) fica de fora. */
@@ -322,11 +354,16 @@ function setup(opts: { group?: Partial<StoredGroup>; game?: RosterGame; random?:
       const t = teamsStore.get(key(groupId, date));
       return t ? structuredClone(t) : undefined;
     },
-    put: async (t) => {
-      puts.push(structuredClone(t));
-      teamsStore.set(key(t.groupId, t.date), structuredClone(t));
+    /** TIM-25 (ADR 0016): grava só com a versão atual; a nova é a atual + 1. */
+    put: async (t, expectedVersion) => {
+      const current = teamsStore.get(key(t.groupId, t.date))?.version ?? 0;
+      expectVersionIn(current, expectedVersion);
+      const saved = { ...structuredClone(t), version: current + 1 };
+      puts.push(structuredClone(saved));
+      teamsStore.set(key(t.groupId, t.date), saved);
     },
-    delete: async (groupId, date) => {
+    delete: async (groupId, date, expectedVersion) => {
+      expectVersionIn(teamsStore.get(key(groupId, date))?.version ?? 0, expectedVersion);
       deletes.push({ groupId, date });
       teamsStore.delete(key(groupId, date));
     },
@@ -334,6 +371,7 @@ function setup(opts: { group?: Partial<StoredGroup>; game?: RosterGame; random?:
 
   const raw = createTeamsService({
     groups,
+    sports,
     roster,
     players,
     users,
@@ -354,6 +392,7 @@ function setup(opts: { group?: Partial<StoredGroup>; game?: RosterGame; random?:
       positions,
       createdAt: '2026-10-01T00:00:00.000Z',
       updatedAt: '2026-10-01T00:00:00.000Z',
+      version: 1,
     });
 
   /** Times gravados direto no repositório. */
@@ -369,11 +408,16 @@ function setup(opts: { group?: Partial<StoredGroup>; game?: RosterGame; random?:
       positions: {},
       createdAt: '2026-11-04T00:00:00.000Z',
       updatedAt: '2026-11-04T00:00:00.000Z',
+      version: 1,
       ...extra,
     });
 
   const stored = () => teamsStore.get(key(GROUP_ID, DATE));
-  return { clock, state, sent, puts, deletes, service, raw, seedPositions, seedTeams, stored };
+  /** TIM-25: a versão que a tela mostrou, a dos times gravados (`0` sem times). */
+  const v = (date = DATE, groupId = GROUP_ID) => ({
+    version: teamsStore.get(key(groupId, date))?.version ?? 0,
+  });
+  return { clock, state, sent, puts, deletes, service, raw, seedPositions, seedTeams, stored, v };
 }
 
 async function expectAppError(p: Promise<unknown>, code: ErrorCode, status: number): Promise<AppError> {
@@ -393,10 +437,10 @@ const find = (t: Sys<Teams> | null, userId: string): Sys<TeamPlayer> | undefined
 
 /** Todas as escritas do dono, para conferir os erros comuns. */
 const writes = (t: ReturnType<typeof setup>, who: UserId, groupId = GROUP_ID, date = DATE) => [
-  () => t.service.save(who, groupId, date, { teams: [[A], [G]], positions: {} }),
-  () => t.service.publish(who, groupId, date),
-  () => t.service.unpublish(who, groupId, date),
-  () => t.service.discard(who, groupId, date),
+  () => t.service.save(who, groupId, date, { ...t.v(date, groupId), teams: [[A], [G]], positions: {} }),
+  () => t.service.publish(who, groupId, date, t.v(date, groupId)),
+  () => t.service.unpublish(who, groupId, date, t.v(date, groupId)),
+  () => t.service.discard(who, groupId, date, t.v(date, groupId)),
 ];
 
 describe('times do jogo: uma divisão por jogo, só o jogo atual (TIM-06)', () => {
@@ -408,7 +452,7 @@ describe('times do jogo: uma divisão por jogo, só o jogo atual (TIM-06)', () =
 
   it('TIM-06: o primeiro save cria o rascunho do jogo atual, com createdAt/updatedAt = agora', async () => {
     const t = setup();
-    const res = await t.service.save(OWNER, GROUP_ID, DATE, { teams: [[A], []], positions: {} });
+    const res = await t.service.save(OWNER, GROUP_ID, DATE, { ...t.v(), teams: [[A], []], positions: {} });
 
     expect(TeamsResponseSchema.parse(toWire(res))).toEqual(toWire(res));
     expect(res.teams).toMatchObject({ groupId: GROUP_ID, date: DATE, status: 'draft' });
@@ -422,15 +466,16 @@ describe('times do jogo: uma divisão por jogo, só o jogo atual (TIM-06)', () =
       pinned: [],
       createdAt: NOW.toISOString(),
       updatedAt: NOW.toISOString(),
+      version: 1,
     });
   });
 
   it('TIM-06: salvar de novo substitui os times e mantém o createdAt', async () => {
     const t = setup();
-    await t.service.save(OWNER, GROUP_ID, DATE, { teams: [[A], []], positions: {} });
+    await t.service.save(OWNER, GROUP_ID, DATE, { ...t.v(), teams: [[A], []], positions: {} });
     t.clock.now = LATER;
     t.state.game = gameOf(CONFIRMED, WAITLIST, { status: 'in_progress' });
-    await t.service.save(OWNER, GROUP_ID, DATE, { teams: [[G], [A], [R]], positions: {} });
+    await t.service.save(OWNER, GROUP_ID, DATE, { ...t.v(), teams: [[G], [A], [R]], positions: {} });
 
     expect(t.stored()).toMatchObject({
       teams: [[G], [A], [R]],
@@ -451,7 +496,7 @@ describe('times do jogo: uma divisão por jogo, só o jogo atual (TIM-06)', () =
   it('TIM-06: descartar apaga os times do jogo; depois o GET responde { teams: null }', async () => {
     const t = setup();
     t.seedTeams({ status: 'published', publishedAt: '2026-11-04T00:00:00.000Z' });
-    await t.service.discard(OWNER, GROUP_ID, DATE);
+    await t.service.discard(OWNER, GROUP_ID, DATE, t.v());
 
     expect(t.deletes).toEqual([{ groupId: GROUP_ID, date: DATE }]);
     expect(t.stored()).toBeUndefined();
@@ -460,7 +505,7 @@ describe('times do jogo: uma divisão por jogo, só o jogo atual (TIM-06)', () =
 
   it('TIM-06: descartar sem times não muda nada (sem erro)', async () => {
     const t = setup();
-    await expect(t.service.discard(OWNER, GROUP_ID, DATE)).resolves.toBeUndefined();
+    await expect(t.service.discard(OWNER, GROUP_ID, DATE, t.v())).resolves.toBeUndefined();
     expect(t.puts).toEqual([]);
   });
 });
@@ -492,7 +537,11 @@ describe('times do jogo: só o dono mexe (TIM-07)', () => {
   it('TIM-07: a permissão vem antes da data, do arquivado e de quem está na lista', async () => {
     const t = setup({ group: { archivedAt: '2026-11-01T00:00:00.000Z' } });
     await expectAppError(
-      t.service.save(A, GROUP_ID, OTHER_DATE, { teams: [[OUTSIDER], []], positions: {} }),
+      t.service.save(A, GROUP_ID, OTHER_DATE, {
+        ...t.v(OTHER_DATE, GROUP_ID),
+        teams: [[OUTSIDER], []],
+        positions: {},
+      }),
       'GROUP_PERMISSION_DENIED',
       403,
     );
@@ -503,17 +552,29 @@ describe('times do jogo: como são montados (TIM-08)', () => {
   it('TIM-08: o contrato aceita de 2 a 8 times e recusa menos, mais e a mesma pessoa em dois times', () => {
     expect(TEAM_COUNT).toEqual({ min: 2, max: 8 });
     const team = (id: string) => [id];
-    expect(SaveTeamsInputSchema.safeParse({ teams: [[A], []], positions: {} }).success).toBe(true);
+    expect(SaveTeamsInputSchema.safeParse({ version: 0, teams: [[A], []], positions: {} }).success).toBe(
+      true,
+    );
     expect(
-      SaveTeamsInputSchema.safeParse({ teams: [[], [], [], [], [], [], [], []], positions: {} }).success,
+      SaveTeamsInputSchema.safeParse({ version: 0, teams: [[], [], [], [], [], [], [], []], positions: {} })
+        .success,
     ).toBe(true);
-    expect(SaveTeamsInputSchema.safeParse({ teams: [team(A)], positions: {} }).success).toBe(false);
-    expect(
-      SaveTeamsInputSchema.safeParse({ teams: Array.from({ length: 9 }, () => []), positions: {} }).success,
-    ).toBe(false);
-    expect(SaveTeamsInputSchema.safeParse({ teams: [[A], [A]], positions: {} }).success).toBe(false);
+    expect(SaveTeamsInputSchema.safeParse({ version: 0, teams: [team(A)], positions: {} }).success).toBe(
+      false,
+    );
     expect(
       SaveTeamsInputSchema.safeParse({
+        version: 0,
+        teams: Array.from({ length: 9 }, () => []),
+        positions: {},
+      }).success,
+    ).toBe(false);
+    expect(SaveTeamsInputSchema.safeParse({ version: 0, teams: [[A], [A]], positions: {} }).success).toBe(
+      false,
+    );
+    expect(
+      SaveTeamsInputSchema.safeParse({
+        version: 0,
         teams: [
           [A, G],
           [R, G],
@@ -525,7 +586,7 @@ describe('times do jogo: como são montados (TIM-08)', () => {
 
   it('TIM-08: quem está dentro e não foi posto em time fica "sem time", na ordem da lista (só o dono vê)', async () => {
     const t = setup();
-    const res = await t.service.save(OWNER, GROUP_ID, DATE, { teams: [[A], []], positions: {} });
+    const res = await t.service.save(OWNER, GROUP_ID, DATE, { ...t.v(), teams: [[A], []], positions: {} });
 
     expect(teamIds(res.teams)).toEqual([[A], []]);
     expect(ids(res.teams?.unassigned ?? [])).toEqual([OWNER, G, R]);
@@ -535,13 +596,14 @@ describe('times do jogo: como são montados (TIM-08)', () => {
 
   it('TIM-08: quem está na fila e não foi posto em time não entra em "sem time"', async () => {
     const t = setup();
-    const res = await t.service.save(OWNER, GROUP_ID, DATE, { teams: [[], []], positions: {} });
+    const res = await t.service.save(OWNER, GROUP_ID, DATE, { ...t.v(), teams: [[], []], positions: {} });
     expect(ids(res.teams?.unassigned ?? [])).toEqual([OWNER, A, G, R]);
   });
 
   it('TIM-08: o dono põe alguém do Banco num time, marcado como do Banco (bench), com o papel da lista', async () => {
     const t = setup();
     const res = await t.service.save(OWNER, GROUP_ID, DATE, {
+      ...t.v(),
       teams: [
         [OWNER, A],
         [G, B, H],
@@ -555,31 +617,36 @@ describe('times do jogo: como são montados (TIM-08)', () => {
     ]);
     expect(find(res.teams, B)).toMatchObject({
       nickname: 'Beatriz',
-      role: 'member',
+      tier: 'member',
       bench: true,
       inList: true,
     });
     expect(find(res.teams, H)).toMatchObject({
       nickname: 'Heitor',
-      role: 'guest',
+      tier: 'guest',
       bench: true,
       inList: true,
     });
-    expect(find(res.teams, G)).toMatchObject({ nickname: 'Gabi', role: 'guest', bench: false, inList: true });
-    expect(find(res.teams, R)).toMatchObject({ role: 'reserve', bench: false });
+    expect(find(res.teams, G)).toMatchObject({ nickname: 'Gabi', tier: 'guest', bench: false, inList: true });
+    expect(find(res.teams, R)).toMatchObject({ tier: 'reserve', bench: false });
     expect(ids(res.teams?.unassigned ?? [])).toEqual([R]);
   });
 
   it('TIM-08: tirar alguém do time = salvar sem ele (quem está dentro volta para "sem time")', async () => {
     const t = setup();
     await t.service.save(OWNER, GROUP_ID, DATE, {
+      ...t.v(),
       teams: [
         [OWNER, A],
         [G, B],
       ],
       positions: {},
     });
-    const res = await t.service.save(OWNER, GROUP_ID, DATE, { teams: [[OWNER], [G]], positions: {} });
+    const res = await t.service.save(OWNER, GROUP_ID, DATE, {
+      ...t.v(),
+      teams: [[OWNER], [G]],
+      positions: {},
+    });
 
     expect(teamIds(res.teams)).toEqual([[OWNER], [G]]);
     expect(ids(res.teams?.unassigned ?? [])).toEqual([A, R]);
@@ -590,12 +657,16 @@ describe('times do jogo: como são montados (TIM-08)', () => {
     const t = setup();
     for (const who of [C, OUTSIDER]) {
       await expectAppError(
-        t.service.save(OWNER, GROUP_ID, DATE, { teams: [[A], [who]], positions: {} }),
+        t.service.save(OWNER, GROUP_ID, DATE, { ...t.v(), teams: [[A], [who]], positions: {} }),
         'TEAM_PLAYER_NOT_FOUND',
         404,
       );
       await expectAppError(
-        t.service.save(OWNER, GROUP_ID, DATE, { teams: [[A], [G]], positions: { [who]: ['setter'] } }),
+        t.service.save(OWNER, GROUP_ID, DATE, {
+          ...t.v(),
+          teams: [[A], [G]],
+          positions: { [who]: ['setter'] },
+        }),
         'TEAM_PLAYER_NOT_FOUND',
         404,
       );
@@ -605,16 +676,16 @@ describe('times do jogo: como são montados (TIM-08)', () => {
 
   it('TIM-08: o rascunho pode ter time vazio e gente sem time', async () => {
     const t = setup();
-    const res = await t.service.save(OWNER, GROUP_ID, DATE, { teams: [[], [], []], positions: {} });
+    const res = await t.service.save(OWNER, GROUP_ID, DATE, { ...t.v(), teams: [[], [], []], positions: {} });
     expect(teamIds(res.teams)).toEqual([[], [], []]);
     expect(res.teams?.status).toBe('draft');
   });
 
   it('TIM-08: publicar com um time vazio → TEAM_EMPTY (422) com details.team = número do time (1-based), sem publicar', async () => {
     const t = setup();
-    await t.service.save(OWNER, GROUP_ID, DATE, { teams: [[OWNER], [A], []], positions: {} });
+    await t.service.save(OWNER, GROUP_ID, DATE, { ...t.v(), teams: [[OWNER], [A], []], positions: {} });
 
-    const err = await expectAppError(t.service.publish(OWNER, GROUP_ID, DATE), 'TEAM_EMPTY', 422);
+    const err = await expectAppError(t.service.publish(OWNER, GROUP_ID, DATE, t.v()), 'TEAM_EMPTY', 422);
     expect(err.details).toEqual({ team: 3 });
     expect(t.stored()?.status).toBe('draft');
     expect(t.stored()?.publishedAt).toBeUndefined();
@@ -623,8 +694,8 @@ describe('times do jogo: como são montados (TIM-08)', () => {
 
   it('TIM-08: gente sem time não impede publicar', async () => {
     const t = setup();
-    await t.service.save(OWNER, GROUP_ID, DATE, { teams: [[OWNER], [A]], positions: {} });
-    const res = await t.service.publish(OWNER, GROUP_ID, DATE);
+    await t.service.save(OWNER, GROUP_ID, DATE, { ...t.v(), teams: [[OWNER], [A]], positions: {} });
+    const res = await t.service.publish(OWNER, GROUP_ID, DATE, t.v());
     expect(res.teams?.status).toBe('published');
     expect(ids(res.teams?.unassigned ?? [])).toEqual([G, R]);
   });
@@ -634,6 +705,7 @@ describe('times do jogo: rascunho e publicação (TIM-09)', () => {
   it('TIM-09: rascunho → só o dono vê; para membro e reserva é { teams: null }', async () => {
     const t = setup();
     await t.service.save(OWNER, GROUP_ID, DATE, {
+      ...t.v(),
       teams: [
         [OWNER, A],
         [G, R],
@@ -647,8 +719,8 @@ describe('times do jogo: rascunho e publicação (TIM-09)', () => {
 
   it('TIM-09: publicados → todos do grupo veem os times; "sem time" vem vazio para quem não é dono', async () => {
     const t = setup();
-    await t.service.save(OWNER, GROUP_ID, DATE, { teams: [[OWNER], [A]], positions: {} });
-    const published = await t.service.publish(OWNER, GROUP_ID, DATE);
+    await t.service.save(OWNER, GROUP_ID, DATE, { ...t.v(), teams: [[OWNER], [A]], positions: {} });
+    const published = await t.service.publish(OWNER, GROUP_ID, DATE, t.v());
 
     expect(published.teams).toMatchObject({ status: 'published', publishedAt: NOW.toISOString() });
     expect(ids(published.teams?.unassigned ?? [])).toEqual([G, R]);
@@ -663,9 +735,10 @@ describe('times do jogo: rascunho e publicação (TIM-09)', () => {
 
   it('TIM-09: depois de publicados, salvar mantém publicado e a mudança já aparece para todos', async () => {
     const t = setup();
-    await t.service.save(OWNER, GROUP_ID, DATE, { teams: [[OWNER], [A]], positions: {} });
-    await t.service.publish(OWNER, GROUP_ID, DATE);
+    await t.service.save(OWNER, GROUP_ID, DATE, { ...t.v(), teams: [[OWNER], [A]], positions: {} });
+    await t.service.publish(OWNER, GROUP_ID, DATE, t.v());
     const saved = await t.service.save(OWNER, GROUP_ID, DATE, {
+      ...t.v(),
       teams: [
         [OWNER, G],
         [A, R],
@@ -683,39 +756,43 @@ describe('times do jogo: rascunho e publicação (TIM-09)', () => {
 
   it('TIM-09: voltar para rascunho esconde dos outros; publicar de novo mostra outra vez', async () => {
     const t = setup();
-    await t.service.save(OWNER, GROUP_ID, DATE, { teams: [[OWNER], [A]], positions: {} });
-    await t.service.publish(OWNER, GROUP_ID, DATE);
+    await t.service.save(OWNER, GROUP_ID, DATE, { ...t.v(), teams: [[OWNER], [A]], positions: {} });
+    await t.service.publish(OWNER, GROUP_ID, DATE, t.v());
 
-    const draft = await t.service.unpublish(OWNER, GROUP_ID, DATE);
+    const draft = await t.service.unpublish(OWNER, GROUP_ID, DATE, t.v());
     expect(draft.teams?.status).toBe('draft');
     expect(await t.service.get(A, GROUP_ID, DATE)).toEqual({ teams: null });
     expect(t.stored()?.teams).toEqual([[OWNER], [A]]);
 
-    await t.service.publish(OWNER, GROUP_ID, DATE);
+    await t.service.publish(OWNER, GROUP_ID, DATE, t.v());
     expect(teamIds((await t.service.get(A, GROUP_ID, DATE)).teams)).toEqual([[OWNER], [A]]);
   });
 
   it('TIM-09: salvar um rascunho mantém rascunho', async () => {
     const t = setup();
-    await t.service.save(OWNER, GROUP_ID, DATE, { teams: [[OWNER], [A]], positions: {} });
-    const res = await t.service.save(OWNER, GROUP_ID, DATE, { teams: [[A], [OWNER]], positions: {} });
+    await t.service.save(OWNER, GROUP_ID, DATE, { ...t.v(), teams: [[OWNER], [A]], positions: {} });
+    const res = await t.service.save(OWNER, GROUP_ID, DATE, {
+      ...t.v(),
+      teams: [[A], [OWNER]],
+      positions: {},
+    });
     expect(res.teams?.status).toBe('draft');
     expect(t.stored()?.status).toBe('draft');
   });
 
   it('TIM-09: sem times salvos, publicar → TEAM_EMPTY (Time 1); voltar para rascunho → { teams: null }, sem gravar', async () => {
     const t = setup();
-    const err = await expectAppError(t.service.publish(OWNER, GROUP_ID, DATE), 'TEAM_EMPTY', 422);
+    const err = await expectAppError(t.service.publish(OWNER, GROUP_ID, DATE, t.v()), 'TEAM_EMPTY', 422);
     expect(err.details).toEqual({ team: 1 });
-    expect((await t.service.unpublish(OWNER, GROUP_ID, DATE)).teams).toBeNull();
+    expect((await t.service.unpublish(OWNER, GROUP_ID, DATE, t.v())).teams).toBeNull();
     expect(t.puts).toEqual([]);
     expect(t.sent).toEqual([]);
   });
 
   it('TIM-09 / GRP-09: pelo link do jogo, quem não participa do grupo vê os times publicados (sem "sem time")', async () => {
     const t = setup();
-    await t.service.save(OWNER, GROUP_ID, DATE, { teams: [[OWNER, G], [A]], positions: {} });
-    await t.service.publish(OWNER, GROUP_ID, DATE);
+    await t.service.save(OWNER, GROUP_ID, DATE, { ...t.v(), teams: [[OWNER, G], [A]], positions: {} });
+    await t.service.publish(OWNER, GROUP_ID, DATE, t.v());
 
     for (const who of [OUTSIDER, H, G]) {
       const res = await t.service.guestGet(who, 'tok-guest');
@@ -729,7 +806,7 @@ describe('times do jogo: rascunho e publicação (TIM-09)', () => {
   it('TIM-09 / GRP-09: pelo link do jogo, rascunho e jogo sem times → { teams: null }', async () => {
     const t = setup();
     expect(await t.service.guestGet(OUTSIDER, 'tok-guest')).toEqual({ teams: null });
-    await t.service.save(OWNER, GROUP_ID, DATE, { teams: [[OWNER], [A]], positions: {} });
+    await t.service.save(OWNER, GROUP_ID, DATE, { ...t.v(), teams: [[OWNER], [A]], positions: {} });
     expect(await t.service.guestGet(OUTSIDER, 'tok-guest')).toEqual({ teams: null });
   });
 
@@ -742,8 +819,8 @@ describe('times do jogo: rascunho e publicação (TIM-09)', () => {
 describe('times do jogo: aviso ao publicar (TIM-10)', () => {
   it('TIM-10: a 1ª publicação avisa todos da lista (dentro e fila) menos o dono, com o link do grupo ou do jogo', async () => {
     const t = setup();
-    await t.service.save(OWNER, GROUP_ID, DATE, { teams: [[OWNER], [A]], positions: {} });
-    await t.service.publish(OWNER, GROUP_ID, DATE);
+    await t.service.save(OWNER, GROUP_ID, DATE, { ...t.v(), teams: [[OWNER], [A]], positions: {} });
+    await t.service.publish(OWNER, GROUP_ID, DATE, t.v());
 
     expect(t.sent.map((n) => n.userId).sort()).toEqual([A, G, R, B, H].sort());
     for (const n of t.sent) {
@@ -758,22 +835,22 @@ describe('times do jogo: aviso ao publicar (TIM-10)', () => {
 
   it('TIM-10: quem não está na lista (membro que não confirmou) não é avisado', async () => {
     const t = setup();
-    await t.service.save(OWNER, GROUP_ID, DATE, { teams: [[OWNER], [A]], positions: {} });
-    await t.service.publish(OWNER, GROUP_ID, DATE);
+    await t.service.save(OWNER, GROUP_ID, DATE, { ...t.v(), teams: [[OWNER], [A]], positions: {} });
+    await t.service.publish(OWNER, GROUP_ID, DATE, t.v());
     expect(t.sent.map((n) => n.userId)).not.toContain(C);
     expect(t.sent.map((n) => n.userId)).not.toContain(OWNER);
   });
 
   it('TIM-10: publicar de novo depois de voltar para rascunho não avisa e mantém o publishedAt da 1ª', async () => {
     const t = setup();
-    await t.service.save(OWNER, GROUP_ID, DATE, { teams: [[OWNER], [A]], positions: {} });
-    await t.service.publish(OWNER, GROUP_ID, DATE);
+    await t.service.save(OWNER, GROUP_ID, DATE, { ...t.v(), teams: [[OWNER], [A]], positions: {} });
+    await t.service.publish(OWNER, GROUP_ID, DATE, t.v());
     const first = t.sent.length;
 
     t.clock.now = LATER;
     t.state.game = gameOf(CONFIRMED, WAITLIST, { status: 'in_progress' });
-    await t.service.unpublish(OWNER, GROUP_ID, DATE);
-    const again = await t.service.publish(OWNER, GROUP_ID, DATE);
+    await t.service.unpublish(OWNER, GROUP_ID, DATE, t.v());
+    const again = await t.service.publish(OWNER, GROUP_ID, DATE, t.v());
 
     expect(t.sent.length).toBe(first);
     expect(again.teams?.publishedAt).toBe(NOW.toISOString());
@@ -782,12 +859,12 @@ describe('times do jogo: aviso ao publicar (TIM-10)', () => {
 
   it('TIM-10: mudar os times publicados (ou publicar o que já está publicado) não avisa outra vez', async () => {
     const t = setup();
-    await t.service.save(OWNER, GROUP_ID, DATE, { teams: [[OWNER], [A]], positions: {} });
-    await t.service.publish(OWNER, GROUP_ID, DATE);
+    await t.service.save(OWNER, GROUP_ID, DATE, { ...t.v(), teams: [[OWNER], [A]], positions: {} });
+    await t.service.publish(OWNER, GROUP_ID, DATE, t.v());
     const first = t.sent.length;
 
-    await t.service.save(OWNER, GROUP_ID, DATE, { teams: [[OWNER, G], [A]], positions: {} });
-    await t.service.publish(OWNER, GROUP_ID, DATE);
+    await t.service.save(OWNER, GROUP_ID, DATE, { ...t.v(), teams: [[OWNER, G], [A]], positions: {} });
+    await t.service.publish(OWNER, GROUP_ID, DATE, t.v());
     expect(t.sent.length).toBe(first);
   });
 });
@@ -796,8 +873,8 @@ describe('times do jogo: até quando dá para mexer (TIM-11)', () => {
   it('TIM-11: com o jogo em andamento (até o fim), o dono ainda mexe', async () => {
     const t = setup({ game: gameOf(CONFIRMED, WAITLIST, { status: 'in_progress' }) });
     t.clock.now = LATER;
-    await t.service.save(OWNER, GROUP_ID, DATE, { teams: [[OWNER], [A]], positions: {} });
-    const res = await t.service.publish(OWNER, GROUP_ID, DATE);
+    await t.service.save(OWNER, GROUP_ID, DATE, { ...t.v(), teams: [[OWNER], [A]], positions: {} });
+    const res = await t.service.publish(OWNER, GROUP_ID, DATE, t.v());
     expect(res.teams?.status).toBe('published');
   });
 
@@ -825,8 +902,8 @@ describe('times do jogo: até quando dá para mexer (TIM-11)', () => {
 
   it('TIM-11: jogo cancelado → os times não aparecem (grupo e link do jogo); reaberto, voltam como estavam', async () => {
     const t = setup();
-    await t.service.save(OWNER, GROUP_ID, DATE, { teams: [[OWNER], [A]], positions: {} });
-    await t.service.publish(OWNER, GROUP_ID, DATE);
+    await t.service.save(OWNER, GROUP_ID, DATE, { ...t.v(), teams: [[OWNER], [A]], positions: {} });
+    await t.service.publish(OWNER, GROUP_ID, DATE, t.v());
 
     t.state.game = gameOf(CONFIRMED, WAITLIST, { status: 'cancelled' });
     for (const who of [OWNER, A]) expect((await t.service.get(who, GROUP_ID, DATE)).teams).toBeNull();
@@ -851,13 +928,14 @@ describe('times do jogo: quem saiu da lista continua no time (TIM-12)', () => {
   it('TIM-12: quem desistiu continua no time, marcado inList = false, com o nome, para o dono e para todos', async () => {
     const t = setup();
     await t.service.save(OWNER, GROUP_ID, DATE, {
+      ...t.v(),
       teams: [
         [OWNER, A],
         [G, H],
       ],
       positions: {},
     });
-    await t.service.publish(OWNER, GROUP_ID, DATE);
+    await t.service.publish(OWNER, GROUP_ID, DATE, t.v());
 
     // Ana (membro) e Heitor (convidado da fila) desistem.
     t.state.game = gameOf(
@@ -878,7 +956,7 @@ describe('times do jogo: quem saiu da lista continua no time (TIM-12)', () => {
 
   it('TIM-12: quem saiu do grupo continua no time, marcado', async () => {
     const t = setup();
-    await t.service.save(OWNER, GROUP_ID, DATE, { teams: [[OWNER, A], [G]], positions: {} });
+    await t.service.save(OWNER, GROUP_ID, DATE, { ...t.v(), teams: [[OWNER, A], [G]], positions: {} });
     delete t.state.members[A];
     t.state.game = gameOf(
       [attendee(OWNER, 'member', 0), attendee(G, 'guest', 2), attendee(R, 'reserve', 3)],
@@ -891,13 +969,14 @@ describe('times do jogo: quem saiu da lista continua no time (TIM-12)', () => {
 
   it('TIM-12: o dono pode salvar mantendo quem saiu (sem TEAM_PLAYER_NOT_FOUND), e depois tirar', async () => {
     const t = setup();
-    await t.service.save(OWNER, GROUP_ID, DATE, { teams: [[OWNER, A], [G]], positions: {} });
+    await t.service.save(OWNER, GROUP_ID, DATE, { ...t.v(), teams: [[OWNER, A], [G]], positions: {} });
     t.state.game = gameOf(
       [attendee(OWNER, 'member', 0), attendee(G, 'guest', 2), attendee(R, 'reserve', 3)],
       WAITLIST,
     );
 
     const kept = await t.service.save(OWNER, GROUP_ID, DATE, {
+      ...t.v(),
       teams: [
         [OWNER, A],
         [G, R],
@@ -906,17 +985,21 @@ describe('times do jogo: quem saiu da lista continua no time (TIM-12)', () => {
     });
     expect(find(kept.teams, A)).toMatchObject({ inList: false, positions: ['setter'] });
 
-    const removed = await t.service.save(OWNER, GROUP_ID, DATE, { teams: [[OWNER], [G, R]], positions: {} });
+    const removed = await t.service.save(OWNER, GROUP_ID, DATE, {
+      ...t.v(),
+      teams: [[OWNER], [G, R]],
+      positions: {},
+    });
     expect(find(removed.teams, A)).toBeUndefined();
   });
 
   it('TIM-12: quem saiu da lista e não estava nos times salvos não pode entrar → TEAM_PLAYER_NOT_FOUND', async () => {
     const t = setup();
-    await t.service.save(OWNER, GROUP_ID, DATE, { teams: [[OWNER], [G]], positions: {} });
+    await t.service.save(OWNER, GROUP_ID, DATE, { ...t.v(), teams: [[OWNER], [G]], positions: {} });
     t.state.game = gameOf([attendee(OWNER, 'member', 0), attendee(G, 'guest', 2)], []);
 
     await expectAppError(
-      t.service.save(OWNER, GROUP_ID, DATE, { teams: [[OWNER, A], [G]], positions: {} }),
+      t.service.save(OWNER, GROUP_ID, DATE, { ...t.v(), teams: [[OWNER, A], [G]], positions: {} }),
       'TEAM_PLAYER_NOT_FOUND',
       404,
     );
@@ -925,6 +1008,7 @@ describe('times do jogo: quem saiu da lista continua no time (TIM-12)', () => {
   it('TIM-12: quem entrou na lista depois aparece para o dono como "sem time"', async () => {
     const t = setup();
     await t.service.save(OWNER, GROUP_ID, DATE, {
+      ...t.v(),
       teams: [
         [OWNER, A],
         [G, R],
@@ -939,13 +1023,13 @@ describe('times do jogo: quem saiu da lista continua no time (TIM-12)', () => {
       nickname: 'Caio',
       inList: true,
       bench: false,
-      role: 'member',
+      tier: 'member',
     });
   });
 
   it('TIM-12: os times não mudam sozinhos: quem saiu continua gravado no time', async () => {
     const t = setup();
-    await t.service.save(OWNER, GROUP_ID, DATE, { teams: [[OWNER, A], [G]], positions: {} });
+    await t.service.save(OWNER, GROUP_ID, DATE, { ...t.v(), teams: [[OWNER, A], [G]], positions: {} });
     t.state.game = gameOf([attendee(OWNER, 'member', 0), attendee(G, 'guest', 2)], []);
     await t.service.get(OWNER, GROUP_ID, DATE);
     expect(t.stored()?.teams).toEqual([[OWNER, A], [G]]);
@@ -956,7 +1040,7 @@ describe('times do jogo: posição só no jogo (TIM-13)', () => {
   it('TIM-13: sem ajuste, cada pessoa mostra as posições do grupo (adjusted = false)', async () => {
     const t = setup();
     t.seedPositions(A, ['middle', 'outside']);
-    const res = await t.service.save(OWNER, GROUP_ID, DATE, { teams: [[A], [G]], positions: {} });
+    const res = await t.service.save(OWNER, GROUP_ID, DATE, { ...t.v(), teams: [[A], [G]], positions: {} });
 
     expect(find(res.teams, A)).toMatchObject({ positions: ['middle', 'outside'], adjusted: false });
     expect(find(res.teams, G)).toMatchObject({ positions: [], adjusted: false });
@@ -966,6 +1050,7 @@ describe('times do jogo: posição só no jogo (TIM-13)', () => {
     const t = setup();
     t.seedPositions(A, ['outside']);
     const res = await t.service.save(OWNER, GROUP_ID, DATE, {
+      ...t.v(),
       teams: [[A], [G]],
       positions: { [A]: ['setter', 'outside'] },
     });
@@ -973,15 +1058,23 @@ describe('times do jogo: posição só no jogo (TIM-13)', () => {
     expect(find(res.teams, A)).toMatchObject({ positions: ['setter', 'outside'], adjusted: true });
     expect(t.stored()?.positions).toEqual({ [A]: ['setter', 'outside'] });
     // O padrão do grupo (TIM-04) continua o mesmo: sem o ajuste, volta a valer.
-    const cleared = await t.service.save(OWNER, GROUP_ID, DATE, { teams: [[A], [G]], positions: {} });
+    const cleared = await t.service.save(OWNER, GROUP_ID, DATE, {
+      ...t.v(),
+      teams: [[A], [G]],
+      positions: {},
+    });
     expect(find(cleared.teams, A)).toMatchObject({ positions: ['outside'], adjusted: false });
   });
 
   it('TIM-13: o ajuste aparece para todos depois de publicado', async () => {
     const t = setup();
     t.seedPositions(A, ['outside']);
-    await t.service.save(OWNER, GROUP_ID, DATE, { teams: [[A], [G]], positions: { [A]: ['setter'] } });
-    await t.service.publish(OWNER, GROUP_ID, DATE);
+    await t.service.save(OWNER, GROUP_ID, DATE, {
+      ...t.v(),
+      teams: [[A], [G]],
+      positions: { [A]: ['setter'] },
+    });
+    await t.service.publish(OWNER, GROUP_ID, DATE, t.v());
     const res = await t.service.get(R, GROUP_ID, DATE);
     expect(find(res.teams, A)).toMatchObject({ positions: ['setter'], adjusted: true });
   });
@@ -989,7 +1082,7 @@ describe('times do jogo: posição só no jogo (TIM-13)', () => {
   it('TIM-13: sem ajuste, se o padrão do grupo mudar depois, os times mostram o novo', async () => {
     const t = setup();
     t.seedPositions(A, ['outside']);
-    await t.service.save(OWNER, GROUP_ID, DATE, { teams: [[A], [G]], positions: {} });
+    await t.service.save(OWNER, GROUP_ID, DATE, { ...t.v(), teams: [[A], [G]], positions: {} });
     t.seedPositions(A, ['libero']);
 
     const res = await t.service.get(OWNER, GROUP_ID, DATE);
@@ -999,6 +1092,7 @@ describe('times do jogo: posição só no jogo (TIM-13)', () => {
   it('TIM-13: o ajuste vale também para quem está sem time', async () => {
     const t = setup();
     const res = await t.service.save(OWNER, GROUP_ID, DATE, {
+      ...t.v(),
       teams: [[A], []],
       positions: { [R]: ['libero'] },
     });
@@ -1010,6 +1104,7 @@ describe('times do jogo: posição só no jogo (TIM-13)', () => {
     const t = setup();
     const err = await expectAppError(
       t.service.save(OWNER, GROUP_ID, DATE, {
+        ...t.v(),
         teams: [[A], [G]],
         positions: { [A]: ['setter', 'goalkeeper'] },
       }),
@@ -1023,7 +1118,11 @@ describe('times do jogo: posição só no jogo (TIM-13)', () => {
   it('TIM-13: a pessoa fora da lista é conferida antes da posição (TEAM_PLAYER_NOT_FOUND)', async () => {
     const t = setup();
     await expectAppError(
-      t.service.save(OWNER, GROUP_ID, DATE, { teams: [[A], [OUTSIDER]], positions: { [A]: ['goalkeeper'] } }),
+      t.service.save(OWNER, GROUP_ID, DATE, {
+        ...t.v(),
+        teams: [[A], [OUTSIDER]],
+        positions: { [A]: ['goalkeeper'] },
+      }),
       'TEAM_PLAYER_NOT_FOUND',
       404,
     );
@@ -1038,7 +1137,7 @@ const sizesOf = (t: Sys<Teams> | null) => (t ? t.teams.map((team) => team.length
 describe('times do jogo: sortear (TIM-15)', () => {
   it('TIM-15: sem times salvos → sorteia em 2 times, rascunho, com todos de dentro (2 e 2) e ninguém do Banco', async () => {
     const t = setup();
-    const res = await t.service.draw(OWNER, GROUP_ID, DATE);
+    const res = await t.service.draw(OWNER, GROUP_ID, DATE, t.v());
 
     expect(TeamsResponseSchema.parse(toWire(res))).toEqual(toWire(res));
     expect(res.teams).toMatchObject({ groupId: GROUP_ID, date: DATE, status: 'draft' });
@@ -1064,7 +1163,7 @@ describe('times do jogo: sortear (TIM-15)', () => {
   it('TIM-15: entram os "sem time" de dentro e quem o dono já pôs num time vindo do Banco; quem está só no Banco fica de fora', async () => {
     const t = setup();
     t.seedTeams({ teams: [[OWNER, B], [G]] });
-    const res = await t.service.draw(OWNER, GROUP_ID, DATE);
+    const res = await t.service.draw(OWNER, GROUP_ID, DATE, t.v());
 
     expect(sortedIds(res.teams?.teams.flat().map((p) => p.userId) ?? [])).toEqual(
       sortedIds([OWNER, A, G, R, B]),
@@ -1088,7 +1187,7 @@ describe('times do jogo: sortear (TIM-15)', () => {
       [attendee(OWNER, 'member', 0), attendee(G, 'guest', 2), attendee(R, 'reserve', 3)],
       WAITLIST,
     );
-    const res = await t.service.draw(OWNER, GROUP_ID, DATE);
+    const res = await t.service.draw(OWNER, GROUP_ID, DATE, t.v());
 
     expect(find(res.teams, A)).toBeUndefined();
     expect(sortedIds(t.stored()?.teams.flat() ?? [])).toEqual(sortedIds([OWNER, G, R]));
@@ -1097,7 +1196,7 @@ describe('times do jogo: sortear (TIM-15)', () => {
   it('TIM-15: usa a quantidade de times atual', async () => {
     const t = setup();
     t.seedTeams({ teams: [[OWNER], [A], []] });
-    const res = await t.service.draw(OWNER, GROUP_ID, DATE);
+    const res = await t.service.draw(OWNER, GROUP_ID, DATE, t.v());
     expect(res.teams?.teams).toHaveLength(3);
     expect(sizesOf(res.teams).sort()).toEqual([1, 1, 2]);
   });
@@ -1105,12 +1204,12 @@ describe('times do jogo: sortear (TIM-15)', () => {
   it('TIM-15: 12 dentro e 3 no Banco, 2 times → 6 e 6; com 3 times → 4, 4 e 4', async () => {
     const twelve = [...CONFIRMED, ...EXTRA.map((id, i) => attendee(id, 'guest', 10 + i))];
     const t = setup({ game: gameOf(twelve, [...WAITLIST, attendee(C, 'member', 30)], { slots: 12 }) });
-    const two = await t.service.draw(OWNER, GROUP_ID, DATE);
+    const two = await t.service.draw(OWNER, GROUP_ID, DATE, t.v());
     expect(sizesOf(two.teams)).toEqual([6, 6]);
     for (const who of [B, H, C]) expect(find(two.teams, who)).toBeUndefined();
 
     t.seedTeams({ teams: [[], [], []] });
-    const three = await t.service.draw(OWNER, GROUP_ID, DATE);
+    const three = await t.service.draw(OWNER, GROUP_ID, DATE, t.v());
     expect(sizesOf(three.teams)).toEqual([4, 4, 4]);
   });
 
@@ -1119,7 +1218,7 @@ describe('times do jogo: sortear (TIM-15)', () => {
     const t = setup({ game: gameOf(twelve, [], { slots: 12 }), random: seeded(7) });
     const results = new Set<string>();
     for (const _ of range(10)) {
-      const res = await t.service.draw(OWNER, GROUP_ID, DATE);
+      const res = await t.service.draw(OWNER, GROUP_ID, DATE, t.v());
       results.add(JSON.stringify(res.teams?.teams.map((team) => sortedIds(ids(team)))));
     }
     expect(results.size).toBeGreaterThan(1);
@@ -1135,7 +1234,7 @@ describe('times do jogo: sortear (TIM-15)', () => {
       ],
       positions: { [A]: ['setter'] },
     });
-    const res = await t.service.draw(OWNER, GROUP_ID, DATE);
+    const res = await t.service.draw(OWNER, GROUP_ID, DATE, t.v());
 
     expect(find(res.teams, A)).toMatchObject({ positions: ['setter'], adjusted: true });
     expect(t.stored()?.positions).toEqual({ [A]: ['setter'] });
@@ -1146,7 +1245,7 @@ describe('times do jogo: sortear (TIM-15)', () => {
     t.seedTeams();
     t.clock.now = LATER;
     t.state.game = gameOf(CONFIRMED, WAITLIST, { status: 'in_progress' });
-    const res = await t.service.draw(OWNER, GROUP_ID, DATE);
+    const res = await t.service.draw(OWNER, GROUP_ID, DATE, t.v());
 
     expect(res.teams?.status).toBe('draft');
     expect(t.stored()).toMatchObject({
@@ -1158,12 +1257,12 @@ describe('times do jogo: sortear (TIM-15)', () => {
 
   it('TIM-15: com os times publicados, sortear volta para rascunho (os outros deixam de ver) e mantém o publishedAt', async () => {
     const t = setup();
-    await t.service.save(OWNER, GROUP_ID, DATE, { teams: [[OWNER], [A]], positions: {} });
-    await t.service.publish(OWNER, GROUP_ID, DATE);
+    await t.service.save(OWNER, GROUP_ID, DATE, { ...t.v(), teams: [[OWNER], [A]], positions: {} });
+    await t.service.publish(OWNER, GROUP_ID, DATE, t.v());
     t.clock.now = LATER;
     t.state.game = gameOf(CONFIRMED, WAITLIST, { status: 'in_progress' });
 
-    const res = await t.service.draw(OWNER, GROUP_ID, DATE);
+    const res = await t.service.draw(OWNER, GROUP_ID, DATE, t.v());
     expect(res.teams?.status).toBe('draft');
     expect(t.stored()).toMatchObject({ status: 'draft', publishedAt: NOW.toISOString() });
     for (const who of [A, R]) expect(await t.service.get(who, GROUP_ID, DATE)).toEqual({ teams: null });
@@ -1172,14 +1271,14 @@ describe('times do jogo: sortear (TIM-15)', () => {
 
   it('TIM-15 / TIM-10: sortear não avisa ninguém, e publicar de novo depois do sorteio não avisa outra vez', async () => {
     const t = setup();
-    await t.service.draw(OWNER, GROUP_ID, DATE);
+    await t.service.draw(OWNER, GROUP_ID, DATE, t.v());
     expect(t.sent).toEqual([]);
 
-    await t.service.publish(OWNER, GROUP_ID, DATE);
+    await t.service.publish(OWNER, GROUP_ID, DATE, t.v());
     const first = t.sent.length;
     expect(first).toBeGreaterThan(0);
-    await t.service.draw(OWNER, GROUP_ID, DATE);
-    const again = await t.service.publish(OWNER, GROUP_ID, DATE);
+    await t.service.draw(OWNER, GROUP_ID, DATE, t.v());
+    const again = await t.service.publish(OWNER, GROUP_ID, DATE, t.v());
 
     expect(t.sent.length).toBe(first);
     expect(again.teams).toMatchObject({ status: 'published', publishedAt: NOW.toISOString() });
@@ -1189,35 +1288,51 @@ describe('times do jogo: sortear (TIM-15)', () => {
     const t = setup();
     t.seedTeams();
     for (const who of [A, B, R])
-      await expectAppError(t.service.draw(who, GROUP_ID, DATE), 'GROUP_PERMISSION_DENIED', 403);
+      await expectAppError(t.service.draw(who, GROUP_ID, DATE, t.v()), 'GROUP_PERMISSION_DENIED', 403);
     for (const who of [OUTSIDER, G, H])
-      await expectAppError(t.service.draw(who, GROUP_ID, DATE), 'GROUP_NOT_FOUND', 404);
-    await expectAppError(t.service.draw(OWNER, OTHER_GROUP_ID, DATE), 'GROUP_NOT_FOUND', 404);
+      await expectAppError(t.service.draw(who, GROUP_ID, DATE, t.v()), 'GROUP_NOT_FOUND', 404);
+    await expectAppError(
+      t.service.draw(OWNER, OTHER_GROUP_ID, DATE, t.v(DATE, OTHER_GROUP_ID)),
+      'GROUP_NOT_FOUND',
+      404,
+    );
     expect(t.puts).toEqual([]);
   });
 
   it('TIM-15 / TIM-07: a permissão vem antes do arquivado e da data', async () => {
     const t = setup({ group: { archivedAt: '2026-11-01T00:00:00.000Z' } });
-    await expectAppError(t.service.draw(A, GROUP_ID, OTHER_DATE), 'GROUP_PERMISSION_DENIED', 403);
+    await expectAppError(
+      t.service.draw(A, GROUP_ID, OTHER_DATE, t.v(OTHER_DATE, GROUP_ID)),
+      'GROUP_PERMISSION_DENIED',
+      403,
+    );
   });
 
   it('TIM-15 / TIM-11: grupo arquivado → GROUP_ARCHIVED (409), antes da data', async () => {
     const t = setup({ group: { archivedAt: '2026-11-01T00:00:00.000Z' } });
-    await expectAppError(t.service.draw(OWNER, GROUP_ID, DATE), 'GROUP_ARCHIVED', 409);
-    await expectAppError(t.service.draw(OWNER, GROUP_ID, OTHER_DATE), 'GROUP_ARCHIVED', 409);
+    await expectAppError(t.service.draw(OWNER, GROUP_ID, DATE, t.v()), 'GROUP_ARCHIVED', 409);
+    await expectAppError(
+      t.service.draw(OWNER, GROUP_ID, OTHER_DATE, t.v(OTHER_DATE, GROUP_ID)),
+      'GROUP_ARCHIVED',
+      409,
+    );
     expect(t.puts).toEqual([]);
   });
 
   it('TIM-15 / TIM-06: outra data que não a do jogo atual → GAME_NOT_FOUND (404)', async () => {
     const t = setup();
-    await expectAppError(t.service.draw(OWNER, GROUP_ID, OTHER_DATE), 'GAME_NOT_FOUND', 404);
+    await expectAppError(
+      t.service.draw(OWNER, GROUP_ID, OTHER_DATE, t.v(OTHER_DATE, GROUP_ID)),
+      'GAME_NOT_FOUND',
+      404,
+    );
     expect(t.puts).toEqual([]);
   });
 
   it('TIM-15 / TIM-11: jogo cancelado → GAME_CANCELLED (409), sem gravar', async () => {
     const t = setup({ game: gameOf(CONFIRMED, WAITLIST, { status: 'cancelled' }) });
     t.seedTeams();
-    await expectAppError(t.service.draw(OWNER, GROUP_ID, DATE), 'GAME_CANCELLED', 409);
+    await expectAppError(t.service.draw(OWNER, GROUP_ID, DATE, t.v()), 'GAME_CANCELLED', 409);
     expect(t.puts).toEqual([]);
   });
 });
@@ -1226,6 +1341,7 @@ describe('times do jogo: fixar alguém num time (TIM-16)', () => {
   it('TIM-16: salvar grava quem está fixo, e o dono vê a marca (pinned = true) só em quem está fixo', async () => {
     const t = setup();
     const res = await t.service.save(OWNER, GROUP_ID, DATE, {
+      ...t.v(),
       teams: [[OWNER, A], [G]],
       positions: {},
       pinned: [A, G],
@@ -1242,16 +1358,30 @@ describe('times do jogo: fixar alguém num time (TIM-16)', () => {
 
   it('TIM-16: salvar sem pinned → ninguém fixo', async () => {
     const t = setup();
-    await t.service.save(OWNER, GROUP_ID, DATE, { teams: [[OWNER, A], [G]], positions: {}, pinned: [A] });
-    const res = await t.service.save(OWNER, GROUP_ID, DATE, { teams: [[OWNER, A], [G]], positions: {} });
+    await t.service.save(OWNER, GROUP_ID, DATE, {
+      ...t.v(),
+      teams: [[OWNER, A], [G]],
+      positions: {},
+      pinned: [A],
+    });
+    const res = await t.service.save(OWNER, GROUP_ID, DATE, {
+      ...t.v(),
+      teams: [[OWNER, A], [G]],
+      positions: {},
+    });
     expect(t.stored()?.pinned).toEqual([]);
     expect(find(res.teams, A)?.pinned).toBe(false);
   });
 
   it('TIM-16: a marca de fixo aparece só para o dono (membros e link do jogo veem pinned = false)', async () => {
     const t = setup();
-    await t.service.save(OWNER, GROUP_ID, DATE, { teams: [[OWNER, A], [G]], positions: {}, pinned: [A, G] });
-    await t.service.publish(OWNER, GROUP_ID, DATE);
+    await t.service.save(OWNER, GROUP_ID, DATE, {
+      ...t.v(),
+      teams: [[OWNER, A], [G]],
+      positions: {},
+      pinned: [A, G],
+    });
+    await t.service.publish(OWNER, GROUP_ID, DATE, t.v());
 
     for (const res of [
       await t.service.get(A, GROUP_ID, DATE),
@@ -1271,13 +1401,13 @@ describe('times do jogo: fixar alguém num time (TIM-16)', () => {
   });
 
   it('TIM-16: só quem está num time pode ser fixo: o contrato recusa fixado fora dos times (VALIDATION_ERROR)', () => {
-    expect(SaveTeamsInputSchema.safeParse({ teams: [[A], [G]], positions: {}, pinned: [A] }).success).toBe(
-      true,
-    );
-    expect(SaveTeamsInputSchema.safeParse({ teams: [[A], [G]], positions: {}, pinned: [R] }).success).toBe(
-      false,
-    );
-    expect(SaveTeamsInputSchema.parse({ teams: [[A], [G]], positions: {} }).pinned).toEqual([]);
+    expect(
+      SaveTeamsInputSchema.safeParse({ version: 0, teams: [[A], [G]], positions: {}, pinned: [A] }).success,
+    ).toBe(true);
+    expect(
+      SaveTeamsInputSchema.safeParse({ version: 0, teams: [[A], [G]], positions: {}, pinned: [R] }).success,
+    ).toBe(false);
+    expect(SaveTeamsInputSchema.parse({ version: 0, teams: [[A], [G]], positions: {} }).pinned).toEqual([]);
   });
 
   it('TIM-16: os fixados ficam no time deles em todo sorteio, e continuam fixos', async () => {
@@ -1292,7 +1422,7 @@ describe('times do jogo: fixar alguém num time (TIM-16)', () => {
     });
 
     for (const _ of range(10)) {
-      const res = await t.service.draw(OWNER, GROUP_ID, DATE);
+      const res = await t.service.draw(OWNER, GROUP_ID, DATE, t.v());
       expect(ids(res.teams?.teams[0] ?? [])).toContain(OWNER);
       expect(ids(res.teams?.teams[1] ?? [])).toContain(G);
       expect(find(res.teams, OWNER)?.pinned).toBe(true);
@@ -1316,7 +1446,7 @@ describe('times do jogo: fixar alguém num time (TIM-16)', () => {
       [attendee(OWNER, 'member', 0), attendee(G, 'guest', 2), attendee(R, 'reserve', 3)],
       WAITLIST,
     );
-    const res = await t.service.draw(OWNER, GROUP_ID, DATE);
+    const res = await t.service.draw(OWNER, GROUP_ID, DATE, t.v());
 
     expect(ids(res.teams?.teams[0] ?? [])).toContain(A);
     expect(find(res.teams, A)).toMatchObject({ inList: false, pinned: true });
@@ -1332,7 +1462,7 @@ describe('times do jogo: fixar alguém num time (TIM-16)', () => {
     ];
     const t = setup({ game: gameOf(six, [], { slots: 6 }) });
     t.seedTeams({ teams: [[OWNER, A, G, R], []], pinned: [OWNER, A, G, R] });
-    const res = await t.service.draw(OWNER, GROUP_ID, DATE);
+    const res = await t.service.draw(OWNER, GROUP_ID, DATE, t.v());
 
     expect(sortedIds(ids(res.teams?.teams[0] ?? []))).toEqual(sortedIds([OWNER, A, G, R]));
     expect(sortedIds(ids(res.teams?.teams[1] ?? []))).toEqual(
@@ -1345,6 +1475,7 @@ describe('times pelo id público (USR-16, USR-17)', () => {
   it('USR-17: salvar recebe o id público, guarda pelo id do sistema e devolve o público', async () => {
     const t = setup();
     const res = await t.raw.save(OWNER, GROUP_ID, DATE, {
+      ...t.v(),
       teams: [[pub(OWNER), pub(A)], [pub(G)]],
       positions: { [pub(A)]: ['setter'] },
       pinned: [pub(A)],
@@ -1365,13 +1496,14 @@ describe('times pelo id público (USR-16, USR-17)', () => {
   it('USR-16: os times saem só com ids públicos (dono, membro e link do jogo)', async () => {
     const t = setup();
     await t.raw.save(OWNER, GROUP_ID, DATE, {
+      ...t.v(),
       teams: [
         [pub(OWNER), pub(A)],
         [pub(G), pub(R)],
       ],
       positions: {},
     });
-    await t.raw.publish(OWNER, GROUP_ID, DATE);
+    await t.raw.publish(OWNER, GROUP_ID, DATE, t.v());
     const views = [
       await t.raw.get(OWNER, GROUP_ID, DATE),
       await t.raw.get(A, GROUP_ID, DATE),
@@ -1386,7 +1518,7 @@ describe('times pelo id público (USR-16, USR-17)', () => {
 
   it('USR-16: o sorteio devolve os times com ids públicos', async () => {
     const t = setup();
-    const res = await t.raw.draw(OWNER, GROUP_ID, DATE);
+    const res = await t.raw.draw(OWNER, GROUP_ID, DATE, t.v());
     const people = res.teams?.teams.flat().map((p) => p.userId) ?? [];
     expect([...people].sort()).toEqual([OWNER, A, G, R].map(pub).sort());
     expect(leaksSystemId(res)).toBe(false);
@@ -1395,7 +1527,7 @@ describe('times pelo id público (USR-16, USR-17)', () => {
   it('USR-17: id público que não existe num time → TEAM_PLAYER_NOT_FOUND, sem gravar', async () => {
     const t = setup();
     await expectAppError(
-      t.raw.save(OWNER, GROUP_ID, DATE, { teams: [[pub(A), UNKNOWN], [pub(G)]], positions: {} }),
+      t.raw.save(OWNER, GROUP_ID, DATE, { ...t.v(), teams: [[pub(A), UNKNOWN], [pub(G)]], positions: {} }),
       'TEAM_PLAYER_NOT_FOUND',
       404,
     );
@@ -1405,7 +1537,7 @@ describe('times pelo id público (USR-16, USR-17)', () => {
   it('USR-17: o id do sistema no lugar do público não acha ninguém (TEAM_PLAYER_NOT_FOUND)', async () => {
     const t = setup();
     await expectAppError(
-      t.raw.save(OWNER, GROUP_ID, DATE, { teams: [[A], [pub(G)]], positions: {} }),
+      t.raw.save(OWNER, GROUP_ID, DATE, { ...t.v(), teams: [[A], [pub(G)]], positions: {} }),
       'TEAM_PLAYER_NOT_FOUND',
       404,
     );
@@ -1415,7 +1547,7 @@ describe('times pelo id público (USR-16, USR-17)', () => {
   it('USR-17: a permissão vem de quem pede: membro salvando times com ids válidos → GROUP_PERMISSION_DENIED', async () => {
     const t = setup();
     await expectAppError(
-      t.raw.save(A, GROUP_ID, DATE, { teams: [[pub(OWNER)], [pub(G)]], positions: {} }),
+      t.raw.save(A, GROUP_ID, DATE, { ...t.v(), teams: [[pub(OWNER)], [pub(G)]], positions: {} }),
       'GROUP_PERMISSION_DENIED',
       403,
     );
@@ -1427,30 +1559,34 @@ describe('times do jogo com cargo (TIM-07, 09, 10, 15)', () => {
   it('TIM-07: o Admin (teams.manage) salva, publica, volta para rascunho e descarta os times', async () => {
     const t = setup();
     t.state.staff[A] = 'admin';
-    await t.service.save(A, GROUP_ID, DATE, { teams: [[OWNER], [A]], positions: {} });
-    expect((await t.service.publish(A, GROUP_ID, DATE)).teams?.status).toBe('published');
-    expect((await t.service.unpublish(A, GROUP_ID, DATE)).teams?.status).toBe('draft');
-    await expect(t.service.discard(A, GROUP_ID, DATE)).resolves.toBeUndefined();
+    await t.service.save(A, GROUP_ID, DATE, { ...t.v(), teams: [[OWNER], [A]], positions: {} });
+    expect((await t.service.publish(A, GROUP_ID, DATE, t.v())).teams?.status).toBe('published');
+    expect((await t.service.unpublish(A, GROUP_ID, DATE, t.v())).teams?.status).toBe('draft');
+    await expect(t.service.discard(A, GROUP_ID, DATE, t.v())).resolves.toBeUndefined();
     expect(t.deletes).toHaveLength(1);
   });
 
   it('TIM-07: a reserva com o cargo Admin também monta os times', async () => {
     const t = setup();
     t.state.staff[R] = 'admin';
-    await t.service.save(R, GROUP_ID, DATE, { teams: [[OWNER], [R]], positions: {} });
+    await t.service.save(R, GROUP_ID, DATE, { ...t.v(), teams: [[OWNER], [R]], positions: {} });
     expect(t.puts).toHaveLength(1);
   });
 
   it('TIM-07: sem cargo, a resposta traz a permissão que faltou (teams.manage)', async () => {
     const t = setup();
-    const err = await expectAppError(t.service.publish(B, GROUP_ID, DATE), 'GROUP_PERMISSION_DENIED', 403);
+    const err = await expectAppError(
+      t.service.publish(B, GROUP_ID, DATE, t.v()),
+      'GROUP_PERMISSION_DENIED',
+      403,
+    );
     expect(err.details).toEqual({ permission: 'teams.manage' });
   });
 
   it('TIM-09: o Admin vê o rascunho, como o dono; quem não tem cargo não vê', async () => {
     const t = setup();
     t.state.staff[A] = 'admin';
-    await t.service.save(OWNER, GROUP_ID, DATE, { teams: [[OWNER], [G]], positions: {} });
+    await t.service.save(OWNER, GROUP_ID, DATE, { ...t.v(), teams: [[OWNER], [G]], positions: {} });
     expect((await t.service.get(A, GROUP_ID, DATE)).teams?.status).toBe('draft');
     expect(await t.service.get(B, GROUP_ID, DATE)).toEqual({ teams: null });
   });
@@ -1458,8 +1594,8 @@ describe('times do jogo com cargo (TIM-07, 09, 10, 15)', () => {
   it('TIM-10: o Admin publica → todos da lista são avisados menos ele, o dono incluído', async () => {
     const t = setup();
     t.state.staff[A] = 'admin';
-    await t.service.save(A, GROUP_ID, DATE, { teams: [[OWNER], [A]], positions: {} });
-    await t.service.publish(A, GROUP_ID, DATE);
+    await t.service.save(A, GROUP_ID, DATE, { ...t.v(), teams: [[OWNER], [A]], positions: {} });
+    await t.service.publish(A, GROUP_ID, DATE, t.v());
     expect(t.sent.map((n) => n.userId).sort()).toEqual([OWNER, G, R, B, H].sort());
     expect(t.sent.every((n) => n.type === 'teams_published')).toBe(true);
   });
@@ -1467,8 +1603,8 @@ describe('times do jogo com cargo (TIM-07, 09, 10, 15)', () => {
   it('TIM-10: o dono publica com um Admin na lista → o Admin é avisado, e o dono não', async () => {
     const t = setup();
     t.state.staff[A] = 'admin';
-    await t.service.save(OWNER, GROUP_ID, DATE, { teams: [[OWNER], [A]], positions: {} });
-    await t.service.publish(OWNER, GROUP_ID, DATE);
+    await t.service.save(OWNER, GROUP_ID, DATE, { ...t.v(), teams: [[OWNER], [A]], positions: {} });
+    await t.service.publish(OWNER, GROUP_ID, DATE, t.v());
     expect(t.sent.map((n) => n.userId)).toContain(A);
     expect(t.sent.map((n) => n.userId)).not.toContain(OWNER);
   });
@@ -1476,7 +1612,7 @@ describe('times do jogo com cargo (TIM-07, 09, 10, 15)', () => {
   it('TIM-15: o Admin sorteia os times', async () => {
     const t = setup();
     t.state.staff[A] = 'admin';
-    const drawn = await t.service.draw(A, GROUP_ID, DATE);
+    const drawn = await t.service.draw(A, GROUP_ID, DATE, t.v());
     expect(drawn.teams?.status).toBe('draft');
     expect(t.puts).toHaveLength(1);
   });
@@ -1484,9 +1620,116 @@ describe('times do jogo com cargo (TIM-07, 09, 10, 15)', () => {
   it('GRP-52: o cargo tirado barra a próxima mudança nos times', async () => {
     const t = setup();
     t.state.staff[A] = 'admin';
-    await t.service.save(A, GROUP_ID, DATE, { teams: [[OWNER], [A]], positions: {} });
+    await t.service.save(A, GROUP_ID, DATE, { ...t.v(), teams: [[OWNER], [A]], positions: {} });
     delete t.state.staff[A];
-    await expectAppError(t.service.publish(A, GROUP_ID, DATE), 'GROUP_PERMISSION_DENIED', 403);
+    await expectAppError(t.service.publish(A, GROUP_ID, DATE, t.v()), 'GROUP_PERMISSION_DENIED', 403);
     expect(t.sent).toEqual([]);
+  });
+});
+
+describe('times do jogo: a versão que a tela mostrou (TIM-25)', () => {
+  const conflict = async (p: Promise<unknown>, currentVersion: number) => {
+    const err = await expectAppError(p, 'VERSION_CONFLICT', 409);
+    expect(err.details).toEqual({ currentVersion });
+  };
+
+  it('TIM-25: jogo sem times → o 1º save manda 0, e os times saem com a version 1', async () => {
+    const t = setup();
+    const res = await t.service.save(OWNER, GROUP_ID, DATE, { version: 0, teams: [[A], [G]], positions: {} });
+    expect(res.teams?.version).toBe(1);
+    expect(t.stored()?.version).toBe(1);
+  });
+
+  it('TIM-25: cada save soma 1, e a resposta traz a version nova', async () => {
+    const t = setup();
+    t.seedTeams({ version: 4 });
+    const res = await t.service.save(OWNER, GROUP_ID, DATE, { version: 4, teams: [[A], [G]], positions: {} });
+    expect(res.teams?.version).toBe(5);
+    expect((await t.service.get(OWNER, GROUP_ID, DATE)).teams?.version).toBe(5);
+  });
+
+  it('TIM-25: o GET traz a version dos times para a tela mandar de volta', async () => {
+    const t = setup();
+    t.seedTeams({ version: 3 });
+    expect((await t.service.get(OWNER, GROUP_ID, DATE)).teams?.version).toBe(3);
+  });
+
+  it('TIM-25: salvar com a versão velha → VERSION_CONFLICT (409, currentVersion) e nada é gravado', async () => {
+    const t = setup();
+    t.seedTeams({ version: 2 });
+    const before = t.stored();
+    await conflict(
+      t.service.save(OWNER, GROUP_ID, DATE, { version: 1, teams: [[G], [A]], positions: {} }),
+      2,
+    );
+    expect(t.puts).toEqual([]);
+    expect(t.stored()).toEqual(before);
+  });
+
+  it('TIM-25: alguém criou os times antes → o save com 0 dá VERSION_CONFLICT com a versão de agora', async () => {
+    const t = setup();
+    t.seedTeams({ version: 1 });
+    await conflict(
+      t.service.save(OWNER, GROUP_ID, DATE, { version: 0, teams: [[G], [A]], positions: {} }),
+      1,
+    );
+    expect(t.puts).toEqual([]);
+  });
+
+  it('TIM-25: sortear manda a versão: a certa sorteia e soma 1; a velha dá VERSION_CONFLICT sem gravar', async () => {
+    const ok = setup();
+    const first = await ok.service.draw(OWNER, GROUP_ID, DATE, { version: 0 });
+    expect(first.teams?.version).toBe(1);
+    const again = await ok.service.draw(OWNER, GROUP_ID, DATE, { version: 1 });
+    expect(again.teams?.version).toBe(2);
+
+    const stale = setup();
+    stale.seedTeams({ version: 3 });
+    await conflict(stale.service.draw(OWNER, GROUP_ID, DATE, { version: 2 }), 3);
+    expect(stale.puts).toEqual([]);
+  });
+
+  it('TIM-25: publicar com a versão velha → VERSION_CONFLICT, continua rascunho e ninguém é avisado', async () => {
+    const t = setup();
+    t.seedTeams({ version: 2 });
+    await conflict(t.service.publish(OWNER, GROUP_ID, DATE, { version: 1 }), 2);
+    expect(t.stored()?.status).toBe('draft');
+    expect(t.sent).toEqual([]);
+  });
+
+  it('TIM-25: publicar com a versão certa publica e devolve a version nova', async () => {
+    const t = setup();
+    t.seedTeams({ version: 2 });
+    const res = await t.service.publish(OWNER, GROUP_ID, DATE, { version: 2 });
+    expect(res.teams).toMatchObject({ status: 'published', version: 3 });
+  });
+
+  it('TIM-25: despublicar com a versão velha → VERSION_CONFLICT e continua publicado', async () => {
+    const t = setup();
+    t.seedTeams({ status: 'published', publishedAt: '2026-11-04T00:00:00.000Z', version: 5 });
+    await conflict(t.service.unpublish(OWNER, GROUP_ID, DATE, { version: 4 }), 5);
+    expect(t.stored()?.status).toBe('published');
+    const res = await t.service.unpublish(OWNER, GROUP_ID, DATE, { version: 5 });
+    expect(res.teams).toMatchObject({ status: 'draft', version: 6 });
+  });
+
+  it('TIM-25: descartar com a versão velha → VERSION_CONFLICT e os times ficam', async () => {
+    const t = setup();
+    t.seedTeams({ version: 2 });
+    await conflict(t.service.discard(OWNER, GROUP_ID, DATE, { version: 1 }), 2);
+    expect(t.deletes).toEqual([]);
+    expect(t.stored()).toBeDefined();
+    await t.service.discard(OWNER, GROUP_ID, DATE, { version: 2 });
+    expect(t.stored()).toBeUndefined();
+  });
+
+  it('TIM-25: o contrato exige a version (inteiro ≥ 0) no save', () => {
+    expect(SaveTeamsInputSchema.safeParse({ teams: [[A], [G]], positions: {} }).success).toBe(false);
+    expect(SaveTeamsInputSchema.safeParse({ version: -1, teams: [[A], [G]], positions: {} }).success).toBe(
+      false,
+    );
+    expect(SaveTeamsInputSchema.safeParse({ version: 0, teams: [[A], [G]], positions: {} }).success).toBe(
+      true,
+    );
   });
 });

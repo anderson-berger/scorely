@@ -1,5 +1,6 @@
 <script lang="ts">
 import type { PlayerPosition } from '@scorely/contracts';
+import { useSportsStore } from '@scorely/web/src/modules/sports/sports.store';
 import { defineComponent, type PropType } from 'vue';
 
 /**
@@ -9,8 +10,13 @@ import { defineComponent, type PropType } from 'vue';
  */
 export default defineComponent({
   name: 'PlayerPositions',
+  setup() {
+    return { sports: useSportsStore() };
+  },
 
   props: {
+    /** TIM-02: o esporte do grupo, para o nome das posições (catálogo, ESP-08). */
+    sportId: { type: String, required: true },
     positions: { type: Array as PropType<readonly PlayerPosition[] | undefined>, default: undefined },
     editable: { type: Boolean, default: false },
     /** Para o rótulo acessível do botão ("Posições de {name}"). */
@@ -22,13 +28,13 @@ export default defineComponent({
   computed: {
     main(): string {
       const first = this.positions?.[0];
-      return first ? this.$t(`teams.positions.${first}`) : '';
+      return first ? this.sports.positionName(this.sportId, first) : '';
     },
 
     others(): string {
       return (this.positions ?? [])
         .slice(1)
-        .map((p) => this.$t(`teams.positions.${p}`))
+        .map((p) => this.sports.positionName(this.sportId, p))
         .join(' · ');
     },
   },

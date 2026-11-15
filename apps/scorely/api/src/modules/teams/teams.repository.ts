@@ -1,5 +1,5 @@
 import { DeleteCommand, GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
-import { replaceItem, stripKeys } from '@scorely/api/src/lib/db';
+import { replaceItem, sendVersioned, stripKeys, withVersion } from '@scorely/api/src/lib/db';
 import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
 import type { TeamApartRule } from '@scorely/api/src/modules/teams/engine/rules';
 import { TEAMS_ENTITY, teamsKey } from '@scorely/api/src/modules/teams/teams.table';
@@ -27,6 +27,8 @@ export interface StoredTeams {
   extras?: TeamExtra[];
   createdAt: string;
   updatedAt: string;
+  /** TIM-25 (ADR 0013). */
+  version: number;
 }
 
 /** Campos opcionais: ausentes no item novo, saem do gravado (o `Put` de antes fazia isso). */
@@ -34,9 +36,22 @@ const OPTIONAL = ['pinned', 'publishedAt', 'rules', 'apart', 'extras'] as const;
 
 export interface TeamsRepository {
   get(groupId: string, date: string): Promise<StoredTeams | undefined>;
-  /** Grava o item inteiro (o service mantém `createdAt` e `publishedAt`); a `version` segue (ADR 0013). */
-  put(teams: StoredTeams): Promise<void>;
-  delete(groupId: string, date: string): Promise<void>;
+  /**
+   * Grava o item inteiro (o service mantém `createdAt` e `publishedAt`); a `version` segue (ADR 0013). Só grava na
+   * versão esperada (`0` = o jogo ainda sem times, TIM-25); senão, `VERSION_CONFLICT`.
+   */
+  put(teams: StoredTeams, expectedVersion: number): Promise<void>;
+  /** Descarta os times (TIM-06), só na versão esperada (TIM-25). */
+  delete(groupId: string, date: string, expectedVersion: number): Promise<void>;
+}
+
+/** O Delete dos times, antes da condição da versão. */
+function deleteOf(key: { PK: string; SK: string }): {
+  TableName: string;
+  Key: { PK: string; SK: string };
+  ConditionExpression?: string;
+} {
+  return { TableName: tableName(), Key: key };
 }
 
 export const dynamoTeamsRepository: TeamsRepository = {
@@ -47,16 +62,22 @@ export const dynamoTeamsRepository: TeamsRepository = {
     return Item ? stripKeys<StoredTeams>(Item) : undefined;
   },
 
-  async put(teams) {
-    await dynamo().send(
-      new UpdateCommand({
-        TableName: tableName(),
-        ...replaceItem(teamsKey(teams.groupId, teams.date), TEAMS_ENTITY, { ...teams }, OPTIONAL),
-      }),
+  async put(teams, expectedVersion) {
+    const key = teamsKey(teams.groupId, teams.date);
+    await sendVersioned(key, () =>
+      dynamo().send(
+        new UpdateCommand({
+          TableName: tableName(),
+          ...withVersion(replaceItem(key, TEAMS_ENTITY, { ...teams }, OPTIONAL), expectedVersion),
+        }),
+      ),
     );
   },
 
-  async delete(groupId, date) {
-    await dynamo().send(new DeleteCommand({ TableName: tableName(), Key: teamsKey(groupId, date) }));
+  async delete(groupId, date, expectedVersion) {
+    const key = teamsKey(groupId, date);
+    await sendVersioned(key, () =>
+      dynamo().send(new DeleteCommand(withVersion(deleteOf(key), expectedVersion))),
+    );
   },
 };

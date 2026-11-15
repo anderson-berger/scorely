@@ -1,5 +1,12 @@
 import { UpdateCommand } from '@aws-sdk/lib-dynamodb';
-import { batchGetOrdered, setCreatedAtIfNew, stripKeys, touch } from '@scorely/api/src/lib/db';
+import {
+  batchGetOrdered,
+  sendVersioned,
+  setCreatedAtIfNew,
+  stripKeys,
+  touch,
+  withVersion,
+} from '@scorely/api/src/lib/db';
 import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
 import { PLAYER_ENTITY, playerKey } from '@scorely/api/src/modules/teams/player.table';
 import type { PlayerPosition } from '@scorely/contracts';
@@ -12,13 +19,24 @@ export interface StoredPlayer {
   positions: PlayerPosition[];
   createdAt: string;
   updatedAt: string;
+  /** TIM-25: soma 1 a cada gravação (ADR 0013). */
+  version: number;
 }
 
 export interface PlayerRepository {
   /** Os que existem, em qualquer ordem; quem nunca foi definido não vem. */
   getMany(groupId: string, userIds: string[]): Promise<StoredPlayer[]>;
-  /** Upsert: grava as posições na ordem (substitui) e mantém o `createdAt` de quando nasceu. */
-  save(groupId: string, userId: string, positions: PlayerPosition[], now: string): Promise<StoredPlayer>;
+  /**
+   * Upsert: grava as posições na ordem (substitui) e mantém o `createdAt` de quando nasceu. Só grava na versão
+   * esperada (`0` = ainda sem posição, TIM-25); senão, `VERSION_CONFLICT`.
+   */
+  save(
+    groupId: string,
+    userId: string,
+    positions: PlayerPosition[],
+    now: string,
+    expectedVersion: number,
+  ): Promise<StoredPlayer>;
 }
 
 export const dynamoPlayerRepository: PlayerRepository = {
@@ -27,24 +45,30 @@ export const dynamoPlayerRepository: PlayerRepository = {
     return items.map((item) => stripKeys<StoredPlayer>(item));
   },
 
-  async save(groupId, userId, positions, now) {
+  async save(groupId, userId, positions, now, expectedVersion) {
     const created = setCreatedAtIfNew(new Date(now));
-    const { Attributes } = await dynamo().send(
-      new UpdateCommand(
-        touch({
-          TableName: tableName(),
-          Key: playerKey(groupId, userId),
-          UpdateExpression: `SET entity = :entity, groupId = :groupId, userId = :userId, positions = :positions, updatedAt = :now, ${created.expression}`,
-          ExpressionAttributeValues: {
-            ':entity': PLAYER_ENTITY,
-            ':groupId': groupId,
-            ':userId': userId,
-            ':positions': positions,
-            ':now': now,
-            ...created.values,
-          },
-          ReturnValues: 'ALL_NEW',
-        }),
+    const key = playerKey(groupId, userId);
+    const { Attributes } = await sendVersioned(key, () =>
+      dynamo().send(
+        new UpdateCommand(
+          withVersion(
+            touch({
+              TableName: tableName(),
+              Key: playerKey(groupId, userId),
+              UpdateExpression: `SET entity = :entity, groupId = :groupId, userId = :userId, positions = :positions, updatedAt = :now, ${created.expression}`,
+              ExpressionAttributeValues: {
+                ':entity': PLAYER_ENTITY,
+                ':groupId': groupId,
+                ':userId': userId,
+                ':positions': positions,
+                ':now': now,
+                ...created.values,
+              },
+              ReturnValues: 'ALL_NEW',
+            }),
+            expectedVersion,
+          ),
+        ),
       ),
     );
     return stripKeys<StoredPlayer>(Attributes ?? {});

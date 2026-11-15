@@ -12,8 +12,11 @@ Uma linha por decisão. Abra só a que importa. Nova decisão: copie [`_template
 | 0006 | [Datas em UTC; exibição no fuso do perfil; recorrência em hora local + fuso do grupo](0006-datas-utc-fuso-do-perfil.md) | aceita                     |
 | 0007 | [Dev local com DynamoDB Local, sem LocalStack](0007-dynamodb-local-sem-localstack.md)                                   | aceita                     |
 | 0008 | [S3 no dev local com Adobe S3Mock](0008-s3-local-s3mock.md)                                                             | aceita                     |
-| 0009 | [Entidade de relação usa chave natural](0009-entidade-de-relacao-chave-natural.md)                                      | aceita                     |
+| 0009 | [Entidade de relação usa chave natural](0009-entidade-de-relacao-chave-natural.md)                                      | aceita; chave mudou (0014) |
 | 0010 | [Documentação viva por módulo no lugar de planos](0010-documentacao-viva-por-modulo.md)                                 | aceita                     |
 | 0011 | [Id público do usuário, separado do id do sistema](0011-id-publico-do-usuario.md)                                       | aceita                     |
 | 0012 | [Rotina diária como gatilho de lambda, sem recurso de infra](0012-rotina-diaria-na-lambda.md)                           | aceita                     |
 | 0013 | [Toda entidade tem `updatedAt` e `version`](0013-version-e-updatedat.md)                                                | aceita                     |
+| 0014 | [O que é de uma entidade mora na partição dela](0014-itens-do-grupo-na-particao-do-grupo.md)                            | aceita                     |
+| 0015 | [Modelo do grupo, do esporte e do jogo](0015-modelo-do-grupo-e-do-jogo.md)                                              | aceita                     |
+| 0016 | [Edição manda a `version`; disputa por lugar usa contador](0016-version-confere-nas-edicoes.md)                         | aceita                     |

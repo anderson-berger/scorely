@@ -89,7 +89,7 @@ describe('Times: − N +', () => {
 const player = (userId: string, pinned: boolean): TeamPlayer => ({
   userId,
   nickname: userId.slice(-1),
-  role: 'member',
+  tier: 'member',
   positions: [],
   adjusted: false,
   inList: true,
@@ -104,6 +104,7 @@ describe('Fixar neste time', () => {
       groupId: 'b0000000-0000-4000-8000-000000000001',
       date: '2026-11-06',
       status: 'draft',
+      version: 1,
       teams: [[player(ANA, true), player(BIA, false)], [player(CAI, true)]],
       unassigned: [player(DUDA, false)],
     };

@@ -14,11 +14,16 @@ import {
   CompetitionRulesSchema,
   CompetitionSchema,
   type ErrorCode,
-  type MemberRole,
-  PublicUserIdSchema,
-  type StaffRoleId,
+  type MemberTier,
+  type RoleId,
+  UpdateCompetitionRulesInputSchema,
 } from '@scorely/contracts';
 import { describe, expect, it } from 'vitest';
+
+/** ADR 0016: o que o banco faz na gravação condicionada pela versão (o repositório lança o mesmo erro). */
+function expectVersionIn(current: number, expected: number): void {
+  if (current !== expected) throw appError('VERSION_CONFLICT', { currentVersion: current });
+}
 
 // Competição, etapa 1 (`.claude/work/competicao-1.md`): ativação (CMP-01–05) e regulamento (CMP-06–08).
 // Interface assumida (o arquivo de trabalho dá D3–D6, mas não as assinaturas; ver o relatório do test-writer):
@@ -56,7 +61,7 @@ function storedGroup(extra: Partial<StoredGroup> = {}): StoredGroup {
     id: GROUP_ID,
     createdAt: '2026-01-01T00:00:00.000Z',
     name: 'Vôlei de sexta',
-    sport: 'volleyball',
+    sportId: 'volleyball',
     weekday: 5,
     time: '19:00',
     timeZone: 'America/Sao_Paulo',
@@ -64,13 +69,13 @@ function storedGroup(extra: Partial<StoredGroup> = {}): StoredGroup {
     listOpensHoursBefore: 48,
     reservesOpenHoursBefore: 24,
     guestsOpenHoursBefore: 12,
-    ownerId: OWNER,
-    ownerPublicId: PublicUserIdSchema.parse('11111111'),
     inviteToken: 'tok-member',
     reserveInviteToken: 'tok-reserve',
     guestToken: 'tok-guest',
     maxMembers: 30,
     maxReserves: 30,
+    version: 1,
+    settingsVersion: 1,
     ...extra,
   };
 }
@@ -85,6 +90,7 @@ function storedCompetition(extra: Partial<StoredCompetition> = {}): StoredCompet
     rules: COMPETITION_PRESETS.classic,
     createdAt: '2026-11-01T00:00:00.000Z',
     updatedAt: '2026-11-01T00:00:00.000Z',
+    version: 1,
     ...extra,
   };
 }
@@ -100,8 +106,8 @@ function setup(opts: { group?: Partial<StoredGroup>; competition?: Partial<Store
   const clock = { now: NOW };
   const state = {
     group: storedGroup(opts.group),
-    members: { [OWNER]: 'member', [A]: 'member', [R]: 'reserve' } as Record<string, MemberRole>,
-    staff: {} as Record<string, StaffRoleId>,
+    members: { [OWNER]: 'member', [A]: 'member', [R]: 'reserve' } as Record<string, MemberTier>,
+    staff: {} as Record<string, RoleId>,
     staleRead: undefined as { item: StoredCompetition | undefined } | undefined,
   };
   const store = new Map<string, StoredCompetition>();
@@ -119,8 +125,7 @@ function setup(opts: { group?: Partial<StoredGroup>; competition?: Partial<Store
     getMembership: async (groupId, userId) => {
       const role = groupId === state.group.id ? state.members[userId] : undefined;
       if (!role) return undefined;
-      const staffRoleId = state.staff[userId];
-      return staffRoleId === undefined ? { role } : { role, staffRoleId };
+      return { tier: role, roleId: state.staff[userId] ?? (userId === OWNER ? 'owner' : 'member') };
     },
     setStaffRole: unused,
     transfer: unused,
@@ -145,18 +150,27 @@ function setup(opts: { group?: Partial<StoredGroup>; competition?: Partial<Store
     create: async (item) => {
       if (store.has(item.groupId)) throw appError('COMPETITION_TRIAL_USED');
       writes.push({ op: 'create', groupId: item.groupId });
-      store.set(item.groupId, structuredClone(item));
+      store.set(item.groupId, { ...structuredClone(item), version: 1 });
     },
-    updateRules: async (groupId, rules, now) => {
+    /** CMP-42 (ADR 0016): além de ativa, grava só com a versão atual; a nova é a atual + 1. */
+    updateRules: async (groupId, rules, now, expectedVersion) => {
       const item = store.get(groupId);
       if (!item || !(item.activeUntil > now)) throw appError('COMPETITION_INACTIVE');
+      expectVersionIn(item.version, expectedVersion);
       writes.push({ op: 'updateRules', groupId });
-      store.set(groupId, { ...item, rules: structuredClone(rules), updatedAt: now });
+      store.set(groupId, {
+        ...item,
+        rules: structuredClone(rules),
+        updatedAt: now,
+        version: item.version + 1,
+      });
     },
   };
 
   const service = createCompetitionService({ groups, competitions, now: () => clock.now });
-  return { clock, state, store, writes, service };
+  /** CMP-42: a versão da competição que a tela mostrou (`0` sem competição). */
+  const cv = () => ({ version: store.get(GROUP_ID)?.version ?? 0 });
+  return { clock, state, store, writes, service, cv };
 }
 
 async function expectAppError(p: Promise<unknown>, code: ErrorCode, status: number): Promise<AppError> {
@@ -186,6 +200,7 @@ describe('estado da competição na leitura (CMP-01, CMP-05)', () => {
       activeUntil: '2026-12-01T00:00:00.000Z',
       trialAvailable: false,
       rules: COMPETITION_PRESETS.classic,
+      version: 1,
     });
   });
 
@@ -197,6 +212,7 @@ describe('estado da competição na leitura (CMP-01, CMP-05)', () => {
       activeUntil: '2026-11-13T00:00:00.000Z',
       trialAvailable: false,
       rules: CUSTOM,
+      version: 1,
     });
   });
 
@@ -245,6 +261,7 @@ describe('começar o teste (CMP-02)', () => {
       activeUntil: TRIAL_END,
       trialAvailable: false,
       rules: COMPETITION_PRESETS.classic,
+      version: 1,
     });
     expect(t.store.get(GROUP_ID)).toEqual({
       groupId: GROUP_ID,
@@ -254,6 +271,7 @@ describe('começar o teste (CMP-02)', () => {
       rules: COMPETITION_PRESETS.classic,
       createdAt: NOW.toISOString(),
       updatedAt: NOW.toISOString(),
+      version: 1,
     });
     expect(await t.service.get(A, GROUP_ID)).toEqual(res);
   });
@@ -278,7 +296,9 @@ describe('começar o teste (CMP-02)', () => {
 
   it('CMP-02: uma vez por grupo, não por pessoa: o novo dono de um grupo que já usou o teste → COMPETITION_TRIAL_USED', async () => {
     const t = setup({ competition: { activeUntil: '2026-11-01T00:00:00.000Z' } });
-    t.state.group = storedGroup({ ownerId: A });
+    // GRP-54: o dono agora é A (cargo Dono na participação); o dono antigo vira Admin.
+    t.state.staff[A] = 'owner';
+    t.state.staff[OWNER] = 'admin';
     await expectAppError(t.service.startTrial(A, GROUP_ID), 'COMPETITION_TRIAL_USED', 409);
   });
 
@@ -339,8 +359,11 @@ describe('o plano depois do teste (CMP-03)', () => {
       activeUntil: '2027-11-14T00:00:00.000Z',
       trialAvailable: false,
       rules: CUSTOM,
+      version: 1,
     });
-    expect(await t.service.updateRules(OWNER, GROUP_ID, COMPETITION_PRESETS.winsOnly)).toMatchObject({
+    expect(
+      await t.service.updateRules(OWNER, GROUP_ID, { ...COMPETITION_PRESETS.winsOnly, ...t.cv() }),
+    ).toMatchObject({
       status: 'active',
       rules: COMPETITION_PRESETS.winsOnly,
     });
@@ -350,7 +373,11 @@ describe('o plano depois do teste (CMP-03)', () => {
 describe('só leitura quando desativada ou vencida (CMP-04)', () => {
   it('CMP-04: desativada → mudar o regulamento responde COMPETITION_INACTIVE (409), sem gravar', async () => {
     const t = setup();
-    await expectAppError(t.service.updateRules(OWNER, GROUP_ID, CUSTOM), 'COMPETITION_INACTIVE', 409);
+    await expectAppError(
+      t.service.updateRules(OWNER, GROUP_ID, { ...CUSTOM, ...t.cv() }),
+      'COMPETITION_INACTIVE',
+      409,
+    );
     expect(t.writes).toEqual([]);
     expect(t.store.size).toBe(0);
   });
@@ -359,7 +386,11 @@ describe('só leitura quando desativada ou vencida (CMP-04)', () => {
     const t = setup({ competition: { activeUntil: '2026-11-13T00:00:00.000Z' } });
     t.state.staff[A] = 'admin';
     for (const who of [OWNER, A])
-      await expectAppError(t.service.updateRules(who, GROUP_ID, CUSTOM), 'COMPETITION_INACTIVE', 409);
+      await expectAppError(
+        t.service.updateRules(who, GROUP_ID, { ...CUSTOM, ...t.cv() }),
+        'COMPETITION_INACTIVE',
+        409,
+      );
     expect(t.writes).toEqual([]);
     expect((await t.service.get(OWNER, GROUP_ID)).rules).toEqual(COMPETITION_PRESETS.classic);
   });
@@ -367,7 +398,11 @@ describe('só leitura quando desativada ou vencida (CMP-04)', () => {
   it('CMP-04: venceu entre a leitura e a gravação → COMPETITION_INACTIVE, sem gravar', async () => {
     const t = setup({ competition: { activeUntil: '2026-11-13T00:00:00.000Z' } });
     t.state.staleRead = { item: storedCompetition() };
-    await expectAppError(t.service.updateRules(OWNER, GROUP_ID, CUSTOM), 'COMPETITION_INACTIVE', 409);
+    await expectAppError(
+      t.service.updateRules(OWNER, GROUP_ID, { ...CUSTOM, ...t.cv() }),
+      'COMPETITION_INACTIVE',
+      409,
+    );
     expect(t.writes).toEqual([]);
   });
 });
@@ -420,7 +455,7 @@ describe('o regulamento (CMP-06)', () => {
   it('CMP-06: a ordem do desempate é guardada como veio', async () => {
     const t = setup({ competition: {} });
     const rules = { ...CUSTOM, tiebreak: ['streak', 'attendance'] } satisfies CompetitionRules;
-    await t.service.updateRules(OWNER, GROUP_ID, rules);
+    await t.service.updateRules(OWNER, GROUP_ID, { ...rules, ...t.cv() });
     expect((await t.service.get(A, GROUP_ID)).rules?.tiebreak).toEqual(['streak', 'attendance']);
   });
 });
@@ -428,7 +463,7 @@ describe('o regulamento (CMP-06)', () => {
 describe('mudar o regulamento (CMP-07)', () => {
   it('CMP-07: o dono manda o regulamento inteiro, recebe a competição de volta e o GET devolve o novo', async () => {
     const t = setup({ competition: {} });
-    const res = await t.service.updateRules(OWNER, GROUP_ID, CUSTOM);
+    const res = await t.service.updateRules(OWNER, GROUP_ID, { ...CUSTOM, ...t.cv() });
 
     expect(CompetitionSchema.parse(res)).toEqual(res);
     expect(res).toEqual({
@@ -437,6 +472,7 @@ describe('mudar o regulamento (CMP-07)', () => {
       activeUntil: '2026-12-01T00:00:00.000Z',
       trialAvailable: false,
       rules: CUSTOM,
+      version: 2,
     });
     expect(t.writes).toEqual([{ op: 'updateRules', groupId: GROUP_ID }]);
     expect(t.store.get(GROUP_ID)).toMatchObject({ rules: CUSTOM, updatedAt: NOW.toISOString() });
@@ -445,7 +481,7 @@ describe('mudar o regulamento (CMP-07)', () => {
 
   it('CMP-07: mudar não mexe no plano, no "ativa até" nem no início do teste', async () => {
     const t = setup({ competition: { plan: 'paid', activeUntil: '2027-01-01T00:00:00.000Z' } });
-    await t.service.updateRules(OWNER, GROUP_ID, CUSTOM);
+    await t.service.updateRules(OWNER, GROUP_ID, { ...CUSTOM, ...t.cv() });
     expect(t.store.get(GROUP_ID)).toMatchObject({
       plan: 'paid',
       activeUntil: '2027-01-01T00:00:00.000Z',
@@ -455,9 +491,9 @@ describe('mudar o regulamento (CMP-07)', () => {
 
   it('CMP-07: salvar de novo substitui o regulamento inteiro (critério tirado do desempate some)', async () => {
     const t = setup({ competition: {} });
-    await t.service.updateRules(OWNER, GROUP_ID, CUSTOM);
+    await t.service.updateRules(OWNER, GROUP_ID, { ...CUSTOM, ...t.cv() });
     const next: CompetitionRules = { ...COMPETITION_PRESETS.attendance, tiebreak: [] };
-    expect((await t.service.updateRules(OWNER, GROUP_ID, next)).rules).toEqual(next);
+    expect((await t.service.updateRules(OWNER, GROUP_ID, { ...next, ...t.cv() })).rules).toEqual(next);
     expect((await t.service.get(OWNER, GROUP_ID)).rules).toEqual(next);
   });
 
@@ -465,7 +501,7 @@ describe('mudar o regulamento (CMP-07)', () => {
     const t = setup({ competition: {} });
     for (const who of [A, R]) {
       t.state.staff[who] = 'admin';
-      expect((await t.service.updateRules(who, GROUP_ID, CUSTOM)).rules).toEqual(CUSTOM);
+      expect((await t.service.updateRules(who, GROUP_ID, { ...CUSTOM, ...t.cv() })).rules).toEqual(CUSTOM);
     }
     expect(t.writes).toHaveLength(2);
   });
@@ -474,7 +510,7 @@ describe('mudar o regulamento (CMP-07)', () => {
     const t = setup({ competition: {} });
     for (const who of [A, R]) {
       const err = await expectAppError(
-        t.service.updateRules(who, GROUP_ID, CUSTOM),
+        t.service.updateRules(who, GROUP_ID, { ...CUSTOM, ...t.cv() }),
         'GROUP_PERMISSION_DENIED',
         403,
       );
@@ -490,14 +526,26 @@ describe('mudar o regulamento (CMP-07)', () => {
       { competition: {}, group: ARCHIVED },
     ]) {
       const t = setup(ctx);
-      await expectAppError(t.service.updateRules(A, GROUP_ID, CUSTOM), 'GROUP_PERMISSION_DENIED', 403);
+      await expectAppError(
+        t.service.updateRules(A, GROUP_ID, { ...CUSTOM, ...t.cv() }),
+        'GROUP_PERMISSION_DENIED',
+        403,
+      );
     }
   });
 
   it('CMP-07: quem não participa, ou grupo inexistente → GROUP_NOT_FOUND (404)', async () => {
     const t = setup({ competition: {} });
-    await expectAppError(t.service.updateRules(OUTSIDER, GROUP_ID, CUSTOM), 'GROUP_NOT_FOUND', 404);
-    await expectAppError(t.service.updateRules(OWNER, OTHER_GROUP_ID, CUSTOM), 'GROUP_NOT_FOUND', 404);
+    await expectAppError(
+      t.service.updateRules(OUTSIDER, GROUP_ID, { ...CUSTOM, ...t.cv() }),
+      'GROUP_NOT_FOUND',
+      404,
+    );
+    await expectAppError(
+      t.service.updateRules(OWNER, OTHER_GROUP_ID, { ...CUSTOM, ...t.cv() }),
+      'GROUP_NOT_FOUND',
+      404,
+    );
     expect(t.writes).toEqual([]);
   });
 
@@ -505,7 +553,11 @@ describe('mudar o regulamento (CMP-07)', () => {
     const t = setup({ competition: {}, group: ARCHIVED });
     t.state.staff[A] = 'admin';
     for (const who of [OWNER, A])
-      await expectAppError(t.service.updateRules(who, GROUP_ID, CUSTOM), 'GROUP_ARCHIVED', 409);
+      await expectAppError(
+        t.service.updateRules(who, GROUP_ID, { ...CUSTOM, ...t.cv() }),
+        'GROUP_ARCHIVED',
+        409,
+      );
     expect(t.writes).toEqual([]);
   });
 });
@@ -547,9 +599,50 @@ describe('modelos prontos (CMP-08)', () => {
       ...COMPETITION_PRESETS.winsOnly,
       points: { ...COMPETITION_PRESETS.winsOnly.points, noShow: -3 },
     };
-    const res = await t.service.updateRules(OWNER, GROUP_ID, fromPreset);
+    const res = await t.service.updateRules(OWNER, GROUP_ID, { ...fromPreset, ...t.cv() });
     expect(res.rules).toEqual(fromPreset);
     expect(Object.keys(res).some((k) => /preset/i.test(k))).toBe(false);
     expect(Object.keys(t.store.get(GROUP_ID) ?? {}).some((k) => /preset/i.test(k))).toBe(false);
+  });
+});
+
+describe('regulamento com a versão que a tela mostrou (CMP-42)', () => {
+  it('CMP-42: a competição sai com a version, e mudar o regulamento com ela soma 1', async () => {
+    const t = setup({ competition: { version: 3 } });
+    expect((await t.service.get(OWNER, GROUP_ID)).version).toBe(3);
+    const res = await t.service.updateRules(OWNER, GROUP_ID, { ...CUSTOM, version: 3 });
+    expect(res).toMatchObject({ rules: CUSTOM, version: 4 });
+    expect(t.store.get(GROUP_ID)?.version).toBe(4);
+  });
+
+  it('CMP-42: o regulamento mudou antes → VERSION_CONFLICT (409, currentVersion) e nada é gravado', async () => {
+    const t = setup({ competition: { version: 3 } });
+    const err = await expectAppError(
+      t.service.updateRules(OWNER, GROUP_ID, { ...CUSTOM, version: 2 }),
+      'VERSION_CONFLICT',
+      409,
+    );
+    expect(err.details).toEqual({ currentVersion: 3 });
+    expect(t.writes).toEqual([]);
+    expect(t.store.get(GROUP_ID)?.rules).toEqual(COMPETITION_PRESETS.classic);
+  });
+
+  it('CMP-42: a version não entra no regulamento guardado', async () => {
+    const t = setup({ competition: {} });
+    await t.service.updateRules(OWNER, GROUP_ID, { ...CUSTOM, version: 1 });
+    expect(t.store.get(GROUP_ID)?.rules).toEqual(CUSTOM);
+    expect((await t.service.get(OWNER, GROUP_ID)).rules).toEqual(CUSTOM);
+  });
+
+  it('CMP-42: começar o teste não manda versão, e a competição nasce na version 1', async () => {
+    const t = setup();
+    const res = await t.service.startTrial(OWNER, GROUP_ID);
+    expect(res.version).toBe(1);
+  });
+
+  it('CMP-42: o contrato do PUT rules exige a version (inteiro ≥ 0) junto com o regulamento', () => {
+    expect(UpdateCompetitionRulesInputSchema.safeParse(CUSTOM).success).toBe(false);
+    expect(UpdateCompetitionRulesInputSchema.safeParse({ ...CUSTOM, version: -1 }).success).toBe(false);
+    expect(UpdateCompetitionRulesInputSchema.safeParse({ ...CUSTOM, version: 1 }).success).toBe(true);
   });
 });

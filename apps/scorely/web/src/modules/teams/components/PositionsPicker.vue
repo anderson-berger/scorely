@@ -1,28 +1,34 @@
 <script lang="ts">
-import type { PlayerPosition, Sport } from '@scorely/contracts';
-import { makeMain, sportPositions, togglePosition } from '@scorely/web/src/modules/teams/players';
+import type { PlayerPosition } from '@scorely/contracts';
+import { pickerPositions } from '@scorely/web/src/modules/sports/catalog';
+import { useSportsStore } from '@scorely/web/src/modules/sports/sports.store';
+import { makeMain, togglePosition } from '@scorely/web/src/modules/teams/players';
 import { defineComponent, type PropType } from 'vue';
 
 /** As posições do esporte para marcar, com a estrela da principal (TIM-02, 05, 13). A primeira marcada já é a principal. */
 export default defineComponent({
   name: 'PositionsPicker',
+  setup() {
+    return { sports: useSportsStore() };
+  },
 
   props: {
     modelValue: { type: Array as PropType<PlayerPosition[]>, required: true },
-    sport: { type: String as PropType<Sport>, required: true },
+    sportId: { type: String, required: true },
   },
 
   emits: { 'update:modelValue': (_positions: PlayerPosition[]) => true },
 
   computed: {
     options(): readonly PlayerPosition[] {
-      return sportPositions(this.sport);
+      // TIM-02, ESP-05: a desativada só aparece para quem já a tem.
+      return pickerPositions(this.sports.byId(this.sportId), this.modelValue);
     },
   },
 
   methods: {
     label(position: PlayerPosition): string {
-      return this.$t(`teams.positions.${position}`);
+      return this.sports.positionName(this.sportId, position);
     },
 
     toggle(position: PlayerPosition, on: boolean) {

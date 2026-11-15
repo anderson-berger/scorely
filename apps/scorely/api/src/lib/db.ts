@@ -1,12 +1,13 @@
 import {
   BatchGetCommand,
   type BatchGetCommandOutput,
+  GetCommand,
   QueryCommand,
   TransactWriteCommand,
   type TransactWriteCommandInput,
 } from '@aws-sdk/lib-dynamodb';
 import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
-import { appError } from '@scorely/api/src/lib/errors';
+import { type AppError, appError } from '@scorely/api/src/lib/errors';
 import { chunk } from '@scorely/api/src/lib/fn';
 import { z } from 'zod';
 
@@ -122,6 +123,71 @@ export function replaceItem(
       ...Object.fromEntries(fields.map(([k, v]) => [`:f_${k}`, v])),
     },
   });
+}
+
+/**
+ * ADR 0016: a condição de que o item ainda está na versão que a tela mostrou. `0` = o item ainda não existe
+ * (a gravação cria). Junte com a condição própria da escrita pelo `withVersion`.
+ */
+export function expectVersion(expected: number): {
+  ConditionExpression: string;
+  ExpressionAttributeValues?: Record<string, unknown>;
+} {
+  return expected === 0
+    ? { ConditionExpression: 'attribute_not_exists(PK)' }
+    : {
+        ConditionExpression: 'version = :expectedVersion',
+        ExpressionAttributeValues: { ':expectedVersion': expected },
+      };
+}
+
+/** O `Update`/`Delete` (comando ou item de transação) com a condição da versão somada à que ele já tem (ADR 0016). */
+export function withVersion<
+  U extends {
+    ConditionExpression?: string | undefined;
+    ExpressionAttributeValues?: Record<string, unknown> | undefined;
+  },
+>(update: U, expected: number): U & { ConditionExpression: string } {
+  const version = expectVersion(expected);
+  const values = { ...update.ExpressionAttributeValues, ...version.ExpressionAttributeValues };
+  return {
+    ...update,
+    ConditionExpression: update.ConditionExpression
+      ? `(${update.ConditionExpression}) AND ${version.ConditionExpression}`
+      : version.ConditionExpression,
+    ...(Object.keys(values).length > 0 && { ExpressionAttributeValues: values }),
+  };
+}
+
+/** ADR 0016: a gravação falhou na versão. Relê a atual (`0` se o item sumiu) para a tela recarregar. */
+export async function versionConflict(readCurrent: () => Promise<number>): Promise<AppError> {
+  return appError('VERSION_CONFLICT', { currentVersion: await readCurrent() });
+}
+
+/** A versão atual de um item (leitura consistente), `0` se ele não existe. */
+export async function currentVersion(key: Key): Promise<number> {
+  const { Item } = await dynamo().send(
+    new GetCommand({
+      TableName: tableName(),
+      Key: key,
+      ConsistentRead: true,
+      ProjectionExpression: 'version',
+    }),
+  );
+  return Item ? Number(Item.version ?? 0) : 0;
+}
+
+/**
+ * Manda um `Update` ou `Delete` de edição com a condição da versão (ADR 0016). Falhou na condição → `VERSION_CONFLICT`
+ * com a versão atual. Devolve o que o comando devolveu (ex.: `Attributes`).
+ */
+export async function sendVersioned<T>(key: Key, send: () => Promise<T>): Promise<T> {
+  try {
+    return await send();
+  } catch (err) {
+    if (isConditionFailed(err)) throw await versionConflict(() => currentVersion(key));
+    throw err;
+  }
 }
 
 /** Para item criado por `Update` (upsert, ex.: contador): grava `createdAt` só na primeira escrita. */

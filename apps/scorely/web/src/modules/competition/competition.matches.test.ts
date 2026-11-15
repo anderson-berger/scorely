@@ -26,6 +26,7 @@ function detail(extra: Partial<CompetitionGameDetail> = {}): CompetitionGameDeta
     people: [],
     matches: [],
     dayWinners: [],
+    version: 0,
     ...extra,
   };
 }
@@ -35,6 +36,7 @@ const m = (number: number, teams: Match['teams']): Match => ({
   number,
   teams,
   winner: 0,
+  version: 1,
 });
 
 describe('a partida nova (CMP-23)', () => {

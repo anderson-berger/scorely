@@ -1,5 +1,5 @@
 <script lang="ts">
-import { CreateGroupInputSchema, type Sport, SportSchema } from '@scorely/contracts';
+import { CreateGroupInputSchema } from '@scorely/contracts';
 import BottomSheet from '@scorely/web/src/components/BottomSheet.vue';
 import HoursStepper from '@scorely/web/src/components/HoursStepper.vue';
 import { errorMessage, issueMessage } from '@scorely/web/src/i18n/errors';
@@ -8,6 +8,7 @@ import { effectiveTimeZone } from '@scorely/web/src/lib/preferences';
 import { useAuthStore } from '@scorely/web/src/modules/auth/auth.store';
 import { groupsApi } from '@scorely/web/src/modules/groups/groups.api';
 import { stepSlots } from '@scorely/web/src/modules/groups/layers';
+import { useSportsStore } from '@scorely/web/src/modules/sports/sports.store';
 import { defineComponent } from 'vue';
 
 interface Option<T> {
@@ -28,14 +29,15 @@ export default defineComponent({
   components: { BottomSheet, HoursStepper },
 
   setup() {
-    return { auth: useAuthStore() };
+    return { auth: useAuthStore(), sports: useSportsStore() };
   },
 
   data() {
     return {
       open: true,
       name: '',
-      sport: 'volleyball' as Sport,
+      /** GRP-58: a escolha da pessoa; vazio = o 1º esporte ativo do catálogo. */
+      sportId: '',
       weekday: 5 as number,
       time: '19:00',
       slots: 12,
@@ -46,8 +48,11 @@ export default defineComponent({
   },
 
   computed: {
-    sportOptions(): Option<Sport>[] {
-      return SportSchema.options.map((value) => ({ label: this.$t(`sports.${value}`), value }));
+    sportOptions(): Option<string>[] {
+      return this.sports.active.map((s) => ({ label: this.sports.sportName(s.id), value: s.id }));
+    },
+    sport(): string {
+      return this.sportId || (this.sports.active[0]?.id ?? '');
     },
 
     weekdayOptions(): (Option<number> & { letter: string })[] {
@@ -65,6 +70,11 @@ export default defineComponent({
         detected: detectTimeZone(),
       });
     },
+  },
+
+  mounted() {
+    // ESP-08: se o catálogo ainda não chegou (ou falhou ao abrir o app), pede de novo.
+    this.sports.load().catch(() => undefined);
   },
 
   methods: {
@@ -87,7 +97,7 @@ export default defineComponent({
     async save() {
       const parsed = CreateGroupInputSchema.safeParse({
         name: this.name,
-        sport: this.sport,
+        sportId: this.sport,
         weekday: this.weekday,
         time: this.time,
         timeZone: this.timeZone,
@@ -131,7 +141,7 @@ export default defineComponent({
             class="chip"
             :class="{ 'chip--on': sport === s.value }"
             :aria-pressed="sport === s.value"
-            @click="sport = s.value"
+            @click="sportId = s.value"
           >
             {{ s.label }}
           </button>

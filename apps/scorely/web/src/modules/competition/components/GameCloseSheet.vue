@@ -130,6 +130,8 @@ export default defineComponent({
       this.saving = true;
       try {
         const saved = await competitionApi.closeGame(this.groupId, this.date, {
+          // CMP-42: a versão do fechamento que a tela mostra (0 = o 1º fechamento).
+          version: this.detail.version,
           attendance: cancelled ? {} : this.attendance,
           ...(winner !== undefined && { winner }),
           friendly: this.friendly,

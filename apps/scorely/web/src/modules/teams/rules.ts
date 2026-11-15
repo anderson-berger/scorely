@@ -1,8 +1,5 @@
 import {
   type Gender,
-  type PlayerPosition,
-  SPORT_POSITIONS,
-  type Sport,
   type TeamRule,
   type TeamRuleConflict,
   type TeamRuleTarget,
@@ -19,9 +16,9 @@ export interface Text {
 const GENDERS: Gender[] = ['F', 'M'];
 
 /** Nome do alvo da regra (TIM-18): a posição ou "Homens"/"Mulheres". */
-export function targetText(target: TeamRuleTarget): Text {
+export function targetText(target: TeamRuleTarget, positionName: (id: string) => string): Text {
   return target.kind === 'position'
-    ? { key: `teams.positions.${target.position}` }
+    ? { key: 'teams.rules.position', params: { name: positionName(target.position) } }
     : { key: `teams.rules.gender.${target.gender}` };
 }
 
@@ -95,18 +92,13 @@ export function conflictText(c: TeamRuleConflict, names = ''): Text {
  * sem os que já têm regra (menos o da própria regra em edição).
  */
 export function availableTargets(
-  sport: Sport,
+  sportPositions: readonly string[],
   rules: readonly TeamRule[],
   editing?: TeamRuleTarget,
 ): TeamRuleTarget[] {
   const taken = new Set(rules.map((r) => teamRuleKey(r.target)));
   if (editing) taken.delete(teamRuleKey(editing));
-  const positions: TeamRuleTarget[] = (SPORT_POSITIONS[sport] as readonly PlayerPosition[]).map(
-    (position) => ({
-      kind: 'position',
-      position,
-    }),
-  );
+  const positions: TeamRuleTarget[] = sportPositions.map((position) => ({ kind: 'position', position }));
   const genders: TeamRuleTarget[] = GENDERS.map((gender) => ({ kind: 'gender', gender }));
   return [...positions, ...genders].filter((t) => !taken.has(teamRuleKey(t)));
 }

@@ -1,4 +1,4 @@
-import { AppError } from '@scorely/api/src/lib/errors';
+import { AppError, appError } from '@scorely/api/src/lib/errors';
 import { asUserId, type UserId } from '@scorely/api/src/lib/ids';
 import type {
   CompetitionRepository,
@@ -28,17 +28,24 @@ import {
   type ErrorCode,
   type Gender,
   type MatchInput,
-  type MemberRole,
+  type MemberTier,
   type PublicUserId,
   PublicUserIdSchema,
   type Ranking,
   RankingSchema,
+  type RoleId,
   type Season,
   type SeasonInput,
+  SeasonInputSchema,
   SeasonSchema,
-  type StaffRoleId,
+  SeasonUpdateInputSchema,
 } from '@scorely/contracts';
 import { describe, expect, it } from 'vitest';
+
+/** ADR 0016: o que o banco faz na gravação condicionada pela versão (o repositório lança o mesmo erro). */
+function expectVersionIn(current: number, expected: number): void {
+  if (current !== expected) throw appError('VERSION_CONFLICT', { currentVersion: current });
+}
 
 // Competição, etapa 5 (`.claude/work/competicao-5.md`, D4–D7): as temporadas (CMP-29–34) e o que elas mudam no
 // fechamento (CMP-11, 14, 15), nas partidas (CMP-19) e no ranking (CMP-33).
@@ -81,7 +88,7 @@ const GENDERS: Record<string, Gender> = { [OWNER]: 'M', [A]: 'F', [B]: 'F', [D]:
 const pub = (id: UserId): PublicUserId =>
   PublicUserIdSchema.parse(`${id.slice(0, 4)}${id.slice(-4)}`.toUpperCase());
 
-const ROSTER: Record<string, MemberRole> = {
+const ROSTER: Record<string, MemberTier> = {
   [OWNER]: 'member',
   [A]: 'member',
   [B]: 'member',
@@ -152,6 +159,7 @@ function publishedTeams(date: string, teams: string[][]): StoredTeams {
     extras: [],
     createdAt: `${date}T20:00:00.000Z`,
     updatedAt: `${date}T21:00:00.000Z`,
+    version: 1,
   };
 }
 
@@ -177,7 +185,7 @@ function setup(
       id: GROUP_ID,
       createdAt: '2026-01-01T00:00:00.000Z',
       name: 'Vôlei de sexta',
-      sport: 'volleyball',
+      sportId: 'volleyball',
       weekday: 5,
       time: '19:00',
       timeZone: 'America/Sao_Paulo',
@@ -185,8 +193,6 @@ function setup(
       listOpensHoursBefore: 48,
       reservesOpenHoursBefore: 24,
       guestsOpenHoursBefore: 12,
-      ownerId: OWNER,
-      ownerPublicId: pub(OWNER),
       inviteToken: 'tok-member',
       reserveInviteToken: 'tok-reserve',
       guestToken: 'tok-guest',
@@ -194,8 +200,8 @@ function setup(
       maxReserves: 30,
       ...opts.group,
     } as StoredGroup,
-    roster: { ...ROSTER } as Record<string, MemberRole>,
-    staff: { [A]: 'admin' } as Record<string, StaffRoleId>,
+    roster: { ...ROSTER } as Record<string, MemberTier>,
+    staff: { [A]: 'admin' } as Record<string, RoleId>,
     games: Object.fromEntries(Object.entries(LISTS).map(([date, list]) => [date, fakeGame(date, list)])),
     teams: {
       [OCT30]: publishedTeams(OCT30, [[OWNER], [A, B]]),
@@ -237,8 +243,7 @@ function setup(
     getMembership: async (groupId, userId) => {
       const role = groupId === state.group.id ? state.roster[userId] : undefined;
       if (!role) return undefined;
-      const staffRoleId = state.staff[userId];
-      return staffRoleId === undefined ? { role } : { role, staffRoleId };
+      return { tier: role, roleId: state.staff[userId] ?? (userId === OWNER ? 'owner' : 'member') };
     },
     setStaffRole: unused,
     transfer: unused,
@@ -248,12 +253,11 @@ function setup(
     listMembers: async (groupId) =>
       groupId === state.group.id
         ? Object.entries(state.roster).map(([userId, role]) => {
-            const staffRoleId = state.staff[userId];
             return {
               userId: asUserId(userId),
-              role,
+              tier: role,
+              roleId: state.staff[userId] ?? (userId === OWNER ? 'owner' : 'member'),
               createdAt: '2026-01-01T00:00:00.000Z',
-              ...(staffRoleId === undefined ? {} : { staffRoleId }),
             };
           })
         : [],
@@ -312,15 +316,17 @@ function setup(
         .filter((r) => r.groupId === groupId)
         .sort((x, y) => x.startsAt.localeCompare(y.startsAt))
         .map((r) => structuredClone(r)),
-    create: async (item) => {
-      if (resultStore.has(item.gameId)) return false;
-      resultStore.set(item.gameId, structuredClone(item));
+    /** CMP-42 (ADR 0016): o 1º fechamento manda 0; a correção, a versão atual (que soma 1). */
+    create: async (item, expectedVersion) => {
+      expectVersionIn(resultStore.get(item.gameId)?.version ?? 0, expectedVersion);
+      resultStore.set(item.gameId, { ...structuredClone(item), version: 1 });
       return true;
     },
-    update: async (id, patch) => {
+    update: async (id, patch, expectedVersion) => {
       const item = resultStore.get(id);
+      expectVersionIn(item?.version ?? 0, expectedVersion);
       if (!item) throw new Error('update without item');
-      resultStore.set(id, { ...item, ...structuredClone(patch) });
+      resultStore.set(id, { ...item, ...structuredClone(patch), version: item.version + 1 });
     },
   };
 
@@ -332,17 +338,20 @@ function setup(
     },
     create: async (m) => {
       if (matchStore.filter((x) => x.gameId === m.gameId).length >= COMPETITION_MATCH_LIMIT) return 'full';
-      matchStore.push(structuredClone(m));
+      matchStore.push({ ...structuredClone(m), version: 1 });
       return 'created';
     },
-    update: async (id, patch) => {
+    /** CMP-42: editar e apagar a partida gravam só com a versão atual dela. */
+    update: async (id, patch, expectedVersion) => {
       const index = matchStore.findIndex((m) => m.id === id);
       const item = matchStore[index];
+      expectVersionIn(item?.version ?? 0, expectedVersion);
       if (!item) throw new Error('update without match');
-      matchStore.splice(index, 1, { ...item, ...structuredClone(patch) });
+      matchStore.splice(index, 1, { ...item, ...structuredClone(patch), version: item.version + 1 });
     },
-    delete: async (m) => {
+    delete: async (m, expectedVersion) => {
       const index = matchStore.findIndex((x) => x.id === m.id);
+      expectVersionIn(matchStore[index]?.version ?? 0, expectedVersion);
       if (index < 0) throw new Error('delete without match');
       matchStore.splice(index, 1);
     },
@@ -357,15 +366,18 @@ function setup(
     },
     create: async (s) => {
       seasonWrites.push({ op: 'create', id: s.id });
-      seasonStore.set(s.id, structuredClone(s));
+      seasonStore.set(s.id, { ...structuredClone(s), version: 1 });
     },
-    update: async (id, patch, oldStartDate) => {
+    /** CMP-42 (ADR 0016): editar e cancelar a temporada gravam só com a versão atual dela. */
+    update: async (id, patch, oldStartDate, expectedVersion) => {
       const item = seasonStore.get(id);
+      expectVersionIn(item?.version ?? 0, expectedVersion);
       if (!item) throw new Error('update without season');
       seasonWrites.push({ op: 'update', id, ...(oldStartDate === undefined ? {} : { oldStartDate }) });
-      seasonStore.set(id, { ...item, ...structuredClone(patch) });
+      seasonStore.set(id, { ...item, ...structuredClone(patch), version: item.version + 1 });
     },
-    delete: async (s) => {
+    delete: async (s, expectedVersion) => {
+      expectVersionIn(seasonStore.get(s.id)?.version ?? 0, expectedVersion);
       if (!seasonStore.has(s.id)) throw new Error('delete without season');
       seasonWrites.push({ op: 'delete', id: s.id });
       seasonStore.delete(s.id);
@@ -390,6 +402,7 @@ function setup(
       publicId: pub(id),
       nickname: NAMES[id] ?? pub(id),
       createdAt: '2026-01-01T00:00:00.000Z',
+      version: 1,
       ...(gender ? { gender } : {}),
     };
   };
@@ -454,6 +467,10 @@ function setup(
     results: resultService,
     matches: matchService,
     ranking: rankingService,
+    /** CMP-42: a versão que a tela mostrou (`0` = não existe). */
+    sv: (id: string) => ({ version: seasonStore.get(id)?.version ?? 0 }),
+    rv: (date: string) => ({ version: resultStore.get(gameId(date))?.version ?? 0 }),
+    mv: (id: string) => ({ version: matchStore.find((m) => m.id === id)?.version ?? 0 }),
   };
 }
 
@@ -484,6 +501,7 @@ async function open(t: T, at: Date, input: SeasonInput): Promise<Season> {
 function closeGame(t: T, date: string, winner?: 0 | 1, who: UserId = OWNER) {
   const attendance = Object.fromEntries((LISTS[date] ?? []).map((id) => [pub(id), 'present' as const]));
   return t.results.close(who, GROUP_ID, date, {
+    ...t.rv(date),
     attendance,
     friendly: false,
     ...(winner === undefined ? {} : { winner }),
@@ -525,6 +543,7 @@ function stored(date: string, list: UserId[], teams: UserId[][]): StoredGameResu
     winner: 0,
     createdAt: `${date}T23:00:00.000Z`,
     updatedAt: `${date}T23:00:00.000Z`,
+    version: 1,
   };
 }
 
@@ -720,10 +739,14 @@ describe('abrir e programar (CMP-30)', () => {
     });
     if (t.state.competition) t.state.competition.rules = RULES_NEW;
 
-    const renamed = await t.service.update(A, GROUP_ID, season.id, { name: 'Verão 2027' });
+    const renamed = await t.service.update(A, GROUP_ID, season.id, {
+      ...t.sv(season.id),
+      name: 'Verão 2027',
+    });
     expect(renamed).toMatchObject({ name: 'Verão 2027', rules: RULES_SEASON });
 
     const moved = await t.service.update(OWNER, GROUP_ID, season.id, {
+      ...t.sv(season.id),
       startDate: '2026-12-15',
       endDate: '2027-02-15',
       copyRules: true,
@@ -749,14 +772,26 @@ describe('abrir e programar (CMP-30)', () => {
     t.clock.now = NOV01;
     const next = await t.service.create(OWNER, GROUP_ID, { startDate: '2026-11-20', endDate: '2026-12-20' });
     // Cruza com ela mesma: vale.
-    await t.service.update(OWNER, GROUP_ID, next.id, { startDate: '2026-11-25', endDate: '2026-12-25' });
+    await t.service.update(OWNER, GROUP_ID, next.id, {
+      ...t.sv(next.id),
+      startDate: '2026-11-25',
+      endDate: '2026-12-25',
+    });
     // Cruza com a aberta: não vale.
     await expectInvalid(
-      t.service.update(OWNER, GROUP_ID, next.id, { startDate: '2026-11-05', endDate: '2026-12-05' }),
+      t.service.update(OWNER, GROUP_ID, next.id, {
+        ...t.sv(next.id),
+        startDate: '2026-11-05',
+        endDate: '2026-12-05',
+      }),
       'overlap',
     );
     await expectInvalid(
-      t.service.update(OWNER, GROUP_ID, next.id, { startDate: '2026-11-25', endDate: '2026-11-27' }),
+      t.service.update(OWNER, GROUP_ID, next.id, {
+        ...t.sv(next.id),
+        startDate: '2026-11-25',
+        endDate: '2026-11-27',
+      }),
       'duration',
     );
   });
@@ -768,7 +803,7 @@ describe('abrir e programar (CMP-30)', () => {
       startDate: '2026-12-01',
       endDate: '2026-12-31',
     });
-    await t.service.remove(A, GROUP_ID, season.id);
+    await t.service.remove(A, GROUP_ID, season.id, t.sv(season.id));
     expect(t.seasonWrites).toContainEqual({ op: 'delete', id: season.id });
     expect(await t.service.list(OWNER, GROUP_ID)).toEqual([]);
     await t.service.create(OWNER, GROUP_ID, { startDate: '2026-12-01', endDate: '2026-12-31' });
@@ -778,12 +813,24 @@ describe('abrir e programar (CMP-30)', () => {
     const t = setup();
     const season = await open(t, OCT26, S1);
     t.clock.now = NOV01;
-    await expectInvalid(t.service.update(OWNER, GROUP_ID, season.id, { endDate: '2026-11-15' }), 'started');
-    await expectInvalid(t.service.update(OWNER, GROUP_ID, season.id, { startDate: '2026-11-02' }), 'started');
-    await expectInvalid(t.service.update(OWNER, GROUP_ID, season.id, { copyRules: true }), 'started');
-    await expectInvalid(t.service.remove(OWNER, GROUP_ID, season.id), 'started');
+    await expectInvalid(
+      t.service.update(OWNER, GROUP_ID, season.id, { ...t.sv(season.id), endDate: '2026-11-15' }),
+      'started',
+    );
+    await expectInvalid(
+      t.service.update(OWNER, GROUP_ID, season.id, { ...t.sv(season.id), startDate: '2026-11-02' }),
+      'started',
+    );
+    await expectInvalid(
+      t.service.update(OWNER, GROUP_ID, season.id, { ...t.sv(season.id), copyRules: true }),
+      'started',
+    );
+    await expectInvalid(t.service.remove(OWNER, GROUP_ID, season.id, t.sv(season.id)), 'started');
 
-    const renamed = await t.service.update(OWNER, GROUP_ID, season.id, { name: 'Primavera 2026' });
+    const renamed = await t.service.update(OWNER, GROUP_ID, season.id, {
+      ...t.sv(season.id),
+      name: 'Primavera 2026',
+    });
     expect(renamed).toMatchObject({ name: 'Primavera 2026', endDate: '2026-11-08', state: 'open' });
   });
 
@@ -795,11 +842,15 @@ describe('abrir e programar (CMP-30)', () => {
       endDate: '2026-12-31',
     });
     await expectAppError(
-      t.service.update(B, GROUP_ID, season.id, { name: 'X' }),
+      t.service.update(B, GROUP_ID, season.id, { ...t.sv(season.id), name: 'X' }),
       'GROUP_PERMISSION_DENIED',
       403,
     );
-    await expectAppError(t.service.remove(B, GROUP_ID, season.id), 'GROUP_PERMISSION_DENIED', 403);
+    await expectAppError(
+      t.service.remove(B, GROUP_ID, season.id, t.sv(season.id)),
+      'GROUP_PERMISSION_DENIED',
+      403,
+    );
   });
 
   it('CMP-30: temporada que não existe, ou de outro grupo: SEASON_NOT_FOUND', async () => {
@@ -810,14 +861,18 @@ describe('abrir e programar (CMP-30)', () => {
     t.seasonStore.set(OTHER_GROUP_SEASON, { ...original, id: OTHER_GROUP_SEASON, groupId: OTHER_GROUP_ID });
 
     await expectAppError(
-      t.service.update(OWNER, GROUP_ID, UNKNOWN_SEASON, { name: 'X' }),
+      t.service.update(OWNER, GROUP_ID, UNKNOWN_SEASON, { ...t.sv(UNKNOWN_SEASON), name: 'X' }),
       'SEASON_NOT_FOUND',
       404,
     );
-    await expectAppError(t.service.remove(OWNER, GROUP_ID, UNKNOWN_SEASON), 'SEASON_NOT_FOUND', 404);
+    await expectAppError(
+      t.service.remove(OWNER, GROUP_ID, UNKNOWN_SEASON, t.sv(UNKNOWN_SEASON)),
+      'SEASON_NOT_FOUND',
+      404,
+    );
     await expectAppError(t.service.close(OWNER, GROUP_ID, UNKNOWN_SEASON), 'SEASON_NOT_FOUND', 404);
     await expectAppError(
-      t.service.update(OWNER, GROUP_ID, OTHER_GROUP_SEASON, { name: 'X' }),
+      t.service.update(OWNER, GROUP_ID, OTHER_GROUP_SEASON, { ...t.sv(OTHER_GROUP_SEASON), name: 'X' }),
       'SEASON_NOT_FOUND',
       404,
     );
@@ -870,6 +925,7 @@ describe('encerrar, o prazo e a trava (CMP-32, CMP-11, CMP-15, CMP-19)', () => {
     await t.matches.create(A, GROUP_ID, NOV06, matchInput([OWNER, A], [B, C]));
     await closeGame(t, NOV06, undefined, A);
     const corrected = await t.results.close(A, GROUP_ID, NOV06, {
+      ...t.rv(NOV06),
       attendance: Object.fromEntries((LISTS[NOV06] ?? []).map((id) => [pub(id), 'present' as const])),
       friendly: true,
     });
@@ -907,11 +963,15 @@ describe('encerrar, o prazo e a trava (CMP-32, CMP-11, CMP-15, CMP-19)', () => {
       409,
     );
     await expectAppError(
-      t.matches.update(OWNER, GROUP_ID, NOV06, matchId, matchInput([OWNER], [B])),
+      t.matches.update(OWNER, GROUP_ID, NOV06, matchId, { ...matchInput([OWNER], [B]), ...t.mv(matchId) }),
       'SEASON_CLOSED',
       409,
     );
-    await expectAppError(t.matches.remove(OWNER, GROUP_ID, NOV06, matchId), 'SEASON_CLOSED', 409);
+    await expectAppError(
+      t.matches.remove(OWNER, GROUP_ID, NOV06, matchId, t.mv(matchId)),
+      'SEASON_CLOSED',
+      409,
+    );
     expect(t.matchStore.length).toBe(1);
   });
 
@@ -1128,5 +1188,74 @@ describe('quem vê as temporadas (CMP-34)', () => {
   it('CMP-34: sem temporada, a lista vem vazia', async () => {
     const t = setup();
     expect(await t.service.list(B, GROUP_ID)).toEqual([]);
+  });
+});
+
+describe('temporada com a versão que a tela mostrou (CMP-42)', () => {
+  const scheduled = async (t: T) => {
+    t.clock.now = NOV01;
+    return t.service.create(OWNER, GROUP_ID, {
+      name: 'Verão',
+      startDate: '2026-12-01',
+      endDate: '2027-01-31',
+    });
+  };
+
+  it('CMP-42: criar não manda versão, e a temporada sai com a version 1 (na criação e na lista)', async () => {
+    const t = setup();
+    const season = await scheduled(t);
+    expect(season.version).toBe(1);
+    expect(seasonOf(await t.service.list(OWNER, GROUP_ID), season.id)?.version).toBe(1);
+  });
+
+  it('CMP-42: editar com a versão da temporada grava e soma 1', async () => {
+    const t = setup();
+    const season = await scheduled(t);
+    const renamed = await t.service.update(OWNER, GROUP_ID, season.id, { version: 1, name: 'Verão 2027' });
+    expect(renamed).toMatchObject({ name: 'Verão 2027', version: 2 });
+  });
+
+  it('CMP-42: editar com a versão velha → VERSION_CONFLICT (409, currentVersion) e nada é gravado', async () => {
+    const t = setup();
+    const season = await scheduled(t);
+    await t.service.update(OWNER, GROUP_ID, season.id, { version: 1, name: 'Verão 2027' });
+    const writes = t.seasonWrites.length;
+    const err = await expectAppError(
+      t.service.update(A, GROUP_ID, season.id, { version: 1, name: 'Outro' }),
+      'VERSION_CONFLICT',
+      409,
+    );
+    expect(err.details).toEqual({ currentVersion: 2 });
+    expect(t.seasonWrites).toHaveLength(writes);
+    expect(t.seasonStore.get(season.id)).toMatchObject({ name: 'Verão 2027', version: 2 });
+  });
+
+  it('CMP-42: cancelar com a versão velha → VERSION_CONFLICT e a temporada continua', async () => {
+    const t = setup();
+    const season = await scheduled(t);
+    await t.service.update(OWNER, GROUP_ID, season.id, { version: 1, name: 'Verão 2027' });
+    const err = await expectAppError(
+      t.service.remove(OWNER, GROUP_ID, season.id, { version: 1 }),
+      'VERSION_CONFLICT',
+      409,
+    );
+    expect(err.details).toEqual({ currentVersion: 2 });
+    expect(t.seasonStore.has(season.id)).toBe(true);
+    await t.service.remove(OWNER, GROUP_ID, season.id, { version: 2 });
+    expect(t.seasonStore.has(season.id)).toBe(false);
+  });
+
+  it('CMP-42: encerrar não manda versão', async () => {
+    const t = setup();
+    const season = await open(t, OCT26, S_LONG);
+    t.clock.now = NOW;
+    const closed = await t.service.close(A, GROUP_ID, season.id);
+    expect(closed.state).toBe('closed');
+  });
+
+  it('CMP-42: o contrato pede a version para editar, e não para criar', () => {
+    expect(SeasonUpdateInputSchema.safeParse({ name: 'X' }).success).toBe(false);
+    expect(SeasonUpdateInputSchema.safeParse({ version: 1, name: 'X' }).success).toBe(true);
+    expect(SeasonInputSchema.safeParse({ ...S1, version: 1 }).data).not.toHaveProperty('version');
   });
 });

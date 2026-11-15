@@ -1,8 +1,9 @@
-import { type Player, type PlayerPosition, SPORT_POSITIONS, type Sport } from '@scorely/contracts';
+import type { Player, PlayerPosition, Sport } from '@scorely/contracts';
+import { activePositions } from '@scorely/web/src/modules/sports/catalog';
 
 /** Posições que o esporte do grupo tem (TIM-02); vazio = a tela não mostra nada de posições (TIM-05). */
-export function sportPositions(sport: Sport): readonly PlayerPosition[] {
-  return SPORT_POSITIONS[sport];
+export function sportPositions(sport: Sport | undefined): string[] {
+  return activePositions(sport);
 }
 
 /** Posições de cada pessoa, pelo id, para as linhas das abas Membros e Jogo (TIM-05). A primeira é a principal. */

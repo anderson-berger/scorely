@@ -5,6 +5,7 @@ import { useAuthStore } from '@scorely/web/src/modules/auth/auth.store';
 import GameCard from '@scorely/web/src/modules/groups/components/GameCard.vue';
 import { groupsApi } from '@scorely/web/src/modules/groups/groups.api';
 import { playRedirect } from '@scorely/web/src/modules/groups/links';
+import { useSportsStore } from '@scorely/web/src/modules/sports/sports.store';
 import TeamsView from '@scorely/web/src/modules/teams/components/TeamsView.vue';
 import { teamsApi } from '@scorely/web/src/modules/teams/teams.api';
 import { defineComponent } from 'vue';
@@ -16,7 +17,7 @@ export default defineComponent({
   components: { GameCard, TeamsView },
 
   setup() {
-    return { auth: useAuthStore() };
+    return { sports: useSportsStore(), auth: useAuthStore() };
   },
 
   data() {
@@ -107,16 +108,16 @@ export default defineComponent({
           <div class="sc-label sc-accent">{{ $t('groups.gameWeek') }}</div>
           <h1 class="sc-title name">{{ view.group.name }}</h1>
           <div class="sc-caption meta">
-            {{ $t(`sports.${view.group.sport}`) }} ·
+            {{ sports.sportName(view.group.sportId) }} ·
             {{ $t('groups.schedule', { weekday: $t(`weekdays.${view.group.weekday}`), time: view.group.time }) }}
-            ({{ view.group.timeZone }})<span v-if="view.group.location"> · {{ view.group.location }}</span>
+            ({{ view.group.timeZone }})
           </div>
         </header>
         <GameCard :game="view.game" :busy="busy" @confirm="confirm" @leave="leave">
           <template v-if="teams" #teams>
             <section class="play-teams">
               <h2 class="sc-section">{{ $t('teams.cardTitle') }}</h2>
-              <TeamsView :teams="teams" :me-id="auth.user?.id ?? ''" />
+              <TeamsView :teams="teams" :sport-id="view.group.sportId" :me-id="auth.user?.id ?? ''" />
             </section>
           </template>
         </GameCard>

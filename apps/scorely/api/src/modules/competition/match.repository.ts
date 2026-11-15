@@ -1,13 +1,17 @@
 import { GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import {
   batchGetOrdered,
+  currentVersion,
   dbItem,
   LOOKUP_ENTITY,
   queryLookupRows,
+  sendVersioned,
   setCreatedAtIfNew,
   stripKeys,
   touch,
   transactWrite,
+  versionConflict,
+  withVersion,
 } from '@scorely/api/src/lib/db';
 import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
 import {
@@ -29,6 +33,8 @@ export interface StoredMatch {
   winner: MatchWinner;
   createdAt: string;
   updatedAt: string;
+  /** CMP-42 (ADR 0013, 0016). */
+  version: number;
 }
 
 export interface MatchRepository {
@@ -36,13 +42,15 @@ export interface MatchRepository {
   list(gameId: string): Promise<StoredMatch[]>;
   get(id: string): Promise<StoredMatch | undefined>;
   /** Entidade, lookup e contagem numa transação. `full` = o jogo já tem o máximo (CMP-20). */
-  create(match: StoredMatch): Promise<'created' | 'full'>;
+  create(match: Omit<StoredMatch, 'version'>): Promise<'created' | 'full'>;
+  /** Só na versão esperada (CMP-42); senão, `VERSION_CONFLICT`. */
   update(
     id: string,
     patch: { teams: [string[], string[]]; winner: MatchWinner; updatedAt: string },
+    expectedVersion: number,
   ): Promise<void>;
-  /** Entidade, lookup e contagem numa transação. */
-  delete(match: StoredMatch): Promise<void>;
+  /** Entidade, lookup e contagem numa transação, só na versão esperada (CMP-42). */
+  delete(match: StoredMatch, expectedVersion: number): Promise<void>;
 }
 
 export const dynamoMatchRepository: MatchRepository = {
@@ -98,32 +106,36 @@ export const dynamoMatchRepository: MatchRepository = {
     throw new Error('Match create failed: the match already exists');
   },
 
-  async update(id, patch) {
-    await dynamo().send(
-      new UpdateCommand(
-        touch({
-          TableName: tableName(),
-          Key: matchKey(id),
-          UpdateExpression: 'SET teams = :teams, winner = :winner, updatedAt = :updatedAt',
-          ConditionExpression: 'attribute_exists(PK)',
-          ExpressionAttributeValues: {
-            ':teams': patch.teams,
-            ':winner': patch.winner,
-            ':updatedAt': patch.updatedAt,
-          },
-        }),
+  async update(id, patch, expectedVersion) {
+    await sendVersioned(matchKey(id), () =>
+      dynamo().send(
+        new UpdateCommand(
+          withVersion(
+            touch({
+              TableName: tableName(),
+              Key: matchKey(id),
+              UpdateExpression: 'SET teams = :teams, winner = :winner, updatedAt = :updatedAt',
+              ConditionExpression: 'attribute_exists(PK)',
+              ExpressionAttributeValues: {
+                ':teams': patch.teams,
+                ':winner': patch.winner,
+                ':updatedAt': patch.updatedAt,
+              },
+            }),
+            expectedVersion,
+          ),
+        ),
       ),
     );
   },
 
-  async delete(match) {
+  async delete(match, expectedVersion) {
     const outcome = await transactWrite([
       {
-        Delete: {
-          TableName: tableName(),
-          Key: matchKey(match.id),
-          ConditionExpression: 'attribute_exists(PK)',
-        },
+        Delete: withVersion(
+          { TableName: tableName(), Key: matchKey(match.id), ConditionExpression: 'attribute_exists(PK)' },
+          expectedVersion,
+        ),
       },
       { Delete: { TableName: tableName(), Key: matchLookupKey(match.gameId, match.createdAt, match.id) } },
       {
@@ -135,6 +147,6 @@ export const dynamoMatchRepository: MatchRepository = {
         },
       },
     ]);
-    if (!outcome.ok) throw new Error('Match delete failed: the match no longer exists');
+    if (!outcome.ok) throw await versionConflict(() => currentVersion(matchKey(match.id)));
   },
 };

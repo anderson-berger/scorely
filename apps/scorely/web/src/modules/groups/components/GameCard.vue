@@ -4,6 +4,7 @@ import { formatDateTime } from '@scorely/web/src/lib/datetime';
 import LayersTimeline from '@scorely/web/src/modules/groups/components/LayersTimeline.vue';
 import { nextLayer } from '@scorely/web/src/modules/groups/layers';
 import { type ListGate, listGate } from '@scorely/web/src/modules/groups/links';
+import { addressLine, routeUrl } from '@scorely/web/src/modules/groups/places';
 import {
   countdown,
   formatCountdown,
@@ -34,6 +35,8 @@ export default defineComponent({
   props: {
     game: { type: Object as PropType<Game>, required: true },
     busy: { type: Boolean, default: false },
+    /** TIM-02: o esporte do grupo, para o nome das posições (catálogo). Sem posições, não é usado. */
+    sportId: { type: String, default: '' },
     /** TIM-05: posições de cada pessoa (ausente = o esporte não tem posições). */
     playerPositions: {
       type: Object as PropType<Record<string, PlayerPosition[]> | undefined>,
@@ -157,6 +160,9 @@ export default defineComponent({
   },
 
   methods: {
+    addressLine,
+    routeUrl,
+
     /** TIM-05: tocar na pessoa (ou nas posições dela) abre o painel de posições (só o dono, com o grupo ativo). */
     edit(userId: string) {
       if (this.canEditPositions) this.$emit('editPlayer', userId);
@@ -177,6 +183,24 @@ export default defineComponent({
   <section class="game" :class="{ 'game--split': !cancelled }">
     <div class="main">
       <h2 class="sc-display when">{{ title }}</h2>
+      <!-- GRP-63: onde é o jogo, com a rota no app de mapa. -->
+      <div v-if="game.place" class="place">
+        <q-icon name="place" size="18px" class="place-icon" aria-hidden="true" />
+        <div class="place-text">
+          <div class="place-name">{{ game.place.name }}</div>
+          <div class="sc-caption">{{ addressLine(game.place.address) }}</div>
+        </div>
+        <q-btn
+          flat
+          dense
+          no-caps
+          icon="directions"
+          :label="$t('groups.places.route')"
+          :href="routeUrl(game.place)"
+          target="_blank"
+          rel="noopener"
+        />
+      </div>
 
       <div v-if="cancelled" class="banner banner--danger">
         <div class="sc-display banner-title">{{ $t('gameStatus.cancelled') }}</div>
@@ -272,14 +296,15 @@ export default defineComponent({
               <span class="pname">{{ personName(row.person) }}</span>
               <PlayerPositions
                 v-if="playerPositions"
+                :sport-id="sportId"
                 :positions="playerPositions[row.person.userId]"
                 :editable="canEditPositions"
                 :name="personName(row.person)"
                 @edit="edit(row.person.userId)"
               />
             </span>
-            <span v-if="row.person.role !== 'member'" class="sc-label role">{{
-              $t(`groups.roles.${row.person.role}`)
+            <span v-if="row.person.tier !== 'member'" class="sc-label role">{{
+              $t(`groups.tiers.${row.person.tier}`)
             }}</span>
           </div>
           <div v-else class="sc-row person person--free">
@@ -309,13 +334,14 @@ export default defineComponent({
               <span class="pname sc-muted">{{ personName(a) }}</span>
               <PlayerPositions
                 v-if="playerPositions"
+                :sport-id="sportId"
                 :positions="playerPositions[a.userId]"
                 :editable="canEditPositions"
                 :name="personName(a)"
                 @edit="edit(a.userId)"
               />
             </span>
-            <span v-if="a.role !== 'member'" class="sc-label role">{{ $t(`groups.roles.${a.role}`) }}</span>
+            <span v-if="a.tier !== 'member'" class="sc-label role">{{ $t(`groups.tiers.${a.tier}`) }}</span>
           </div>
         </div>
       </template>
@@ -574,5 +600,26 @@ export default defineComponent({
   .count {
     font-size: 96px;
   }
+}
+.place {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 10px;
+}
+
+.place-icon {
+  color: var(--sc-accent);
+  flex-shrink: 0;
+}
+
+.place-text {
+  flex-grow: 1;
+  min-width: 0;
+}
+
+.place-name {
+  font-weight: 700;
+  font-size: 14px;
 }
 </style>

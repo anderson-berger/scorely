@@ -18,7 +18,7 @@ import type { GroupRepository, StoredGroup } from '@scorely/api/src/modules/grou
 import { requireActive, requireMember, requirePermission } from '@scorely/api/src/modules/groups/groups.deps';
 import type { NotificationService } from '@scorely/api/src/modules/notifications/notification.service';
 import type { UserDirectory } from '@scorely/api/src/modules/users/user.repository';
-import type { Season, SeasonInput, SeasonUpdateInput } from '@scorely/contracts';
+import type { Season, SeasonInput, SeasonUpdateInput, VersionInput } from '@scorely/contracts';
 
 export interface SeasonDeps {
   groups: GroupRepository;
@@ -44,6 +44,8 @@ export function createSeasonService(deps: SeasonDeps) {
     const highlights = state === 'closed' ? await ranking.highlights(group, season) : undefined;
     return {
       id: season.id,
+      // CMP-42: editar e cancelar mandam esta versão.
+      version: season.version,
       number: season.number,
       ...(season.name !== undefined && { name: season.name }),
       startDate: season.startDate,
@@ -91,7 +93,7 @@ export function createSeasonService(deps: SeasonDeps) {
       checkSeasonDates(input, today(group), others);
       const at = now();
       const number = Math.max(0, ...others.map((s) => s.number)) + 1;
-      const season = newEntity<StoredSeason>(
+      const created = newEntity<Omit<StoredSeason, 'version'>>(
         {
           groupId,
           number,
@@ -103,8 +105,8 @@ export function createSeasonService(deps: SeasonDeps) {
         },
         at,
       );
-      await deps.seasons.create(season);
-      return view(group, season);
+      await deps.seasons.create(created);
+      return view(group, { ...created, version: 1 });
     },
 
     /** CMP-30: a programada muda tudo; depois de começar, só o nome (`SEASON_INVALID started`). */
@@ -135,18 +137,24 @@ export function createSeasonService(deps: SeasonDeps) {
         updatedAt: now().toISOString(),
       };
       const moved = input.startDate !== undefined && input.startDate !== season.startDate;
-      await deps.seasons.update(season.id, patch, moved ? season.startDate : undefined);
-      return view(group, { ...season, ...patch });
+      // CMP-42: só grava na versão que a tela mostrou.
+      await deps.seasons.update(season.id, patch, moved ? season.startDate : undefined, input.version);
+      return view(group, { ...season, ...patch, version: input.version + 1 });
     },
 
     /** CMP-30: só a programada é cancelada (apagada). */
-    async remove(userId: UserId, groupId: string, seasonId: string): Promise<void> {
+    async remove(
+      userId: UserId,
+      groupId: string,
+      seasonId: string,
+      { version }: VersionInput,
+    ): Promise<void> {
       const { group } = await manager(userId, groupId);
       const season = await seasonIn(groupId, seasonId);
       if (seasonState(season, now(), group.timeZone) !== 'scheduled') {
         throw appError('SEASON_INVALID', { reason: 'started' });
       }
-      await deps.seasons.delete(season);
+      await deps.seasons.delete(season, version);
     },
 
     /** CMP-32: encerrar antes da data passa o fim para hoje e trava na hora, sem prazo. */
@@ -160,8 +168,9 @@ export function createSeasonService(deps: SeasonDeps) {
       // No prazo, o fim já passou: encerrar não alonga a temporada.
       const endDate = [today(group), season.endDate].sort()[0] ?? season.endDate;
       const patch: SeasonPatch = { endDate, closedAt: at, updatedAt: at };
-      await deps.seasons.update(season.id, patch);
-      return view(group, { ...season, ...patch });
+      // Encerrar não manda versão (CMP-42): confere a que acabou de ler.
+      await deps.seasons.update(season.id, patch, undefined, season.version);
+      return view(group, { ...season, ...patch, version: season.version + 1 });
     },
   };
 }

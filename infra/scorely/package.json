@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "db:setup": "tsx ../shared/setup-local.ts scorely --uploads",
+    "db:setup": "tsx ../shared/setup-local.ts scorely --uploads && npm run sports:sync:local -w @scorely/api",
     "build": "serverless package",
     "typecheck": "tsc -p tsconfig.json"
   },

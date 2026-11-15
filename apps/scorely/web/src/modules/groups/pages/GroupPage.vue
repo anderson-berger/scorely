@@ -21,6 +21,7 @@ import {
   type GroupAccess,
   groupAccess,
   isPermissionError,
+  isVersionConflict,
   NO_ACCESS,
   PERMISSION_LOST,
   shouldRefresh,
@@ -32,6 +33,7 @@ import {
   showGroupTimeZone,
   tabRedirect,
 } from '@scorely/web/src/modules/groups/tabs';
+import { useSportsStore } from '@scorely/web/src/modules/sports/sports.store';
 import PlayerPositionsSheet from '@scorely/web/src/modules/teams/components/PlayerPositionsSheet.vue';
 import { positionsByUser, sportPositions } from '@scorely/web/src/modules/teams/players';
 import { teamsApi } from '@scorely/web/src/modules/teams/teams.api';
@@ -56,12 +58,12 @@ export default defineComponent({
   components: { GroupHero, PlayerPositionsSheet },
 
   setup() {
-    return { auth: useAuthStore() };
+    return { sports: useSportsStore(), auth: useAuthStore() };
   },
 
   /** GRP-57: os componentes das abas avisam aqui quando uma ação deles é barrada por permissão. */
   provide() {
-    return { [PERMISSION_LOST]: () => this.permissionLost() };
+    return { [PERMISSION_LOST]: (err?: unknown) => this.permissionLost(err) };
   },
 
   data() {
@@ -91,7 +93,7 @@ export default defineComponent({
 
     /** GRP-49, 55: o que quem vê pode fazer, pelo `myPermissions` da api. */
     access(): GroupAccess {
-      return this.group ? groupAccess(this.group, this.auth.user?.id) : NO_ACCESS;
+      return this.group ? groupAccess(this.group) : NO_ACCESS;
     },
 
     /** Só o que é do dono: arquivar, cargos e passar o grupo (GRP-49). */
@@ -122,7 +124,7 @@ export default defineComponent({
 
     /** TIM-03, 05: todos do grupo veem as posições, só em esporte que tem posições. */
     showsPositions(): boolean {
-      return Boolean(this.group && sportPositions(this.group.sport).length > 0);
+      return Boolean(this.group && sportPositions(this.sports.byId(this.group.sportId)).length > 0);
     },
 
     /** TIM-03, 05: só quem tem `teams.manage` muda; no grupo arquivado, as posições aparecem mas o painel não abre (GRP-37). */
@@ -204,10 +206,14 @@ export default defineComponent({
       }
     },
 
-    /** GRP-57: uma ação foi barrada por permissão: avisa e recarrega, e a tela fica só com o que a pessoa pode. */
-    async permissionLost() {
+    /**
+     * GRP-57: uma ação foi barrada por permissão: avisa e recarrega, e a tela fica só com o que a pessoa pode.
+     * ADR 0016: ou outra pessoa mudou o item antes (`VERSION_CONFLICT`): avisa e recarrega, para refazer.
+     */
+    async permissionLost(err?: unknown) {
       this.positionsOpen = false;
-      this.$q.notify({ type: 'warning', message: this.$t('groups.permissionsChanged') });
+      const message = isVersionConflict(err) ? errorMessage(err) : this.$t('groups.permissionsChanged');
+      this.$q.notify({ type: 'warning', message });
       await this.refresh();
     },
 
@@ -310,7 +316,8 @@ export default defineComponent({
       } catch (err) {
         // GRP-57: barrada por permissão → a mensagem própria; o `load()` abaixo ajusta a tela.
         const message = isPermissionError(err) ? this.$t('groups.permissionsChanged') : errorMessage(err);
-        this.$q.notify({ type: isPermissionError(err) ? 'warning' : 'negative', message });
+        const warning = isPermissionError(err) || isVersionConflict(err);
+        this.$q.notify({ type: warning ? 'warning' : 'negative', message });
       } finally {
         this.busy = false;
         await this.load();
@@ -441,7 +448,7 @@ export default defineComponent({
 
     async removeMember(m: Member) {
       const name = m.nickname;
-      const key = m.role === 'reserve' ? 'groups.removeReserveConfirm' : 'groups.removeConfirm';
+      const key = m.tier === 'reserve' ? 'groups.removeReserveConfirm' : 'groups.removeConfirm';
       if (!(await this.ask(this.$t(key, { name })))) return;
       await this.run(() => groupsApi.removeMember(this.groupId, m.userId), this.$t('groups.removed'));
     },
@@ -510,7 +517,7 @@ export default defineComponent({
           v-if="canEditPositions && group"
           v-model="positionsOpen"
           :group-id="groupId"
-          :sport="group.sport"
+          :sport-id="group.sportId"
           :player="editingPlayer"
           @saved="onPlayerSaved"
         />

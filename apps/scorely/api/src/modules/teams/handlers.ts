@@ -5,9 +5,11 @@ import { dynamoGameRepository } from '@scorely/api/src/modules/groups/game.repos
 import { createGameService } from '@scorely/api/src/modules/groups/game.service';
 import { dynamoGroupRepository } from '@scorely/api/src/modules/groups/group.repository';
 import { createGroupService } from '@scorely/api/src/modules/groups/group.service';
-import type { GroupsDeps } from '@scorely/api/src/modules/groups/groups.deps';
+import type { GroupsDeps, SportsDep } from '@scorely/api/src/modules/groups/groups.deps';
+import { dynamoPlaceRepository } from '@scorely/api/src/modules/groups/place.repository';
 import { dynamoNotificationRepository } from '@scorely/api/src/modules/notifications/notification.repository';
 import { createNotificationService } from '@scorely/api/src/modules/notifications/notification.service';
+import { sportService } from '@scorely/api/src/modules/sports/sport.service';
 import { dynamoPlayerRepository } from '@scorely/api/src/modules/teams/player.repository';
 import { createPlayerService } from '@scorely/api/src/modules/teams/player.service';
 import { dynamoTeamSettingsRepository } from '@scorely/api/src/modules/teams/settings.repository';
@@ -19,13 +21,16 @@ import {
   SaveTeamsInputSchema,
   UpdatePlayerInputSchema,
   UpdateTeamSettingsInputSchema,
+  VersionInputSchema,
 } from '@scorely/contracts';
 
-const groupsDeps: GroupsDeps = {
+const groupsDeps: GroupsDeps & SportsDep = {
   groups: dynamoGroupRepository,
   games: dynamoGameRepository,
+  places: dynamoPlaceRepository,
   users: dynamoUserDirectory,
   notifications: createNotificationService(dynamoNotificationRepository),
+  sports: sportService,
 };
 const groups = createGroupService(groupsDeps);
 const games = createGameService(groupsDeps);
@@ -34,6 +39,7 @@ const players = createPlayerService({
   roster: { members: groups.memberRecords, currentGame: games.currentRoster },
   players: dynamoPlayerRepository,
   users: dynamoUserDirectory,
+  sports: sportService,
 });
 const teams = createTeamsService({
   groups: dynamoGroupRepository,
@@ -43,12 +49,14 @@ const teams = createTeamsService({
   notifications: groupsDeps.notifications,
   teams: dynamoTeamsRepository,
   settings: dynamoTeamSettingsRepository,
+  sports: sportService,
 });
 const teamSettings = createTeamSettingsService({
   groups: dynamoGroupRepository,
   roster: { members: groups.memberRecords, currentGame: games.currentRoster },
   users: dynamoUserDirectory,
   settings: dynamoTeamSettingsRepository,
+  sports: sportService,
 });
 
 export async function listPlayers(event: HttpEvent) {
@@ -97,25 +105,32 @@ export async function saveTeams(event: HttpEvent) {
 
 export async function publishTeams(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    return teams.publish(auth.userId, pathParam(event, 'id'), pathParam(event, 'date'));
+    // TIM-25: a versão dos times que a tela mostrou.
+    const input = parseBody(event, VersionInputSchema);
+    return teams.publish(auth.userId, pathParam(event, 'id'), pathParam(event, 'date'), input);
   });
 }
 
 export async function drawTeams(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    return teams.draw(auth.userId, pathParam(event, 'id'), pathParam(event, 'date'));
+    // TIM-25: a versão dos times que a tela mostrou.
+    const input = parseBody(event, VersionInputSchema);
+    return teams.draw(auth.userId, pathParam(event, 'id'), pathParam(event, 'date'), input);
   });
 }
 
 export async function unpublishTeams(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    return teams.unpublish(auth.userId, pathParam(event, 'id'), pathParam(event, 'date'));
+    // TIM-25: a versão dos times que a tela mostrou.
+    const input = parseBody(event, VersionInputSchema);
+    return teams.unpublish(auth.userId, pathParam(event, 'id'), pathParam(event, 'date'), input);
   });
 }
 
 export async function discardTeams(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    await teams.discard(auth.userId, pathParam(event, 'id'), pathParam(event, 'date'));
+    const input = parseBody(event, VersionInputSchema);
+    await teams.discard(auth.userId, pathParam(event, 'id'), pathParam(event, 'date'), input);
   });
 }
 

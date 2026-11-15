@@ -16,6 +16,7 @@ export const ErrorCodeSchema = z.enum([
   'INVALID_JSON',
   'MISSING_PARAM',
   'INVALID_CURSOR',
+  'VERSION_CONFLICT',
   'INTERNAL_ERROR',
   // auth
   'UNAUTHORIZED',
@@ -47,6 +48,11 @@ export const ErrorCodeSchema = z.enum([
   'GROUP_RESERVES_FULL',
   'GROUP_MEMBER_INVITE_INVALID',
   'GROUP_MIN_PLAYERS_INVALID',
+  'SPORT_NOT_FOUND',
+  // lugares (GRP-60–62)
+  'PLACE_NOT_FOUND',
+  'PLACE_LIMIT_REACHED',
+  'PLACE_IS_DEFAULT',
   'GAME_SLOTS_BELOW_CONFIRMED',
   // games
   'GAME_NOT_FOUND',
@@ -105,6 +111,7 @@ export const ErrorDetailsSchemas = {
   TEAM_RULES_VIOLATED: z.object({ violations: z.array(TeamViolationSchema).min(1) }),
   /** As vagas que valem (GRP-46): o mínimo não passa delas. */
   GROUP_MIN_PLAYERS_INVALID: z.object({ max: z.number().int().positive() }),
+  SPORT_NOT_FOUND: z.object({ sportId: z.string() }),
   /** Por que a temporada foi recusada (CMP-29, 30). */
   SEASON_INVALID: z.object({
     reason: z.enum(['duration', 'past_start', 'too_far', 'overlap', 'started']),
@@ -129,6 +136,10 @@ export const ErrorDetailsSchemas = {
   }),
   /** Quantos já estão dentro (GRP-45): as vagas não descem abaixo disso. */
   GAME_SLOTS_BELOW_CONFIRMED: z.object({ confirmed: z.number().int().nonnegative() }),
+  /** ADR 0016: a versão atual do item (`0` = ele não existe mais), para a tela reler. */
+  VERSION_CONFLICT: z.object({ currentVersion: z.number().int().nonnegative() }),
+  /** GRP-60: quantos lugares ativos o grupo pode ter. */
+  PLACE_LIMIT_REACHED: z.object({ max: z.number().int().positive() }),
 } satisfies Partial<Record<ErrorCode, z.ZodType>>;
 export type ErrorDetails = {
   [C in keyof typeof ErrorDetailsSchemas]: z.infer<(typeof ErrorDetailsSchemas)[C]>;

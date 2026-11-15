@@ -1,3 +1,4 @@
+import { appError } from '@scorely/api/src/lib/errors';
 import { parseBody, route } from '@scorely/api/src/lib/http';
 import type { UserId } from '@scorely/api/src/lib/ids';
 import type { MeRecord, UserRecord, UserRepository } from '@scorely/api/src/modules/users/user.repository';
@@ -22,7 +23,8 @@ type ReadOpts = { consistent?: boolean };
  * privada (email e nome, USR-13) e preferências; `writes` conta as gravações (para conferir "nada gravado").
  */
 function memoryUserRepo() {
-  const profiles = new Map<UserId, UserRecord>();
+  /** O `META` com a `version` do perfil (USR-18). */
+  const profiles = new Map<UserId, UserRecord & { version: number }>();
   const privates = new Map<UserId, { email: string; name?: string }>();
   const prefs = new Map<UserId, Preferences>();
   const writes = { count: 0 };
@@ -48,7 +50,7 @@ function memoryUserRepo() {
     getPreferences: async (id: UserId): Promise<Preferences> => structuredClone(prefs.get(id) ?? {}),
     async create(user: UserRecord, email: string) {
       if (idOf(email) !== undefined) return 'email_taken';
-      profiles.set(user.id, structuredClone(user));
+      profiles.set(user.id, { ...structuredClone(user), version: 1 });
       privates.set(user.id, { email });
       prefs.set(user.id, {});
       return 'created';
@@ -58,8 +60,12 @@ function memoryUserRepo() {
       const preferences = prefs.get(id);
       const priv = privates.get(id);
       if (!profile || !preferences || !priv) return undefined;
+      // USR-18 (ADR 0016): condicionado na `version` do META, que soma 1 em toda mudança.
+      if (profile.version !== patch.version)
+        throw appError('VERSION_CONFLICT', { currentVersion: profile.version });
       writes.count += 1;
-      const { locale, timeZone, name, ...rest } = patch;
+      profile.version += 1;
+      const { locale, timeZone, name, version: _version, ...rest } = patch;
       assign(preferences, { locale, timeZone });
       assign(priv, { name });
       assign(profile, rest);
@@ -86,8 +92,12 @@ async function withUser() {
   );
   const { userId } = await service.findOrCreateByEmail(EMAIL);
   /** Mesmo caminho do `PATCH /me`: parse do body com o schema do contrato → `update`. */
+  /** A tela manda a `version` do perfil que mostrou (USR-18); o teste completa com a atual. */
   const patchMe = (body: unknown) => {
-    const event = { body: JSON.stringify(body) } as APIGatewayProxyEventV2;
+    const version = memory.profiles.get(userId)?.version ?? 0;
+    const withVersion =
+      body && typeof body === 'object' && !Array.isArray(body) ? { version, ...body } : body;
+    const event = { body: JSON.stringify(withVersion) } as APIGatewayProxyEventV2;
     return route(event, async () => service.update(userId, parseBody(event, UpdateMeInputSchema)));
   };
   return { service, userId, memory, writes: memory.writes, patchMe };

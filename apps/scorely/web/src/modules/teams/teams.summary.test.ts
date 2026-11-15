@@ -19,6 +19,7 @@ const anaCai: TeamApartRule = { people: [ANA, CAI] };
 
 const base: TeamSettings = {
   teamCount: 2,
+  version: 1,
   rules: [],
   apart: [],
   spreadGender: false,

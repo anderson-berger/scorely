@@ -29,7 +29,7 @@ export default defineComponent({
   <div v-else-if="game.status === 'cancelled'" class="sc-card sc-caption notice">
     {{ $t('teams.empty.cancelled') }}
   </div>
-  <TeamsCard v-else :group-id="group.id" :game="game" :sport="group.sport" :can-manage="access.teams" />
+  <TeamsCard v-else :group-id="group.id" :game="game" :sport-id="group.sportId" :can-manage="access.teams" />
 </template>
 
 <style scoped>

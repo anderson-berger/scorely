@@ -1,6 +1,7 @@
 <script lang="ts">
-import type { PlayerPosition, Sport, TeamPlayer } from '@scorely/contracts';
+import type { PlayerPosition, TeamPlayer } from '@scorely/contracts';
 import BottomSheet from '@scorely/web/src/components/BottomSheet.vue';
+import { useSportsStore } from '@scorely/web/src/modules/sports/sports.store';
 import PositionsPicker from '@scorely/web/src/modules/teams/components/PositionsPicker.vue';
 import { sportPositions } from '@scorely/web/src/modules/teams/players';
 import type { TeamPlayerChange } from '@scorely/web/src/modules/teams/teams';
@@ -14,13 +15,16 @@ export default defineComponent({
   name: 'TeamPlayerSheet',
 
   components: { BottomSheet, PositionsPicker },
+  setup() {
+    return { sports: useSportsStore() };
+  },
 
   props: {
     modelValue: { type: Boolean, required: true },
     player: { type: Object as PropType<TeamPlayer | undefined>, default: undefined },
     team: { type: Number as PropType<number | undefined>, default: undefined },
     teamCount: { type: Number, required: true },
-    sport: { type: String as PropType<Sport>, required: true },
+    sportId: { type: String, required: true },
     saving: { type: Boolean, default: false },
   },
 
@@ -64,7 +68,7 @@ export default defineComponent({
 
     /** As posições do avulso são dele (TIM-24): editam pelo painel do avulso, não aqui. */
     hasPositions(): boolean {
-      return sportPositions(this.sport).length > 0 && !this.player?.extra;
+      return sportPositions(this.sports.byId(this.sportId)).length > 0 && !this.player?.extra;
     },
   },
 
@@ -139,7 +143,7 @@ export default defineComponent({
     <template v-if="hasPositions">
       <div class="sc-label section">{{ $t('teams.gamePositions') }}</div>
       <div class="sc-caption">{{ $t('teams.gamePositionsHint') }}</div>
-      <PositionsPicker :model-value="positions" :sport="sport" @update:model-value="onPositions" />
+      <PositionsPicker :model-value="positions" :sport-id="sportId" @update:model-value="onPositions" />
       <q-btn
         v-if="adjusted"
         flat

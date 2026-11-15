@@ -15,6 +15,18 @@ export const groupsFunctions: AWS['functions'] = {
   groupsGet: { handler: handler('get'), events: route('GET', '/groups/{id}') },
   groupsUpdate: { handler: handler('update'), events: route('PATCH', '/groups/{id}') },
   groupsRotateInvite: { handler: handler('rotateInvite'), events: route('POST', '/groups/{id}/invite') },
+  // Lugares (GRP-60–63)
+  placesList: { handler: handler('listPlaces'), events: route('GET', '/groups/{id}/places') },
+  placesCreate: { handler: handler('createPlace'), events: route('POST', '/groups/{id}/places') },
+  placesUpdate: { handler: handler('updatePlace'), events: route('PUT', '/groups/{id}/places/{placeId}') },
+  placesArchive: {
+    handler: handler('archivePlace'),
+    events: route('POST', '/groups/{id}/places/{placeId}/archive'),
+  },
+  placesUnarchive: {
+    handler: handler('unarchivePlace'),
+    events: route('POST', '/groups/{id}/places/{placeId}/unarchive'),
+  },
   // Logo e capa (GRP-35): `slot` = logo | cover
   groupsImageUpload: {
     handler: handler('requestImageUpload'),

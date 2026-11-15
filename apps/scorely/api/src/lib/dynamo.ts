@@ -1,10 +1,10 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
-import { env } from '@scorely/api/src/lib/env';
+import { dbEnv } from '@scorely/api/src/lib/env';
 import { lazy } from '@scorely/api/src/lib/fn';
 
 const client = lazy(() => {
-  const { AWS_REGION, DYNAMODB_ENDPOINT } = env();
+  const { AWS_REGION, DYNAMODB_ENDPOINT } = dbEnv();
   const base = new DynamoDBClient({
     region: AWS_REGION,
     ...(DYNAMODB_ENDPOINT && {
@@ -23,5 +23,5 @@ export function dynamo(): DynamoDBDocumentClient {
 }
 
 export function tableName() {
-  return env().TABLE_NAME;
+  return dbEnv().TABLE_NAME;
 }

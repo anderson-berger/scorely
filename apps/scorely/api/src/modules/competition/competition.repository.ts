@@ -1,5 +1,12 @@
 import { GetCommand, PutCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
-import { dbItem, isConditionFailed, stripKeys, touch } from '@scorely/api/src/lib/db';
+import {
+  dbItem,
+  isConditionFailed,
+  stripKeys,
+  touch,
+  versionConflict,
+  withVersion,
+} from '@scorely/api/src/lib/db';
 import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
 import { appError } from '@scorely/api/src/lib/errors';
 import { COMPETITION_ENTITY, competitionKey } from '@scorely/api/src/modules/competition/competition.table';
@@ -15,14 +22,19 @@ export interface StoredCompetition {
   rules: CompetitionRules;
   createdAt: string;
   updatedAt: string;
+  /** CMP-42 (ADR 0013, 0016). */
+  version: number;
 }
 
 export interface CompetitionRepository {
   get(groupId: string): Promise<StoredCompetition | undefined>;
   /** CMP-02: grava o item novo. Já existe (o teste foi usado) → `COMPETITION_TRIAL_USED`. */
-  create(item: StoredCompetition): Promise<void>;
-  /** CMP-07: troca o regulamento. Sem item ou com `activeUntil <= now` → `COMPETITION_INACTIVE` (CMP-04). */
-  updateRules(groupId: string, rules: CompetitionRules, now: string): Promise<void>;
+  create(item: Omit<StoredCompetition, 'version'>): Promise<void>;
+  /**
+   * CMP-07: troca o regulamento. Sem item ou com `activeUntil <= now` → `COMPETITION_INACTIVE` (CMP-04). Só grava na
+   * versão esperada (CMP-42); senão, `VERSION_CONFLICT`.
+   */
+  updateRules(groupId: string, rules: CompetitionRules, now: string, expectedVersion: number): Promise<void>;
 }
 
 export const dynamoCompetitionRepository: CompetitionRepository = {
@@ -48,23 +60,32 @@ export const dynamoCompetitionRepository: CompetitionRepository = {
     }
   },
 
-  async updateRules(groupId, rules, now) {
+  async updateRules(groupId, rules, now, expectedVersion) {
     try {
       await dynamo().send(
         new UpdateCommand(
-          touch({
-            TableName: tableName(),
-            Key: competitionKey(groupId),
-            UpdateExpression: 'SET #rules = :rules, updatedAt = :now',
-            ConditionExpression: 'attribute_exists(PK) AND activeUntil > :now',
-            ExpressionAttributeNames: { '#rules': 'rules' },
-            ExpressionAttributeValues: { ':rules': rules, ':now': now },
-          }),
+          withVersion(
+            touch({
+              TableName: tableName(),
+              Key: competitionKey(groupId),
+              UpdateExpression: 'SET #rules = :rules, updatedAt = :now',
+              ConditionExpression: 'attribute_exists(PK) AND activeUntil > :now',
+              ExpressionAttributeNames: { '#rules': 'rules' },
+              ExpressionAttributeValues: { ':rules': rules, ':now': now },
+            }),
+            expectedVersion,
+          ),
         ),
       );
     } catch (err) {
-      if (isConditionFailed(err)) throw appError('COMPETITION_INACTIVE');
-      throw err;
+      if (!isConditionFailed(err)) throw err;
+      // A condição junta a ativação (CMP-04) e a versão (CMP-42): relê para saber qual falhou.
+      const { Item } = await dynamo().send(
+        new GetCommand({ TableName: tableName(), Key: competitionKey(groupId), ConsistentRead: true }),
+      );
+      const current = Item ? stripKeys<StoredCompetition>(Item) : undefined;
+      if (!current || !(current.activeUntil > now)) throw appError('COMPETITION_INACTIVE');
+      throw await versionConflict(async () => current.version);
     }
   },
 };

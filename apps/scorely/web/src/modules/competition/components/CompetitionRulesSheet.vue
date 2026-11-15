@@ -129,7 +129,11 @@ export default defineComponent({
       }
       this.saving = true;
       try {
-        const saved = await competitionApi.updateRules(this.groupId, parsed.data);
+        const saved = await competitionApi.updateRules(this.groupId, {
+          ...parsed.data,
+          // CMP-42: a versão da competição que a tela mostra.
+          version: this.competition.version ?? 0,
+        });
         this.$q.notify({ type: 'positive', message: this.$t('competition.rules.saved') });
         this.$emit('saved', saved);
         this.close();

@@ -1,6 +1,7 @@
 import {
   type CreateGroupInput,
   GameSchema,
+  type GrantableRoleId,
   type Group,
   type GroupImageSlot,
   GroupSchema,
@@ -11,9 +12,12 @@ import {
   MemberInviteSchema,
   MemberSchema,
   MyGroupSchema,
-  type StaffRoleId,
+  type PlaceInput,
+  PlaceSchema,
   type UpdateGameInput,
   type UpdateGroupInput,
+  type UpdatePlaceInput,
+  type VersionInput,
 } from '@scorely/contracts';
 import { request, send } from '@scorely/web/src/lib/http';
 import { contentTypeOf, uploadMedia } from '@scorely/web/src/lib/media';
@@ -30,6 +34,16 @@ export const groupsApi = {
   get: (id: string) => request({ url: `/groups/${id}` }, GroupSchema),
   update: (id: string, patch: UpdateGroupInput) =>
     request({ url: `/groups/${id}`, method: 'PATCH', data: patch }, GroupSchema),
+  /** Lugares do grupo (GRP-60–63). */
+  places: (id: string) => request({ url: `/groups/${id}/places` }, PlaceSchema.array()),
+  createPlace: (id: string, input: PlaceInput) =>
+    request({ url: `/groups/${id}/places`, method: 'POST', data: input }, PlaceSchema),
+  updatePlace: (id: string, placeId: string, input: UpdatePlaceInput) =>
+    request({ url: `/groups/${id}/places/${placeId}`, method: 'PUT', data: input }, PlaceSchema),
+  archivePlace: (id: string, placeId: string, input: VersionInput) =>
+    request({ url: `/groups/${id}/places/${placeId}/archive`, method: 'POST', data: input }, PlaceSchema),
+  unarchivePlace: (id: string, placeId: string, input: VersionInput) =>
+    request({ url: `/groups/${id}/places/${placeId}/unarchive`, method: 'POST', data: input }, PlaceSchema),
   /** Vagas e mínimo só do jogo atual (GRP-45, 46); `null` = volta ao padrão do grupo. */
   updateGame: (id: string, date: string, patch: UpdateGameInput) =>
     request({ url: `/groups/${id}/games/${date}`, method: 'PATCH', data: patch }, GameSchema),
@@ -50,8 +64,8 @@ export const groupsApi = {
   declineMemberInvite: (id: string) => send({ url: `/groups/${id}/member-invite/decline`, method: 'POST' }),
   leaveGroup: (id: string) => send({ url: `/groups/${id}/leave`, method: 'POST' }),
   /** Cargos (GRP-51) e passar o grupo (GRP-54): só o dono. */
-  setStaffRole: (id: string, userId: string, staffRoleId: StaffRoleId) =>
-    send({ url: `/groups/${id}/members/${userId}/staff-role`, method: 'PUT', data: { staffRoleId } }),
+  setStaffRole: (id: string, userId: string, roleId: GrantableRoleId) =>
+    send({ url: `/groups/${id}/members/${userId}/staff-role`, method: 'PUT', data: { roleId } }),
   clearStaffRole: (id: string, userId: string) =>
     send({ url: `/groups/${id}/members/${userId}/staff-role`, method: 'DELETE' }),
   transfer: (id: string, userId: string) =>

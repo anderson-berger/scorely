@@ -23,11 +23,13 @@ const notifications = createNotificationService(dynamoNotificationRepository);
 
 import {
   CloseGameInputSchema,
-  CompetitionRulesSchema,
   MatchInputSchema,
   RankingQuerySchema,
   SeasonInputSchema,
   SeasonUpdateInputSchema,
+  UpdateCompetitionRulesInputSchema,
+  UpdateMatchInputSchema,
+  VersionInputSchema,
 } from '@scorely/contracts';
 
 const competition = createCompetitionService({
@@ -68,8 +70,8 @@ export async function startCompetitionTrial(event: HttpEvent) {
 
 export async function updateCompetitionRules(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    const rules = parseBody(event, CompetitionRulesSchema);
-    return competition.updateRules(auth.userId, pathParam(event, 'id'), rules);
+    const input = parseBody(event, UpdateCompetitionRulesInputSchema);
+    return competition.updateRules(auth.userId, pathParam(event, 'id'), input);
   });
 }
 
@@ -99,7 +101,7 @@ export async function createCompetitionMatch(event: HttpEvent) {
 
 export async function updateCompetitionMatch(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    const input = parseBody(event, MatchInputSchema);
+    const input = parseBody(event, UpdateMatchInputSchema);
     return matches.update(
       auth.userId,
       pathParam(event, 'id'),
@@ -117,6 +119,7 @@ export async function deleteCompetitionMatch(event: HttpEvent) {
       pathParam(event, 'id'),
       pathParam(event, 'date'),
       pathParam(event, 'matchId'),
+      parseBody(event, VersionInputSchema),
     ),
   );
 }
@@ -176,7 +179,12 @@ export async function updateCompetitionSeason(event: HttpEvent) {
 
 export async function deleteCompetitionSeason(event: HttpEvent) {
   return authRoute(event, async (auth) =>
-    seasons.remove(auth.userId, pathParam(event, 'id'), pathParam(event, 'seasonId')),
+    seasons.remove(
+      auth.userId,
+      pathParam(event, 'id'),
+      pathParam(event, 'seasonId'),
+      parseBody(event, VersionInputSchema),
+    ),
   );
 }
 

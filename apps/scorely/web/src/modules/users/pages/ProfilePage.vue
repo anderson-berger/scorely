@@ -14,6 +14,7 @@ import { prepareImage } from '@scorely/web/src/lib/media';
 import { effectiveTimeZone } from '@scorely/web/src/lib/preferences';
 import { useAuthStore } from '@scorely/web/src/modules/auth/auth.store';
 import TrophyRoom from '@scorely/web/src/modules/competition/components/TrophyRoom.vue';
+import { isVersionConflict } from '@scorely/web/src/modules/groups/permissions';
 import { initials } from '@scorely/web/src/modules/groups/scoreboard';
 import { displayName } from '@scorely/web/src/modules/users/user.display';
 import { copyToClipboard } from 'quasar';
@@ -225,7 +226,8 @@ export default defineComponent({
               ...(this.locale && { locale: this.locale }),
               ...(this.timeZone && { timeZone: this.timeZone }),
             };
-      const parsed = UpdateMeInputSchema.safeParse(fields);
+      // USR-18: a versão do perfil que a tela mostra.
+      const parsed = UpdateMeInputSchema.safeParse({ ...fields, version: this.auth.user?.version ?? 0 });
       if (!parsed.success) {
         return this.$q.notify({
           type: 'warning',
@@ -240,7 +242,12 @@ export default defineComponent({
         this.editor = '';
         if (this.welcome) await this.$router.replace(safeRedirect(this.$route.query.redirect));
       } catch (err) {
-        this.$q.notify({ type: 'negative', message: errorMessage(err) });
+        if (isVersionConflict(err)) {
+          // USR-18: mudou em outro aparelho: relê, fecha o painel e avisa.
+          this.editor = '';
+          this.$q.notify({ type: 'warning', message: this.$t('profile.conflict') });
+          await this.auth.loadMe();
+        } else this.$q.notify({ type: 'negative', message: errorMessage(err) });
       } finally {
         this.saving = false;
       }

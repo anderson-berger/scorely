@@ -12,7 +12,7 @@ const preferences = (timeZone: string) => ({ locale: 'pt-BR', timeZone });
 const group = (timeZone: string) => ({
   ...ENTITY,
   name: 'Vôlei de sexta',
-  sport: 'volleyball',
+  sportId: 'volleyball',
   weekday: 5,
   time: '19:00',
   timeZone,
@@ -21,13 +21,15 @@ const group = (timeZone: string) => ({
   reservesOpenHoursBefore: 24,
   maxMembers: 30,
   maxReserves: 30,
-  ownerId: '7K3QX9TA',
-  myRole: 'member',
+  version: 1,
+  settingsVersion: 1,
+  myTier: 'member',
+  myRoleId: 'member',
   myPermissions: [],
 });
 const createGroup = (timeZone: string) => ({
   name: 'Vôlei de sexta',
-  sport: 'volleyball',
+  sportId: 'volleyball',
   weekday: 5,
   time: '19:00',
   timeZone,
@@ -53,7 +55,7 @@ describe('contrato: fuso na leitura e na entrada (caso 14)', () => {
   });
 
   it("caso 14: UpdateMeInputSchema com 'Mars/Olympus' → erro em timeZone", () => {
-    const result = UpdateMeInputSchema.safeParse({ timeZone: 'Mars/Olympus' });
+    const result = UpdateMeInputSchema.safeParse({ version: 1, timeZone: 'Mars/Olympus' });
     expect(result.success).toBe(false);
     expect(result.error?.issues[0]?.path).toEqual(['timeZone']);
   });

@@ -93,6 +93,7 @@ export default defineComponent({
     :game="game"
     :busy="busy"
     :player-positions="playerPositions"
+    :sport-id="group.sportId"
     :can-edit-positions="canEditPositions"
     :can-edit-capacity="canEditCapacity"
     @edit-capacity="capacityOpen = true"

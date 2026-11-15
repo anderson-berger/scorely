@@ -18,6 +18,11 @@ const SETTER: TeamRule = { target: { kind: 'position', position: 'setter' }, min
 const WOMEN: TeamRule = { target: { kind: 'gender', gender: 'F' }, min: 2 };
 const LIBERO: TeamRule = { target: { kind: 'position', position: 'libero' }, max: 1 };
 
+/** As posições ativas do vôlei no catálogo (TIM-02), já resolvidas pelo `activePositions`. */
+const VOLLEYBALL = ['setter', 'opposite', 'outside', 'middle', 'libero'];
+const NAMES: Record<string, string> = { setter: 'Levantador', libero: 'Líbero' };
+const nameOf = (id: string) => NAMES[id] ?? id;
+
 /** A chave existe nos dois idiomas. */
 function hasKey(key: string): boolean {
   const get = (root: unknown) =>
@@ -38,9 +43,20 @@ describe('textos das regras (TIM-19–21)', () => {
     });
   });
 
-  it('TIM-21: o alvo é a posição traduzida ou o gênero', () => {
-    expect(targetText(SETTER.target)).toEqual({ key: 'teams.positions.setter' });
-    expect(targetText(WOMEN.target)).toEqual({ key: 'teams.rules.gender.F' });
+  it('TIM-21: o alvo é o nome da posição vindo do catálogo (TIM-02) ou o gênero', () => {
+    expect(targetText(SETTER.target, nameOf)).toEqual({
+      key: 'teams.rules.position',
+      params: { name: 'Levantador' },
+    });
+    expect(targetText(WOMEN.target, nameOf)).toEqual({ key: 'teams.rules.gender.F' });
+  });
+
+  it('TIM-02: os nomes de esporte e de posição saem dos idiomas do web (vêm do catálogo, ESP-03)', () => {
+    for (const messages of [ptBR, en]) {
+      expect(messages).not.toHaveProperty('sports');
+      expect(messages.teams).not.toHaveProperty('positions');
+      expect(messages.teams.rules.position).toBe('{name}');
+    }
   });
 
   it('TIM-20: abaixo do mínimo é "falta N"; acima do máximo, "passou N"', () => {
@@ -76,8 +92,9 @@ describe('textos das regras (TIM-19–21)', () => {
       ruleText(WOMEN),
       ruleText(LIBERO),
       ruleText({ ...SETTER, max: 2 }),
-      targetText(WOMEN.target),
-      targetText({ kind: 'gender', gender: 'M' }),
+      targetText(SETTER.target, nameOf),
+      targetText(WOMEN.target, nameOf),
+      targetText({ kind: 'gender', gender: 'M' }, nameOf),
       violationText({ kind: 'count', team: 2, rule: SETTER, count: 0 }),
       violationText({ kind: 'count', team: 1, rule: SETTER, count: 3 }),
       conflictText({ reason: 'not_enough', rule: SETTER, needed: 3, available: 2 }),
@@ -91,20 +108,21 @@ describe('textos das regras (TIM-19–21)', () => {
 
 describe('editar as regras (TIM-21)', () => {
   it('TIM-21: os alvos são as posições do esporte e os gêneros, sem os que já têm regra', () => {
-    const all = availableTargets('volleyball', []);
+    const all = availableTargets(VOLLEYBALL, []);
     expect(all).toHaveLength(5 + 2);
-    const rest = availableTargets('volleyball', [SETTER, WOMEN]);
+    expect(all.slice(0, 5)).toEqual(VOLLEYBALL.map((position) => ({ kind: 'position', position })));
+    const rest = availableTargets(VOLLEYBALL, [SETTER, WOMEN]);
     expect(rest).not.toContainEqual(SETTER.target);
     expect(rest).not.toContainEqual(WOMEN.target);
     expect(rest).toHaveLength(5);
   });
 
   it('TIM-21: ao editar uma regra, o alvo dela continua na lista', () => {
-    expect(availableTargets('volleyball', [SETTER], SETTER.target)).toContainEqual(SETTER.target);
+    expect(availableTargets(VOLLEYBALL, [SETTER], SETTER.target)).toContainEqual(SETTER.target);
   });
 
-  it('TIM-18: no esporte "outro" só há gênero', () => {
-    expect(availableTargets('other', [])).toEqual([
+  it('TIM-18: num esporte sem posições só há regra de gênero', () => {
+    expect(availableTargets([], [])).toEqual([
       { kind: 'gender', gender: 'F' },
       { kind: 'gender', gender: 'M' },
     ]);

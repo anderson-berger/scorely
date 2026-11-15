@@ -1,13 +1,17 @@
 import { GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import {
   batchGetOrdered,
+  currentVersion,
   dbItem,
   LOOKUP_ENTITY,
   queryLookupRows,
+  sendVersioned,
   stripKeys,
   type TransactItem,
   touch,
   transactWrite,
+  versionConflict,
+  withVersion,
 } from '@scorely/api/src/lib/db';
 import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
 import {
@@ -62,6 +66,8 @@ export interface StoredSeason {
   final?: StoredFinal;
   createdAt: string;
   updatedAt: string;
+  /** CMP-42 (ADR 0013, 0016). */
+  version: number;
 }
 
 /** O que muda numa temporada (CMP-30, 32). */
@@ -75,10 +81,19 @@ export interface SeasonRepository {
   /** As temporadas do grupo, pelo lookup (pela data de início). */
   list(groupId: string): Promise<StoredSeason[]>;
   get(id: string): Promise<StoredSeason | undefined>;
-  create(season: StoredSeason): Promise<void>;
-  /** Com `oldStartDate`, o início mudou: o lookup antigo sai e o novo entra na mesma transação. */
-  update(id: string, patch: SeasonPatch, oldStartDate?: string): Promise<void>;
-  delete(season: StoredSeason): Promise<void>;
+  create(season: Omit<StoredSeason, 'version'>): Promise<void>;
+  /**
+   * Com `oldStartDate`, o início mudou: o lookup antigo sai e o novo entra na mesma transação. Só grava na versão
+   * esperada (CMP-42): na edição, a que a tela mostrou; ao encerrar (CMP-32), a que o service acabou de ler.
+   */
+  update(
+    id: string,
+    patch: SeasonPatch,
+    oldStartDate: string | undefined,
+    expectedVersion: number,
+  ): Promise<void>;
+  /** Cancela (CMP-30), só na versão esperada (CMP-42). */
+  delete(season: StoredSeason, expectedVersion: number): Promise<void>;
   /**
    * CMP-32, 36: grava o ranking final só se ainda não houver um (o primeiro que trava vale), com os troféus e a saída da
    * lista das que vão travar, numa transação.
@@ -86,9 +101,13 @@ export interface SeasonRepository {
   saveFinal(id: string, final: StoredFinal, trophies?: StoredTrophy[]): Promise<void>;
 }
 
-function updateItem(id: string, patch: SeasonPatch): NonNullable<TransactItem['Update']> {
+function updateItem(
+  id: string,
+  patch: SeasonPatch,
+  expectedVersion: number,
+): NonNullable<TransactItem['Update']> {
   const entries = Object.entries(patch).filter(([, v]) => v !== undefined);
-  return touch({
+  const update = touch({
     TableName: tableName(),
     Key: seasonKey(id),
     UpdateExpression: `SET ${entries.map(([k]) => `#${k} = :${k}`).join(', ')}`,
@@ -96,6 +115,7 @@ function updateItem(id: string, patch: SeasonPatch): NonNullable<TransactItem['U
     ExpressionAttributeNames: Object.fromEntries(entries.map(([k]) => [`#${k}`, k])),
     ExpressionAttributeValues: Object.fromEntries(entries.map(([k, v]) => [`:${k}`, v])),
   });
+  return withVersion(update, expectedVersion);
 }
 
 export const dynamoSeasonRepository: SeasonRepository = {
@@ -125,10 +145,12 @@ export const dynamoSeasonRepository: SeasonRepository = {
     if (!outcome.ok) throw new Error('Season create failed: the season already exists');
   },
 
-  async update(id, patch, oldStartDate) {
+  async update(id, patch, oldStartDate, expectedVersion) {
     const datesChange = patch.startDate !== undefined || patch.endDate !== undefined;
     if (!datesChange && oldStartDate === undefined) {
-      await dynamo().send(new UpdateCommand(updateItem(id, patch)));
+      await sendVersioned(seasonKey(id), () =>
+        dynamo().send(new UpdateCommand(updateItem(id, patch, expectedVersion))),
+      );
       return;
     }
     const current = await this.get(id);
@@ -136,7 +158,7 @@ export const dynamoSeasonRepository: SeasonRepository = {
     const startMoved = patch.startDate !== undefined && patch.startDate !== current.startDate;
     const endMoved = patch.endDate !== undefined && patch.endDate !== current.endDate && !current.final;
     const items: TransactItem[] = [
-      { Update: updateItem(id, patch) },
+      { Update: updateItem(id, patch, expectedVersion) },
       ...(startMoved && patch.startDate
         ? [
             {
@@ -156,24 +178,23 @@ export const dynamoSeasonRepository: SeasonRepository = {
         : []),
     ];
     const outcome = await transactWrite(items);
-    if (!outcome.ok) throw new Error('Season update failed: the season no longer exists');
+    if (!outcome.ok) throw await versionConflict(() => currentVersion(seasonKey(id)));
   },
 
-  async delete(season) {
+  async delete(season, expectedVersion) {
     const outcome = await transactWrite([
       {
-        Delete: {
-          TableName: tableName(),
-          Key: seasonKey(season.id),
-          ConditionExpression: 'attribute_exists(PK)',
-        },
+        Delete: withVersion(
+          { TableName: tableName(), Key: seasonKey(season.id), ConditionExpression: 'attribute_exists(PK)' },
+          expectedVersion,
+        ),
       },
       {
         Delete: { TableName: tableName(), Key: seasonLookupKey(season.groupId, season.startDate, season.id) },
       },
       { Delete: { TableName: tableName(), Key: seasonOpenKey(season.endDate, season.id) } },
     ]);
-    if (!outcome.ok) throw new Error('Season delete failed: the season no longer exists');
+    if (!outcome.ok) throw await versionConflict(() => currentVersion(seasonKey(season.id)));
   },
 
   async saveFinal(id, final, trophies = []) {

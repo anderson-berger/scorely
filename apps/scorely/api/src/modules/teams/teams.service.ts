@@ -9,6 +9,7 @@ import {
 } from '@scorely/api/src/modules/groups/groups.deps';
 import type { GuestRoster, RosterAttendee, RosterGame } from '@scorely/api/src/modules/groups/roster';
 import type { NotificationService } from '@scorely/api/src/modules/notifications/notification.service';
+import type { SportService } from '@scorely/api/src/modules/sports/sport.service';
 import { draw, drawWithRules } from '@scorely/api/src/modules/teams/engine/draw';
 import {
   precheck,
@@ -19,23 +20,24 @@ import {
   violations,
 } from '@scorely/api/src/modules/teams/engine/rules';
 import type { PlayerRepository } from '@scorely/api/src/modules/teams/player.repository';
+import { positionsOf } from '@scorely/api/src/modules/teams/positions';
 import type { TeamSettingsRepository } from '@scorely/api/src/modules/teams/settings.repository';
 import { settingsOf, type TeamConfig } from '@scorely/api/src/modules/teams/settings.service';
 import type { StoredTeams, TeamsRepository } from '@scorely/api/src/modules/teams/teams.repository';
 import type { UserDirectory } from '@scorely/api/src/modules/users/user.repository';
-import {
-  type TeamRuleConflict as ContractRuleConflict,
-  type TeamViolation as ContractViolation,
-  type GroupRole,
-  type PlayerPosition,
-  type PublicUserId,
-  type SaveTeamsInput,
-  SPORT_POSITIONS,
-  type TeamExtra,
-  type TeamGenders,
-  type TeamPlayer,
-  type Teams,
-  type TeamsResponse,
+import type {
+  TeamRuleConflict as ContractRuleConflict,
+  TeamViolation as ContractViolation,
+  PlayerPosition,
+  PublicUserId,
+  SaveTeamsInput,
+  TeamExtra,
+  TeamGenders,
+  TeamPlayer,
+  Teams,
+  TeamsResponse,
+  Tier,
+  VersionInput,
 } from '@scorely/contracts';
 
 /** O que os times do jogo usam do módulo de grupos, das posições, dos usuários e dos avisos. */
@@ -52,6 +54,8 @@ export interface TeamsServiceDeps {
   };
   /** Posições do grupo (TIM-04). */
   players: Pick<PlayerRepository, 'getMany'>;
+  /** TIM-02: as posições vêm do catálogo do esporte do grupo (ESP). */
+  sports: Pick<SportService, 'get'>;
   /** Nome e id público de quem saiu da lista (TIM-12), o gênero para as regras (TIM-18) e a tradução da entrada (USR-17). */
   users: Pick<UserDirectory, 'getMany' | 'resolve'>;
   /** Configuração de times do grupo (TIM-17). */
@@ -97,7 +101,7 @@ export function createTeamsService(deps: TeamsServiceDeps) {
   }
 
   /** O papel de quem saiu da lista (TIM-12): o do grupo, se ainda participa; senão, convidado. */
-  async function roleOutsideList(groupId: string, userId: UserId): Promise<GroupRole> {
+  async function roleOutsideList(groupId: string, userId: UserId): Promise<Tier> {
     return (await deps.groups.roleOf(groupId, userId)) ?? 'guest';
   }
 
@@ -239,7 +243,7 @@ export function createTeamsService(deps: TeamsServiceDeps) {
     ]);
     const groupPositions = new Map(defaults.map((p) => [p.userId, p.positions]));
     const nicknames = new Map(users.map((u) => [u.id, u.nickname]));
-    const outsideRoles = new Map<string, GroupRole>(roles);
+    const outsideRoles = new Map<string, Tier>(roles);
     const publicIds = new Map<string, PublicUserId>([
       ...[...inList.values()].map(({ attendee }) => [attendee.userId, attendee.publicId] as const),
       ...users.map((u) => [u.id, u.publicId] as const),
@@ -250,7 +254,7 @@ export function createTeamsService(deps: TeamsServiceDeps) {
       userId: extra.id,
       // TIM-24: o avulso não tem conta; o nome digitado é o que aparece.
       nickname: extra.name,
-      role: 'guest',
+      tier: 'guest',
       positions: extra.positions,
       adjusted: false,
       inList: true,
@@ -271,7 +275,7 @@ export function createTeamsService(deps: TeamsServiceDeps) {
         // USR-16: a pessoa sai pelo id público.
         userId: publicOf(publicIds, userId),
         nickname,
-        role: listed ? listed.attendee.role : (outsideRoles.get(userId) ?? 'guest'),
+        tier: listed ? listed.attendee.tier : (outsideRoles.get(userId) ?? 'guest'),
         positions: adjusted ?? groupPositions.get(userId) ?? [],
         adjusted: adjusted !== undefined,
         inList: listed !== undefined,
@@ -285,6 +289,8 @@ export function createTeamsService(deps: TeamsServiceDeps) {
       groupId,
       date: stored.date,
       status: stored.status,
+      // TIM-25: a versão que salvar, sortear, publicar, despublicar e descartar mandam.
+      version: stored.version,
       teams: stored.teams.map((team) => team.map(person)),
       unassigned: unassigned.map(person),
       ...(stored.publishedAt && { publishedAt: stored.publishedAt }),
@@ -298,12 +304,12 @@ export function createTeamsService(deps: TeamsServiceDeps) {
    * posições do esporte. O id de um avulso não pode ser de alguém da lista (VALIDATION_ERROR), e um avulso que saiu
    * do PUT deixa de existir.
    */
-  function validate(
+  async function validate(
     group: StoredGroup,
     game: RosterGame,
     existing: StoredTeams | undefined,
     input: SaveTeamsInput,
-  ): void {
+  ): Promise<void> {
     const listed: string[] = [...game.confirmed, ...game.waitlist].map((a) => a.userId);
     const extras = input.extras ?? [];
     const extraIds = new Set(extras.map((e) => e.id));
@@ -323,10 +329,20 @@ export function createTeamsService(deps: TeamsServiceDeps) {
     ]);
     const referenced = [...input.teams.flat(), ...Object.keys(input.positions)];
     if (referenced.some((id) => !allowed.has(id))) throw appError('TEAM_PLAYER_NOT_FOUND');
-    const sport: readonly PlayerPosition[] = SPORT_POSITIONS[group.sport];
-    const invalid = [...Object.values(input.positions).flat(), ...extras.flatMap((e) => e.positions)].find(
-      (p) => !sport.includes(p),
+    // TIM-02, 13, 24, ESP-05: a posição desativada só continua para quem já a tinha (no grupo, no ajuste do jogo ou
+    // no avulso salvo).
+    const sport = await positionsOf(deps.sports, group.sportId);
+    const adjusted = Object.keys(input.positions).filter((id) => !extraIds.has(id));
+    const groupPositions = new Map(
+      (await deps.players.getMany(group.id, adjusted)).map((p) => [p.userId, p.positions]),
     );
+    const oldExtraPositions = new Map((existing?.extras ?? []).map((e) => [e.id, e.positions]));
+    const invalid = [
+      ...Object.entries(input.positions).map(([id, positions]) =>
+        sport.invalid(positions, [...(groupPositions.get(id) ?? []), ...(existing?.positions[id] ?? [])]),
+      ),
+      ...extras.map((e) => sport.invalid(e.positions, oldExtraPositions.get(e.id))),
+    ].find((p) => p !== undefined);
     if (invalid) throw appError('TEAM_POSITION_INVALID', { position: invalid });
   }
 
@@ -392,7 +408,7 @@ export function createTeamsService(deps: TeamsServiceDeps) {
           type: 'teams_published',
           title: 'Times publicados',
           body: `Os times de ${group.name} para ${dayMonth(game.date)} estão prontos.`,
-          link: a.role === 'guest' && group.guestToken ? `/play/${group.guestToken}` : `/groups/${group.id}`,
+          link: a.tier === 'guest' && group.guestToken ? `/play/${group.guestToken}` : `/groups/${group.id}`,
         }),
       ),
     );
@@ -401,12 +417,12 @@ export function createTeamsService(deps: TeamsServiceDeps) {
   return {
     /** TIM-06, 09, 11–13: rascunho só para o dono; jogo cancelado (ou grupo arquivado, sem jogo) → sem times. */
     async get(userId: UserId, groupId: string, date: string): Promise<TeamsResponse> {
-      const { group, staffRoleId } = await requireMember(deps, userId, groupId);
+      const { group, roleId } = await requireMember(deps, userId, groupId);
       if (group.archivedAt) return NONE;
       const game = await currentGame(userId, groupId, date);
       if (game.status === 'cancelled') return NONE;
       const stored = await deps.teams.get(group.id, date);
-      if (!permissionsOf(group, userId, staffRoleId).includes('teams.manage')) {
+      if (!permissionsOf(roleId).includes('teams.manage')) {
         if (stored?.status !== 'published') return NONE;
         return { teams: await view(group.id, game, stored, await settingsFor(group.id)) };
       }
@@ -426,7 +442,7 @@ export function createTeamsService(deps: TeamsServiceDeps) {
       const game = await writableGame(userId, groupId, date);
       const existing = await deps.teams.get(group.id, date);
       const input = await internalInput(wireInput);
-      validate(group, game, existing, input);
+      await validate(group, game, existing, input);
       const at = now().toISOString();
       const next: StoredTeams = {
         groupId: group.id,
@@ -441,8 +457,10 @@ export function createTeamsService(deps: TeamsServiceDeps) {
         ...(existing?.apart && { apart: existing.apart }),
         createdAt: existing?.createdAt ?? at,
         updatedAt: at,
+        version: wireInput.version + 1,
       };
-      await deps.teams.put(next);
+      // TIM-25: só grava na versão que a tela mostrou.
+      await deps.teams.put(next, wireInput.version);
       return { teams: await view(group.id, game, next, await settingsFor(group.id), true) };
     },
 
@@ -450,7 +468,12 @@ export function createTeamsService(deps: TeamsServiceDeps) {
      * TIM-15, 16, 19: sorteia quem está dentro e quem veio do Banco para um time; os fixados ficam. Publicado volta para rascunho.
      * Com regras, cumpre todas ou responde TEAM_RULES_CONFLICT sem mudar nada.
      */
-    async draw(userId: UserId, groupId: string, date: string): Promise<TeamsResponse> {
+    async draw(
+      userId: UserId,
+      groupId: string,
+      date: string,
+      { version }: VersionInput,
+    ): Promise<TeamsResponse> {
       const group = await requireManager(userId, groupId);
       const game = await writableGame(userId, groupId, date);
       const existing = await deps.teams.get(group.id, date);
@@ -480,13 +503,19 @@ export function createTeamsService(deps: TeamsServiceDeps) {
         apart: settings.apart,
         createdAt: existing?.createdAt ?? at,
         updatedAt: at,
+        version: version + 1,
       };
-      await deps.teams.put(next);
+      await deps.teams.put(next, version);
       return { teams: await view(group.id, game, next, settings, true) };
     },
 
     /** TIM-08–10: todo time com alguém; avisa só na 1ª publicação. */
-    async publish(userId: UserId, groupId: string, date: string): Promise<TeamsResponse> {
+    async publish(
+      userId: UserId,
+      groupId: string,
+      date: string,
+      { version }: VersionInput,
+    ): Promise<TeamsResponse> {
       const group = await requireManager(userId, groupId);
       const game = await writableGame(userId, groupId, date);
       const existing = await deps.teams.get(group.id, date);
@@ -508,28 +537,39 @@ export function createTeamsService(deps: TeamsServiceDeps) {
         status: 'published',
         publishedAt: existing.publishedAt ?? at,
         updatedAt: at,
+        version: version + 1,
       };
-      await deps.teams.put(next);
+      await deps.teams.put(next, version);
       if (!existing.publishedAt) await notifyPublished(group, game, userId);
       return { teams: await view(group.id, game, next, settings, true) };
     },
 
     /** TIM-09: volta para rascunho (some para os outros). Sem times → nada muda. */
-    async unpublish(userId: UserId, groupId: string, date: string): Promise<TeamsResponse> {
+    async unpublish(
+      userId: UserId,
+      groupId: string,
+      date: string,
+      { version }: VersionInput,
+    ): Promise<TeamsResponse> {
       const group = await requireManager(userId, groupId);
       const game = await writableGame(userId, groupId, date);
       const existing = await deps.teams.get(group.id, date);
       if (!existing) return NONE;
-      const next: StoredTeams = { ...existing, status: 'draft', updatedAt: now().toISOString() };
-      await deps.teams.put(next);
+      const next: StoredTeams = {
+        ...existing,
+        status: 'draft',
+        updatedAt: now().toISOString(),
+        version: version + 1,
+      };
+      await deps.teams.put(next, version);
       return { teams: await view(group.id, game, next, await settingsFor(group.id), true) };
     },
 
     /** TIM-06: descarta os times do jogo. Sem times → nada muda. */
-    async discard(userId: UserId, groupId: string, date: string): Promise<void> {
+    async discard(userId: UserId, groupId: string, date: string, { version }: VersionInput): Promise<void> {
       const group = await requireManager(userId, groupId);
       await writableGame(userId, groupId, date);
-      if (await deps.teams.get(group.id, date)) await deps.teams.delete(group.id, date);
+      if (await deps.teams.get(group.id, date)) await deps.teams.delete(group.id, date, version);
     },
 
     /** TIM-09 / GRP-09: pelo link do jogo, só os times publicados (sem "sem time"). */

@@ -1,3 +1,4 @@
+import { hasChanges, VersionSchema } from '@scorely/contracts/src/entity';
 import { z } from 'zod';
 
 /** Alfabeto do id público (Crockford base32: sem `I`, `L`, `O` e `U`). */
@@ -73,6 +74,8 @@ export type Preferences = z.infer<typeof PreferencesSchema>;
 
 /** `GET /me`, `PATCH /me` e as rotas da foto: o perfil, o email e o nome (só para a própria pessoa, USR-13) e as preferências. */
 export const MeSchema = UserSchema.extend({
+  /** USR-18: a versão do perfil, que o `PATCH /me` manda. */
+  version: VersionSchema,
   email: z.email(),
   name: z.string().min(USER_LIMITS.name.min).max(USER_LIMITS.name.max).optional(),
   preferences: PreferencesSchema,
@@ -93,5 +96,6 @@ export const UpdateMeInputSchema = z
     timeZone: TimeZoneSchema,
   })
   .partial()
-  .refine((v) => Object.keys(v).length > 0, 'Nothing to update');
+  .extend({ version: VersionSchema })
+  .refine(hasChanges, 'Nothing to update');
 export type UpdateMeInput = z.infer<typeof UpdateMeInputSchema>;

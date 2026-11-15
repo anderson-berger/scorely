@@ -27,6 +27,17 @@ describe('route', () => {
     });
   });
 
+  it('ESP-07: HttpResponse com headers → os headers somam ao content-type (o cache do GET /sports)', async () => {
+    const res = await run(
+      async () => new HttpResponse(200, { sports: [] }, { 'Cache-Control': 'public, max-age=3600' }),
+    );
+    expect(res).toEqual({
+      statusCode: 200,
+      headers: { 'content-type': 'application/json', 'Cache-Control': 'public, max-age=3600' },
+      body: '{"sports":[]}',
+    });
+  });
+
   it('HttpResponse sem corpo → só o status', async () => {
     expect(await run(async () => new HttpResponse(202))).toEqual({ statusCode: 202 });
   });

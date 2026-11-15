@@ -3,7 +3,6 @@ import {
   COMPETITION_PRESETS,
   type Competition,
   type Permission,
-  PublicUserIdSchema,
   type Tiebreak,
 } from '@scorely/contracts';
 import { i18n } from '@scorely/web/src/i18n/index';
@@ -23,14 +22,11 @@ import { describe, expect, it } from 'vitest';
 // Competição, etapa 1 (`.claude/work/competicao-1.md`, D7): as funções puras da aba Competição (CMP-09), da linha
 // e do painel do regulamento nos Ajustes (CMP-10). Os textos são conferidos em pt-BR.
 
-const OWNER = PublicUserIdSchema.parse('AAAA1111');
-const ME = PublicUserIdSchema.parse('BBBB2222');
-
 /** Quem vê: o dono (todas as permissões), o organizador (Admin, com seasons.manage) e quem não tem cargo. */
-const owner = groupAccess({ ownerId: OWNER, myPermissions: [...ALL_PERMISSIONS] }, OWNER);
-const organizer = groupAccess({ ownerId: OWNER, myPermissions: [...ALL_PERMISSIONS] }, ME);
-const seasonsOnly = groupAccess({ ownerId: OWNER, myPermissions: ['seasons.manage'] as Permission[] }, ME);
-const plain = groupAccess({ ownerId: OWNER, myPermissions: [] }, ME);
+const owner = groupAccess({ myRoleId: 'owner', myPermissions: [...ALL_PERMISSIONS] });
+const organizer = groupAccess({ myRoleId: 'admin', myPermissions: [...ALL_PERMISSIONS] });
+const seasonsOnly = groupAccess({ myRoleId: 'member', myPermissions: ['seasons.manage'] as Permission[] });
+const plain = groupAccess({ myRoleId: 'member', myPermissions: [] });
 
 const INACTIVE: Competition = { status: 'inactive', trialAvailable: true };
 const TRIAL: Competition = {

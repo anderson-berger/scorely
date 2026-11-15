@@ -1,4 +1,4 @@
-import { AppError } from '@scorely/api/src/lib/errors';
+import { AppError, appError } from '@scorely/api/src/lib/errors';
 import { asUserId, type UserId } from '@scorely/api/src/lib/ids';
 import type {
   CompetitionRepository,
@@ -27,13 +27,21 @@ import {
   type CompetitionRules,
   type ErrorCode,
   type MatchInput,
+  MatchInputSchema,
   type MatchWinner,
-  type MemberRole,
+  type MemberTier,
   type PublicUserId,
   PublicUserIdSchema,
-  type StaffRoleId,
+  type RoleId,
+  UpdateMatchInputSchema,
+  VersionInputSchema,
 } from '@scorely/contracts';
 import { describe, expect, it } from 'vitest';
+
+/** ADR 0016: o que o banco faz na gravação condicionada pela versão (o repositório lança o mesmo erro). */
+function expectVersionIn(current: number, expected: number): void {
+  if (current !== expected) throw appError('VERSION_CONFLICT', { currentVersion: current });
+}
 
 // Competição, etapa 3 (`.claude/work/competicao-3.md`): as partidas, na unidade por partida (CMP-19–22), e o que muda
 // no fechamento (CMP-12, 14, 21). Interfaces de D8: `createMatchService({ groups, games, teams, competitions, results,
@@ -87,7 +95,7 @@ const pub = (id: UserId): PublicUserId =>
 /** O id na resposta: o público, ou o do avulso. */
 const out = (id: string) => (PEOPLE.includes(id as UserId) ? pub(id as UserId) : id);
 
-const ROSTER: Record<string, MemberRole> = {
+const ROSTER: Record<string, MemberTier> = {
   [OWNER]: 'member',
   [A]: 'member',
   [B]: 'member',
@@ -123,7 +131,7 @@ function storedGroup(extra: Partial<StoredGroup> = {}): StoredGroup {
     id: GROUP_ID,
     createdAt: '2026-01-01T00:00:00.000Z',
     name: 'Vôlei de sexta',
-    sport: 'volleyball',
+    sportId: 'volleyball',
     weekday: 5,
     time: '19:00',
     timeZone: 'America/Sao_Paulo',
@@ -131,13 +139,13 @@ function storedGroup(extra: Partial<StoredGroup> = {}): StoredGroup {
     listOpensHoursBefore: 48,
     reservesOpenHoursBefore: 24,
     guestsOpenHoursBefore: 12,
-    ownerId: OWNER,
-    ownerPublicId: pub(OWNER),
     inviteToken: 'tok-member',
     reserveInviteToken: 'tok-reserve',
     guestToken: 'tok-guest',
     maxMembers: 30,
     maxReserves: 30,
+    version: 1,
+    settingsVersion: 1,
     ...extra,
   };
 }
@@ -151,6 +159,7 @@ function storedCompetition(extra: Partial<StoredCompetition> = {}): StoredCompet
     rules: MATCH_RULES,
     createdAt: '2026-10-25T00:00:00.000Z',
     updatedAt: '2026-10-25T00:00:00.000Z',
+    version: 1,
     ...extra,
   };
 }
@@ -191,6 +200,7 @@ function publishedTeams(date: string, teams: string[][], extra: Partial<StoredTe
     extras: [{ id: X, name: 'Avulso', positions: [] }],
     createdAt: `${date}T20:00:00.000Z`,
     updatedAt: `${date}T21:00:00.000Z`,
+    version: 1,
     ...extra,
   };
 }
@@ -214,8 +224,8 @@ function setup(
   const clock = { now: NOW };
   const state = {
     group: storedGroup(opts.group),
-    roster: { ...ROSTER } as Record<string, MemberRole>,
-    staff: { [A]: 'admin' } as Record<string, StaffRoleId>,
+    roster: { ...ROSTER } as Record<string, MemberTier>,
+    staff: { [A]: 'admin' } as Record<string, RoleId>,
     games: opts.games ?? defaultGames(),
     teams: opts.teams ?? { [NOV13]: publishedTeams(NOV13, TEAMS_NOV13) },
     competition:
@@ -238,8 +248,7 @@ function setup(
     getMembership: async (groupId, userId) => {
       const role = groupId === state.group.id ? state.roster[userId] : undefined;
       if (!role) return undefined;
-      const staffRoleId = state.staff[userId];
-      return staffRoleId === undefined ? { role } : { role, staffRoleId };
+      return { tier: role, roleId: state.staff[userId] ?? (userId === OWNER ? 'owner' : 'member') };
     },
     setStaffRole: unused,
     transfer: unused,
@@ -249,12 +258,11 @@ function setup(
     listMembers: async (groupId) =>
       groupId === state.group.id
         ? Object.entries(state.roster).map(([userId, role]) => {
-            const staffRoleId = state.staff[userId];
             return {
               userId: asUserId(userId),
-              role,
+              tier: role,
+              roleId: state.staff[userId] ?? (userId === OWNER ? 'owner' : 'member'),
               createdAt: '2026-01-01T00:00:00.000Z',
-              ...(staffRoleId === undefined ? {} : { staffRoleId }),
             };
           })
         : [],
@@ -310,17 +318,19 @@ function setup(
     },
     listByGroup: async (groupId) =>
       [...store.values()].filter((r) => r.groupId === groupId).map((r) => structuredClone(r)),
-    create: async (item) => {
-      if (store.has(item.gameId)) return false;
+    /** CMP-42 (ADR 0016): o 1º fechamento manda 0; a correção, a versão atual (que soma 1). */
+    create: async (item, expectedVersion) => {
+      expectVersionIn(store.get(item.gameId)?.version ?? 0, expectedVersion);
       writes.push({ op: 'result_create', id: item.gameId });
-      store.set(item.gameId, structuredClone(item));
+      store.set(item.gameId, { ...structuredClone(item), version: 1 });
       return true;
     },
-    update: async (id, patch) => {
+    update: async (id, patch, expectedVersion) => {
       const item = store.get(id);
+      expectVersionIn(item?.version ?? 0, expectedVersion);
       if (!item) throw new Error('update without item');
       writes.push({ op: 'result_update', id });
-      store.set(id, { ...item, ...structuredClone(patch) });
+      store.set(id, { ...item, ...structuredClone(patch), version: item.version + 1 });
     },
   };
 
@@ -336,18 +346,21 @@ function setup(
         return 'full';
       }
       writes.push({ op: 'match_create', id: m.id });
-      matchStore.push(structuredClone(m));
+      matchStore.push({ ...structuredClone(m), version: 1 });
       return 'created';
     },
-    update: async (id, patch) => {
+    /** CMP-42 (ADR 0016): editar e apagar a partida gravam só com a versão atual dela. */
+    update: async (id, patch, expectedVersion) => {
       const index = matchStore.findIndex((m) => m.id === id);
       const item = matchStore[index];
+      expectVersionIn(item?.version ?? 0, expectedVersion);
       if (!item) throw new Error('update without match');
       writes.push({ op: 'match_update', id });
-      matchStore.splice(index, 1, { ...item, ...structuredClone(patch) });
+      matchStore.splice(index, 1, { ...item, ...structuredClone(patch), version: item.version + 1 });
     },
-    delete: async (m) => {
+    delete: async (m, expectedVersion) => {
       const index = matchStore.findIndex((x) => x.id === m.id);
+      expectVersionIn(matchStore[index]?.version ?? 0, expectedVersion);
       if (index < 0) throw new Error('delete without match');
       writes.push({ op: 'match_delete', id: m.id });
       matchStore.splice(index, 1);
@@ -363,12 +376,19 @@ function setup(
           publicId: pub(id),
           nickname: NAMES[id] ?? pub(id),
           createdAt: '2026-01-01T00:00:00.000Z',
+          version: 1,
         })),
     // A entrada da partida chega pelo id público: quem resolve pode usar esta busca.
     getByPublicId: async (publicId: string): Promise<UserRecord | undefined> => {
       const id = PEOPLE.find((p) => pub(p) === publicId);
       return id
-        ? { id, publicId: pub(id), nickname: NAMES[id] ?? pub(id), createdAt: '2026-01-01T00:00:00.000Z' }
+        ? {
+            id,
+            publicId: pub(id),
+            nickname: NAMES[id] ?? pub(id),
+            createdAt: '2026-01-01T00:00:00.000Z',
+            version: 1,
+          }
         : undefined;
     },
   };
@@ -395,7 +415,10 @@ function setup(
     now,
     detail: (userId, groupId, date) => resultService.get(userId, groupId, date),
   });
-  return { clock, state, store, matchStore, writes, service, results: resultService };
+  /** CMP-42: a versão que a tela mostrou: a da partida e a do fechamento (`0` = não existe). */
+  const mv = (id: string) => ({ version: matchStore.find((m) => m.id === id)?.version ?? 0 });
+  const rv = (date: string) => ({ version: store.get(gameId(date))?.version ?? 0 });
+  return { clock, state, store, matchStore, writes, service, results: resultService, mv, rv };
 }
 
 async function expectAppError(p: Promise<unknown>, code: ErrorCode, status: number): Promise<AppError> {
@@ -475,6 +498,7 @@ describe('quem registra e quando (CMP-19)', () => {
           [pub(A), pub(G)],
         ],
         winner: 0,
+        version: 1,
       },
     ]);
     expect(t.matchStore).toEqual([
@@ -489,6 +513,7 @@ describe('quem registra e quando (CMP-19)', () => {
         winner: 0,
         createdAt: NOW.toISOString(),
         updatedAt: NOW.toISOString(),
+        version: 1,
       },
     ]);
     // Registrar não fecha o jogo.
@@ -511,8 +536,8 @@ describe('quem registra e quando (CMP-19)', () => {
     for (const who of [B, R]) {
       for (const call of [
         () => t.service.create(who, GROUP_ID, NOV13, match([OWNER], [A], 0)),
-        () => t.service.update(who, GROUP_ID, NOV13, id, match([OWNER], [A], 1)),
-        () => t.service.remove(who, GROUP_ID, NOV13, id),
+        () => t.service.update(who, GROUP_ID, NOV13, id, { ...match([OWNER], [A], 1), ...t.mv(id) }),
+        () => t.service.remove(who, GROUP_ID, NOV13, id, t.mv(id)),
       ]) {
         const err = await expectAppError(call(), 'GROUP_PERMISSION_DENIED', 403);
         expect(err.details).toEqual({ permission: 'results.record' });
@@ -534,7 +559,7 @@ describe('quem registra e quando (CMP-19)', () => {
 
   it('CMP-19: jogo fechado vale a unidade da cópia: fechado por partida e o regulamento mudou para o dia → registra', async () => {
     const t = setup();
-    await t.results.close(OWNER, GROUP_ID, NOV13, { attendance: wire(FULL_NOV13) });
+    await t.results.close(OWNER, GROUP_ID, NOV13, { ...t.rv(NOV13), attendance: wire(FULL_NOV13) });
     t.state.competition = storedCompetition({ rules: DAY_RULES });
     const res = await t.service.create(OWNER, GROUP_ID, NOV13, match([OWNER], [A], 0));
     expect(res.unit).toBe('match');
@@ -543,7 +568,11 @@ describe('quem registra e quando (CMP-19)', () => {
 
   it('CMP-19: jogo fechado pelo dia e o regulamento mudou para por partida → MATCH_INVALID day_unit', async () => {
     const t = setup({ competition: { rules: DAY_RULES } });
-    await t.results.close(OWNER, GROUP_ID, NOV13, { attendance: wire(FULL_NOV13), winner: 0 });
+    await t.results.close(OWNER, GROUP_ID, NOV13, {
+      ...t.rv(NOV13),
+      attendance: wire(FULL_NOV13),
+      winner: 0,
+    });
     t.state.competition = storedCompetition({ rules: MATCH_RULES });
     const err = await expectAppError(
       t.service.create(OWNER, GROUP_ID, NOV13, match([OWNER], [A], 0)),
@@ -607,11 +636,11 @@ describe('quem registra e quando (CMP-19)', () => {
     t.state.competition = storedCompetition({ activeUntil: '2026-11-14T00:00:00.000Z' });
     t.clock.now = LATER;
     await expectAppError(
-      t.service.update(OWNER, GROUP_ID, NOV13, id, match([OWNER], [A], 1)),
+      t.service.update(OWNER, GROUP_ID, NOV13, id, { ...match([OWNER], [A], 1), ...t.mv(id) }),
       'COMPETITION_INACTIVE',
       409,
     );
-    await expectAppError(t.service.remove(OWNER, GROUP_ID, NOV13, id), 'COMPETITION_INACTIVE', 409);
+    await expectAppError(t.service.remove(OWNER, GROUP_ID, NOV13, id, t.mv(id)), 'COMPETITION_INACTIVE', 409);
     expect(t.matchStore).toEqual(before);
   });
 
@@ -656,14 +685,18 @@ describe('quem registra e quando (CMP-19)', () => {
     await expectAppError(day.service.create(OWNER, GROUP_ID, OCT30, bad), 'GAME_CANCELLED', 409);
     // A unidade pelo dia antes da partida que não existe e dos times.
     const dayErr = await expectAppError(
-      day.service.update(OWNER, GROUP_ID, NOV13, missing, bad),
+      day.service.update(OWNER, GROUP_ID, NOV13, missing, { ...bad, ...day.mv(missing) }),
       'MATCH_INVALID',
       422,
     );
     expect(dayErr.details).toMatchObject({ reason: 'day_unit' });
 
     // Partida que não existe antes dos times inválidos.
-    await expectAppError(active.service.update(OWNER, GROUP_ID, NOV13, missing, bad), 'MATCH_NOT_FOUND', 404);
+    await expectAppError(
+      active.service.update(OWNER, GROUP_ID, NOV13, missing, { ...bad, ...active.mv(missing) }),
+      'MATCH_NOT_FOUND',
+      404,
+    );
     // Por fim, os times.
     await expectAppError(active.service.create(OWNER, GROUP_ID, NOV13, bad), 'MATCH_INVALID', 422);
   });
@@ -767,7 +800,13 @@ describe('a partida (CMP-20)', () => {
     );
     expect(t.matchStore).toHaveLength(COMPETITION_MATCH_LIMIT);
 
-    await t.service.remove(OWNER, GROUP_ID, NOV13, t.matchStore[0]?.id ?? '');
+    await t.service.remove(
+      OWNER,
+      GROUP_ID,
+      NOV13,
+      t.matchStore[0]?.id ?? '',
+      t.mv(t.matchStore[0]?.id ?? ''),
+    );
     const res = await t.service.create(OWNER, GROUP_ID, NOV13, match([OWNER], [A], 1));
     expect(res.matches).toHaveLength(COMPETITION_MATCH_LIMIT);
   });
@@ -791,7 +830,7 @@ describe('a partida (CMP-20)', () => {
     const second = res.matches[1]?.id ?? '';
     const third = res.matches[2]?.id ?? '';
 
-    const after = await t.service.remove(OWNER, GROUP_ID, NOV13, second);
+    const after = await t.service.remove(OWNER, GROUP_ID, NOV13, second, t.mv(second));
     expect(after.matches.map((m) => m.id)).toEqual([res.matches[0]?.id, third]);
     expect(after.matches.map((m) => m.number)).toEqual([1, 2]);
     expect(t.matchStore.map((m) => m.id)).toEqual([res.matches[0]?.id, third]);
@@ -803,7 +842,10 @@ describe('a partida (CMP-20)', () => {
     const first = res.matches[0]?.id ?? '';
     t.clock.now = LATER;
 
-    const fixed = await t.service.update(A, GROUP_ID, NOV13, first, match([A, G, X], [OWNER, R], 1));
+    const fixed = await t.service.update(A, GROUP_ID, NOV13, first, {
+      ...match([A, G, X], [OWNER, R], 1),
+      ...t.mv(first),
+    });
     expect(fixed.matches[0]).toEqual({
       id: first,
       number: 1,
@@ -812,6 +854,7 @@ describe('a partida (CMP-20)', () => {
         [pub(OWNER), pub(R)],
       ],
       winner: 1,
+      version: 2,
     });
     expect(fixed.matches).toHaveLength(3);
     expect(t.matchStore[0]).toMatchObject({
@@ -831,7 +874,7 @@ describe('a partida (CMP-20)', () => {
     const res = await t.service.create(OWNER, GROUP_ID, NOV13, match([OWNER], [A], 0));
     const id = res.matches[0]?.id ?? '';
     const err = await expectAppError(
-      t.service.update(OWNER, GROUP_ID, NOV13, id, match([OWNER, C], [A], 0)),
+      t.service.update(OWNER, GROUP_ID, NOV13, id, { ...match([OWNER, C], [A], 0), ...t.mv(id) }),
       'MATCH_INVALID',
       422,
     );
@@ -845,11 +888,11 @@ describe('a partida (CMP-20)', () => {
     const otherId = other.matches[0]?.id ?? '';
     for (const id of ['f1111111-1111-4111-8111-111111111111', otherId]) {
       await expectAppError(
-        t.service.update(OWNER, GROUP_ID, NOV13, id, match([OWNER], [A], 1)),
+        t.service.update(OWNER, GROUP_ID, NOV13, id, { ...match([OWNER], [A], 1), ...t.mv(id) }),
         'MATCH_NOT_FOUND',
         404,
       );
-      await expectAppError(t.service.remove(OWNER, GROUP_ID, NOV13, id), 'MATCH_NOT_FOUND', 404);
+      await expectAppError(t.service.remove(OWNER, GROUP_ID, NOV13, id, t.mv(id)), 'MATCH_NOT_FOUND', 404);
     }
     expect(t.matchStore.map((m) => m.winner)).toEqual([0]);
   });
@@ -878,7 +921,7 @@ describe('quem jogou veio (CMP-21)', () => {
     const t = setup();
     await t.service.create(OWNER, GROUP_ID, NOV13, match([OWNER, E], [A], 0));
     const err = await expectAppError(
-      t.results.close(OWNER, GROUP_ID, NOV13, { attendance: wire(FULL_NOV13) }),
+      t.results.close(OWNER, GROUP_ID, NOV13, { ...t.rv(NOV13), attendance: wire(FULL_NOV13) }),
       'RESULT_INVALID',
       422,
     );
@@ -889,10 +932,13 @@ describe('quem jogou veio (CMP-21)', () => {
   it('CMP-21: corrigir a chamada de um jogo fechado com "faltou" para quem jogou → absent_played', async () => {
     const t = setup();
     await t.service.create(OWNER, GROUP_ID, NOV13, match([OWNER], [A], 0));
-    await t.results.close(OWNER, GROUP_ID, NOV13, { attendance: wire(FULL_NOV13) });
+    await t.results.close(OWNER, GROUP_ID, NOV13, { ...t.rv(NOV13), attendance: wire(FULL_NOV13) });
     const before = structuredClone(t.store.get(gameId(NOV13)));
     const err = await expectAppError(
-      t.results.close(OWNER, GROUP_ID, NOV13, { attendance: wire({ ...FULL_NOV13, [A]: 'absent' }) }),
+      t.results.close(OWNER, GROUP_ID, NOV13, {
+        ...t.rv(NOV13),
+        attendance: wire({ ...FULL_NOV13, [A]: 'absent' }),
+      }),
       'RESULT_INVALID',
       422,
     );
@@ -904,11 +950,11 @@ describe('quem jogou veio (CMP-21)', () => {
     const t = setup();
     const created = await t.service.create(OWNER, GROUP_ID, NOV13, match([OWNER], [A], 0));
     const id = created.matches[0]?.id ?? '';
-    await t.results.close(OWNER, GROUP_ID, NOV13, { attendance: wire(FULL_NOV13) });
+    await t.results.close(OWNER, GROUP_ID, NOV13, { ...t.rv(NOV13), attendance: wire(FULL_NOV13) });
 
     for (const call of [
       () => t.service.create(OWNER, GROUP_ID, NOV13, match([OWNER, D], [A], 0)),
-      () => t.service.update(OWNER, GROUP_ID, NOV13, id, match([OWNER], [A, D], 0)),
+      () => t.service.update(OWNER, GROUP_ID, NOV13, id, { ...match([OWNER], [A, D], 0), ...t.mv(id) }),
     ]) {
       const err = await expectAppError(call(), 'MATCH_INVALID', 422);
       expect(err.details).toEqual({ reason: 'person_absent', userId: pub(D) });
@@ -928,7 +974,10 @@ describe('os pontos por partida e o vencedor do dia (CMP-22)', () => {
   it('CMP-22: fechado, cada membro que veio soma as partidas que jogou, com as vitórias, empates e derrotas', async () => {
     const t = setup();
     await registerReference(t);
-    const res = await t.results.close(OWNER, GROUP_ID, NOV13, { attendance: wire(FULL_NOV13) });
+    const res = await t.results.close(OWNER, GROUP_ID, NOV13, {
+      ...t.rv(NOV13),
+      attendance: wire(FULL_NOV13),
+    });
 
     expect(CompetitionGameDetailSchema.parse(res)).toEqual(res);
     expect(personOf(res, OWNER)).toMatchObject({
@@ -951,7 +1000,10 @@ describe('os pontos por partida e o vencedor do dia (CMP-22)', () => {
   it('CMP-14: unidade por partida: veio → a soma das partidas; falta, fila e não confirmou como antes', async () => {
     const t = setup();
     await registerReference(t);
-    const res = await t.results.close(OWNER, GROUP_ID, NOV13, { attendance: wire(FULL_NOV13) });
+    const res = await t.results.close(OWNER, GROUP_ID, NOV13, {
+      ...t.rv(NOV13),
+      attendance: wire(FULL_NOV13),
+    });
     expect(personOf(res, OWNER)?.points).toBe(12);
     expect(personOf(res, D)).toMatchObject({ event: 'noShow', points: -3 });
     expect(personOf(res, E)).toMatchObject({ event: 'absentQueue', points: 0 });
@@ -961,7 +1013,10 @@ describe('os pontos por partida e o vencedor do dia (CMP-22)', () => {
   it('CMP-22: membro que veio e não jogou nenhuma partida fica com 0; reserva, convidado e avulso não pontuam', async () => {
     const t = setup();
     await t.service.create(OWNER, GROUP_ID, NOV13, match([OWNER, R, G, X], [A], 0));
-    const res = await t.results.close(OWNER, GROUP_ID, NOV13, { attendance: wire({ ...FULL_NOV13 }) });
+    const res = await t.results.close(OWNER, GROUP_ID, NOV13, {
+      ...t.rv(NOV13),
+      attendance: wire({ ...FULL_NOV13 }),
+    });
     expect(personOf(res, B)).toMatchObject({ event: 'noResult', points: 0 });
     for (const id of [R, G, X]) {
       expect(personOf(res, id)?.event).toBeUndefined();
@@ -984,22 +1039,19 @@ describe('os pontos por partida e o vencedor do dia (CMP-22)', () => {
   it('CMP-22: corrigir ou apagar uma partida de um jogo fechado muda os pontos na hora', async () => {
     const t = setup();
     const res = await registerReference(t);
-    await t.results.close(OWNER, GROUP_ID, NOV13, { attendance: wire(FULL_NOV13) });
+    await t.results.close(OWNER, GROUP_ID, NOV13, { ...t.rv(NOV13), attendance: wire(FULL_NOV13) });
     const [first, second] = res.matches.map((m) => m.id);
 
     // Partida 1 corrigida: Ana e Gabi venceram. Dono: D, V, E = 1+5+2 = 8. Ana: V, D, E = 5+1+2 = 8.
-    const fixed = await t.service.update(
-      OWNER,
-      GROUP_ID,
-      NOV13,
-      first ?? '',
-      match([OWNER, R, X], [A, G], 1),
-    );
+    const fixed = await t.service.update(OWNER, GROUP_ID, NOV13, first ?? '', {
+      ...match([OWNER, R, X], [A, G], 1),
+      ...t.mv(first ?? ''),
+    });
     expect(personOf(fixed, OWNER)).toMatchObject({ points: 8, record: { wins: 1, draws: 1, losses: 1 } });
     expect(personOf(fixed, A)).toMatchObject({ points: 8, record: { wins: 1, draws: 1, losses: 1 } });
 
     // Apagada a Partida 2: Dono: D, E = 1+2 = 3. Beatriz: só o empate = 2.
-    const removed = await t.service.remove(OWNER, GROUP_ID, NOV13, second ?? '');
+    const removed = await t.service.remove(OWNER, GROUP_ID, NOV13, second ?? '', t.mv(second ?? ''));
     expect(personOf(removed, OWNER)).toMatchObject({ points: 3, record: { wins: 0, draws: 1, losses: 1 } });
     expect(personOf(removed, B)).toMatchObject({ points: 2, record: { wins: 0, draws: 1, losses: 0 } });
     expect(await t.results.get(B, GROUP_ID, NOV13)).toEqual(removed);
@@ -1008,7 +1060,7 @@ describe('os pontos por partida e o vencedor do dia (CMP-22)', () => {
   it('CMP-22: os pontos saem da cópia do regulamento do fechamento', async () => {
     const t = setup();
     await registerReference(t);
-    await t.results.close(OWNER, GROUP_ID, NOV13, { attendance: wire(FULL_NOV13) });
+    await t.results.close(OWNER, GROUP_ID, NOV13, { ...t.rv(NOV13), attendance: wire(FULL_NOV13) });
     t.state.competition = storedCompetition({
       rules: {
         ...MATCH_RULES,
@@ -1023,6 +1075,7 @@ describe('os pontos por partida e o vencedor do dia (CMP-22)', () => {
     const t = setup();
     await registerReference(t);
     const res = await t.results.close(OWNER, GROUP_ID, NOV13, {
+      ...t.rv(NOV13),
       attendance: wire(FULL_NOV13),
       friendly: true,
     });
@@ -1049,5 +1102,67 @@ describe('os pontos por partida e o vencedor do dia (CMP-22)', () => {
     const none = await t.results.get(OWNER, GROUP_ID, NOV06);
     expect(none.matches).toEqual([]);
     expect(none.dayWinners).toEqual([]);
+  });
+});
+
+describe('partida com a versão que a tela mostrou (CMP-42)', () => {
+  it('CMP-42: registrar não manda versão, e a partida sai com a version 1', async () => {
+    const t = setup();
+    const res = await t.service.create(OWNER, GROUP_ID, NOV13, match([OWNER], [A], 0));
+    expect(res.matches[0]?.version).toBe(1);
+  });
+
+  it('CMP-42: editar com a versão da partida grava e soma 1', async () => {
+    const t = setup();
+    const created = await t.service.create(OWNER, GROUP_ID, NOV13, match([OWNER], [A], 0));
+    const id = created.matches[0]?.id ?? '';
+    const res = await t.service.update(OWNER, GROUP_ID, NOV13, id, { ...match([OWNER], [A], 1), version: 1 });
+    expect(res.matches.find((m) => m.id === id)).toMatchObject({ winner: 1, version: 2 });
+  });
+
+  it('CMP-42: editar com a versão velha → VERSION_CONFLICT (409, currentVersion) e a partida fica', async () => {
+    const t = setup();
+    const created = await t.service.create(OWNER, GROUP_ID, NOV13, match([OWNER], [A], 0));
+    const id = created.matches[0]?.id ?? '';
+    await t.service.update(OWNER, GROUP_ID, NOV13, id, { ...match([OWNER], [A], 1), version: 1 });
+    const err = await expectAppError(
+      t.service.update(A, GROUP_ID, NOV13, id, { ...match([OWNER], [A], 'draw'), version: 1 }),
+      'VERSION_CONFLICT',
+      409,
+    );
+    expect(err.details).toEqual({ currentVersion: 2 });
+    expect(t.matchStore.find((m) => m.id === id)).toMatchObject({ winner: 1, version: 2 });
+  });
+
+  it('CMP-42: apagar com a versão velha → VERSION_CONFLICT e a partida continua', async () => {
+    const t = setup();
+    const created = await t.service.create(OWNER, GROUP_ID, NOV13, match([OWNER], [A], 0));
+    const id = created.matches[0]?.id ?? '';
+    await t.service.update(OWNER, GROUP_ID, NOV13, id, { ...match([OWNER], [A], 1), version: 1 });
+    const err = await expectAppError(
+      t.service.remove(OWNER, GROUP_ID, NOV13, id, { version: 1 }),
+      'VERSION_CONFLICT',
+      409,
+    );
+    expect(err.details).toEqual({ currentVersion: 2 });
+    expect(t.matchStore.map((m) => m.id)).toContain(id);
+    expect(t.writes.some((w) => w.op === 'match_delete')).toBe(false);
+  });
+
+  it('CMP-42: apagar com a versão atual apaga', async () => {
+    const t = setup();
+    const created = await t.service.create(OWNER, GROUP_ID, NOV13, match([OWNER], [A], 0));
+    const id = created.matches[0]?.id ?? '';
+    const res = await t.service.remove(OWNER, GROUP_ID, NOV13, id, { version: 1 });
+    expect(res.matches.map((m) => m.id)).not.toContain(id);
+  });
+
+  it('CMP-42: o contrato pede a version no PUT e no DELETE da partida, e não no POST', () => {
+    const input = { teams: [['AAAAAAAA'], ['BBBBBBBB']], winner: 0 };
+    expect(UpdateMatchInputSchema.safeParse(input).success).toBe(false);
+    expect(UpdateMatchInputSchema.safeParse({ ...input, version: 1 }).success).toBe(true);
+    expect(VersionInputSchema.safeParse({}).success).toBe(false);
+    expect(VersionInputSchema.safeParse({ version: 1 }).success).toBe(true);
+    expect(MatchInputSchema.safeParse({ ...input, version: 1 }).data).not.toHaveProperty('version');
   });
 });

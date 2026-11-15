@@ -1,4 +1,4 @@
-import { AppError } from '@scorely/api/src/lib/errors';
+import { AppError, appError } from '@scorely/api/src/lib/errors';
 import { asUserId, type UserId } from '@scorely/api/src/lib/ids';
 import type { GroupRepository, StoredGroup } from '@scorely/api/src/modules/groups/group.repository';
 import type {
@@ -12,10 +12,11 @@ import {
   type ErrorCode,
   type Game,
   type Member,
-  type MemberRole,
+  type MemberTier,
   type PublicUserId,
   PublicUserIdSchema,
-  type StaffRoleId,
+  type RoleId,
+  type Sport,
   TEAM_APART_LIMITS,
   TEAM_RULE_LIMITS,
   type TeamRule,
@@ -23,6 +24,11 @@ import {
   UpdateTeamSettingsInputSchema,
 } from '@scorely/contracts';
 import { describe, expect, it } from 'vitest';
+
+/** ADR 0016: o que o banco faz na gravação condicionada pela versão (o repositório lança o mesmo erro). */
+function expectVersionIn(current: number, expected: number): void {
+  if (current !== expected) throw appError('VERSION_CONFLICT', { currentVersion: current });
+}
 
 // E3 etapa 4 (`.claude/work/e3-times-4.md`): configuração de times do grupo, TIM-17 e TIM-18.
 // Interface assumida (não está no doc nem no arquivo de trabalho; ver o relatório do test-writer):
@@ -137,7 +143,14 @@ const NOW = new Date('2026-11-12T13:00:00.000Z');
 
 const DEFAULTS = { teamCount: 2, rules: [], allowOutsideRules: false };
 /** A resposta com o que falta no input: sem opostos, sem a preferência e sem nomes. */
-const full = <T extends object>(input: T) => ({ apart: [], spreadGender: false, nicknames: {}, ...input });
+/** A `version` de cada resposta é conferida nos testes de TIM-25. */
+const full = <T extends object>(input: T) => ({
+  apart: [],
+  spreadGender: false,
+  nicknames: {},
+  version: expect.any(Number),
+  ...input,
+});
 
 const SETTER_ONE: TeamRule = { target: { kind: 'position', position: 'setter' }, min: 1, max: 1 };
 const WOMEN_TWO: TeamRule = { target: { kind: 'gender', gender: 'F' }, min: 2 };
@@ -148,7 +161,7 @@ function storedGroup(extra: Partial<StoredGroup> = {}): StoredGroup {
     id: GROUP_ID,
     createdAt: '2026-01-01T00:00:00.000Z',
     name: 'Vôlei de sexta',
-    sport: 'volleyball',
+    sportId: 'volleyball',
     weekday: 5,
     time: '19:00',
     timeZone: 'America/Sao_Paulo',
@@ -156,24 +169,24 @@ function storedGroup(extra: Partial<StoredGroup> = {}): StoredGroup {
     listOpensHoursBefore: 48,
     reservesOpenHoursBefore: 24,
     guestsOpenHoursBefore: 12,
-    ownerId: OWNER,
-    ownerPublicId: pub(OWNER),
     inviteToken: 'tok-member',
     reserveInviteToken: 'tok-reserve',
     guestToken: 'tok-guest',
     maxMembers: 30,
     maxReserves: 30,
+    version: 1,
+    settingsVersion: 1,
     ...extra,
   };
 }
 
 const unused = () => Promise.reject(new Error('not used by the team settings'));
 
-const attendee = (userId: UserId, role: Attendee['role'], minute: number): RosterAttendee => ({
+const attendee = (userId: UserId, role: Attendee['tier'], minute: number): RosterAttendee => ({
   userId,
   publicId: pub(userId),
   nickname: NAMES[userId] ?? pub(userId as UserId),
-  role,
+  tier: role,
   confirmedAt: new Date(Date.UTC(2026, 10, 11, 22, minute)).toISOString(),
 });
 
@@ -192,6 +205,25 @@ const GAME: RosterGame = {
 };
 
 /**
+ * Catálogo de esportes do teste (TIM-02, ESP-05): o `sports.get` do `SportService`, com as posições na ordem.
+ * No vôlei, `universal` está desativada (vale para quem já tem). `footvolley` não tem posições.
+ */
+const catalogPosition = (id: string, active = true) => ({ id, name: { 'pt-BR': id, en: id }, active });
+const catalogSport = (id: string, positions: string[], inactive: string[] = []): Sport => ({
+  id,
+  name: { 'pt-BR': id, en: id },
+  positions: [...positions.map((p) => catalogPosition(p)), ...inactive.map((p) => catalogPosition(p, false))],
+  active: true,
+});
+const TEST_SPORTS: Sport[] = [
+  catalogSport('volleyball', ['setter', 'opposite', 'outside', 'middle', 'libero'], ['universal']),
+  catalogSport('soccer', ['goalkeeper', 'defender', 'fullback', 'defensive_mid', 'midfielder', 'forward']),
+  catalogSport('basketball', ['guard', 'wing', 'center']),
+  catalogSport('footvolley', []),
+];
+const sports = { get: async (id: string) => TEST_SPORTS.find((s) => s.id === id) };
+
+/**
  * Contexto em memória. `state` é mutável de propósito (sair do grupo, trocar o jogo entre chamadas).
  * O `currentGame` falha com o grupo arquivado (o jogo só existe com o grupo ativo, GRP-37).
  */
@@ -199,9 +231,9 @@ function setup(opts: { group?: Partial<StoredGroup> } = {}) {
   const clock = { now: NOW };
   const state = {
     group: storedGroup(opts.group),
-    members: { [OWNER]: 'member', [A]: 'member', [R]: 'reserve' } as Record<string, MemberRole>,
+    members: { [OWNER]: 'member', [A]: 'member', [R]: 'reserve' } as Record<string, MemberTier>,
     /** Cargo de cada pessoa (GRP-48): `admin` dá o `teams.manage`. */
-    staff: {} as Record<string, StaffRoleId>,
+    staff: {} as Record<string, RoleId>,
     game: GAME,
   };
   const store = new Map<string, StoredTeamSettings>();
@@ -217,8 +249,7 @@ function setup(opts: { group?: Partial<StoredGroup> } = {}) {
     getMembership: async (groupId, userId) => {
       const role = groupId === state.group.id ? state.members[userId] : undefined;
       if (!role) return undefined;
-      const staffRoleId = state.staff[userId];
-      return staffRoleId === undefined ? { role } : { role, staffRoleId };
+      return { tier: role, roleId: state.staff[userId] ?? (userId === OWNER ? 'owner' : 'member') };
     },
     setStaffRole: unused,
     transfer: unused,
@@ -239,9 +270,13 @@ function setup(opts: { group?: Partial<StoredGroup> } = {}) {
       const s = store.get(groupId);
       return s ? structuredClone(s) : undefined;
     },
-    put: async (s) => {
-      puts.push(structuredClone(s));
-      store.set(s.groupId, structuredClone(s));
+    /** TIM-25 (ADR 0016): grava só com a versão atual (`0` = sem configuração); a nova é a atual + 1. */
+    put: async (s, expectedVersion) => {
+      const current = store.get(s.groupId)?.version ?? 0;
+      expectVersionIn(current, expectedVersion);
+      const saved = { ...structuredClone(s), version: current + 1 };
+      puts.push(structuredClone(saved));
+      store.set(s.groupId, saved);
     },
   };
 
@@ -252,8 +287,8 @@ function setup(opts: { group?: Partial<StoredGroup> } = {}) {
             userId: asUserId(id),
             publicId: pub(asUserId(id)),
             nickname: NAMES[id] ?? pub(id as UserId),
-            isOwner: id === OWNER,
-            role,
+            roleId: id === OWNER ? 'owner' : 'member',
+            tier: role,
           }))
         : [],
     currentGame: async (_userId: UserId, groupId: string): Promise<RosterGame> => {
@@ -270,14 +305,17 @@ function setup(opts: { group?: Partial<StoredGroup> } = {}) {
         publicId: pub(id),
         nickname: NAMES[id] ?? pub(id as UserId),
         createdAt: '2026-01-01T00:00:00.000Z',
+        version: 1,
       })),
     /** USR-17: id público → id do sistema; o desconhecido fica de fora. */
     resolve: async (publicIds: readonly PublicUserId[]) => resolveIn(publicIds),
   };
 
-  const raw = createTeamSettingsService({ groups, settings, roster, users, now: () => clock.now });
+  const raw = createTeamSettingsService({ groups, sports, settings, roster, users, now: () => clock.now });
   const service = atTheEdge(raw);
-  return { clock, state, store, puts, service, raw };
+  /** TIM-25: a versão que a tela mostrou, a da configuração (`0` sem configuração salva). */
+  const v = (groupId: string = GROUP_ID) => ({ version: store.get(groupId)?.version ?? 0 });
+  return { clock, state, store, puts, service, raw, v };
 }
 
 async function expectAppError(p: Promise<unknown>, code: ErrorCode, status: number): Promise<AppError> {
@@ -302,7 +340,7 @@ describe('configuração de times do grupo (TIM-17)', () => {
   it('TIM-17: o dono salva a configuração inteira, recebe ela de volta e o GET devolve o que foi salvo', async () => {
     const t = setup();
     const input = { teamCount: 3, rules: [SETTER_ONE, WOMEN_TWO, LIBERO_MAX], allowOutsideRules: true };
-    const res = await t.service.update(OWNER, GROUP_ID, input);
+    const res = await t.service.update(OWNER, GROUP_ID, { ...t.v(), ...input });
 
     expect(res).toEqual(full(input));
     expect(t.puts).toHaveLength(1);
@@ -313,6 +351,7 @@ describe('configuração de times do grupo (TIM-17)', () => {
   it('TIM-17: salvar de novo substitui tudo (regras removidas somem)', async () => {
     const t = setup();
     await t.service.update(OWNER, GROUP_ID, {
+      ...t.v(),
       teamCount: 3,
       rules: [SETTER_ONE, WOMEN_TWO],
       apart: [{ people: [A, G] }],
@@ -320,13 +359,14 @@ describe('configuração de times do grupo (TIM-17)', () => {
       allowOutsideRules: true,
     });
     const next = { teamCount: 2, rules: [LIBERO_MAX], allowOutsideRules: false };
-    expect(await t.service.update(OWNER, GROUP_ID, next)).toEqual(full(next));
+    expect(await t.service.update(OWNER, GROUP_ID, { ...t.v(), ...next })).toEqual(full(next));
     expect(await t.service.get(OWNER, GROUP_ID)).toEqual(full(next));
   });
 
   it('TIM-17: a quantidade padrão vai de 2 a 8 (o contrato recusa fora disso)', () => {
     const ok = (teamCount: number) =>
-      UpdateTeamSettingsInputSchema.safeParse({ teamCount, rules: [], allowOutsideRules: false }).success;
+      UpdateTeamSettingsInputSchema.safeParse({ version: 0, teamCount, rules: [], allowOutsideRules: false })
+        .success;
     expect(ok(2)).toBe(true);
     expect(ok(8)).toBe(true);
     expect(ok(1)).toBe(false);
@@ -338,7 +378,11 @@ describe('configuração de times do grupo (TIM-17)', () => {
     const t = setup();
     for (const who of [A, R]) {
       await expectAppError(t.service.get(who, GROUP_ID), 'GROUP_PERMISSION_DENIED', 403);
-      await expectAppError(t.service.update(who, GROUP_ID, DEFAULTS), 'GROUP_PERMISSION_DENIED', 403);
+      await expectAppError(
+        t.service.update(who, GROUP_ID, { ...t.v(), ...DEFAULTS }),
+        'GROUP_PERMISSION_DENIED',
+        403,
+      );
     }
     expect(t.puts).toEqual([]);
   });
@@ -346,15 +390,24 @@ describe('configuração de times do grupo (TIM-17)', () => {
   it('TIM-17: quem não participa do grupo, ou grupo inexistente → GROUP_NOT_FOUND (404)', async () => {
     const t = setup();
     await expectAppError(t.service.get(OUTSIDER, GROUP_ID), 'GROUP_NOT_FOUND', 404);
-    await expectAppError(t.service.update(OUTSIDER, GROUP_ID, DEFAULTS), 'GROUP_NOT_FOUND', 404);
+    await expectAppError(
+      t.service.update(OUTSIDER, GROUP_ID, { ...t.v(), ...DEFAULTS }),
+      'GROUP_NOT_FOUND',
+      404,
+    );
     await expectAppError(t.service.get(OWNER, OTHER_GROUP_ID), 'GROUP_NOT_FOUND', 404);
-    await expectAppError(t.service.update(OWNER, OTHER_GROUP_ID, DEFAULTS), 'GROUP_NOT_FOUND', 404);
+    await expectAppError(
+      t.service.update(OWNER, OTHER_GROUP_ID, { ...t.v(OTHER_GROUP_ID), ...DEFAULTS }),
+      'GROUP_NOT_FOUND',
+      404,
+    );
     expect(t.puts).toEqual([]);
   });
 
   it('TIM-17: grupo arquivado → mudar responde GROUP_ARCHIVED (409), sem gravar; ver continua valendo', async () => {
     const t = setup();
     await t.service.update(OWNER, GROUP_ID, {
+      ...t.v(),
       teamCount: 3,
       rules: [SETTER_ONE],
       apart: [{ people: [A, R] }],
@@ -363,7 +416,7 @@ describe('configuração de times do grupo (TIM-17)', () => {
     t.state.group = storedGroup({ archivedAt: '2026-11-10T00:00:00.000Z' });
     const before = t.puts.length;
 
-    await expectAppError(t.service.update(OWNER, GROUP_ID, DEFAULTS), 'GROUP_ARCHIVED', 409);
+    await expectAppError(t.service.update(OWNER, GROUP_ID, { ...t.v(), ...DEFAULTS }), 'GROUP_ARCHIVED', 409);
     expect(t.puts.length).toBe(before);
     expect(await t.service.get(OWNER, GROUP_ID)).toEqual(
       full({
@@ -378,7 +431,11 @@ describe('configuração de times do grupo (TIM-17)', () => {
 
   it('TIM-17: com o grupo arquivado, quem não tem teams.manage continua recebendo GROUP_PERMISSION_DENIED (a permissão vem antes)', async () => {
     const t = setup({ group: { archivedAt: '2026-11-10T00:00:00.000Z' } });
-    await expectAppError(t.service.update(A, GROUP_ID, DEFAULTS), 'GROUP_PERMISSION_DENIED', 403);
+    await expectAppError(
+      t.service.update(A, GROUP_ID, { ...t.v(), ...DEFAULTS }),
+      'GROUP_PERMISSION_DENIED',
+      403,
+    );
   });
 
   it('TIM-17: item antigo, gravado sem opostos e sem a preferência, vale como [] e desligada', async () => {
@@ -390,6 +447,7 @@ describe('configuração de times do grupo (TIM-17)', () => {
       allowOutsideRules: true,
       createdAt: '2026-11-01T00:00:00.000Z',
       updatedAt: '2026-11-01T00:00:00.000Z',
+      version: 1,
     });
     expect(await t.service.get(OWNER, GROUP_ID)).toEqual(
       full({ teamCount: 3, rules: [SETTER_ONE], allowOutsideRules: true }),
@@ -399,7 +457,8 @@ describe('configuração de times do grupo (TIM-17)', () => {
 
 describe('regra de quantidade por time (TIM-18)', () => {
   const settingsWith = (rules: unknown[]) =>
-    UpdateTeamSettingsInputSchema.safeParse({ teamCount: 2, rules, allowOutsideRules: false }).success;
+    UpdateTeamSettingsInputSchema.safeParse({ version: 0, teamCount: 2, rules, allowOutsideRules: false })
+      .success;
 
   it('TIM-18: aceita regra de posição ou de gênero, com mínimo, máximo ou os dois', () => {
     expect(settingsWith([SETTER_ONE])).toBe(true);
@@ -416,7 +475,8 @@ describe('regra de quantidade por time (TIM-18)', () => {
     expect(settingsWith([{ target, max: 51 }])).toBe(false);
     expect(settingsWith([{ target, min: 1.5 }])).toBe(false);
     expect(settingsWith([{ target: { kind: 'gender', gender: 'X' }, min: 1 }])).toBe(false);
-    expect(settingsWith([{ target: { kind: 'position', position: 'pitcher' }, min: 1 }])).toBe(false);
+    // ESP-02: a posição é um id do catálogo; fora do formato, o schema recusa (a de outro esporte é o service).
+    expect(settingsWith([{ target: { kind: 'position', position: 'Pitcher!' }, min: 1 }])).toBe(false);
   });
 
   it('TIM-18: até 10 regras, e cada posição ou gênero numa regra só (VALIDATION_ERROR)', () => {
@@ -451,6 +511,7 @@ describe('regra de quantidade por time (TIM-18)', () => {
     const t = setup();
     const err = await expectAppError(
       t.service.update(OWNER, GROUP_ID, {
+        ...t.v(),
         teamCount: 2,
         rules: [SETTER_ONE, { target: { kind: 'position', position: 'goalkeeper' }, max: 1 }],
         allowOutsideRules: false,
@@ -462,25 +523,114 @@ describe('regra de quantidade por time (TIM-18)', () => {
     expect(t.puts).toEqual([]);
   });
 
-  it('TIM-18: no esporte "outro" só há regra de gênero (posição → TEAM_POSITION_INVALID; gênero salva)', async () => {
-    const t = setup({ group: { sport: 'other' } });
+  it('TIM-18: num esporte sem posições só há regra de gênero (posição → TEAM_POSITION_INVALID; gênero salva)', async () => {
+    const t = setup({ group: { sportId: 'footvolley' } });
     const err = await expectAppError(
-      t.service.update(OWNER, GROUP_ID, { teamCount: 2, rules: [SETTER_ONE], allowOutsideRules: false }),
+      t.service.update(OWNER, GROUP_ID, {
+        ...t.v(),
+        teamCount: 2,
+        rules: [SETTER_ONE],
+        allowOutsideRules: false,
+      }),
       'TEAM_POSITION_INVALID',
       422,
     );
     expect(err.details).toEqual({ position: 'setter' });
     const ok = { teamCount: 2, rules: [WOMEN_TWO], allowOutsideRules: false };
-    expect(await t.service.update(OWNER, GROUP_ID, ok)).toEqual(full(ok));
+    expect(await t.service.update(OWNER, GROUP_ID, { ...t.v(), ...ok })).toEqual(full(ok));
   });
 
   it('TIM-18: a posição precisa ser do esporte do grupo (futebol aceita goleiro e recusa levantador)', async () => {
-    const t = setup({ group: { sport: 'soccer' } });
+    const t = setup({ group: { sportId: 'soccer' } });
     const keeper: TeamRule = { target: { kind: 'position', position: 'goalkeeper' }, min: 1, max: 1 };
     const ok = { teamCount: 2, rules: [keeper], allowOutsideRules: false };
-    expect(await t.service.update(OWNER, GROUP_ID, ok)).toEqual(full(ok));
+    expect(await t.service.update(OWNER, GROUP_ID, { ...t.v(), ...ok })).toEqual(full(ok));
     await expectAppError(
-      t.service.update(OWNER, GROUP_ID, { teamCount: 2, rules: [SETTER_ONE], allowOutsideRules: false }),
+      t.service.update(OWNER, GROUP_ID, {
+        ...t.v(),
+        teamCount: 2,
+        rules: [SETTER_ONE],
+        allowOutsideRules: false,
+      }),
+      'TEAM_POSITION_INVALID',
+      422,
+    );
+  });
+
+  it('TIM-18: posição no formato certo que não existe no esporte → TEAM_POSITION_INVALID, sem gravar', async () => {
+    const t = setup();
+    const err = await expectAppError(
+      t.service.update(OWNER, GROUP_ID, {
+        ...t.v(),
+        teamCount: 2,
+        rules: [{ target: { kind: 'position', position: 'striker' }, max: 1 }],
+        allowOutsideRules: false,
+      }),
+      'TEAM_POSITION_INVALID',
+      422,
+    );
+    expect(err.details).toEqual({ position: 'striker' });
+    expect(t.puts).toEqual([]);
+  });
+});
+
+describe('regra com posição desativada no catálogo (TIM-18, TIM-02, ESP-05)', () => {
+  const UNIVERSAL_MAX: TeamRule = { target: { kind: 'position', position: 'universal' }, max: 1 };
+  const seeded = (t: ReturnType<typeof setup>, rules: TeamRule[]) =>
+    t.store.set(GROUP_ID, {
+      groupId: GROUP_ID,
+      teamCount: 2,
+      rules,
+      allowOutsideRules: false,
+      createdAt: '2026-11-01T00:00:00.000Z',
+      updatedAt: '2026-11-01T00:00:00.000Z',
+      version: 1,
+    });
+
+  it('TIM-18 / ESP-05: regra nova com posição desativada → TEAM_POSITION_INVALID (422) com details.position, sem gravar', async () => {
+    const t = setup();
+    const err = await expectAppError(
+      t.service.update(OWNER, GROUP_ID, {
+        ...t.v(),
+        teamCount: 2,
+        rules: [SETTER_ONE, UNIVERSAL_MAX],
+        allowOutsideRules: false,
+      }),
+      'TEAM_POSITION_INVALID',
+      422,
+    );
+    expect(err.details).toEqual({ position: 'universal' });
+    expect(t.puts).toEqual([]);
+  });
+
+  it('TIM-18 / ESP-05: a regra salva com a posição desativada continua valendo ao salvar de novo (mudando o resto)', async () => {
+    const t = setup();
+    seeded(t, [UNIVERSAL_MAX]);
+    expect((await t.service.get(OWNER, GROUP_ID)).rules).toEqual([UNIVERSAL_MAX]);
+    const next = {
+      teamCount: 3,
+      rules: [SETTER_ONE, { ...UNIVERSAL_MAX, min: 1 }],
+      allowOutsideRules: true,
+    };
+    expect(await t.service.update(OWNER, GROUP_ID, { ...t.v(), ...next })).toEqual(full(next));
+  });
+
+  it('TIM-18 / ESP-05: tirou a regra da posição desativada, ela não volta', async () => {
+    const t = setup();
+    seeded(t, [UNIVERSAL_MAX]);
+    await t.service.update(OWNER, GROUP_ID, {
+      ...t.v(),
+      teamCount: 2,
+      rules: [SETTER_ONE],
+      allowOutsideRules: false,
+    });
+    await expectAppError(
+      t.service.update(OWNER, GROUP_ID, {
+        ...t.v(),
+        teamCount: 2,
+        rules: [UNIVERSAL_MAX],
+        allowOutsideRules: false,
+      }),
       'TEAM_POSITION_INVALID',
       422,
     );
@@ -489,8 +639,13 @@ describe('regra de quantidade por time (TIM-18)', () => {
 
 describe('times opostos na configuração (TIM-22)', () => {
   const apartWith = (apart: unknown) =>
-    UpdateTeamSettingsInputSchema.safeParse({ teamCount: 2, rules: [], apart, allowOutsideRules: false })
-      .success;
+    UpdateTeamSettingsInputSchema.safeParse({
+      version: 0,
+      teamCount: 2,
+      rules: [],
+      apart,
+      allowOutsideRules: false,
+    }).success;
   const uuid = (n: number) => `eeeeeeee-eeee-4eee-8eee-${String(n).padStart(12, '0')}`;
   /** Id público (USR-15) para os testes do contrato. */
   const code = (n: number) => `EEEE${String(n).padStart(4, '0')}`;
@@ -507,7 +662,7 @@ describe('times opostos na configuração (TIM-22)', () => {
       ...input,
       nicknames: { [A]: 'Ana', [R]: 'Rafa', [G]: 'Gabi', [H]: 'Heitor' },
     });
-    const res = await t.service.update(OWNER, GROUP_ID, input);
+    const res = await t.service.update(OWNER, GROUP_ID, { ...t.v(), ...input });
 
     expect(TeamSettingsSchema.parse(toWire(res))).toEqual(toWire(res));
     expect(res).toEqual(expected);
@@ -523,7 +678,7 @@ describe('times opostos na configuração (TIM-22)', () => {
       apart: [{ people: [OWNER, A, R, G, H] }],
       allowOutsideRules: false,
     };
-    expect((await t.service.update(OWNER, GROUP_ID, input)).apart).toEqual(input.apart);
+    expect((await t.service.update(OWNER, GROUP_ID, { ...t.v(), ...input })).apart).toEqual(input.apart);
   });
 
   it('TIM-22: pessoa que o dono não pode classificar (fora do grupo e da lista, ou um avulso) → TEAM_PLAYER_NOT_FOUND (404), sem gravar', async () => {
@@ -531,6 +686,7 @@ describe('times opostos na configuração (TIM-22)', () => {
     for (const who of [OUTSIDER, uuid(1)])
       await expectAppError(
         t.service.update(OWNER, GROUP_ID, {
+          ...t.v(),
           teamCount: 2,
           rules: [],
           apart: [{ people: [A, who] }],
@@ -546,7 +702,13 @@ describe('times opostos na configuração (TIM-22)', () => {
     const t = setup();
     t.state.members = { ...t.state.members, [LEFT]: 'member' };
     const apart = [{ people: [A, LEFT] }];
-    await t.service.update(OWNER, GROUP_ID, { teamCount: 2, rules: [], apart, allowOutsideRules: false });
+    await t.service.update(OWNER, GROUP_ID, {
+      ...t.v(),
+      teamCount: 2,
+      rules: [],
+      apart,
+      allowOutsideRules: false,
+    });
 
     const { [LEFT]: _gone, ...rest } = t.state.members;
     t.state.members = rest;
@@ -555,6 +717,7 @@ describe('times opostos na configuração (TIM-22)', () => {
     );
 
     const res = await t.service.update(OWNER, GROUP_ID, {
+      ...t.v(),
       teamCount: 4,
       rules: [SETTER_ONE],
       apart,
@@ -567,6 +730,7 @@ describe('times opostos na configuração (TIM-22)', () => {
   it('TIM-22: quem saiu do grupo e não estava na regra salva não pode entrar numa regra nova → TEAM_PLAYER_NOT_FOUND', async () => {
     const t = setup();
     await t.service.update(OWNER, GROUP_ID, {
+      ...t.v(),
       teamCount: 2,
       rules: [],
       apart: [{ people: [A, R] }],
@@ -574,6 +738,7 @@ describe('times opostos na configuração (TIM-22)', () => {
     });
     await expectAppError(
       t.service.update(OWNER, GROUP_ID, {
+        ...t.v(),
         teamCount: 2,
         rules: [],
         apart: [{ people: [A, R] }, { people: [A, LEFT] }],
@@ -606,12 +771,13 @@ describe('times opostos na configuração (TIM-22)', () => {
   it('TIM-22: sem opostos no input, salva como nenhum (substitui os que havia)', async () => {
     const t = setup();
     await t.service.update(OWNER, GROUP_ID, {
+      ...t.v(),
       teamCount: 2,
       rules: [],
       apart: [{ people: [A, R] }],
       allowOutsideRules: false,
     });
-    expect(await t.service.update(OWNER, GROUP_ID, DEFAULTS)).toEqual(full(DEFAULTS));
+    expect(await t.service.update(OWNER, GROUP_ID, { ...t.v(), ...DEFAULTS })).toEqual(full(DEFAULTS));
   });
 });
 
@@ -620,13 +786,14 @@ describe('preferência "Espalhar homens e mulheres" na configuração (TIM-23)',
     const t = setup();
     expect((await t.service.get(OWNER, GROUP_ID)).spreadGender).toBe(false);
     const input = { ...DEFAULTS, spreadGender: true };
-    expect(await t.service.update(OWNER, GROUP_ID, input)).toEqual(full(input));
+    expect(await t.service.update(OWNER, GROUP_ID, { ...t.v(), ...input })).toEqual(full(input));
     expect(t.puts[0]).toMatchObject({ spreadGender: true });
     expect((await t.service.get(OWNER, GROUP_ID)).spreadGender).toBe(true);
   });
 
   it('TIM-23: o contrato aceita só booleano e, sem o campo, vale desligada', () => {
-    const parse = (extra: object) => UpdateTeamSettingsInputSchema.safeParse({ ...DEFAULTS, ...extra });
+    const parse = (extra: object) =>
+      UpdateTeamSettingsInputSchema.safeParse({ version: 0, ...DEFAULTS, ...extra });
     expect(parse({}).data?.spreadGender).toBe(false);
     expect(parse({ spreadGender: true }).data?.spreadGender).toBe(true);
     expect(parse({ spreadGender: 'yes' }).success).toBe(false);
@@ -636,21 +803,21 @@ describe('preferência "Espalhar homens e mulheres" na configuração (TIM-23)',
 describe('times opostos pelo id público (USR-16, USR-17)', () => {
   it('USR-16: o contrato dos opostos recusa o id do sistema (uuid): só aceita o id público', () => {
     const parse = (people: string[]) =>
-      UpdateTeamSettingsInputSchema.safeParse({ ...DEFAULTS, apart: [{ people }] }).success;
+      UpdateTeamSettingsInputSchema.safeParse({ version: 0, ...DEFAULTS, apart: [{ people }] }).success;
     expect(parse([pub(A), pub(R)])).toBe(true);
     expect(parse([A, R])).toBe(false);
   });
 
   it('USR-17: os opostos entram pelo id público e são guardados pelo id do sistema', async () => {
     const t = setup();
-    await t.raw.update(OWNER, GROUP_ID, { ...DEFAULTS, apart: [{ people: [pub(A), pub(G)] }] });
+    await t.raw.update(OWNER, GROUP_ID, { ...t.v(), ...DEFAULTS, apart: [{ people: [pub(A), pub(G)] }] });
     expect(t.puts[0]?.apart).toEqual([{ people: [A, G] }]);
   });
 
   it('USR-16: a configuração sai com os opostos e os nomes pelo id público, inclusive de quem saiu do grupo', async () => {
     const t = setup();
     t.state.members = { ...t.state.members, [LEFT]: 'member' };
-    await t.raw.update(OWNER, GROUP_ID, { ...DEFAULTS, apart: [{ people: [pub(A), pub(LEFT)] }] });
+    await t.raw.update(OWNER, GROUP_ID, { ...t.v(), ...DEFAULTS, apart: [{ people: [pub(A), pub(LEFT)] }] });
     const { [LEFT]: _gone, ...rest } = t.state.members;
     t.state.members = rest;
     const res = await t.raw.get(OWNER, GROUP_ID);
@@ -662,7 +829,7 @@ describe('times opostos pelo id público (USR-16, USR-17)', () => {
   it('USR-17: id público que não existe nos opostos → TEAM_PLAYER_NOT_FOUND, sem gravar', async () => {
     const t = setup();
     await expectAppError(
-      t.raw.update(OWNER, GROUP_ID, { ...DEFAULTS, apart: [{ people: [pub(A), UNKNOWN] }] }),
+      t.raw.update(OWNER, GROUP_ID, { ...t.v(), ...DEFAULTS, apart: [{ people: [pub(A), UNKNOWN] }] }),
       'TEAM_PLAYER_NOT_FOUND',
       404,
     );
@@ -676,7 +843,7 @@ describe('configuração de times com cargo (TIM-17)', () => {
     for (const who of [A, R]) {
       t.state.staff[who] = 'admin';
       const input = { teamCount: 3, rules: [SETTER_ONE], allowOutsideRules: false };
-      expect(await t.service.update(who, GROUP_ID, input)).toEqual(full(input));
+      expect(await t.service.update(who, GROUP_ID, { ...t.v(), ...input })).toEqual(full(input));
       expect(await t.service.get(who, GROUP_ID)).toEqual(full(input));
     }
     expect(t.puts).toHaveLength(2);
@@ -691,7 +858,56 @@ describe('configuração de times com cargo (TIM-17)', () => {
   it('TIM-17: o Admin com o grupo arquivado → mudar responde GROUP_ARCHIVED (GRP-52: a permissão vem antes)', async () => {
     const t = setup({ group: { archivedAt: '2026-11-10T00:00:00.000Z' } });
     t.state.staff[A] = 'admin';
-    await expectAppError(t.service.update(A, GROUP_ID, DEFAULTS), 'GROUP_ARCHIVED', 409);
+    await expectAppError(t.service.update(A, GROUP_ID, { ...t.v(), ...DEFAULTS }), 'GROUP_ARCHIVED', 409);
     expect(t.puts).toEqual([]);
+  });
+});
+
+describe('configuração de times: a versão que a tela mostrou (TIM-25)', () => {
+  it('TIM-25: grupo sem configuração → o GET traz version 0, e o 1º PUT com 0 grava e devolve a version 1', async () => {
+    const t = setup();
+    expect((await t.service.get(OWNER, GROUP_ID)).version).toBe(0);
+    const res = await t.service.update(OWNER, GROUP_ID, { version: 0, ...DEFAULTS, teamCount: 3 });
+    expect(res.version).toBe(1);
+    expect((await t.service.get(OWNER, GROUP_ID)).version).toBe(1);
+  });
+
+  it('TIM-25: cada PUT com a versão atual soma 1', async () => {
+    const t = setup();
+    await t.service.update(OWNER, GROUP_ID, { version: 0, ...DEFAULTS });
+    const res = await t.service.update(OWNER, GROUP_ID, { version: 1, ...DEFAULTS, teamCount: 4 });
+    expect(res).toMatchObject({ teamCount: 4, version: 2 });
+  });
+
+  it('TIM-25: PUT com a versão velha → VERSION_CONFLICT (409, currentVersion) e a configuração fica', async () => {
+    const t = setup();
+    await t.service.update(OWNER, GROUP_ID, { version: 0, ...DEFAULTS, teamCount: 3 });
+    await t.service.update(OWNER, GROUP_ID, { version: 1, ...DEFAULTS, teamCount: 4 });
+    const puts = t.puts.length;
+    const err = await expectAppError(
+      t.service.update(OWNER, GROUP_ID, { version: 1, ...DEFAULTS, teamCount: 5 }),
+      'VERSION_CONFLICT',
+      409,
+    );
+    expect(err.details).toEqual({ currentVersion: 2 });
+    expect(t.puts).toHaveLength(puts);
+    expect(await t.service.get(OWNER, GROUP_ID)).toMatchObject({ teamCount: 4, version: 2 });
+  });
+
+  it('TIM-25: alguém criou a configuração antes → o PUT com 0 dá VERSION_CONFLICT com a versão de agora', async () => {
+    const t = setup();
+    await t.service.update(OWNER, GROUP_ID, { version: 0, ...DEFAULTS });
+    const err = await expectAppError(
+      t.service.update(OWNER, GROUP_ID, { version: 0, ...DEFAULTS, teamCount: 3 }),
+      'VERSION_CONFLICT',
+      409,
+    );
+    expect(err.details).toEqual({ currentVersion: 1 });
+  });
+
+  it('TIM-25: o contrato exige a version (inteiro ≥ 0) no PUT', () => {
+    expect(UpdateTeamSettingsInputSchema.safeParse(DEFAULTS).success).toBe(false);
+    expect(UpdateTeamSettingsInputSchema.safeParse({ version: -1, ...DEFAULTS }).success).toBe(false);
+    expect(UpdateTeamSettingsInputSchema.safeParse({ version: 0, ...DEFAULTS }).success).toBe(true);
   });
 });

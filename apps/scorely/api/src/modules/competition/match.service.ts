@@ -18,7 +18,13 @@ import { requireActive, requirePermission } from '@scorely/api/src/modules/group
 import type { NotificationService } from '@scorely/api/src/modules/notifications/notification.service';
 import type { TeamsRepository } from '@scorely/api/src/modules/teams/teams.repository';
 import type { UserDirectory } from '@scorely/api/src/modules/users/user.repository';
-import type { CompetitionGameDetail, MatchInput, TeamPersonId } from '@scorely/contracts';
+import type {
+  CompetitionGameDetail,
+  MatchInput,
+  TeamPersonId,
+  UpdateMatchInput,
+  VersionInput,
+} from '@scorely/contracts';
 
 export interface MatchDeps {
   groups: GroupRepository;
@@ -149,7 +155,7 @@ export function createMatchService(deps: MatchDeps) {
       const teams = teamsOf(game, input);
       const at = now();
       const before = await podiumBefore(game, groupId);
-      const match = newEntity<StoredMatch>(
+      const match = newEntity<Omit<StoredMatch, 'version'>>(
         { gameId: game.record.id, groupId, teams, winner: input.winner, updatedAt: at.toISOString() },
         at,
       );
@@ -164,13 +170,18 @@ export function createMatchService(deps: MatchDeps) {
       groupId: string,
       date: string,
       matchId: string,
-      input: MatchInput,
+      input: UpdateMatchInput,
     ): Promise<CompetitionGameDetail> {
       const game = await matchGame(userId, groupId, date);
       await matchOf(game, matchId);
       const teams = teamsOf(game, input);
       const before = await podiumBefore(game, groupId);
-      await deps.matches.update(matchId, { teams, winner: input.winner, updatedAt: now().toISOString() });
+      // CMP-42: só grava na versão que a tela mostrou.
+      await deps.matches.update(
+        matchId,
+        { teams, winner: input.winner, updatedAt: now().toISOString() },
+        input.version,
+      );
       await podiumAfter(game, groupId, before);
       return deps.detail(userId, groupId, date);
     },
@@ -181,11 +192,12 @@ export function createMatchService(deps: MatchDeps) {
       groupId: string,
       date: string,
       matchId: string,
+      { version }: VersionInput,
     ): Promise<CompetitionGameDetail> {
       const game = await matchGame(userId, groupId, date);
       const match = await matchOf(game, matchId);
       const before = await podiumBefore(game, groupId);
-      await deps.matches.delete(match);
+      await deps.matches.delete(match, version);
       await podiumAfter(game, groupId, before);
       return deps.detail(userId, groupId, date);
     },

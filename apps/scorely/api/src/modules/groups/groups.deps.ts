@@ -1,27 +1,32 @@
 import { appError } from '@scorely/api/src/lib/errors';
 import type { UserId } from '@scorely/api/src/lib/ids';
 import type { GameRepository } from '@scorely/api/src/modules/groups/game.repository';
-import {
-  type GroupRepository,
-  limitsOf,
-  type StoredGroup,
-} from '@scorely/api/src/modules/groups/group.repository';
+import type { GroupRepository, StoredGroup } from '@scorely/api/src/modules/groups/group.repository';
+import type { PlaceRepository, StoredPlace } from '@scorely/api/src/modules/groups/place.repository';
 import { type MediaService, mediaService } from '@scorely/api/src/modules/media/media.service';
 import type { NotificationService } from '@scorely/api/src/modules/notifications/notification.service';
+import type { SportService } from '@scorely/api/src/modules/sports/sport.service';
 import type { UserDirectory } from '@scorely/api/src/modules/users/user.repository';
 import {
-  ALL_PERMISSIONS,
   type Group,
-  type MemberRole,
+  type MemberTier,
   type Permission,
-  STAFF_ROLES,
-  type StaffRoleId,
+  type Place,
+  ROLES,
+  type RoleId,
 } from '@scorely/contracts';
+
+/** GRP-58: quem cria o grupo confere o esporte no catálogo (ESP). Só o service de grupo recebe. */
+export interface SportsDep {
+  sports: Pick<SportService, 'get'>;
+}
 
 /** O que os services de grupo e de jogo recebem (o mesmo objeto para os dois). */
 export interface GroupsDeps {
   groups: GroupRepository;
   games: GameRepository;
+  /** GRP-60–63: os lugares do grupo. */
+  places: PlaceRepository;
   users: UserDirectory;
   notifications: Pick<NotificationService, 'notify'>;
   /** MID-12: monta a URL do logo e da capa pelo id da mídia. Sem ele, a mídia de produção. */
@@ -29,15 +34,15 @@ export interface GroupsDeps {
   now?: () => Date;
 }
 
+/** GRP-63: o lugar como sai na resposta (sem o grupo e as datas do item). */
+export function publicPlace({ groupId: _g, createdAt: _c, updatedAt: _u, ...place }: StoredPlace): Place {
+  return place;
+}
+
 /** MID-12: a URL pública de uma mídia pela finalidade e o id. */
 export type UrlOf = MediaService['urlOf'];
 
 const productionUrlOf: UrlOf = (purpose, mediaId) => mediaService.urlOf(purpose, mediaId);
-
-/** Abertura das reservas: grupo de antes da E2 abre junto com os membros (plano 007, D3). */
-export function reservesHours(group: StoredGroup): number {
-  return group.reservesOpenHoursBefore ?? group.listOpensHoursBefore;
-}
 
 /** Ids das mídias do logo e da capa (GRP-35): internos, gravados pela transação da mídia (MID-08). */
 export type GroupImageIds = { logoMediaId?: string | undefined; coverMediaId?: string | undefined };
@@ -53,50 +58,40 @@ export function imageUrls(
   };
 }
 
-/** O cargo pelo id, se ele existe (GRP-52: um id desconhecido conta como sem cargo). */
-export function staffRoleOf(staffRoleId: string | undefined): { id: StaffRoleId; name: string } | undefined {
-  if (staffRoleId === undefined || !Object.hasOwn(STAFF_ROLES, staffRoleId)) return undefined;
-  const id = staffRoleId as StaffRoleId;
-  return { id, name: STAFF_ROLES[id].name };
+/** O cargo gravado, se ele existe (GRP-52: senão, Membro). */
+export function roleIdOf(roleId: string | undefined): RoleId {
+  return roleId !== undefined && Object.hasOwn(ROLES, roleId) ? (roleId as RoleId) : 'member';
 }
 
-/** GRP-49, 50, 52: o dono tem todas; quem tem um cargo, as dele; sem cargo (ou cargo que não existe), nenhuma. */
-export function permissionsOf(
-  group: StoredGroup,
-  userId: UserId,
-  staffRoleId: string | undefined,
-): Permission[] {
-  if (group.ownerId === userId) return [...ALL_PERMISSIONS];
-  const role = staffRoleOf(staffRoleId);
-  return role ? [...STAFF_ROLES[role.id].permissions] : [];
+/** GRP-49, 50, 52: as permissões do cargo; um cargo que não existe conta como o Membro (nenhuma). */
+export function permissionsOf(roleId: string | undefined): Permission[] {
+  return [...ROLES[roleIdOf(roleId)].permissions];
 }
 
 /**
- * O grupo para quem pede: com as camadas e os limites efetivos (GRP-15, 38), o papel e as permissões (GRP-55);
- * os 3 tokens só para quem tem `members.manage` (GRP-05); sem os ids das mídias, com as URLs montadas por eles
- * (GRP-36, MID-12). O `ownerId` sai com o id público do dono (USR-16).
+ * O grupo para quem pede: o papel, o cargo e as permissões (GRP-55); os 3 tokens só para quem tem `members.manage`
+ * (GRP-05); sem os ids das mídias, com as URLs montadas por eles (GRP-36, MID-12).
  */
 export function forViewer(
   group: StoredGroup,
-  userId: UserId,
-  myRole: MemberRole,
-  staffRoleId?: string,
+  myTier: MemberTier,
+  myRoleId: string | undefined,
   urlOf: UrlOf = productionUrlOf,
 ): Group {
-  const myPermissions = permissionsOf(group, userId, staffRoleId);
-  const { logoMediaId: _l, coverMediaId: _c, ownerId: _owner, ownerPublicId, ...clean } = group;
-  const view = {
-    ...clean,
-    ...imageUrls(group, urlOf),
-    ownerId: ownerPublicId,
-    ...limitsOf(group),
-    reservesOpenHoursBefore: reservesHours(group),
-    myRole,
-    myPermissions,
-  };
+  const myPermissions = permissionsOf(myRoleId);
+  const { logoMediaId: _l, coverMediaId: _c, ...clean } = group;
+  const view = { ...clean, ...imageUrls(group, urlOf), myTier, myRoleId: roleIdOf(myRoleId), myPermissions };
   if (myPermissions.includes('members.manage')) return view;
   const { inviteToken: _i, reserveInviteToken: _r, guestToken: _g, ...rest } = view;
   return rest;
+}
+
+/** Quem pede, no grupo: o papel e o cargo (com o convite para membro pendente, se houver). */
+export interface Viewer {
+  group: StoredGroup;
+  tier: MemberTier;
+  roleId: RoleId;
+  memberInviteExpiresAt?: string;
 }
 
 /** Grupo de quem é membro ou reserva. Quem não participa (ou grupo inexistente) → `GROUP_NOT_FOUND` (D10 do 003). */
@@ -104,16 +99,14 @@ export async function requireMember(
   deps: Pick<GroupsDeps, 'groups'>,
   userId: UserId,
   groupId: string,
-): Promise<{ group: StoredGroup; role: MemberRole; staffRoleId?: string }> {
+): Promise<Viewer> {
   const [group, membership] = await Promise.all([
     deps.groups.get(groupId),
     deps.groups.getMembership(groupId, userId),
   ]);
   if (!group || !membership) throw appError('GROUP_NOT_FOUND');
   // A participação já é lida para saber se a pessoa participa: o cargo vem junto, sem leitura a mais (GRP-52).
-  return membership.staffRoleId === undefined
-    ? { group, role: membership.role }
-    : { group, role: membership.role, staffRoleId: membership.staffRoleId };
+  return { ...membership, group, roleId: roleIdOf(membership.roleId) };
 }
 
 /** GRP-32: grupo arquivado é só leitura. Vem depois do `requireMember`/`requireOwner` (404 e 403 primeiro). */
@@ -130,21 +123,21 @@ export async function requirePermission(
   userId: UserId,
   groupId: string,
   permission: Permission,
-): Promise<{ group: StoredGroup; role: MemberRole; staffRoleId?: string }> {
+): Promise<Viewer> {
   const member = await requireMember(deps, userId, groupId);
-  if (!permissionsOf(member.group, userId, member.staffRoleId).includes(permission)) {
+  if (!permissionsOf(member.roleId).includes(permission)) {
     throw appError('GROUP_PERMISSION_DENIED', { permission });
   }
   return member;
 }
 
-/** Como `requireMember`, e só o dono passa (`GROUP_NOT_OWNER`, 403 com corpo). */
+/** Como `requireMember`, e só o dono (o cargo `owner`, GRP-48) passa (`GROUP_NOT_OWNER`, 403 com corpo). */
 export async function requireOwner(
   deps: Pick<GroupsDeps, 'groups'>,
   userId: UserId,
   groupId: string,
 ): Promise<StoredGroup> {
-  const { group } = await requireMember(deps, userId, groupId);
-  if (group.ownerId !== userId) throw appError('GROUP_NOT_OWNER');
+  const { group, roleId } = await requireMember(deps, userId, groupId);
+  if (roleId !== 'owner') throw appError('GROUP_NOT_OWNER');
   return group;
 }

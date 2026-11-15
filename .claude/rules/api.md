@@ -38,6 +38,14 @@ export async function updateMe(event: HttpEvent) {
 - Para falhar, lance `appError(code)` (scorely: veja `scorely-api.md`). O wrapper converte em `{ error: { code, message, details? } }`; `ZodError` vira 422 `VALIDATION_ERROR` e qualquer outro erro vira 500 `INTERNAL_ERROR`, logado em JSON e sem vazar a mensagem (a resposta leva só o `requestId`).
 - **Sem try/catch no handler** só para responder erro. try/catch só para traduzir um erro específico num `appError` (ex.: `ConditionalCheckFailedException` → `appError('X_ALREADY_EXISTS')`), de preferência no service ou no repository.
 
+## Edição manda a versão (scorely)
+
+Motivo: [docs/decisions/0016-version-confere-nas-edicoes.md](../../docs/decisions/0016-version-confere-nas-edicoes.md).
+
+- Toda rota que edita algo que a tela mostrou (PUT/PATCH, e o DELETE ou a ação que muda o item) recebe `version` no corpo: o input do contrato tem `version: VersionSchema`, ou é o `VersionInputSchema` quando só manda a versão. A resposta traz a `version` do item.
+- Item que ainda não existe: a tela manda `0`. Criar não manda versão.
+- Versão velha → `VERSION_CONFLICT` (409, `details.currentVersion`). No web, o `onPermissionError` trata o conflito como a permissão perdida: o casco relê, o painel fecha e o aviso é o `errors.VERSION_CONFLICT`.
+
 ## Módulo novo
 
 `api/src/modules/<mod>/` (functions.ts, handlers, service, repository, testes) → spread do `<mod>Functions` em `functions` no `serverless.ts`.

@@ -16,7 +16,7 @@ import {
   COMPETITION_PRESETS,
   COMPETITION_TRIAL_DAYS,
   type Competition,
-  type CompetitionRules,
+  type UpdateCompetitionRulesInput,
 } from '@scorely/contracts';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -40,6 +40,8 @@ export function createCompetitionService(deps: CompetitionDeps) {
       activeUntil: item.activeUntil,
       trialAvailable: false,
       rules: item.rules,
+      // CMP-42: a versão que o regulamento manda.
+      version: item.version,
     };
   }
 
@@ -67,6 +69,7 @@ export function createCompetitionService(deps: CompetitionDeps) {
         rules: COMPETITION_PRESETS.classic,
         createdAt: at.toISOString(),
         updatedAt: at.toISOString(),
+        version: 1,
       };
       // A condição no banco barra dois toques ao mesmo tempo (os dois leram "desativada").
       await deps.competitions.create(item);
@@ -77,14 +80,20 @@ export function createCompetitionService(deps: CompetitionDeps) {
      * CMP-07: `seasons.manage` troca o regulamento inteiro. Ordem: permissão, arquivado e só então a competição
      * desativada ou vencida (CMP-04), conferida também na gravação.
      */
-    async updateRules(userId: UserId, groupId: string, rules: CompetitionRules): Promise<Competition> {
+    async updateRules(
+      userId: UserId,
+      groupId: string,
+      input: UpdateCompetitionRulesInput,
+    ): Promise<Competition> {
+      const { version, ...rules } = input;
       const { group } = await requirePermission(deps, userId, groupId, 'seasons.manage');
       requireActive(group);
       const item = await deps.competitions.get(groupId);
       if (!item || competitionStatus(item, now()) !== 'active') throw appError('COMPETITION_INACTIVE');
       const at = now().toISOString();
-      await deps.competitions.updateRules(groupId, rules, at);
-      return view({ ...item, rules, updatedAt: at });
+      // CMP-42: só grava na versão que a tela mostrou.
+      await deps.competitions.updateRules(groupId, rules, at, version);
+      return view({ ...item, rules, updatedAt: at, version: version + 1 });
     },
   };
 }

@@ -14,7 +14,7 @@ function attendees(n: number): Attendee[] {
     userId: PublicUserIdSchema.parse(String(i).padStart(8, '0')),
     nickname: `Pessoa ${i}`,
     confirmedAt: '2026-11-04T22:00:00.000Z',
-    role: 'member',
+    tier: 'member',
   }));
 }
 

@@ -7,10 +7,10 @@ import type { StoredGroup } from '@scorely/api/src/modules/groups/group.reposito
 import {
   type GroupsDeps,
   imageUrls,
+  publicPlace,
   requireActive,
   requireMember,
   requirePermission,
-  reservesHours,
 } from '@scorely/api/src/modules/groups/groups.deps';
 import {
   type GuestRoster,
@@ -22,10 +22,10 @@ import {
 import type {
   Game,
   GameStatus,
-  GroupRole,
   GuestGame,
   MyAttendance,
   MyGroup,
+  Tier,
   UpdateGameInput,
 } from '@scorely/contracts';
 
@@ -52,7 +52,7 @@ function layersOf(group: StoredGroup, occurrence: Occurrence): LayerTimes {
   const guests = group.guestsOpenHoursBefore;
   return {
     member: occurrence.opensAt,
-    reserve: layerOpensAt(occurrence.startsAt, reservesHours(group)),
+    reserve: layerOpensAt(occurrence.startsAt, group.reservesOpenHoursBefore),
     ...(guests != null && { guest: layerOpensAt(occurrence.startsAt, guests) }),
   };
 }
@@ -99,7 +99,7 @@ export function createGameService(deps: GroupsDeps) {
   }
 
   /** Confirmar/desistir: jogo aberto e a camada de quem pede já aberta (D8 do 007). */
-  function assertListWritable({ group, occurrence, record, at }: CurrentGame, role: GroupRole): void {
+  function assertListWritable({ group, occurrence, record, at }: CurrentGame, role: Tier): void {
     const status = statusOf(occurrence, record, at);
     if (status === 'cancelled') throw appError('GAME_CANCELLED');
     if (status === 'in_progress') throw appError('GAME_CLOSED');
@@ -123,13 +123,13 @@ export function createGameService(deps: GroupsDeps) {
   }
 
   /** Papel de cada pessoa da lista (D9): pelo papel atual no grupo; quem não participa é convidado. */
-  async function rolesOf(groupId: string): Promise<Map<string, GroupRole>> {
+  async function rolesOf(groupId: string): Promise<Map<string, Tier>> {
     const members = await deps.groups.listMembers(groupId);
-    return new Map(members.map((m) => [m.userId, m.role]));
+    return new Map(members.map((m) => [m.userId, m.tier]));
   }
 
   /** A lista com os dois ids de cada pessoa (interna, para os times); a resposta sai pelo `view`. */
-  async function rosterView(userId: UserId, game: CurrentGame, role: GroupRole): Promise<RosterGame> {
+  async function rosterView(userId: UserId, game: CurrentGame, role: Tier): Promise<RosterGame> {
     const { group, occurrence, record, at } = game;
     const list = await listOf(record);
     const [users, roles] = await Promise.all([
@@ -146,7 +146,7 @@ export function createGameService(deps: GroupsDeps) {
         publicId: user.publicId,
         nickname: user.nickname,
         confirmedAt: a.confirmedAt,
-        role: roles.get(a.userId) ?? ('guest' as const),
+        tier: roles.get(a.userId) ?? ('guest' as const),
       };
     });
     const layers = layersOf(group, occurrence);
@@ -154,6 +154,8 @@ export function createGameService(deps: GroupsDeps) {
     const slots = slotsOf(group, record);
     const minPlayers = minOf(group, record);
     const me = myAttendance(list, slots, userId);
+    // GRP-62, 63: o lugar do jogo é o padrão do grupo.
+    const place = group.defaultPlaceId ? await deps.places.get(group.id, group.defaultPlaceId) : undefined;
     return {
       groupId: group.id,
       date: occurrence.date,
@@ -167,6 +169,7 @@ export function createGameService(deps: GroupsDeps) {
       ...(minPlayers !== undefined && { minPlayers }),
       ...(record?.slots !== undefined && { slotsCustom: true }),
       ...(record?.minPlayers !== undefined && { minPlayersCustom: true }),
+      ...(place && { place: publicPlace(place) }),
       confirmed: attendees.slice(0, slots),
       waitlist: attendees.slice(slots),
       ...(me && { me }),
@@ -174,7 +177,7 @@ export function createGameService(deps: GroupsDeps) {
   }
 
   /** O jogo como sai na resposta: as pessoas pelo id público (USR-16). */
-  async function view(userId: UserId, game: CurrentGame, role: GroupRole): Promise<Game> {
+  async function view(userId: UserId, game: CurrentGame, role: Tier): Promise<Game> {
     return publicGame(await rosterView(userId, game, role));
   }
 
@@ -182,20 +185,19 @@ export function createGameService(deps: GroupsDeps) {
   async function guestRoster(userId: UserId, token: string): Promise<GuestRoster> {
     const { group, role } = await byGuestLink(userId, token);
     const game = await rosterView(userId, await load(group, now()), role);
-    const { id, name, sport, weekday, time, timeZone, location } = group;
+    const { id, name, sportId, weekday, time, timeZone } = group;
     return {
       // GRP-36: o convidado também vê o logo e a capa
       group: {
         id,
         name,
-        sport,
+        sportId,
         weekday,
         time,
         timeZone,
-        ...(location && { location }),
         ...imageUrls(group, deps.media?.urlOf),
       },
-      myRole: role,
+      myTier: role,
       game,
     };
   }
@@ -300,7 +302,7 @@ export function createGameService(deps: GroupsDeps) {
     }
   }
 
-  async function confirmAs(userId: UserId, group: StoredGroup, role: GroupRole, date: string): Promise<Game> {
+  async function confirmAs(userId: UserId, group: StoredGroup, role: Tier, date: string): Promise<Game> {
     const game = await loadByDate(group, date);
     assertListWritable(game, role);
     const record = await ensureRecord(game);
@@ -318,7 +320,7 @@ export function createGameService(deps: GroupsDeps) {
     return view(userId, { ...game, record }, role);
   }
 
-  async function leaveAs(userId: UserId, group: StoredGroup, role: GroupRole, date: string): Promise<void> {
+  async function leaveAs(userId: UserId, group: StoredGroup, role: Tier, date: string): Promise<void> {
     const game = await loadByDate(group, date);
     assertListWritable(game, role);
     if (!game.record) return;
@@ -330,10 +332,7 @@ export function createGameService(deps: GroupsDeps) {
   }
 
   /** D7: grupo do link do jogo, com o papel de quem abre. Convidados desligados ou token de outro tipo → inválido. */
-  async function byGuestLink(
-    userId: UserId,
-    token: string,
-  ): Promise<{ group: StoredGroup; role: GroupRole }> {
+  async function byGuestLink(userId: UserId, token: string): Promise<{ group: StoredGroup; role: Tier }> {
     const found = await deps.groups.getByToken(token);
     if (found?.kind !== 'guest' || found.group.guestsOpenHoursBefore == null) {
       throw appError('GAME_LINK_INVALID');
@@ -345,13 +344,13 @@ export function createGameService(deps: GroupsDeps) {
   return {
     /** O jogo atual com os dois ids de cada pessoa (interno, para os times). */
     async currentRoster(userId: UserId, groupId: string): Promise<RosterGame> {
-      const { group, role } = await requireMember(deps, userId, groupId);
+      const { group, tier: role } = await requireMember(deps, userId, groupId);
       requireActive(group);
       return rosterView(userId, await load(group, now()), role);
     },
 
     async current(userId: UserId, groupId: string): Promise<Game> {
-      const { group, role } = await requireMember(deps, userId, groupId);
+      const { group, tier: role } = await requireMember(deps, userId, groupId);
       requireActive(group);
       return view(userId, await load(group, now()), role);
     },
@@ -376,14 +375,14 @@ export function createGameService(deps: GroupsDeps) {
 
     /** Confirma presença. Já confirmado → mantém a posição (D5 do 003). */
     async confirm(userId: UserId, groupId: string, date: string): Promise<Game> {
-      const { group, role } = await requireMember(deps, userId, groupId);
+      const { group, tier: role } = await requireMember(deps, userId, groupId);
       requireActive(group);
       return confirmAs(userId, group, role, date);
     },
 
     /** Desiste. Sem presença → nada a fazer. Saiu de dentro → promoção (D6 do 003). */
     async leave(userId: UserId, groupId: string, date: string): Promise<void> {
-      const { group, role } = await requireMember(deps, userId, groupId);
+      const { group, tier: role } = await requireMember(deps, userId, groupId);
       requireActive(group);
       await leaveAs(userId, group, role, date);
     },
@@ -407,7 +406,7 @@ export function createGameService(deps: GroupsDeps) {
 
     /** GRP-24: quem tem `game.manage` cancela o jogo atual. Já cancelado → devolve igual, sem avisar de novo. */
     async cancel(userId: UserId, groupId: string, date: string): Promise<Game> {
-      const { group, role } = await requirePermission(deps, userId, groupId, 'game.manage');
+      const { group, tier: role } = await requirePermission(deps, userId, groupId, 'game.manage');
       requireActive(group);
       const game = await loadByDate(group, date);
       if (game.record?.cancelledAt) return view(userId, game, role);
@@ -421,12 +420,12 @@ export function createGameService(deps: GroupsDeps) {
      * GRP-31: cancela o jogo atual de um grupo que acabou de ser arquivado. Só `scheduled`/`open` e só com o jogo
      * gravado (virtual = ninguém confirmou, não há quem avisar). Já cancelado → nada. Idempotente.
      */
-    async cancelForArchive(group: StoredGroup): Promise<void> {
+    async cancelForArchive(group: StoredGroup, actorId: UserId): Promise<void> {
       const { occurrence, record, at } = await load(group, now());
       if (!record || record.cancelledAt) return;
       if (timeStatus(occurrence, at) === 'in_progress') return;
       // Só o dono arquiva (GRP-31, 49): quem cancelou foi ele.
-      await cancelAndNotify(group, record, at, group.ownerId);
+      await cancelAndNotify(group, record, at, actorId);
     },
 
     /**
@@ -434,7 +433,7 @@ export function createGameService(deps: GroupsDeps) {
      * menos quem reabriu. Jogo não cancelado → devolve como está, sem avisar.
      */
     async reopen(userId: UserId, groupId: string, date: string): Promise<Game> {
-      const { group, role } = await requirePermission(deps, userId, groupId, 'game.manage');
+      const { group, tier: role } = await requirePermission(deps, userId, groupId, 'game.manage');
       requireActive(group);
       const game = await loadByDate(group, date);
       const { record } = game;
@@ -452,7 +451,7 @@ export function createGameService(deps: GroupsDeps) {
      * está dentro; mais vagas promovem a fila (GRP-22); chegar ao mínimo avisa (GRP-47).
      */
     async updateGame(userId: UserId, groupId: string, date: string, patch: UpdateGameInput): Promise<Game> {
-      const { group, role } = await requirePermission(deps, userId, groupId, 'game.manage');
+      const { group, tier: role } = await requirePermission(deps, userId, groupId, 'game.manage');
       requireActive(group);
       const game = await loadByDate(group, date);
       const status = statusOf(game.occurrence, game.record, game.at);

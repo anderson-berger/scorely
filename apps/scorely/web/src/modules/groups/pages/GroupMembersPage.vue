@@ -116,19 +116,19 @@ export default defineComponent({
 
     /** GRP-29, 40, 56: o menu "⋮" da pessoa só aparece com alguma ação (o dono não tem). */
     hasActions(m: Member): boolean {
-      if (m.isOwner) return false;
+      if (m.roleId === 'owner') return false;
       return this.canRemove(m) || this.ownerActions || this.canInvite(m) || this.canEditPositions;
     },
 
     /** GRP-40: o convite para membro vai para uma reserva, e nunca para a própria pessoa. */
     canInvite(m: Member): boolean {
-      return this.canManage && m.role === 'reserve' && m.userId !== this.auth.user?.id;
+      return this.canManage && m.tier === 'reserve' && m.userId !== this.auth.user?.id;
     },
 
     /** GRP-25, 53: nem a si mesmo (para isso, sair), e quem tem cargo só o dono remove. */
     canRemove(m: Member): boolean {
-      if (!this.canManage || m.isOwner || m.userId === this.auth.user?.id) return false;
-      return this.isOwner || !m.staffRole;
+      if (!this.canManage || m.roleId === 'owner' || m.userId === this.auth.user?.id) return false;
+      return this.isOwner || m.roleId === 'member';
     },
 
     personName(p: Pick<Member, 'nickname'>): string {
@@ -168,14 +168,16 @@ export default defineComponent({
             <span class="mname" :class="{ 'sc-muted': s.key === 'reserves' }">{{ personName(m) }}</span>
             <PlayerPositions
               v-if="playerPositions"
+              :sport-id="group.sportId"
               :positions="playerPositions[m.userId]"
               :editable="canEditPositions"
               :name="personName(m)"
               @edit="edit(m.userId)"
             />
           </span>
-          <span v-if="m.isOwner" class="sc-display owner">{{ $t('groups.owner') }}</span>
-          <span v-else-if="m.staffRole" class="sc-display owner">{{ m.staffRole.name }}</span>
+          <span v-if="m.roleId !== 'member'" class="sc-display owner">{{
+            $t(`groups.roleNames.${m.roleId}`)
+          }}</span>
           <span v-else-if="canManage && m.memberInviteExpiresAt" class="sc-label invited">{{
             $t('groups.memberInvite.sent')
           }}</span>
@@ -206,7 +208,7 @@ export default defineComponent({
                   </q-item>
                 </template>
                 <template v-if="ownerActions">
-                  <q-item v-if="m.staffRole" v-close-popup clickable @click="$emit('clearAdmin', m)">
+                  <q-item v-if="m.roleId === 'admin'" v-close-popup clickable @click="$emit('clearAdmin', m)">
                     <q-item-section avatar><q-icon name="remove_moderator" /></q-item-section>
                     <q-item-section>{{ $t('groups.staff.clearAdmin') }}</q-item-section>
                   </q-item>
@@ -214,7 +216,7 @@ export default defineComponent({
                     <q-item-section avatar><q-icon name="add_moderator" /></q-item-section>
                     <q-item-section>{{ $t('groups.staff.setAdmin') }}</q-item-section>
                   </q-item>
-                  <q-item v-if="m.role === 'member'" v-close-popup clickable @click="$emit('transfer', m)">
+                  <q-item v-if="m.tier === 'member'" v-close-popup clickable @click="$emit('transfer', m)">
                     <q-item-section avatar><q-icon name="key" /></q-item-section>
                     <q-item-section>{{ $t('groups.staff.transfer', { name: personName(m) }) }}</q-item-section>
                   </q-item>

@@ -1,7 +1,9 @@
 # 0009: Entidade de relação usa chave natural
 
 - Data: 2026-11-09
-- Estado: aceita
+- Estado: aceita; o formato da chave mudou pela [0014](0014-itens-do-grupo-na-particao-do-grupo.md) (2026-11-15)
+
+> **Atualização (2026-11-15):** a chave natural continua, mas a relação que pertence a uma das pontas mora na partição dela: `GROUP#<g>/MEMBER#<u>`, e não `MEMBERSHIP#<g>#<u>/META`. A direção "membros do grupo" virou uma Query na partição, sem lookup. Veja a [0014](0014-itens-do-grupo-na-particao-do-grupo.md).
 
 ## Contexto
 

@@ -2,13 +2,13 @@
 import {
   type Gender,
   type PlayerPosition,
-  type Sport,
   TEAM_EXTRA_LIMITS,
   type TeamExtra,
   TeamExtraSchema,
 } from '@scorely/contracts';
 import BottomSheet from '@scorely/web/src/components/BottomSheet.vue';
 import { uuid } from '@scorely/web/src/lib/uuid';
+import { useSportsStore } from '@scorely/web/src/modules/sports/sports.store';
 import PositionsPicker from '@scorely/web/src/modules/teams/components/PositionsPicker.vue';
 import { sportPositions } from '@scorely/web/src/modules/teams/players';
 import { defineComponent, type PropType } from 'vue';
@@ -21,10 +21,13 @@ export default defineComponent({
   name: 'TeamExtraSheet',
 
   components: { BottomSheet, PositionsPicker },
+  setup() {
+    return { sports: useSportsStore() };
+  },
 
   props: {
     modelValue: { type: Boolean, required: true },
-    sport: { type: String as PropType<Sport>, required: true },
+    sportId: { type: String, required: true },
     /** O avulso em edição; sem ele, é um avulso novo. */
     extra: { type: Object as PropType<TeamExtra | undefined>, default: undefined },
     saving: { type: Boolean, default: false },
@@ -66,7 +69,7 @@ export default defineComponent({
     },
 
     hasPositions(): boolean {
-      return sportPositions(this.sport).length > 0;
+      return sportPositions(this.sports.byId(this.sportId)).length > 0;
     },
 
     maxName(): number {
@@ -116,7 +119,7 @@ export default defineComponent({
 
     <template v-if="hasPositions">
       <div class="sc-label section">{{ $t('teams.extra.positions') }}</div>
-      <PositionsPicker v-model="positions" :sport="sport" />
+      <PositionsPicker v-model="positions" :sport-id="sportId" />
     </template>
 
     <q-btn

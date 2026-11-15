@@ -1,5 +1,6 @@
 <script lang="ts">
 import type { TeamPlayer, Teams, TeamViolation } from '@scorely/contracts';
+import { useSportsStore } from '@scorely/web/src/modules/sports/sports.store';
 import {
   joinNames,
   namesIn,
@@ -16,8 +17,13 @@ import { defineComponent, type PropType } from 'vue';
  */
 export default defineComponent({
   name: 'TeamsView',
+  setup() {
+    return { sports: useSportsStore() };
+  },
 
   props: {
+    /** TIM-02: o esporte do grupo, para o nome das posições (catálogo, ESP-08). */
+    sportId: { type: String, required: true },
     teams: { type: Object as PropType<Teams>, required: true },
     editable: { type: Boolean, default: false },
     /** Quem vê: o time dele fica em destaque. */
@@ -33,7 +39,7 @@ export default defineComponent({
 
     main(p: TeamPlayer): string {
       const first = p.positions[0];
-      return first ? this.$t(`teams.positions.${first}`) : '';
+      return first ? this.sports.positionName(this.sportId, first) : '';
     },
 
     text(t: Text): string {
@@ -44,7 +50,7 @@ export default defineComponent({
     outside(team: number): string[] {
       return violationsOfTeam(this.teams.violations, team).map((v: TeamViolation) =>
         v.kind === 'count'
-          ? `${this.text(targetText(v.rule.target))}: ${this.text(violationText(v))}`
+          ? `${this.text(targetText(v.rule.target, (id) => this.sports.positionName(this.sportId, id)))}: ${this.text(violationText(v))}`
           : this.text(violationText(v, this.names(v.people))),
       );
     },

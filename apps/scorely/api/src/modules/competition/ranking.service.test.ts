@@ -16,7 +16,7 @@ import {
   type CompetitionRules,
   type ErrorCode,
   type Gender,
-  type MemberRole,
+  type MemberTier,
   type PersonHistory,
   PersonHistorySchema,
   type PublicUserId,
@@ -77,7 +77,7 @@ const GENDERS: Record<string, Gender> = {
 const pub = (id: UserId): PublicUserId =>
   PublicUserIdSchema.parse(`${id.slice(0, 4)}${id.slice(-4)}`.toUpperCase());
 
-const ROSTER: Record<string, MemberRole> = {
+const ROSTER: Record<string, MemberTier> = {
   [OWNER]: 'member',
   [A]: 'member',
   [B]: 'member',
@@ -127,6 +127,7 @@ function result(date: string, extra: Partial<StoredGameResult>): StoredGameResul
     teams: [],
     createdAt: startsAt(date),
     updatedAt: startsAt(date),
+    version: 1,
     ...extra,
   };
 }
@@ -174,6 +175,7 @@ const G2_MATCHES: StoredMatch[] = [
     winner: 0,
     createdAt: '2026-11-06T22:10:00.000Z',
     updatedAt: '2026-11-06T22:10:00.000Z',
+    version: 1,
   },
   {
     id: 'a0000000-0000-4000-8000-000000000002',
@@ -186,6 +188,7 @@ const G2_MATCHES: StoredMatch[] = [
     winner: 'draw',
     createdAt: '2026-11-06T22:30:00.000Z',
     updatedAt: '2026-11-06T22:30:00.000Z',
+    version: 1,
   },
 ];
 
@@ -208,7 +211,7 @@ function setup(
     competition?: Partial<StoredCompetition> | null;
     results?: StoredGameResult[];
     matches?: Record<string, StoredMatch[]>;
-    roster?: Record<string, MemberRole>;
+    roster?: Record<string, MemberTier>;
   } = {},
 ) {
   const clock = { now: NOW };
@@ -217,7 +220,7 @@ function setup(
       id: GROUP_ID,
       createdAt: '2026-01-01T00:00:00.000Z',
       name: 'Vôlei de sexta',
-      sport: 'volleyball',
+      sportId: 'volleyball',
       weekday: 5,
       time: '19:00',
       timeZone: 'America/Sao_Paulo',
@@ -225,8 +228,6 @@ function setup(
       listOpensHoursBefore: 48,
       reservesOpenHoursBefore: 24,
       guestsOpenHoursBefore: 12,
-      ownerId: OWNER,
-      ownerPublicId: pub(OWNER),
       inviteToken: 'tok-member',
       reserveInviteToken: 'tok-reserve',
       guestToken: 'tok-guest',
@@ -234,7 +235,7 @@ function setup(
       maxReserves: 30,
       ...opts.group,
     } as StoredGroup,
-    roster: { ...(opts.roster ?? ROSTER) } as Record<string, MemberRole>,
+    roster: { ...(opts.roster ?? ROSTER) } as Record<string, MemberTier>,
     competition:
       opts.competition === null
         ? undefined
@@ -261,7 +262,7 @@ function setup(
     counts: unused,
     getMembership: async (groupId, userId) => {
       const role = groupId === state.group.id ? state.roster[userId] : undefined;
-      return role ? { role } : undefined;
+      return role ? { tier: role, roleId: userId === OWNER ? 'owner' : 'member' } : undefined;
     },
     setStaffRole: unused,
     transfer: unused,
@@ -272,7 +273,8 @@ function setup(
       groupId === state.group.id
         ? Object.entries(state.roster).map(([userId, role]) => ({
             userId: asUserId(userId),
-            role,
+            tier: role,
+            roleId: userId === OWNER ? ('owner' as const) : ('member' as const),
             createdAt: '2026-01-01T00:00:00.000Z',
           }))
         : [],
@@ -321,6 +323,7 @@ function setup(
             publicId: pub(id),
             nickname: NAMES[id] ?? pub(id),
             createdAt: '2026-01-01T00:00:00.000Z',
+            version: 1,
             ...(gender ? { gender } : {}),
           };
         }),
@@ -550,7 +553,7 @@ describe('a ordem no ranking (CMP-26)', () => {
         winner: 0,
       }),
     ];
-    const roster = { [OWNER]: 'member', [A]: 'member', [B]: 'member' } as Record<string, MemberRole>;
+    const roster = { [OWNER]: 'member', [A]: 'member', [B]: 'member' } as Record<string, MemberTier>;
 
     const byAttendance = setup({ results: final, roster });
     const res = await byAttendance.service.ranking(A, GROUP_ID);

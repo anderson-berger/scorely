@@ -20,8 +20,8 @@ export interface TeamPlayerChange {
   pinned: boolean;
 }
 
-/** O que o dono edita e manda no PUT (TIM-08, 13, 16, 24). */
-export type TeamsDraft = SaveTeamsInput & { pinned: string[] };
+/** O que o dono edita e manda no PUT (TIM-08, 13, 16, 24); a versão vai à parte (TIM-25). */
+export type TeamsDraft = Omit<SaveTeamsInput, 'version'> & { pinned: string[] };
 
 /** "Montar à mão" (TIM-14): `count` times vazios (a quantidade padrão do grupo, TIM-17, que vem da api), sem ajustes nem fixados. */
 export function emptyDraft(count: number = TEAM_COUNT.min): TeamsDraft {

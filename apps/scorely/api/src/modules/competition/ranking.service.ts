@@ -88,7 +88,7 @@ export function createRankingService(deps: RankingDeps) {
   /** CMP-24, 25: o ranking dos membros de agora, sobre os jogos dados. */
   async function liveEntries(groupId: string, games: readonly Scored[], tiebreak: readonly Tiebreak[]) {
     const roster = await deps.groups.listMembers(groupId);
-    const members = roster.filter((m) => m.role === 'member').map((m) => m.userId);
+    const members = roster.filter((m) => m.tier === 'member').map((m) => m.userId);
     return rankingRows(games, members, tiebreak);
   }
 
@@ -313,7 +313,7 @@ export async function podiumIds(
     (g) => g.result.date >= season.startDate && g.result.date <= season.endDate,
   );
   const roster = await deps.groups.listMembers(groupId);
-  const members = roster.filter((m) => m.role === 'member').map((m) => m.userId);
+  const members = roster.filter((m) => m.tier === 'member').map((m) => m.userId);
   return new Set(
     rankingRows(games, members, season.rules.tiebreak)
       .filter((r) => r.position <= 3)
@@ -343,7 +343,7 @@ export async function announcePodium(
     (g) => g.result.date >= season.startDate && g.result.date <= season.endDate,
   );
   const roster = await deps.groups.listMembers(groupId);
-  const members = roster.filter((m) => m.role === 'member').map((m) => m.userId);
+  const members = roster.filter((m) => m.tier === 'member').map((m) => m.userId);
   const positionOf = new Map(
     rankingRows(games, members, season.rules.tiebreak).map((r) => [r.id, r.position]),
   );

@@ -1,12 +1,16 @@
 import { GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import {
   batchGetOrdered,
+  currentVersion,
   dbItem,
   LOOKUP_ENTITY,
   queryLookupRows,
+  sendVersioned,
   stripKeys,
   touch,
   transactWrite,
+  versionConflict,
+  withVersion,
 } from '@scorely/api/src/lib/db';
 import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
 import {
@@ -43,6 +47,8 @@ export interface StoredGameResult {
   winner?: GameResultWinner | undefined;
   createdAt: string;
   updatedAt: string;
+  /** CMP-42 (ADR 0013, 0016). */
+  version: number;
 }
 
 /** O que a correção troca (CMP-15): a cópia do regulamento e os membros ficam os do 1º fechamento. */
@@ -61,10 +67,13 @@ export interface ResultRepository {
   get(gameId: string, opts?: { consistent?: boolean }): Promise<StoredGameResult | undefined>;
   /** Os fechamentos do grupo, pelo lookup (do mais antigo para o mais recente). */
   listByGroup(groupId: string): Promise<StoredGameResult[]>;
-  /** 1º fechamento: a entidade e o lookup numa transação. `false` = já existia (outro aparelho fechou antes). */
-  create(result: StoredGameResult): Promise<boolean>;
-  /** Correção (CMP-15). Sem `winner` no patch = sem resultado (o atributo sai). */
-  update(gameId: string, patch: GameResultPatch): Promise<void>;
+  /**
+   * 1º fechamento: a entidade e o lookup numa transação, com a versão esperada `0` (CMP-42). Já existia (outro
+   * aparelho fechou antes) → `VERSION_CONFLICT` com a versão atual.
+   */
+  create(result: Omit<StoredGameResult, 'version'>, expectedVersion: number): Promise<boolean>;
+  /** Correção (CMP-15), só na versão esperada (CMP-42). Sem `winner` no patch = sem resultado (o atributo sai). */
+  update(gameId: string, patch: GameResultPatch, expectedVersion: number): Promise<void>;
 }
 
 export const dynamoResultRepository: ResultRepository = {
@@ -81,7 +90,9 @@ export const dynamoResultRepository: ResultRepository = {
     return items.map((row) => stripKeys<StoredGameResult>(row));
   },
 
-  async create(result) {
+  async create(result, expectedVersion) {
+    if (expectedVersion !== 0)
+      throw await versionConflict(() => currentVersion(gameResultKey(result.gameId)));
     const outcome = await transactWrite([
       {
         Put: {
@@ -102,10 +113,11 @@ export const dynamoResultRepository: ResultRepository = {
         },
       },
     ]);
-    return outcome.ok;
+    if (!outcome.ok) throw await versionConflict(() => currentVersion(gameResultKey(result.gameId)));
+    return true;
   },
 
-  async update(gameId, patch) {
+  async update(gameId, patch, expectedVersion) {
     const sets = [
       'attendance = :attendance',
       'teams = :teams',
@@ -126,15 +138,20 @@ export const dynamoResultRepository: ResultRepository = {
       sets.push('winner = :winner');
       values[':winner'] = patch.winner;
     }
-    await dynamo().send(
-      new UpdateCommand(
-        touch({
-          TableName: tableName(),
-          Key: gameResultKey(gameId),
-          UpdateExpression: `SET ${sets.join(', ')}${patch.winner === undefined ? ' REMOVE winner' : ''}`,
-          ConditionExpression: 'attribute_exists(PK)',
-          ExpressionAttributeValues: values,
-        }),
+    await sendVersioned(gameResultKey(gameId), () =>
+      dynamo().send(
+        new UpdateCommand(
+          withVersion(
+            touch({
+              TableName: tableName(),
+              Key: gameResultKey(gameId),
+              UpdateExpression: `SET ${sets.join(', ')}${patch.winner === undefined ? ' REMOVE winner' : ''}`,
+              ConditionExpression: 'attribute_exists(PK)',
+              ExpressionAttributeValues: values,
+            }),
+            expectedVersion,
+          ),
+        ),
       ),
     );
   },

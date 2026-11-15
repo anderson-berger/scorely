@@ -1,12 +1,9 @@
 import type { Member, MyGroup } from '@scorely/contracts';
 import { ApiRequestError } from '@scorely/web/src/lib/http';
 
-/** Separa os grupos em "Sou dono" e "Participo", mantendo a ordem da api (plano 013, D4). */
-export function splitGroups<T extends Pick<MyGroup, 'ownerId'>>(
-  groups: T[],
-  userId: string | undefined,
-): { owned: T[]; joined: T[] } {
-  const isMine = (g: T) => userId !== undefined && g.ownerId === userId;
+/** Separa os grupos em "Sou dono" (o cargo Dono, GRP-27, 55) e "Participo", mantendo a ordem da api (plano 013, D4). */
+export function splitGroups<T extends Pick<MyGroup, 'myRoleId'>>(groups: T[]): { owned: T[]; joined: T[] } {
+  const isMine = (g: T) => g.myRoleId === 'owner';
   return { owned: groups.filter(isMine), joined: groups.filter((g) => !isMine(g)) };
 }
 
@@ -50,7 +47,7 @@ export type CardLine =
 const HOUR_MS = 3_600_000;
 
 export function cardLine(
-  group: Pick<MyGroup, 'myRole' | 'listOpensHoursBefore' | 'reservesOpenHoursBefore'> & {
+  group: Pick<MyGroup, 'myTier' | 'listOpensHoursBefore' | 'reservesOpenHoursBefore'> & {
     game?: MyGroup['game'] | undefined;
     archivedAt?: string | undefined;
   },
@@ -64,7 +61,7 @@ export function cardLine(
   if (game.status === 'in_progress') return { kind: 'in_progress' };
   if (game.me?.list === 'confirmed') return { kind: 'playing', position: game.me.position };
   if (game.me?.list === 'waitlist') return { kind: 'waiting', position: game.me.position };
-  const hours = group.myRole === 'reserve' ? group.reservesOpenHoursBefore : group.listOpensHoursBefore;
+  const hours = group.myTier === 'reserve' ? group.reservesOpenHoursBefore : group.listOpensHoursBefore;
   const opensAt = Date.parse(game.startsAt) - hours * HOUR_MS;
   if (now.getTime() < opensAt) return { kind: 'opens', at: new Date(opensAt).toISOString() };
   const left = game.slots - game.confirmedCount;
@@ -81,14 +78,14 @@ export function groupColor(id: string): 1 | 2 | 3 | 4 | 5 | 6 {
 }
 
 /** Membros (dono primeiro) e reservas, na ordem da api (plano 015, D11). Não altera a entrada. */
-export function memberSections<T extends Pick<Member, 'isOwner' | 'role'>>(
+export function memberSections<T extends Pick<Member, 'roleId' | 'tier'>>(
   members: T[],
 ): { members: T[]; reserves: T[] } {
-  const owner = members.filter((m) => m.isOwner);
-  const rest = members.filter((m) => !m.isOwner);
+  const owner = members.filter((m) => m.roleId === 'owner');
+  const rest = members.filter((m) => m.roleId !== 'owner');
   return {
-    members: [...owner, ...rest.filter((m) => m.role !== 'reserve')],
-    reserves: rest.filter((m) => m.role === 'reserve'),
+    members: [...owner, ...rest.filter((m) => m.tier !== 'reserve')],
+    reserves: rest.filter((m) => m.tier === 'reserve'),
   };
 }
 

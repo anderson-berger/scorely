@@ -1,5 +1,5 @@
 import { GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
-import { replaceItem, stripKeys } from '@scorely/api/src/lib/db';
+import { replaceItem, sendVersioned, stripKeys, withVersion } from '@scorely/api/src/lib/db';
 import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
 import type { TeamApartRule } from '@scorely/api/src/modules/teams/engine/rules';
 import { TEAM_SETTINGS_ENTITY, teamSettingsKey } from '@scorely/api/src/modules/teams/settings.table';
@@ -17,12 +17,17 @@ export interface StoredTeamSettings {
   allowOutsideRules: boolean;
   createdAt: string;
   updatedAt: string;
+  /** TIM-25 (ADR 0013). */
+  version: number;
 }
 
 export interface TeamSettingsRepository {
   get(groupId: string): Promise<StoredTeamSettings | undefined>;
-  /** Grava o item inteiro (o service mantém o `createdAt`); a `version` segue (ADR 0013). */
-  put(settings: StoredTeamSettings): Promise<void>;
+  /**
+   * Grava o item inteiro (o service mantém o `createdAt`); a `version` segue (ADR 0013). Só grava na versão esperada
+   * (`0` = o grupo ainda sem configuração, TIM-25); senão, `VERSION_CONFLICT`.
+   */
+  put(settings: StoredTeamSettings, expectedVersion: number): Promise<void>;
 }
 
 export const dynamoTeamSettingsRepository: TeamSettingsRepository = {
@@ -33,15 +38,18 @@ export const dynamoTeamSettingsRepository: TeamSettingsRepository = {
     return Item ? stripKeys<StoredTeamSettings>(Item) : undefined;
   },
 
-  async put(settings) {
-    await dynamo().send(
-      new UpdateCommand({
-        TableName: tableName(),
-        ...replaceItem(teamSettingsKey(settings.groupId), TEAM_SETTINGS_ENTITY, { ...settings }, [
-          'apart',
-          'spreadGender',
-        ]),
-      }),
+  async put(settings, expectedVersion) {
+    const key = teamSettingsKey(settings.groupId);
+    await sendVersioned(key, () =>
+      dynamo().send(
+        new UpdateCommand({
+          TableName: tableName(),
+          ...withVersion(
+            replaceItem(key, TEAM_SETTINGS_ENTITY, { ...settings }, ['apart', 'spreadGender']),
+            expectedVersion,
+          ),
+        }),
+      ),
     );
   },
 };

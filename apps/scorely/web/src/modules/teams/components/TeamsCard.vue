@@ -2,7 +2,6 @@
 import {
   ErrorDetailsSchemas,
   type Game,
-  type Sport,
   TEAM_COUNT,
   TEAM_EXTRA_LIMITS,
   type TeamExtra,
@@ -14,6 +13,7 @@ import { errorMessage } from '@scorely/web/src/i18n/errors';
 import { ApiRequestError } from '@scorely/web/src/lib/http';
 import { useAuthStore } from '@scorely/web/src/modules/auth/auth.store';
 import { onPermissionError, permissionLostInject } from '@scorely/web/src/modules/groups/permissions';
+import { useSportsStore } from '@scorely/web/src/modules/sports/sports.store';
 import TeamExtraSheet from '@scorely/web/src/modules/teams/components/TeamExtraSheet.vue';
 import TeamPlayerSheet from '@scorely/web/src/modules/teams/components/TeamPlayerSheet.vue';
 import TeamsView from '@scorely/web/src/modules/teams/components/TeamsView.vue';
@@ -64,12 +64,12 @@ export default defineComponent({
   props: {
     groupId: { type: String, required: true },
     game: { type: Object as PropType<Game>, required: true },
-    sport: { type: String as PropType<Sport>, required: true },
+    sportId: { type: String, required: true },
     canManage: { type: Boolean, default: false },
   },
 
   setup() {
-    return { auth: useAuthStore() };
+    return { sports: useSportsStore(), auth: useAuthStore() };
   },
 
   data() {
@@ -176,7 +176,9 @@ export default defineComponent({
     },
 
     save(draft: TeamsDraft) {
-      return this.run(() => teamsApi.saveTeams(this.groupId, this.game.date, draft));
+      return this.run(() =>
+        teamsApi.saveTeams(this.groupId, this.game.date, { ...draft, ...this.version() }),
+      );
     },
 
     text(t: Text): string {
@@ -196,7 +198,9 @@ export default defineComponent({
         return this.text(conflictText(c, joinNames(names, this.$t('teams.rules.and'))));
       }
       const reason = this.text(conflictText(c));
-      return c.reason === 'unsolvable' ? reason : `${this.text(targetText(c.rule.target))}: ${reason}`;
+      return c.reason === 'unsolvable'
+        ? reason
+        : `${this.text(targetText(c.rule.target, (id) => this.sports.positionName(this.sportId, id)))}: ${reason}`;
     },
 
     build() {
@@ -243,9 +247,14 @@ export default defineComponent({
       if (await this.save(removeExtra(this.draft, id))) this.extraOpen = false;
     },
 
+    /** TIM-25: a versão dos times que a tela mostra (0 = o jogo ainda sem times). */
+    version(): { version: number } {
+      return { version: this.teams?.version ?? 0 };
+    },
+
     /** TIM-15: com os times publicados, confirma antes (eles voltam para rascunho). */
     draw() {
-      const run = () => this.run(() => teamsApi.drawTeams(this.groupId, this.game.date));
+      const run = () => this.run(() => teamsApi.drawTeams(this.groupId, this.game.date, this.version()));
       if (this.teams?.status !== 'published') return run();
       this.$q
         .dialog({
@@ -262,13 +271,13 @@ export default defineComponent({
 
     publish() {
       return this.run(
-        () => teamsApi.publishTeams(this.groupId, this.game.date),
+        () => teamsApi.publishTeams(this.groupId, this.game.date, this.version()),
         this.$t('teams.publishedToast'),
       );
     },
 
     unpublish() {
-      return this.run(() => teamsApi.unpublishTeams(this.groupId, this.game.date));
+      return this.run(() => teamsApi.unpublishTeams(this.groupId, this.game.date, this.version()));
     },
 
     discard() {
@@ -281,7 +290,7 @@ export default defineComponent({
         })
         .onOk(() => {
           void this.run(async () => {
-            await teamsApi.discardTeams(this.groupId, this.game.date);
+            await teamsApi.discardTeams(this.groupId, this.game.date, this.version());
             return undefined;
           });
         });
@@ -388,7 +397,7 @@ export default defineComponent({
 
     <template v-else>
       <div v-if="canManage && teams.status === 'draft'" class="sc-caption hint">{{ $t('teams.draftHint') }}</div>
-      <TeamsView :teams="teams" :editable="canManage" :me-id="meId" @select="select" />
+      <TeamsView :teams="teams" :sport-id="sportId" :editable="canManage" :me-id="meId" @select="select" />
 
       <div v-if="canManage" class="actions">
         <q-btn
@@ -426,7 +435,7 @@ export default defineComponent({
         :player="selected"
         :team="selectedTeam"
         :team-count="count"
-        :sport="sport"
+        :sport-id="sportId"
         :saving="busy"
         @save="onChange"
         @edit-extra="openExtra(selectedId)"
@@ -436,7 +445,7 @@ export default defineComponent({
       <TeamExtraSheet
         v-if="canManage"
         v-model="extraOpen"
-        :sport="sport"
+        :sport-id="sportId"
         :extra="editingExtra"
         :saving="busy"
         @save="saveExtra"

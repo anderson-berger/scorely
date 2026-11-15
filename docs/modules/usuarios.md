@@ -1,6 +1,6 @@
 # Módulo Usuários
 
-> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-14.
+> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-15.
 
 Código: `apps/scorely/api/src/modules/users/`, `apps/scorely/web/src/modules/users/`, `apps/scorely/web/src/lib/preferences.ts`. Contrato: `apps/scorely/contracts/src/users.ts`.
 
@@ -71,6 +71,9 @@ Os dados da pessoa ficam em três partes, cada uma com quem pode ler:
   - Ao sair da conta, o navegador volta para o idioma da tela de login (USR-06, passos 2 e 3) e para o fuso dele.
   - _Por quê:_ idioma e fuso quase nunca mudam. Perguntar ao servidor a cada abertura só atrasaria a tela, e a renovação da sessão já acontece de qualquer jeito.
 
+- **USR-18. Salvar o perfil manda a versão que a tela mostrou.** O `GET /me` traz a `version` do perfil, e o `PATCH /me` exige a mesma. Toda mudança pelo `PATCH /me` (apelido, nome, gênero, idioma ou fuso) soma 1 nela. Se o perfil mudou antes (em outro aparelho, por exemplo), a resposta é `VERSION_CONFLICT` (409, `details.currentVersion`), e nada é gravado. A tela relê o perfil e avisa: "Seu perfil mudou em outro lugar. Atualizamos; faça a mudança de novo." Trocar a foto não manda versão: ela segue as regras da mídia (USR-08). _(Nova em 2026-11-15.)_
+  - _Por quê:_ com dois aparelhos abertos, salvar no segundo apagaria o que foi mudado no primeiro ([ADR 0016](../decisions/0016-version-confere-nas-edicoes.md)).
+
 - A tela do perfil também mostra a **sala de troféus** da competição, que é do módulo de competição e só lê `GET /me/trophies` ([CMP-41](competicao.md)). Ela não muda nenhuma regra deste módulo.
 
 ### Foto de perfil
@@ -105,14 +108,14 @@ Os outros módulos leem pessoas pelo `UserDirectory`, que só busca o perfil (`M
 | Rota                     | Quem   | Regras              |
 | ------------------------ | ------ | ------------------- |
 | `GET /me`                | logado | USR-13, 14          |
-| `PATCH /me`              | logado | USR-03, 05, 14      |
+| `PATCH /me`              | logado | USR-03, 05, 14, 18  |
 | `POST /me/avatar/upload` | logado | USR-08 (MID-03, 04) |
 | `PUT /me/avatar`         | logado | USR-08 (MID-05–09)  |
 | `DELETE /me/avatar`      | logado | USR-08 (MID-10)     |
 
 O `GET /me` e o `PATCH /me` devolvem o perfil (com `id` = id público, USR-16), o email, o nome e as preferências (`preferences: { locale?, timeZone? }`). Nas rotas dos outros módulos, todo `{userId}` e todo `userId` do corpo é o id público, e a pessoa vem com o `nickname` (USR-04). O `name` só existe no `GET /me` e no `PATCH /me`: nenhuma outra resposta tem esse campo para uma pessoa com conta (USR-13).
 
-Erros: `USER_CREATE_CONFLICT`, `USER_NICKNAME_IS_PUBLIC_ID` (422, USR-03) e `SESSION_INVALID` (401) quando a conta do token não existe mais (AUTH-16 em [auth.md](auth.md)). Os da foto vêm da mídia (`MEDIA_NOT_FOUND`, `MEDIA_NOT_UPLOADED` e `MEDIA_INVALID`).
+Erros: `VERSION_CONFLICT` (409, USR-18), `USER_CREATE_CONFLICT`, `USER_NICKNAME_IS_PUBLIC_ID` (422, USR-03) e `SESSION_INVALID` (401) quando a conta do token não existe mais (AUTH-16 em [auth.md](auth.md)). Os da foto vêm da mídia (`MEDIA_NOT_FOUND`, `MEDIA_NOT_UPLOADED` e `MEDIA_INVALID`).
 
 ## 4. Limites conhecidos
 

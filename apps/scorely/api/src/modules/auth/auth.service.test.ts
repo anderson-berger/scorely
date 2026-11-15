@@ -350,7 +350,7 @@ describe('auth: a pessoa e as preferências no login e na renovação (USR-14)',
 
   it('AUTH-06: o login traz o idioma e o fuso guardados nas preferências', async () => {
     const t = await loggedIn();
-    await t.users.update(t.systemIdOf(EMAIL), { locale: 'en', timeZone: 'Asia/Tokyo' });
+    await t.users.update(t.systemIdOf(EMAIL), { version: 1, locale: 'en', timeZone: 'Asia/Tokyo' });
     const again = await loginAgain(t);
     expect(again.user.preferences).toEqual({ locale: 'en', timeZone: 'Asia/Tokyo' });
     expect(again.user.email).toBe(EMAIL);
@@ -365,7 +365,7 @@ describe('auth: a pessoa e as preferências no login e na renovação (USR-14)',
   it('AUTH-07: mudou num aparelho → a renovação do outro já traz as preferências novas', async () => {
     const t = await loggedIn();
     const other = await loginAgain(t);
-    await t.users.update(t.systemIdOf(EMAIL), { locale: 'en', timeZone: 'Europe/Lisbon' });
+    await t.users.update(t.systemIdOf(EMAIL), { version: 1, locale: 'en', timeZone: 'Europe/Lisbon' });
     const next = await t.service.refresh(other.refreshToken);
     expect(next.preferences).toEqual({ locale: 'en', timeZone: 'Europe/Lisbon' });
     expect(next.refreshToken).not.toBe(other.refreshToken);

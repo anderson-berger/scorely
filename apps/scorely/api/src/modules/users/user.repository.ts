@@ -1,6 +1,7 @@
 import { GetCommand } from '@aws-sdk/lib-dynamodb';
 import {
   batchGetOrdered,
+  currentVersion,
   dbItem,
   LOOKUP_ENTITY,
   setCreatedAtIfNew,
@@ -8,6 +9,8 @@ import {
   type TransactItem,
   touch,
   transactWrite,
+  versionConflict,
+  withVersion,
 } from '@scorely/api/src/lib/db';
 import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
 import { asUserId, type UserId } from '@scorely/api/src/lib/ids';
@@ -32,6 +35,8 @@ export type UserRecord = Omit<User, 'id' | 'avatarUrl'> & {
   id: UserId;
   publicId: PublicUserId;
   avatarMediaId?: string;
+  /** USR-18: a versão do perfil, que o `PATCH /me` manda (ADR 0013, 0016). */
+  version: number;
 };
 /** A própria pessoa como fica no banco: perfil + parte privada (email e nome) + preferências (USR-13, 14). */
 export type MeRecord = UserRecord & Pick<Me, 'email' | 'name' | 'preferences'>;
@@ -175,27 +180,23 @@ export const dynamoUserRepository: UserRepository = {
     const preferences = pick(patch, PREFERENCE_FIELDS);
     const now = new Date();
     const created = setCreatedAtIfNew(now);
-    // O índice 0 é sempre o perfil: Update dos campos dele, ou só a conferência de que a pessoa existe.
+    // O índice 0 é sempre o perfil: toda mudança soma 1 na versão dele (USR-18), com a condição da versão que a tela
+    // mostrou, mesmo quando só o nome ou as preferências mudam.
     const items: TransactItem[] = [
-      profile.length > 0
-        ? {
-            Update: touch(
-              {
-                TableName: tableName(),
-                Key: userKey(id),
-                ConditionExpression: 'attribute_exists(PK)',
-                ...updateParts(profile),
-              },
-              now,
-            ),
-          }
-        : {
-            ConditionCheck: {
+      {
+        Update: withVersion(
+          touch(
+            {
               TableName: tableName(),
               Key: userKey(id),
               ConditionExpression: 'attribute_exists(PK)',
+              ...(profile.length > 0 && updateParts(profile)),
             },
-          },
+            now,
+          ),
+          patch.version,
+        ),
+      },
       ...(privateFields.length > 0
         ? [
             {
@@ -230,7 +231,13 @@ export const dynamoUserRepository: UserRepository = {
         : []),
     ];
     const result = await transactWrite(items);
-    if (!result.ok) return undefined;
+    if (!result.ok) {
+      if (!result.failed.includes(0)) return undefined;
+      // A conta sumiu (AUTH-16) ou o perfil mudou antes (USR-18).
+      const current = await currentVersion(userKey(id));
+      if (current === 0) return undefined;
+      throw await versionConflict(async () => current);
+    }
     return dynamoUserRepository.getMe(id, { consistent: true });
   },
 

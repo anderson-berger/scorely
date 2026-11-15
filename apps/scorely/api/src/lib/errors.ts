@@ -10,6 +10,7 @@ const CATALOG = {
   INVALID_JSON: { status: 400, message: 'Body is not valid JSON' },
   MISSING_PARAM: { status: 400, message: 'Missing required path parameter' },
   INVALID_CURSOR: { status: 400, message: 'Invalid pagination cursor' },
+  VERSION_CONFLICT: { status: 409, message: 'The item changed since it was read' },
   INTERNAL_ERROR: { status: 500, message: 'Internal error' },
 
   UNAUTHORIZED: { status: 401, message: 'Not authenticated' },
@@ -44,6 +45,10 @@ const CATALOG = {
   GROUP_RESERVES_FULL: { status: 409, message: 'The group has reached its reserve limit' },
   GROUP_MEMBER_INVITE_INVALID: { status: 404, message: 'No pending member invite' },
   GROUP_MIN_PLAYERS_INVALID: { status: 422, message: 'The minimum cannot be greater than the slots' },
+  SPORT_NOT_FOUND: { status: 422, message: 'Sport not found in the catalog' },
+  PLACE_NOT_FOUND: { status: 404, message: 'Place not found in the group' },
+  PLACE_LIMIT_REACHED: { status: 409, message: 'The group reached the limit of active places' },
+  PLACE_IS_DEFAULT: { status: 409, message: 'The default place cannot be archived' },
   GAME_SLOTS_BELOW_CONFIRMED: {
     status: 409,
     message: 'The slots cannot be fewer than the people already in',

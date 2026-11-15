@@ -14,6 +14,7 @@ import { onSessionExpired } from '@scorely/web/src/lib/http';
 import { applyPreferences } from '@scorely/web/src/lib/preferences';
 import { useAuthStore } from '@scorely/web/src/modules/auth/auth.store';
 import { useNotificationsStore } from '@scorely/web/src/modules/notifications/notifications.store';
+import { useSportsStore } from '@scorely/web/src/modules/sports/sports.store';
 import { createPinia } from 'pinia';
 import { Dialog, Notify, Quasar } from 'quasar';
 import { createApp } from 'vue';
@@ -39,3 +40,7 @@ onSessionExpired(() => {
 // Antes do login: idioma salvo neste navegador ou o do navegador; fuso detectado. O perfil sobrescreve no loadMe.
 applyPreferences();
 app.mount('#app');
+// ESP-08: o catálogo de esportes, uma vez por sessão (público, não depende do login). Falhou: quem precisa tenta de novo.
+useSportsStore()
+  .load()
+  .catch(() => undefined);

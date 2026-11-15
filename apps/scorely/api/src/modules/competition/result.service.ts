@@ -83,8 +83,8 @@ export function createResultService(deps: ResultDeps) {
   async function currentRoles(groupId: string): Promise<Roles> {
     const list = await deps.groups.listMembers(groupId);
     return {
-      members: list.filter((m) => m.role === 'member').map((m) => m.userId),
-      reserves: list.filter((m) => m.role === 'reserve').map((m) => m.userId),
+      members: list.filter((m) => m.tier === 'member').map((m) => m.userId),
+      reserves: list.filter((m) => m.tier === 'reserve').map((m) => m.userId),
     };
   }
 
@@ -240,6 +240,8 @@ export function createResultService(deps: ResultDeps) {
       cancelled,
       friendly: result?.friendly ?? false,
       closed: Boolean(result),
+      // CMP-42: a versão que o PUT manda (0 = ainda não fechado).
+      version: result?.version ?? 0,
       unit: result ? result.rules.unit : (season?.rules ?? competition.rules).unit,
       teams: teams.map((t) => t.map(shown)),
       ...(result?.winner !== undefined && { winner: result.winner }),
@@ -249,6 +251,7 @@ export function createResultService(deps: ResultDeps) {
         number: i + 1,
         teams: [m.teams[0].map(shown), m.teams[1].map(shown)] as [string[], string[]],
         winner: m.winner,
+        version: m.version,
       })),
       dayWinners: dayWinners(matches).map(shown),
     };
@@ -280,13 +283,13 @@ export function createResultService(deps: ResultDeps) {
 
     /** CMP-12–16: membros e reservas veem o jogo, inclusive com a competição vencida e o grupo arquivado. */
     async get(userId: UserId, groupId: string, date: string): Promise<CompetitionGameDetail> {
-      const { group, staffRoleId } = await requireMember(deps, userId, groupId);
+      const { group, roleId } = await requireMember(deps, userId, groupId);
       const competition = await deps.competitions.get(groupId);
       const occ = occurrenceFor(group, competition, date);
       const record = await startedGame(group, occ);
       const result = await deps.results.get(record.id);
       const season = await seasonFor(groupId, occ.date);
-      const canRecord = permissionsOf(group, userId, staffRoleId).includes('results.record');
+      const canRecord = permissionsOf(roleId).includes('results.record');
       return detail({
         group,
         occ,
@@ -346,23 +349,27 @@ export function createResultService(deps: ResultDeps) {
         updatedAt: at,
       };
 
-      const created =
-        !existing &&
-        (await deps.results.create({
-          gameId: record.id,
-          groupId,
-          date: occ.date,
-          startsAt: occ.startsAt,
-          cancelled,
-          rules,
-          ...(season && { seasonId: season.id }),
-          ...(await currentRoles(groupId)),
-          list,
-          ...patch,
-          createdAt: at,
-        }));
-      // Já existia (ou outro aparelho fechou antes): é uma correção, com a cópia e os membros do 1º fechamento.
-      if (!created) await deps.results.update(record.id, { ...patch, winner: input.winner });
+      // CMP-42: o 1º fechamento manda 0, e a correção, a versão que a tela mostrou. Outro aparelho fechou antes →
+      // VERSION_CONFLICT (a tela relê e corrige por cima do que já está gravado).
+      if (!existing)
+        await deps.results.create(
+          {
+            gameId: record.id,
+            groupId,
+            date: occ.date,
+            startsAt: occ.startsAt,
+            cancelled,
+            rules,
+            ...(season && { seasonId: season.id }),
+            ...(await currentRoles(groupId)),
+            list,
+            ...patch,
+            createdAt: at,
+          },
+          input.version,
+        );
+      // Correção: com a cópia e os membros do 1º fechamento.
+      else await deps.results.update(record.id, { ...patch, winner: input.winner }, input.version);
 
       if (podiumBefore && season) await announcePodium(deps, groupId, season, podiumBefore);
       // Releitura consistente: o fechamento acabou de ser gravado.

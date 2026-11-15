@@ -3,7 +3,8 @@ import { ApiRequestError } from '@scorely/web/src/lib/http';
 
 /**
  * O que quem vê a página pode fazer (GRP-49, 55). Sai do `myPermissions` que a api devolve: o web não calcula
- * permissão, só mostra ou esconde (GRP-52). `owner` é para o que é só do dono: arquivar, cargos e passar o grupo.
+ * permissão, só mostra ou esconde (GRP-52). `owner` (o cargo Dono, `myRoleId`) é para o que é só do dono: arquivar,
+ * cargos e passar o grupo.
  */
 export interface GroupAccess {
   owner: boolean;
@@ -27,13 +28,10 @@ export const NO_ACCESS: GroupAccess = {
   results: false,
 };
 
-export function groupAccess(
-  group: Pick<Group, 'ownerId' | 'myPermissions'>,
-  meId: string | undefined,
-): GroupAccess {
+export function groupAccess(group: Pick<Group, 'myRoleId' | 'myPermissions'>): GroupAccess {
   const has = (p: Permission) => group.myPermissions.includes(p);
   return {
-    owner: meId !== undefined && group.ownerId === meId,
+    owner: group.myRoleId === 'owner',
     game: has('game.manage'),
     teams: has('teams.manage'),
     members: has('members.manage'),
@@ -59,6 +57,11 @@ export function isPermissionError(err: unknown): boolean {
   );
 }
 
+/** ADR 0016: outra pessoa mudou o item antes (GRP-59, TIM-25, CMP-42). A tela relê, fecha o painel e avisa. */
+export function isVersionConflict(err: unknown): boolean {
+  return err instanceof ApiRequestError && err.code === 'VERSION_CONFLICT';
+}
+
 /** GRP-57: ao voltar para a aba, relê se a última leitura tem 1 min ou mais, e nunca com outra em andamento. */
 export const REFRESH_AFTER_MS = 60_000;
 
@@ -72,15 +75,16 @@ export const PERMISSION_LOST = 'groupPermissionLost';
 
 /** O `inject` dos componentes da página do grupo (GRP-57). Fora da página, não faz nada. */
 export const permissionLostInject = {
-  permissionLost: { from: PERMISSION_LOST, default: () => async () => undefined },
+  permissionLost: { from: PERMISSION_LOST, default: () => async (_err?: unknown) => undefined },
 };
 
 /**
- * GRP-57: no `catch` de uma ação. Se o erro é de permissão, avisa o casco (que mostra a mensagem e recarrega) e
- * devolve `true`: o componente só fecha o painel. Senão, `false`: o componente trata o erro como sempre.
+ * GRP-57: no `catch` de uma ação. Se o erro é de permissão ou de versão (ADR 0016: outra pessoa mudou antes), avisa
+ * o casco (que mostra a mensagem e recarrega) e devolve `true`: o componente só fecha o painel. Senão, `false`: o
+ * componente trata o erro como sempre.
  */
 export async function onPermissionError(err: unknown, permissionLost: unknown): Promise<boolean> {
-  if (!isPermissionError(err)) return false;
-  if (typeof permissionLost === 'function') await (permissionLost as () => Promise<void>)();
+  if (!isPermissionError(err) && !isVersionConflict(err)) return false;
+  if (typeof permissionLost === 'function') await (permissionLost as (err: unknown) => Promise<void>)(err);
   return true;
 }

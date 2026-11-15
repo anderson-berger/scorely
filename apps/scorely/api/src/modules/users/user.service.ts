@@ -53,7 +53,7 @@ export function createUserService(
     // USR-13: o email vai à parte, nunca no perfil. USR-15: o código nasce aqui e não muda mais.
     // USR-02: o apelido nasce igual ao código. `newEntity` gera o id do sistema (uuid) e o `createdAt`.
     const publicId = newId();
-    const user = newEntity<UserRecord>({ publicId, nickname: publicId }, now());
+    const user = newEntity<UserRecord>({ publicId, nickname: publicId, version: 1 }, now());
     const result = await repo.create(user, email);
     if (result === 'created') {
       return { userId: user.id, me: show({ ...user, email, preferences: {} }), created: true };

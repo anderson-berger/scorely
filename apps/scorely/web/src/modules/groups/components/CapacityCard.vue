@@ -39,7 +39,12 @@ export default defineComponent({
     async save(value: { slots: number; minPlayers: number | undefined }) {
       this.saving = true;
       try {
-        await groupsApi.update(this.group.id, { slots: value.slots, minPlayers: value.minPlayers ?? null });
+        await groupsApi.update(this.group.id, {
+          // GRP-59: a versão dos Ajustes que a tela mostra.
+          version: this.group.settingsVersion,
+          slots: value.slots,
+          minPlayers: value.minPlayers ?? null,
+        });
         this.editing = false;
         this.$q.notify({ type: 'positive', message: this.$t('groups.capacity.saved') });
         this.$emit('saved');

@@ -4,6 +4,7 @@ import StatusChip from '@scorely/web/src/components/StatusChip.vue';
 import { formatDateTime } from '@scorely/web/src/lib/datetime';
 import { type CardLine, cardLine, groupColor } from '@scorely/web/src/modules/groups/groups';
 import { initials, type StatusTone, statusTone } from '@scorely/web/src/modules/groups/scoreboard';
+import { useSportsStore } from '@scorely/web/src/modules/sports/sports.store';
 import { defineComponent, type PropType } from 'vue';
 
 type LineTone = 'accent' | 'neutral' | 'danger';
@@ -17,6 +18,9 @@ export default defineComponent({
   name: 'GroupCard',
 
   components: { StatusChip },
+  setup() {
+    return { sports: useSportsStore() };
+  },
 
   props: {
     group: { type: Object as PropType<Group & { game?: MyGroup['game'] }>, required: true },
@@ -43,7 +47,7 @@ export default defineComponent({
 
     meta(): string {
       const g = this.group;
-      return `${this.$t(`sports.${g.sport}`)} · ${this.$t(`weekdaysShort.${g.weekday}`)} ${g.time}`;
+      return `${this.sports.sportName(g.sportId)} · ${this.$t(`weekdaysShort.${g.weekday}`)} ${g.time}`;
     },
 
     line(): CardLine {
