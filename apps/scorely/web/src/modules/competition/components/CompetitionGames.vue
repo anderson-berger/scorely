@@ -100,14 +100,14 @@ export default defineComponent({
     },
 
     openClose(g: CompetitionGame) {
-      this.closing = g.date;
+      this.closing = g.id;
       this.closeOpen = true;
     },
 
     async openDetail(g: CompetitionGame) {
       if (g.state === 'cancelled') return;
       try {
-        this.detail = await competitionApi.game(this.group.id, g.date);
+        this.detail = await competitionApi.game(this.group.id, g.id);
         this.detailOpen = true;
       } catch (err) {
         this.$q.notify({ type: 'negative', message: errorMessage(err) });
@@ -155,7 +155,7 @@ export default defineComponent({
       v-if="closing"
       v-model="closeOpen"
       :group-id="group.id"
-      :date="closing"
+      :game-id="closing"
       @saved="onSaved"
       @reload="$emit('reload')"
     />

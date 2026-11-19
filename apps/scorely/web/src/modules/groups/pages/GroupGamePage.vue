@@ -16,8 +16,8 @@ import TeamsLine from '@scorely/web/src/modules/teams/components/TeamsLine.vue';
 import { defineComponent, type PropType } from 'vue';
 
 /**
- * Aba Jogo (GRP-29): "eu jogo?". Os times ficam na aba Times; aqui, só a linha que leva até lá.
- * Grupo arquivado não tem jogo (`game = null`): só o aviso, sem placar nem lista (GRP-37).
+ * Aba Jogo (GRP-29): "eu jogo?", um card por próximo jogo (GRP-11), em ordem de início. Os times ficam na aba Times;
+ * aqui, só a linha que leva até lá. Grupo arquivado não tem jogos: só o aviso, sem placar nem lista (GRP-37).
  * O casco passa os mesmos dados para todas as abas; o que esta não usa não vira atributo (`inheritAttrs`).
  */
 export default defineComponent({
@@ -31,7 +31,8 @@ export default defineComponent({
 
   props: {
     group: { type: Object as PropType<Group>, required: true },
-    game: { type: Object as PropType<Game | null>, default: null },
+    /** GRP-11: os próximos jogos (vazio no grupo arquivado). */
+    games: { type: Array as PropType<Game[]>, default: () => [] },
     access: { type: Object as PropType<GroupAccess>, default: () => NO_ACCESS },
     /** CMP-17: a competição do grupo, para a linha de fechar o jogo. */
     competition: { type: Object as PropType<Competition | undefined>, default: undefined },
@@ -44,22 +45,38 @@ export default defineComponent({
     canEditPositions: { type: Boolean, default: false },
   },
 
-  emits: ['confirm', 'leave', 'editPlayer', 'saved', 'competition-reload'],
+  emits: {
+    confirm: (_gameId: string) => true,
+    leave: (_gameId: string) => true,
+    editPlayer: (_userId: string) => true,
+    saved: () => true,
+    'competition-reload': () => true,
+  },
 
   data() {
-    return { capacityOpen: false, savingCapacity: false };
+    return { capacityOpen: false, savingCapacity: false, capacityGameId: undefined as string | undefined };
   },
 
   computed: {
-    /** GRP-45: quem tem `game.manage` muda as vagas do jogo enquanto dá para confirmar (antes do início, não cancelado). */
-    canEditCapacity(): boolean {
-      return this.access.game && (this.game?.status === 'scheduled' || this.game?.status === 'open');
+    /** O jogo do painel das vagas. */
+    capacityGame(): Game | undefined {
+      return this.games.find((g) => g.id === this.capacityGameId);
     },
   },
 
   methods: {
+    /** GRP-45: quem tem `game.manage` muda as vagas do jogo enquanto dá para confirmar (antes do início, não cancelado). */
+    canEditCapacity(game: Game): boolean {
+      return this.access.game && (game.status === 'scheduled' || game.status === 'open');
+    },
+
+    openCapacity(game: Game) {
+      this.capacityGameId = game.id;
+      this.capacityOpen = true;
+    },
+
     async saveCapacity(patch: { slots?: number | null; minPlayers?: number | null }) {
-      const game = this.game;
+      const game = this.capacityGame;
       if (!game) return;
       if (Object.keys(patch).length === 0) {
         this.capacityOpen = false;
@@ -67,7 +84,7 @@ export default defineComponent({
       }
       this.savingCapacity = true;
       try {
-        await groupsApi.updateGame(this.group.id, game.date, patch);
+        await groupsApi.updateGame(this.group.id, game.id, patch);
         this.capacityOpen = false;
         this.$q.notify({ type: 'positive', message: this.$t('groups.capacity.saved') });
         this.$emit('saved');
@@ -81,54 +98,64 @@ export default defineComponent({
     },
 
     onCapacity(value: { slots: number; minPlayers: number | undefined }) {
-      if (this.game) void this.saveCapacity(gameCapacityPatch(this.game, value));
+      if (this.capacityGame) void this.saveCapacity(gameCapacityPatch(this.capacityGame, value));
     },
   },
 });
 </script>
 
 <template>
-  <GameCard
-    v-if="game"
-    :game="game"
-    :busy="busy"
-    :player-positions="playerPositions"
-    :sport-id="group.sportId"
-    :can-edit-positions="canEditPositions"
-    :can-edit-capacity="canEditCapacity"
-    @edit-capacity="capacityOpen = true"
-    @confirm="$emit('confirm')"
-    @leave="$emit('leave')"
-    @edit-player="$emit('editPlayer', $event)"
-  >
-    <template #teams>
-      <TeamsLine :group-id="group.id" :game="game" :can-manage="access.teams" />
-      <CompetitionGameLine
-        :group="group"
-        :game="game"
-        :competition="competition"
-        :access="access"
-        @reload="$emit('competition-reload')"
-      />
-    </template>
-  </GameCard>
+  <div class="games">
+    <GameCard
+      v-for="game in games"
+      :key="game.id"
+      :game="game"
+      :busy="busy"
+      :player-positions="playerPositions"
+      :sport-id="group.sportId"
+      :can-edit-positions="canEditPositions"
+      :can-edit-capacity="canEditCapacity(game)"
+      @edit-capacity="openCapacity(game)"
+      @confirm="$emit('confirm', game.id)"
+      @leave="$emit('leave', game.id)"
+      @edit-player="$emit('editPlayer', $event)"
+    >
+      <template #teams>
+        <TeamsLine :group-id="group.id" :game="game" :can-manage="access.teams" />
+        <CompetitionGameLine
+          :group="group"
+          :game="game"
+          :competition="competition"
+          :access="access"
+          @reload="$emit('competition-reload')"
+        />
+      </template>
+    </GameCard>
+  </div>
   <CapacitySheet
-    v-if="game && canEditCapacity"
+    v-if="capacityGame"
     v-model="capacityOpen"
     :title="$t('groups.capacity.gameTitle')"
     :hint="$t('groups.capacity.gameHint')"
-    :slots="game.slots"
-    :min-players="game.minPlayers"
+    :slots="capacityGame.slots"
+    :min-players="capacityGame.minPlayers"
     :can-disable-min="group.minPlayers === undefined"
-    :show-reset="Boolean(game.slotsCustom || game.minPlayersCustom)"
+    :show-reset="Boolean(capacityGame.slotsCustom || capacityGame.minPlayersCustom)"
     :saving="savingCapacity"
     @save="onCapacity"
     @reset="saveCapacity({ slots: null, minPlayers: null })"
   />
-  <div v-if="!game" class="sc-card sc-caption no-game">{{ $t('groups.archivedGame') }}</div>
+  <div v-if="games.length === 0" class="sc-card sc-caption no-game">{{ $t('groups.archivedGame') }}</div>
+
 </template>
 
 <style scoped>
+.games {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
 .no-game {
   padding: 24px 14px;
   text-align: center;

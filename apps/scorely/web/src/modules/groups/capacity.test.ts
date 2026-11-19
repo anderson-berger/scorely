@@ -28,6 +28,7 @@ const cardGroup = (game: Partial<CardGroup['game']>, myTier: CardGroup['myTier']
   listOpensHoursBefore: 48,
   reservesOpenHoursBefore: 24,
   game: {
+    id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa_2026-11-12',
     date: '2026-11-12',
     startsAt: inHours(10),
     status: 'open',

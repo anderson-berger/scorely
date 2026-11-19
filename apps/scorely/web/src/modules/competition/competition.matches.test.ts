@@ -15,6 +15,7 @@ const EXTRA = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
 
 function detail(extra: Partial<CompetitionGameDetail> = {}): CompetitionGameDetail {
   return {
+    id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa_2026-11-13',
     date: '2026-11-13',
     startsAt: '2026-11-13T22:00:00.000Z',
     state: 'open',

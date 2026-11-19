@@ -3,6 +3,7 @@ import type { Group, MyGroup } from '@scorely/contracts';
 import StatusChip from '@scorely/web/src/components/StatusChip.vue';
 import { formatDateTime } from '@scorely/web/src/lib/datetime';
 import { type CardLine, cardLine, groupColor } from '@scorely/web/src/modules/groups/groups';
+import { activeSchedules, scheduleText } from '@scorely/web/src/modules/groups/schedules';
 import { initials, type StatusTone, statusTone } from '@scorely/web/src/modules/groups/scoreboard';
 import { useSportsStore } from '@scorely/web/src/modules/sports/sports.store';
 import { defineComponent, type PropType } from 'vue';
@@ -47,7 +48,7 @@ export default defineComponent({
 
     meta(): string {
       const g = this.group;
-      return `${this.sports.sportName(g.sportId)} · ${this.$t(`weekdaysShort.${g.weekday}`)} ${g.time}`;
+      return `${this.sports.sportName(g.sportId)} · ${this.schedulesText()}`;
     },
 
     line(): CardLine {
@@ -84,6 +85,15 @@ export default defineComponent({
       const kind = this.line.kind;
       if (kind === 'cancelled') return 'danger';
       return kind === 'playing' || kind === 'confirmed' ? 'accent' : 'neutral';
+    },
+  },
+
+  methods: {
+    /** GRP-64: "Ter 19:00–21:00 · Sáb 09:00–11:00". */
+    schedulesText(): string {
+      return activeSchedules(this.group.schedules)
+        .map((s) => scheduleText(s, this.$t(`weekdaysShort.${s.weekday}`)))
+        .join(' · ');
     },
   },
 });

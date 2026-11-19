@@ -216,6 +216,8 @@ export type TeamGenders = z.infer<typeof TeamGendersSchema>;
 
 /** Os times do jogo atual. `unassigned` ("sem time", TIM-08/12) só vem para o dono; para os outros, vazio. */
 export const TeamsSchema = z.object({
+  /** GRP-10: o jogo dos times. */
+  gameId: z.string().min(1),
   groupId: z.uuid(),
   date: LocalDateSchema,
   status: TeamsStatusSchema,

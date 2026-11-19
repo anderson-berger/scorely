@@ -15,6 +15,7 @@ import {
   stepHours,
 } from '@scorely/web/src/modules/groups/layers';
 import { onPermissionError, permissionLostInject } from '@scorely/web/src/modules/groups/permissions';
+import { activeSchedules } from '@scorely/web/src/modules/groups/schedules';
 import { defineComponent, type PropType } from 'vue';
 
 interface EditRow {
@@ -83,17 +84,23 @@ export default defineComponent({
       });
     },
 
+    /** GRP-14: as camadas são do grupo; o exemplo da linha do tempo é o 1º horário (GRP-64). */
+    firstSchedule(): { weekday: number; start: string } {
+      const [first] = activeSchedules(this.group.schedules);
+      return first ?? { weekday: 0, start: '00:00' };
+    },
+
     gameLabel(): string {
       return this.$t('groups.timeline.game', {
-        weekday: this.$t(`weekdaysShort.${this.group.weekday}`),
-        time: this.group.time,
+        weekday: this.$t(`weekdaysShort.${this.firstSchedule.weekday}`),
+        time: this.firstSchedule.start,
       });
     },
   },
 
   methods: {
     opensHint(hours: number): string {
-      const at = layerOpensAt(this.group.weekday, this.group.time, hours);
+      const at = layerOpensAt(this.firstSchedule.weekday, this.firstSchedule.start, hours);
       const opens = this.$t('groups.layerOpensAt', {
         weekday: this.$t(`weekdaysShort.${at.weekday}`),
         time: at.time,

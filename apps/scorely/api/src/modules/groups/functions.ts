@@ -71,22 +71,40 @@ export const groupsFunctions: AWS['functions'] = {
     events: route('POST', '/groups/{id}/member-invite/decline'),
   },
   groupsLeave: { handler: handler('leaveGroup'), events: route('POST', '/groups/{id}/leave') },
-  gamesCurrent: { handler: handler('currentGame'), events: route('GET', '/groups/{id}/games/current') },
+  gamesUpcoming: { handler: handler('upcomingGames'), events: route('GET', '/groups/{id}/games') },
+  // Horários (GRP-64–67)
+  schedulesList: { handler: handler('listSchedules'), events: route('GET', '/groups/{id}/schedules') },
+  schedulesCreate: { handler: handler('createSchedule'), events: route('POST', '/groups/{id}/schedules') },
+  schedulesUpdate: {
+    handler: handler('updateSchedule'),
+    events: route('PUT', '/groups/{id}/schedules/{scheduleId}'),
+  },
+  schedulesArchive: {
+    handler: handler('archiveSchedule'),
+    events: route('POST', '/groups/{id}/schedules/{scheduleId}/archive'),
+  },
+  schedulesUnarchive: {
+    handler: handler('unarchiveSchedule'),
+    events: route('POST', '/groups/{id}/schedules/{scheduleId}/unarchive'),
+  },
   gamesConfirm: {
     handler: handler('confirm'),
-    events: route('POST', '/groups/{id}/games/{date}/attendance'),
+    events: route('POST', '/groups/{id}/games/{gameId}/attendance'),
   },
-  gamesLeave: { handler: handler('leave'), events: route('DELETE', '/groups/{id}/games/{date}/attendance') },
-  gamesCancel: { handler: handler('cancel'), events: route('POST', '/groups/{id}/games/{date}/cancel') },
-  gamesUpdate: { handler: handler('updateGame'), events: route('PATCH', '/groups/{id}/games/{date}') },
-  gamesReopen: { handler: handler('reopen'), events: route('POST', '/groups/{id}/games/{date}/reopen') },
+  gamesLeave: {
+    handler: handler('leave'),
+    events: route('DELETE', '/groups/{id}/games/{gameId}/attendance'),
+  },
+  gamesCancel: { handler: handler('cancel'), events: route('POST', '/groups/{id}/games/{gameId}/cancel') },
+  gamesUpdate: { handler: handler('updateGame'), events: route('PATCH', '/groups/{id}/games/{gameId}') },
+  gamesReopen: { handler: handler('reopen'), events: route('POST', '/groups/{id}/games/{gameId}/reopen') },
   playView: { handler: handler('playView'), events: route('GET', '/play/{token}') },
   playConfirm: {
     handler: handler('playConfirm'),
-    events: route('POST', '/play/{token}/games/{date}/attendance'),
+    events: route('POST', '/play/{token}/games/{gameId}/attendance'),
   },
   playLeave: {
     handler: handler('playLeave'),
-    events: route('DELETE', '/play/{token}/games/{date}/attendance'),
+    events: route('DELETE', '/play/{token}/games/{gameId}/attendance'),
   },
 };

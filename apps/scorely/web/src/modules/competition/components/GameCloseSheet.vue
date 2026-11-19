@@ -27,7 +27,8 @@ export default defineComponent({
   props: {
     modelValue: { type: Boolean, required: true },
     groupId: { type: String, required: true },
-    date: { type: String, required: true },
+    /** GRP-10: o id do jogo a fechar. */
+    gameId: { type: String, required: true },
   },
 
   emits: {
@@ -88,7 +89,7 @@ export default defineComponent({
       this.loading = true;
       this.detail = undefined;
       try {
-        const detail = await competitionApi.game(this.groupId, this.date);
+        const detail = await competitionApi.game(this.groupId, this.gameId);
         this.detail = detail;
         this.attendance = draftAttendance(detail);
         this.winner = detail.winner ?? 'none';
@@ -129,7 +130,7 @@ export default defineComponent({
         cancelled || this.winner === 'none' || this.detail.unit === 'match' ? undefined : this.winner;
       this.saving = true;
       try {
-        const saved = await competitionApi.closeGame(this.groupId, this.date, {
+        const saved = await competitionApi.closeGame(this.groupId, this.gameId, {
           // CMP-42: a versão do fechamento que a tela mostra (0 = o 1º fechamento).
           version: this.detail.version,
           attendance: cancelled ? {} : this.attendance,

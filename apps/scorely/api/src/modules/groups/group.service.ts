@@ -16,6 +16,7 @@ import {
   type SportsDep,
 } from '@scorely/api/src/modules/groups/groups.deps';
 import { publicMember, type RosterMember } from '@scorely/api/src/modules/groups/roster';
+import type { StoredSchedule } from '@scorely/api/src/modules/groups/schedule.repository';
 import {
   type CreateGroupInput,
   type GrantableRoleId,
@@ -130,7 +131,7 @@ export function createGroupService(deps: GroupsDeps & SportsDep) {
       tier,
       // GRP-42: quem sai não está sendo bloqueado, então o link não muda.
       ...(rotate && { newToken: randomToken() }),
-      ...(plan.attendance && { attendance: plan.attendance }),
+      players: plan.players,
     });
     if (result === 'not_member') throw appError('GROUP_MEMBER_NOT_FOUND');
     if (result === 'removed') return plan.afterRemoval();
@@ -250,9 +251,16 @@ export function createGroupService(deps: GroupsDeps & SportsDep) {
       // GRP-13: sem fuso no pedido, o das preferências do dono (USR-07).
       const preferences = await deps.users.getPreferences(ownerId);
       const timeZone = input.timeZone ?? preferences.timeZone ?? DEFAULT_TIME_ZONE;
+      const { weekday, start, end, ...groupInput } = input;
+      const at = now();
+      // GRP-64: o 1º horário, do form de criar.
+      const firstSchedule = newEntity<Omit<StoredSchedule, 'version' | 'groupId'>>(
+        { weekday, start, end, updatedAt: at.toISOString() },
+        at,
+      );
       const group = newEntity<StoredGroup>(
         {
-          ...input,
+          ...groupInput,
           ...layers,
           ...CREATE_LIMITS,
           timeZone,
@@ -262,12 +270,14 @@ export function createGroupService(deps: GroupsDeps & SportsDep) {
           inviteToken: randomToken(),
           reserveInviteToken: randomToken(),
           guestToken: randomToken(),
+          schedules: [],
         },
-        now(),
+        at,
       );
-      // GRP-01, 48: o dono é a participação do criador, com o cargo `owner`.
-      await deps.groups.create(group, ownerId);
-      return viewFor(group, 'member', 'owner');
+      const schedule = { ...firstSchedule, groupId: group.id };
+      // GRP-01, 48: o dono é a participação do criador, com o cargo `owner`. GRP-64: o 1º horário vai junto.
+      await deps.groups.create(group, ownerId, schedule);
+      return viewFor({ ...group, schedules: [{ ...schedule, version: 1 }] }, 'member', 'owner');
     },
 
     async get(userId: UserId, groupId: string): Promise<Group> {

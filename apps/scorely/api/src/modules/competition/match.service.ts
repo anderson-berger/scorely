@@ -15,6 +15,7 @@ import { isLocked, seasonOfDate, seasonState } from '@scorely/api/src/modules/co
 import type { GameRecord, GameRepository } from '@scorely/api/src/modules/groups/game.repository';
 import type { GroupRepository } from '@scorely/api/src/modules/groups/group.repository';
 import { requireActive, requirePermission } from '@scorely/api/src/modules/groups/groups.deps';
+import type { ScheduleRepository } from '@scorely/api/src/modules/groups/schedule.repository';
 import type { NotificationService } from '@scorely/api/src/modules/notifications/notification.service';
 import type { TeamsRepository } from '@scorely/api/src/modules/teams/teams.repository';
 import type { UserDirectory } from '@scorely/api/src/modules/users/user.repository';
@@ -28,6 +29,8 @@ import type {
 
 export interface MatchDeps {
   groups: GroupRepository;
+  /** GRP-66: o horário do jogo, mesmo arquivado (as vagas dele valem no jogo passado). */
+  groupSchedules?: Pick<ScheduleRepository, 'get'>;
   games: GameRepository;
   teams: TeamsRepository;
   competitions: CompetitionRepository;
@@ -41,7 +44,7 @@ export interface MatchDeps {
   users: Pick<UserDirectory, 'getMany'>;
   now?: () => Date;
   /** O jogo atualizado para a resposta: o `get` do serviço de resultados. */
-  detail: (userId: UserId, groupId: string, date: string) => Promise<CompetitionGameDetail>;
+  detail: (userId: UserId, groupId: string, gameId: string) => Promise<CompetitionGameDetail>;
 }
 
 /** O jogo onde a partida pode ser registrada, já conferido (CMP-19). */
@@ -64,14 +67,13 @@ export function createMatchService(deps: MatchDeps) {
    * CMP-19: as condições de fechar (CMP-11), na ordem da D6: quem não participa, permissão, arquivado, competição
    * inativa, jogo não encontrado, não começou, cancelado e a unidade (a da cópia, se fechado).
    */
-  async function matchGame(userId: UserId, groupId: string, date: string): Promise<MatchGame> {
+  async function matchGame(userId: UserId, groupId: string, gameId: string): Promise<MatchGame> {
     const { group } = await requirePermission(deps, userId, groupId, 'results.record');
     requireActive(group);
     const competition = await deps.competitions.get(groupId);
     if (!competition || competitionStatus(competition, now()) !== 'active')
       throw appError('COMPETITION_INACTIVE');
-    const occ = access.occurrenceFor(group, competition, date);
-    const record = await access.startedGame(group, occ);
+    const { occ, record } = await access.startedGame(group, competition, gameId);
     // CMP-32: partidas de um jogo de temporada travada não mudam.
     const season = seasonOfDate(deps.seasons ? await deps.seasons.list(groupId) : [], occ.date);
     if (season && isLocked(season, now(), group.timeZone)) throw appError('SEASON_CLOSED');
@@ -83,7 +85,7 @@ export function createMatchService(deps: MatchDeps) {
 
     const [list, published] = await Promise.all([
       result?.list ?? access.listOf(group, record),
-      access.publishedTeams(groupId, date),
+      access.publishedTeams(gameId),
     ]);
     const users = await deps.users.getMany(list.map((e) => e.id as UserId));
     const allowed = new Map<string, string>([
@@ -148,10 +150,10 @@ export function createMatchService(deps: MatchDeps) {
     async create(
       userId: UserId,
       groupId: string,
-      date: string,
+      gameId: string,
       input: MatchInput,
     ): Promise<CompetitionGameDetail> {
-      const game = await matchGame(userId, groupId, date);
+      const game = await matchGame(userId, groupId, gameId);
       const teams = teamsOf(game, input);
       const at = now();
       const before = await podiumBefore(game, groupId);
@@ -161,18 +163,18 @@ export function createMatchService(deps: MatchDeps) {
       );
       if ((await deps.matches.create(match)) === 'full') throw appError('GAME_MATCHES_FULL');
       await podiumAfter(game, groupId, before);
-      return deps.detail(userId, groupId, date);
+      return deps.detail(userId, groupId, gameId);
     },
 
     /** CMP-20: corrigir troca os times e o resultado de uma vez; o número e o registro continuam. */
     async update(
       userId: UserId,
       groupId: string,
-      date: string,
+      gameId: string,
       matchId: string,
       input: UpdateMatchInput,
     ): Promise<CompetitionGameDetail> {
-      const game = await matchGame(userId, groupId, date);
+      const game = await matchGame(userId, groupId, gameId);
       await matchOf(game, matchId);
       const teams = teamsOf(game, input);
       const before = await podiumBefore(game, groupId);
@@ -183,23 +185,23 @@ export function createMatchService(deps: MatchDeps) {
         input.version,
       );
       await podiumAfter(game, groupId, before);
-      return deps.detail(userId, groupId, date);
+      return deps.detail(userId, groupId, gameId);
     },
 
     /** CMP-20: apagar renumera as seguintes (a ordem sai do registro). */
     async remove(
       userId: UserId,
       groupId: string,
-      date: string,
+      gameId: string,
       matchId: string,
       { version }: VersionInput,
     ): Promise<CompetitionGameDetail> {
-      const game = await matchGame(userId, groupId, date);
+      const game = await matchGame(userId, groupId, gameId);
       const match = await matchOf(game, matchId);
       const before = await podiumBefore(game, groupId);
       await deps.matches.delete(match, version);
       await podiumAfter(game, groupId, before);
-      return deps.detail(userId, groupId, date);
+      return deps.detail(userId, groupId, gameId);
     },
   };
 }

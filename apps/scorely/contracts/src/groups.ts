@@ -34,6 +34,54 @@ const MaxReservesSchema = z
 
 const SlotsSchema = z.number().int().min(GROUP_LIMITS.slots.min).max(GROUP_LIMITS.slots.max);
 const MinPlayersSchema = z.number().int().min(GROUP_LIMITS.minPlayers.min).max(GROUP_LIMITS.minPlayers.max);
+
+/** GRP-64: quanto um jogo de um horário dura, em minutos. */
+export const SCHEDULE_DURATION = { minMinutes: 30, maxMinutes: 360 } as const;
+
+/** Minutos desde 00:00 de um `HH:mm`. */
+export function minutesOf(time: string): number {
+  const [h = 0, m = 0] = time.split(':').map(Number);
+  return h * 60 + m;
+}
+
+const DURATION_MESSAGE = 'A game lasts from 30 minutes to 6 hours, ending on the same day';
+
+/** GRP-64: o fim depois do início, no mesmo dia, de 30 min a 6 h. */
+function durationOk(t: { start: string; end: string }): boolean {
+  const minutes = minutesOf(t.end) - minutesOf(t.start);
+  return minutes >= SCHEDULE_DURATION.minMinutes && minutes <= SCHEDULE_DURATION.maxMinutes;
+}
+
+/** Os campos de um horário (GRP-64). Lugar, vagas e mínimo ausentes = os do grupo (GRP-66). */
+const ScheduleFieldsSchema = z.object({
+  weekday: WeekdaySchema,
+  start: LocalTimeSchema,
+  end: LocalTimeSchema,
+  placeId: z.uuid().optional(),
+  slots: SlotsSchema.optional(),
+  minPlayers: MinPlayersSchema.optional(),
+});
+
+/** POST /groups/{id}/schedules (GRP-64): um horário novo. */
+export const ScheduleInputSchema = ScheduleFieldsSchema.refine(durationOk, {
+  message: DURATION_MESSAGE,
+  path: ['end'],
+});
+export type ScheduleInput = z.infer<typeof ScheduleInputSchema>;
+
+/** PUT /groups/{id}/schedules/{scheduleId} (GRP-67): o horário inteiro, com a versão que a tela mostrou (ADR 0016). */
+export const UpdateScheduleInputSchema = ScheduleFieldsSchema.extend({
+  version: z.number().int().min(0),
+}).refine(durationOk, { message: DURATION_MESSAGE, path: ['end'] });
+export type UpdateScheduleInput = z.infer<typeof UpdateScheduleInputSchema>;
+
+/** Um horário do grupo (GRP-64, 67). `archivedAt` = arquivado: não gera jogos e não conta no limite. */
+export const ScheduleSchema = ScheduleFieldsSchema.extend({
+  id: z.uuid(),
+  version: z.number().int().min(0),
+  archivedAt: z.iso.datetime().optional(),
+});
+export type Schedule = z.infer<typeof ScheduleSchema>;
 const ListOpensHoursBeforeSchema = z
   .number()
   .int()
@@ -133,8 +181,10 @@ export const CreateGroupInputSchema = z
     name: z.string().trim().min(1, 'Name is required').max(80),
     /** GRP-58: um esporte do catálogo (ESP), ativo. Não muda depois. */
     sportId: SportIdSchema,
+    /** GRP-34, 64: o primeiro horário do grupo. */
     weekday: WeekdaySchema,
-    time: LocalTimeSchema,
+    start: LocalTimeSchema,
+    end: LocalTimeSchema,
     timeZone: TimeZoneSchema.optional(),
     slots: SlotsSchema,
     /**
@@ -146,6 +196,8 @@ export const CreateGroupInputSchema = z
     guestsOpenHoursBefore: LayerHoursSchema.optional(),
   })
   .superRefine((input, ctx) => {
+    // GRP-64: o 1º horário dura de 30 min a 6 h, no mesmo dia.
+    if (!durationOk(input)) ctx.addIssue({ code: 'custom', path: ['end'], message: DURATION_MESSAGE });
     // Sem os membros, o contrato não sabe o padrão (é da api): confere só o que veio. A api confere a ordem completa.
     if (input.listOpensHoursBefore === undefined) {
       if (input.reservesOpenHoursBefore === undefined) return;
@@ -201,8 +253,8 @@ export const GroupSchema = EntitySchema.extend({
   name: z.string(),
   /** GRP-58: o esporte do grupo, do catálogo (`GET /sports`, ESP-07). */
   sportId: SportIdSchema,
-  weekday: WeekdaySchema,
-  time: LocalTimeSchema,
+  /** GRP-64: os horários ativos, por dia e início. */
+  schedules: z.array(ScheduleSchema),
   timeZone: z.string(),
   /** GRP-62: o lugar padrão (um lugar ativo do grupo). Ausente = o jogo sem local. */
   defaultPlaceId: z.uuid().optional(),
@@ -280,9 +332,15 @@ export type MyAttendance = z.infer<typeof MyAttendanceSchema>;
  * `opensAt`/`status`: camada dos membros. `myOpensAt`: quando quem pede pode confirmar (ausente = nunca).
  */
 export const GameSchema = z.object({
+  /** GRP-10: o id do jogo, `<scheduleId>_<data>`. É o que vai nas rotas. */
+  id: z.string().min(1),
   groupId: z.uuid(),
+  /** GRP-64: o horário de que o jogo é. */
+  scheduleId: z.uuid(),
   date: LocalDateSchema,
   startsAt: z.iso.datetime(),
+  /** GRP-12: o fim do jogo (o do horário, ou o guardado quando virou item, GRP-10). */
+  endsAt: z.iso.datetime(),
   opensAt: z.iso.datetime(),
   reservesOpensAt: z.iso.datetime(),
   guestsOpensAt: z.iso.datetime().optional(),
@@ -304,7 +362,7 @@ export const GameSchema = z.object({
 export type Game = z.infer<typeof GameSchema>;
 
 /**
- * PATCH /groups/{id}/games/{date} (`game.manage`): vagas e mínimo só do jogo atual (GRP-45, 46).
+ * PATCH /groups/{id}/games/{gameId} (`game.manage`): vagas e mínimo só do jogo atual (GRP-45, 46).
  * `null` = voltar ao padrão do grupo.
  */
 export const UpdateGameInputSchema = z
@@ -317,7 +375,9 @@ export type UpdateGameInput = z.infer<typeof UpdateGameInputSchema>;
 
 /** GET /me/groups: cada grupo com o resumo do jogo atual. */
 export const MyGroupSchema = GroupSchema.extend({
+  /** O próximo jogo do grupo (o 1º dos próximos, GRP-11), para o card. */
   game: GameSchema.pick({
+    id: true,
     date: true,
     startsAt: true,
     status: true,
@@ -336,14 +396,13 @@ export const GuestGameSchema = z.object({
     id: true,
     name: true,
     sportId: true,
-    weekday: true,
-    time: true,
     timeZone: true,
     logoUrl: true,
     coverUrl: true,
   }),
   myTier: TierSchema,
-  game: GameSchema,
+  /** GRP-09: os próximos jogos do grupo (GRP-11), em ordem de início. */
+  games: z.array(GameSchema),
 });
 export type GuestGame = z.infer<typeof GuestGameSchema>;
 

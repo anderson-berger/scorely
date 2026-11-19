@@ -108,7 +108,19 @@ const NOV06 = '2026-11-06';
 const NOV13 = '2026-11-13';
 const OCT23 = '2026-10-23';
 
-const gameId = (date: string) => `f0000000-0000-4000-8000-0000${date.replaceAll('-', '')}`;
+/** GRP-10, 64: o horário do grupo (sexta 19:00–22:00) e o id do jogo dele numa data (`<scheduleId>_<data>`). */
+const SCHEDULE_ID = 'eeeeeeee-0000-4000-8000-000000000001';
+const SCHEDULE = {
+  id: SCHEDULE_ID,
+  groupId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+  version: 1,
+  weekday: 5,
+  start: '19:00',
+  end: '22:00',
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+};
+const gameId = (date: string) => `${SCHEDULE_ID}_${date}`;
 const startsAt = (date: string) => `${date}T22:00:00.000Z`;
 
 function result(date: string, extra: Partial<StoredGameResult>): StoredGameResult {
@@ -221,8 +233,7 @@ function setup(
       createdAt: '2026-01-01T00:00:00.000Z',
       name: 'Vôlei de sexta',
       sportId: 'volleyball',
-      weekday: 5,
-      time: '19:00',
+      schedules: [SCHEDULE],
       timeZone: 'America/Sao_Paulo',
       slots: 5,
       listOpensHoursBefore: 48,

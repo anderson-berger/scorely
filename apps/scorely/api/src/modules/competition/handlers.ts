@@ -14,6 +14,7 @@ import { dynamoTrophyRepository } from '@scorely/api/src/modules/competition/tro
 import { createTrophyService } from '@scorely/api/src/modules/competition/trophy.service';
 import { dynamoGameRepository } from '@scorely/api/src/modules/groups/game.repository';
 import { dynamoGroupRepository } from '@scorely/api/src/modules/groups/group.repository';
+import { dynamoScheduleRepository } from '@scorely/api/src/modules/groups/schedule.repository';
 import { dynamoNotificationRepository } from '@scorely/api/src/modules/notifications/notification.repository';
 import { createNotificationService } from '@scorely/api/src/modules/notifications/notification.service';
 import { dynamoTeamsRepository } from '@scorely/api/src/modules/teams/teams.repository';
@@ -39,6 +40,7 @@ const competition = createCompetitionService({
 const results = createResultService({
   groups: dynamoGroupRepository,
   games: dynamoGameRepository,
+  groupSchedules: dynamoScheduleRepository,
   teams: dynamoTeamsRepository,
   competitions: dynamoCompetitionRepository,
   results: dynamoResultRepository,
@@ -50,6 +52,7 @@ const results = createResultService({
 const matches = createMatchService({
   groups: dynamoGroupRepository,
   games: dynamoGameRepository,
+  groupSchedules: dynamoScheduleRepository,
   teams: dynamoTeamsRepository,
   competitions: dynamoCompetitionRepository,
   results: dynamoResultRepository,
@@ -57,7 +60,7 @@ const matches = createMatchService({
   users: dynamoUserDirectory,
   seasons: dynamoSeasonRepository,
   notifications,
-  detail: (userId, groupId, date) => results.get(userId, groupId, date),
+  detail: (userId, groupId, gameId) => results.get(userId, groupId, gameId),
 });
 
 export async function getCompetition(event: HttpEvent) {
@@ -81,21 +84,21 @@ export async function listCompetitionGames(event: HttpEvent) {
 
 export async function getCompetitionGame(event: HttpEvent) {
   return authRoute(event, async (auth) =>
-    results.get(auth.userId, pathParam(event, 'id'), pathParam(event, 'date')),
+    results.get(auth.userId, pathParam(event, 'id'), pathParam(event, 'gameId')),
   );
 }
 
 export async function closeCompetitionGame(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const input = parseBody(event, CloseGameInputSchema);
-    return results.close(auth.userId, pathParam(event, 'id'), pathParam(event, 'date'), input);
+    return results.close(auth.userId, pathParam(event, 'id'), pathParam(event, 'gameId'), input);
   });
 }
 
 export async function createCompetitionMatch(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const input = parseBody(event, MatchInputSchema);
-    return matches.create(auth.userId, pathParam(event, 'id'), pathParam(event, 'date'), input);
+    return matches.create(auth.userId, pathParam(event, 'id'), pathParam(event, 'gameId'), input);
   });
 }
 
@@ -105,7 +108,7 @@ export async function updateCompetitionMatch(event: HttpEvent) {
     return matches.update(
       auth.userId,
       pathParam(event, 'id'),
-      pathParam(event, 'date'),
+      pathParam(event, 'gameId'),
       pathParam(event, 'matchId'),
       input,
     );
@@ -117,7 +120,7 @@ export async function deleteCompetitionMatch(event: HttpEvent) {
     matches.remove(
       auth.userId,
       pathParam(event, 'id'),
-      pathParam(event, 'date'),
+      pathParam(event, 'gameId'),
       pathParam(event, 'matchId'),
       parseBody(event, VersionInputSchema),
     ),

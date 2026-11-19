@@ -25,7 +25,7 @@ const PURPOSES: Record<GroupImageSlot, MediaPurpose> = { logo: 'group.logo', cov
  * Logo e capa do grupo (GRP-35). O grupo decide quem pode (`settings.edit`, num grupo ativo) e a mídia cuida do
  * arquivo (MID-01). A permissão é conferida em cada passo, então quem perdeu o papel no meio é barrado.
  */
-export function createGroupImages(deps: GroupsDeps & { media: MediaService }) {
+export function createGroupImages(deps: Pick<GroupsDeps, 'groups'> & { media: MediaService }) {
   async function requireEditor(userId: UserId, groupId: string) {
     const { group } = await requirePermission(deps, userId, groupId, 'settings.edit');
     requireActive(group);

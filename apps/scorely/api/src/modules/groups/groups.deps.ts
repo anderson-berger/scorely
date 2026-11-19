@@ -3,6 +3,7 @@ import type { UserId } from '@scorely/api/src/lib/ids';
 import type { GameRepository } from '@scorely/api/src/modules/groups/game.repository';
 import type { GroupRepository, StoredGroup } from '@scorely/api/src/modules/groups/group.repository';
 import type { PlaceRepository, StoredPlace } from '@scorely/api/src/modules/groups/place.repository';
+import type { ScheduleRepository } from '@scorely/api/src/modules/groups/schedule.repository';
 import { type MediaService, mediaService } from '@scorely/api/src/modules/media/media.service';
 import type { NotificationService } from '@scorely/api/src/modules/notifications/notification.service';
 import type { SportService } from '@scorely/api/src/modules/sports/sport.service';
@@ -27,6 +28,8 @@ export interface GroupsDeps {
   games: GameRepository;
   /** GRP-60–63: os lugares do grupo. */
   places: PlaceRepository;
+  /** GRP-64–67: os horários do grupo. */
+  schedules: ScheduleRepository;
   users: UserDirectory;
   notifications: Pick<NotificationService, 'notify'>;
   /** MID-12: monta a URL do logo e da capa pelo id da mídia. Sem ele, a mídia de produção. */
@@ -79,8 +82,16 @@ export function forViewer(
   urlOf: UrlOf = productionUrlOf,
 ): Group {
   const myPermissions = permissionsOf(myRoleId);
-  const { logoMediaId: _l, coverMediaId: _c, ...clean } = group;
-  const view = { ...clean, ...imageUrls(group, urlOf), myTier, myRoleId: roleIdOf(myRoleId), myPermissions };
+  const { logoMediaId: _l, coverMediaId: _c, schedules, ...clean } = group;
+  const view = {
+    ...clean,
+    // GRP-64: os horários ativos, sem o grupo e as datas do item.
+    schedules: schedules.map(({ groupId: _g, createdAt: _cr, updatedAt: _u, ...s }) => s),
+    ...imageUrls(group, urlOf),
+    myTier,
+    myRoleId: roleIdOf(myRoleId),
+    myPermissions,
+  };
   if (myPermissions.includes('members.manage')) return view;
   const { inviteToken: _i, reserveInviteToken: _r, guestToken: _g, ...rest } = view;
   return rest;

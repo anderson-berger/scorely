@@ -36,7 +36,7 @@ function expectVersionIn(current: number, expected: number): void {
 //   settings.service.ts: `createTeamSettingsService({ groups, settings, now })` com `get(userId, groupId)` e `update(userId, groupId, input)`.
 // E3 etapas 5 e 6 (`.claude/work/e3-times-5-6.md`): times opostos (TIM-22) e a preferência de gênero (TIM-23).
 // Interface assumida (o arquivo de trabalho diz "a mesma lista do player.service, TIM-04", sem definir as deps):
-//   o service ganha `roster: { members(userId, groupId), currentGame(userId, groupId) }` (o mesmo de `TeamsDeps`)
+//   o service ganha `roster: { members(userId, groupId), upcoming(userId, groupId) }` (o mesmo de `TeamsDeps`)
 //   e `users: Pick<UserDirectory, 'getMany'>` (o nome de quem está nos opostos, inclusive quem saiu do grupo).
 
 const GROUP_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -140,6 +140,18 @@ type RosterGame = Omit<Game, 'confirmed' | 'waitlist'> & {
 };
 
 const NOW = new Date('2026-11-12T13:00:00.000Z');
+/** GRP-10, 64: o horário do grupo e o id do jogo dele (`<scheduleId>_<data>`). */
+const SCHEDULE_ID = 'eeeeeeee-0000-4000-8000-000000000001';
+const SCHEDULE = {
+  id: SCHEDULE_ID,
+  groupId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+  version: 1,
+  weekday: 5,
+  start: '19:00',
+  end: '22:00',
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+};
 
 const DEFAULTS = { teamCount: 2, rules: [], allowOutsideRules: false };
 /** A resposta com o que falta no input: sem opostos, sem a preferência e sem nomes. */
@@ -162,8 +174,7 @@ function storedGroup(extra: Partial<StoredGroup> = {}): StoredGroup {
     createdAt: '2026-01-01T00:00:00.000Z',
     name: 'Vôlei de sexta',
     sportId: 'volleyball',
-    weekday: 5,
-    time: '19:00',
+    schedules: [SCHEDULE],
     timeZone: 'America/Sao_Paulo',
     slots: 12,
     listOpensHoursBefore: 48,
@@ -192,9 +203,12 @@ const attendee = (userId: UserId, role: Attendee['tier'], minute: number): Roste
 
 /** Jogo atual: A e o convidado G dentro, o convidado H na fila. */
 const GAME: RosterGame = {
+  id: `${SCHEDULE_ID}_2026-11-13`,
   groupId: GROUP_ID,
+  scheduleId: SCHEDULE_ID,
   date: '2026-11-13',
   startsAt: '2026-11-13T22:00:00.000Z',
+  endsAt: '2026-11-14T01:00:00.000Z',
   opensAt: '2026-11-11T22:00:00.000Z',
   reservesOpensAt: '2026-11-12T22:00:00.000Z',
   guestsOpensAt: '2026-11-13T10:00:00.000Z',
@@ -225,7 +239,7 @@ const sports = { get: async (id: string) => TEST_SPORTS.find((s) => s.id === id)
 
 /**
  * Contexto em memória. `state` é mutável de propósito (sair do grupo, trocar o jogo entre chamadas).
- * O `currentGame` falha com o grupo arquivado (o jogo só existe com o grupo ativo, GRP-37).
+ * O `upcoming` falha com o grupo arquivado (o jogo só existe com o grupo ativo, GRP-37).
  */
 function setup(opts: { group?: Partial<StoredGroup> } = {}) {
   const clock = { now: NOW };
@@ -291,11 +305,14 @@ function setup(opts: { group?: Partial<StoredGroup> } = {}) {
             tier: role,
           }))
         : [],
-    currentGame: async (_userId: UserId, groupId: string): Promise<RosterGame> => {
+    /** GRP-11: os próximos jogos. */
+    upcoming: async (_userId: UserId, groupId: string): Promise<RosterGame[]> => {
       if (groupId !== state.group.id) throw new Error('unknown group');
       if (state.group.archivedAt) throw new Error('archived group has no game (GRP-37)');
-      return structuredClone(state.game);
+      return [structuredClone(state.game)];
     },
+    game: unused,
+    guestView: unused,
   };
 
   const users = {

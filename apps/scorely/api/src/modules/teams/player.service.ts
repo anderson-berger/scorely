@@ -15,8 +15,8 @@ export interface TeamsDeps {
   roster: {
     /** Membros e reservas na ordem da GRP-06, com os dois ids (= `GroupService.memberRecords`). */
     members(userId: UserId, groupId: string): Promise<RosterMember[]>;
-    /** Jogo atual com a lista e os dois ids (= `GameService.currentRoster`); só é chamado com o grupo ativo. */
-    currentGame(userId: UserId, groupId: string): Promise<RosterGame>;
+    /** Os próximos jogos com a lista e os dois ids (= `GameService.upcomingRoster`); só com o grupo ativo. */
+    upcoming(userId: UserId, groupId: string): Promise<RosterGame[]>;
   };
   players: PlayerRepository;
   /** TIM-02: as posições vêm do catálogo do esporte do grupo (ESP). */
@@ -33,8 +33,8 @@ export type Person = Omit<Player, 'positions' | 'userId' | 'version'> & {
 };
 
 /**
- * TIM-04: quem o dono pode classificar (e pôr em times opostos, TIM-22): membros (GRP-06) e depois os convidados da
- * lista do jogo (dentro e fila). Arquivado: sem jogo, só os membros.
+ * TIM-04: quem o dono pode classificar (e pôr em times opostos, TIM-22): membros (GRP-06) e depois os convidados das
+ * listas dos próximos jogos (dentro e fila). Arquivado: sem jogo, só os membros.
  */
 export async function classifiablePeople(
   roster: TeamsDeps['roster'],
@@ -46,10 +46,12 @@ export async function classifiablePeople(
     ({ userId: id, publicId, nickname, tier }): Person => ({ userId: id, publicId, nickname, tier }),
   );
   if (group.archivedAt) return fromMembers;
-  const game = await roster.currentGame(userId, group.id);
+  const games = await roster.upcoming(userId, group.id);
   const known = new Set(members.map((m) => m.userId));
-  const guests = [...game.confirmed, ...game.waitlist]
-    .filter((a) => !known.has(a.userId))
+  // TIM-04: os convidados de qualquer um dos próximos jogos, cada um uma vez.
+  const listed = games.flatMap((game) => [...game.confirmed, ...game.waitlist]);
+  const guests = listed
+    .filter((a, i) => !known.has(a.userId) && listed.findIndex((b) => b.userId === a.userId) === i)
     .map(
       ({ userId: id, publicId, nickname }): Person => ({
         userId: id,

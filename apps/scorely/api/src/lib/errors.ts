@@ -49,6 +49,10 @@ const CATALOG = {
   PLACE_NOT_FOUND: { status: 404, message: 'Place not found in the group' },
   PLACE_LIMIT_REACHED: { status: 409, message: 'The group reached the limit of active places' },
   PLACE_IS_DEFAULT: { status: 409, message: 'The default place cannot be archived' },
+  SCHEDULE_NOT_FOUND: { status: 404, message: 'Schedule not found in the group' },
+  SCHEDULE_OVERLAP: { status: 409, message: 'The schedule overlaps another one of the group' },
+  SCHEDULE_LIMIT_REACHED: { status: 409, message: 'The group reached the limit of active schedules' },
+  SCHEDULE_LAST: { status: 409, message: 'The last active schedule cannot be archived' },
   GAME_SLOTS_BELOW_CONFIRMED: {
     status: 409,
     message: 'The slots cannot be fewer than the people already in',

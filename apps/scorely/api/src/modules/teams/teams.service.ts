@@ -45,11 +45,13 @@ export interface TeamsServiceDeps {
   groups: GroupRepository;
   roster: {
     /**
-     * Jogo atual com a lista e os dois ids de cada pessoa (= `GameService.currentRoster`); responde `GROUP_ARCHIVED`
-     * com o grupo arquivado.
+     * Um dos próximos jogos com a lista e os dois ids de cada pessoa (= `GameService.gameRoster`); responde
+     * `GAME_NOT_FOUND` para outro jogo e `GROUP_ARCHIVED` com o grupo arquivado.
      */
-    currentGame(userId: UserId, groupId: string): Promise<RosterGame>;
-    /** Jogo atual pelo link do jogo (= `GameService.guestRoster`, GRP-09). */
+    game(userId: UserId, groupId: string, gameId: string): Promise<RosterGame>;
+    /** GRP-10: salvar os times materializa o jogo virtual (= `GameService.materialize`). */
+    materialize?(userId: UserId, groupId: string, gameId: string): Promise<void>;
+    /** Os próximos jogos pelo link do jogo (= `GameService.guestRoster`, GRP-09). */
     guestView(userId: UserId, token: string): Promise<GuestRoster>;
   };
   /** Posições do grupo (TIM-04). */
@@ -86,16 +88,14 @@ export function createTeamsService(deps: TeamsServiceDeps) {
     return group;
   }
 
-  /** TIM-06: só o jogo atual. */
-  async function currentGame(userId: UserId, groupId: string, date: string): Promise<RosterGame> {
-    const game = await deps.roster.currentGame(userId, groupId);
-    if (game.date !== date) throw appError('GAME_NOT_FOUND');
-    return game;
+  /** TIM-06: só os próximos jogos (GRP-11). */
+  async function currentGame(userId: UserId, groupId: string, gameId: string): Promise<RosterGame> {
+    return deps.roster.game(userId, groupId, gameId);
   }
 
   /** TIM-11: com o jogo cancelado não se mexe nos times. */
-  async function writableGame(userId: UserId, groupId: string, date: string): Promise<RosterGame> {
-    const game = await currentGame(userId, groupId, date);
+  async function writableGame(userId: UserId, groupId: string, gameId: string): Promise<RosterGame> {
+    const game = await currentGame(userId, groupId, gameId);
     if (game.status === 'cancelled') throw appError('GAME_CANCELLED');
     return game;
   }
@@ -287,6 +287,7 @@ export function createTeamsService(deps: TeamsServiceDeps) {
 
     return {
       groupId,
+      gameId: stored.gameId,
       date: stored.date,
       status: stored.status,
       // TIM-25: a versão que salvar, sortear, publicar, despublicar e descartar mandam.
@@ -416,12 +417,12 @@ export function createTeamsService(deps: TeamsServiceDeps) {
 
   return {
     /** TIM-06, 09, 11–13: rascunho só para o dono; jogo cancelado (ou grupo arquivado, sem jogo) → sem times. */
-    async get(userId: UserId, groupId: string, date: string): Promise<TeamsResponse> {
+    async get(userId: UserId, groupId: string, gameId: string): Promise<TeamsResponse> {
       const { group, roleId } = await requireMember(deps, userId, groupId);
       if (group.archivedAt) return NONE;
-      const game = await currentGame(userId, groupId, date);
+      const game = await currentGame(userId, groupId, gameId);
       if (game.status === 'cancelled') return NONE;
-      const stored = await deps.teams.get(group.id, date);
+      const stored = await deps.teams.get(gameId);
       if (!permissionsOf(roleId).includes('teams.manage')) {
         if (stored?.status !== 'published') return NONE;
         return { teams: await view(group.id, game, stored, await settingsFor(group.id)) };
@@ -435,18 +436,19 @@ export function createTeamsService(deps: TeamsServiceDeps) {
     async save(
       userId: UserId,
       groupId: string,
-      date: string,
+      gameId: string,
       wireInput: SaveTeamsInput,
     ): Promise<TeamsResponse> {
       const group = await requireManager(userId, groupId);
-      const game = await writableGame(userId, groupId, date);
-      const existing = await deps.teams.get(group.id, date);
+      const game = await writableGame(userId, groupId, gameId);
+      const existing = await deps.teams.get(gameId);
       const input = await internalInput(wireInput);
       await validate(group, game, existing, input);
       const at = now().toISOString();
       const next: StoredTeams = {
         groupId: group.id,
-        date,
+        gameId,
+        date: game.date,
         status: existing?.status ?? 'draft',
         teams: input.teams,
         positions: input.positions,
@@ -459,6 +461,8 @@ export function createTeamsService(deps: TeamsServiceDeps) {
         updatedAt: at,
         version: wireInput.version + 1,
       };
+      // GRP-10: os times são uma escrita no jogo: o jogo virtual vira item antes.
+      await deps.roster.materialize?.(userId, groupId, gameId);
       // TIM-25: só grava na versão que a tela mostrou.
       await deps.teams.put(next, wireInput.version);
       return { teams: await view(group.id, game, next, await settingsFor(group.id), true) };
@@ -471,12 +475,12 @@ export function createTeamsService(deps: TeamsServiceDeps) {
     async draw(
       userId: UserId,
       groupId: string,
-      date: string,
+      gameId: string,
       { version }: VersionInput,
     ): Promise<TeamsResponse> {
       const group = await requireManager(userId, groupId);
-      const game = await writableGame(userId, groupId, date);
-      const existing = await deps.teams.get(group.id, date);
+      const game = await writableGame(userId, groupId, gameId);
+      const existing = await deps.teams.get(gameId);
       const settings = await settingsFor(group.id);
       const current = existing?.teams ?? Array.from({ length: settings.teamCount }, (): string[] => []);
       const placed = new Set(current.flat());
@@ -492,7 +496,8 @@ export function createTeamsService(deps: TeamsServiceDeps) {
       const at = now().toISOString();
       const next: StoredTeams = {
         groupId: group.id,
-        date,
+        gameId,
+        date: game.date,
         status: 'draft',
         teams,
         positions: existing?.positions ?? {},
@@ -505,6 +510,8 @@ export function createTeamsService(deps: TeamsServiceDeps) {
         updatedAt: at,
         version: version + 1,
       };
+      // GRP-10: o sorteio é uma escrita no jogo: o jogo virtual vira item antes.
+      await deps.roster.materialize?.(userId, groupId, gameId);
       await deps.teams.put(next, version);
       return { teams: await view(group.id, game, next, settings, true) };
     },
@@ -513,12 +520,12 @@ export function createTeamsService(deps: TeamsServiceDeps) {
     async publish(
       userId: UserId,
       groupId: string,
-      date: string,
+      gameId: string,
       { version }: VersionInput,
     ): Promise<TeamsResponse> {
       const group = await requireManager(userId, groupId);
-      const game = await writableGame(userId, groupId, date);
-      const existing = await deps.teams.get(group.id, date);
+      const game = await writableGame(userId, groupId, gameId);
+      const existing = await deps.teams.get(gameId);
       if (!existing) throw appError('TEAM_EMPTY', { team: 1 });
       const empty = existing.teams.findIndex((team) => team.length === 0);
       if (empty >= 0) throw appError('TEAM_EMPTY', { team: empty + 1 });
@@ -548,12 +555,12 @@ export function createTeamsService(deps: TeamsServiceDeps) {
     async unpublish(
       userId: UserId,
       groupId: string,
-      date: string,
+      gameId: string,
       { version }: VersionInput,
     ): Promise<TeamsResponse> {
       const group = await requireManager(userId, groupId);
-      const game = await writableGame(userId, groupId, date);
-      const existing = await deps.teams.get(group.id, date);
+      const game = await writableGame(userId, groupId, gameId);
+      const existing = await deps.teams.get(gameId);
       if (!existing) return NONE;
       const next: StoredTeams = {
         ...existing,
@@ -566,17 +573,19 @@ export function createTeamsService(deps: TeamsServiceDeps) {
     },
 
     /** TIM-06: descarta os times do jogo. Sem times → nada muda. */
-    async discard(userId: UserId, groupId: string, date: string, { version }: VersionInput): Promise<void> {
-      const group = await requireManager(userId, groupId);
-      await writableGame(userId, groupId, date);
-      if (await deps.teams.get(group.id, date)) await deps.teams.delete(group.id, date, version);
+    async discard(userId: UserId, groupId: string, gameId: string, { version }: VersionInput): Promise<void> {
+      await requireManager(userId, groupId);
+      await writableGame(userId, groupId, gameId);
+      if (await deps.teams.get(gameId)) await deps.teams.delete(gameId, version);
     },
 
     /** TIM-09 / GRP-09: pelo link do jogo, só os times publicados (sem "sem time"). */
-    async guestGet(userId: UserId, token: string): Promise<TeamsResponse> {
-      const { group, game } = await deps.roster.guestView(userId, token);
+    async guestGet(userId: UserId, token: string, gameId: string): Promise<TeamsResponse> {
+      const { group, games } = await deps.roster.guestView(userId, token);
+      const game = games.find((g) => g.id === gameId);
+      if (!game) throw appError('GAME_NOT_FOUND');
       if (game.status === 'cancelled') return NONE;
-      const stored = await deps.teams.get(group.id, game.date);
+      const stored = await deps.teams.get(gameId);
       if (stored?.status !== 'published') return NONE;
       return { teams: await view(group.id, game, stored, await settingsFor(group.id)) };
     },

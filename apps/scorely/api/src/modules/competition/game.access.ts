@@ -1,8 +1,9 @@
 import { appError } from '@scorely/api/src/lib/errors';
-import { type Occurrence, occurrenceOnDate, type WeeklySchedule } from '@scorely/api/src/lib/zoned';
+import { layerOpensAt, type Occurrence } from '@scorely/api/src/lib/zoned';
 import type { StoredCompetition } from '@scorely/api/src/modules/competition/competition.repository';
 import type { GameRecord, GameRepository } from '@scorely/api/src/modules/groups/game.repository';
 import type { StoredGroup } from '@scorely/api/src/modules/groups/group.repository';
+import type { ScheduleRepository } from '@scorely/api/src/modules/groups/schedule.repository';
 import type { TeamsRepository } from '@scorely/api/src/modules/teams/teams.repository';
 
 /** Quem está na lista do jogo, na ordem: dentro (as primeiras vagas, GRP-19) ou fila. */
@@ -17,44 +18,61 @@ export interface PublishedTeams {
   extras: { id: string; name: string }[];
 }
 
-export function scheduleOf(group: StoredGroup): WeeklySchedule {
+/** A ocorrência guardada no jogo (GRP-10): o início e o fim de quando ele virou item. */
+export function occurrenceOfGame(group: StoredGroup, record: GameRecord): Occurrence {
   return {
-    weekday: group.weekday,
-    time: group.time,
-    timeZone: group.timeZone,
-    listOpensHoursBefore: group.listOpensHoursBefore,
+    date: record.date,
+    startsAt: record.startsAt,
+    opensAt: layerOpensAt(record.startsAt, group.listOpensHoursBefore),
+    endsAt: record.endsAt,
   };
 }
 
-/** O jogo da competição pela data: a mesma leitura no fechamento (CMP-11) e nas partidas (CMP-19). */
-export function createGameAccess(deps: { games: GameRepository; teams: TeamsRepository; now: () => Date }) {
+/** O jogo da competição pelo id: a mesma leitura no fechamento (CMP-11) e nas partidas (CMP-19). */
+export function createGameAccess(deps: {
+  games: GameRepository;
+  teams: TeamsRepository;
+  /** GRP-66: o horário do jogo, mesmo arquivado. Sem ele, só os ativos do grupo. */
+  groupSchedules?: Pick<ScheduleRepository, 'get'> | undefined;
+  now: () => Date;
+}) {
   return {
-    /** CMP-11: a ocorrência da data, a partir da ativação. Outra data, ou de antes da ativação → GAME_NOT_FOUND. */
-    occurrenceFor(group: StoredGroup, competition: StoredCompetition | undefined, date: string): Occurrence {
-      const occ = occurrenceOnDate(scheduleOf(group), date);
-      if (!occ || !competition || Date.parse(occ.startsAt) < Date.parse(competition.trialStartedAt)) {
+    /**
+     * CMP-11: só jogo do grupo que virou item (GRP-10), a partir da ativação, e que já começou. Outro jogo, de outro
+     * grupo ou de antes da ativação → `GAME_NOT_FOUND`; ainda não começou → `GAME_NOT_STARTED`.
+     */
+    async startedGame(
+      group: StoredGroup,
+      competition: StoredCompetition | undefined,
+      gameId: string,
+    ): Promise<{ occ: Occurrence; record: GameRecord }> {
+      const record = await deps.games.get(gameId);
+      if (
+        !record ||
+        record.groupId !== group.id ||
+        !competition ||
+        Date.parse(record.startsAt) < Date.parse(competition.trialStartedAt)
+      ) {
         throw appError('GAME_NOT_FOUND');
       }
-      return occ;
+      if (Date.parse(record.startsAt) > deps.now().getTime()) throw appError('GAME_NOT_STARTED');
+      return { occ: occurrenceOfGame(group, record), record };
     },
 
-    /** CMP-11: só jogo que virou item (GRP-10) e que já começou. */
-    async startedGame(group: StoredGroup, occ: Occurrence): Promise<GameRecord> {
-      const record = await deps.games.findByDate(group.id, occ.date);
-      if (!record) throw appError('GAME_NOT_FOUND');
-      if (Date.parse(occ.startsAt) > deps.now().getTime()) throw appError('GAME_NOT_STARTED');
-      return record;
-    },
-
+    /** A lista do jogo, com as vagas que valiam (GRP-45, 66: o jogo, o horário ou o grupo). */
     async listOf(group: StoredGroup, record: GameRecord): Promise<ListEntry[]> {
-      const slots = record.slots ?? group.slots;
-      const attendance = await deps.games.listAttendance(record.id);
-      return attendance.map((a, i) => ({ id: a.userId, inside: i < slots }));
+      // GRP-66: o horário vale mesmo arquivado: o jogo passado continua com as vagas dele.
+      const schedule =
+        group.schedules.find((s) => s.id === record.scheduleId) ??
+        (await deps.groupSchedules?.get(group.id, record.scheduleId));
+      const slots = record.slots ?? schedule?.slots ?? group.slots;
+      const players = await deps.games.listPlayers(record.id);
+      return players.map((a, i) => ({ id: a.userId, inside: i < slots }));
     },
 
     /** CMP-13, 20: só os times publicados contam; rascunho ou nada = sem times. */
-    async publishedTeams(groupId: string, date: string): Promise<PublishedTeams> {
-      const stored = await deps.teams.get(groupId, date);
+    async publishedTeams(gameId: string): Promise<PublishedTeams> {
+      const stored = await deps.teams.get(gameId);
       if (stored?.status !== 'published') return { teams: [], extras: [] };
       const inTeams = new Set(stored.teams.flat());
       const extras = (stored.extras ?? [])

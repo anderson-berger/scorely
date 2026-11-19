@@ -3,16 +3,16 @@
  * Datas locais em `YYYY-MM-DD`, horas em `HH:mm`, instantes em ISO UTC (`...Z`).
  */
 
-/** Janela do `in_progress`: do início até 3 h depois (D3). */
-export const GAME_DURATION_HOURS = 3;
-
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 
+/** Um horário do grupo no fuso dele (GRP-64), com a abertura dos membros (GRP-14). */
 export interface WeeklySchedule {
   /** 0 = domingo ... 6 = sábado, no fuso do grupo. */
   weekday: number;
-  time: string;
+  /** `HH:mm` de início e de fim, no mesmo dia (GRP-64). */
+  start: string;
+  end: string;
   timeZone: string;
   listOpensHoursBefore: number;
 }
@@ -69,18 +69,30 @@ function addDays(date: string, days: number): string {
   return new Date(Date.parse(`${date}T00:00:00Z`) + days * DAY_MS).toISOString().slice(0, 10);
 }
 
-function occurrenceOn(schedule: WeeklySchedule, date: string): Occurrence {
-  const startsAt = zonedToUtc(date, schedule.time, schedule.timeZone).getTime();
+/** A ocorrência do horário na data local (GRP-10, 12): o fim é o `end` do mesmo dia. */
+export function occurrenceOn(schedule: WeeklySchedule, date: string): Occurrence {
+  const startsAt = zonedToUtc(date, schedule.start, schedule.timeZone).getTime();
   return {
     date,
     startsAt: new Date(startsAt).toISOString(),
     opensAt: new Date(startsAt - schedule.listOpensHoursBefore * HOUR_MS).toISOString(),
-    endsAt: new Date(startsAt + GAME_DURATION_HOURS * HOUR_MS).toISOString(),
+    endsAt: zonedToUtc(date, schedule.end, schedule.timeZone).toISOString(),
   };
 }
 
-/** Jogo atual: a primeira ocorrência semanal com `endsAt > now` (D1). */
-export function currentOccurrence(schedule: WeeklySchedule, now: Date): Occurrence {
+/** GRP-10: o id do jogo de um horário numa data. */
+export function gameIdOf(scheduleId: string, date: string): string {
+  return `${scheduleId}_${date}`;
+}
+
+/** O horário e a data de um id de jogo (`undefined` se não tem esse formato). */
+export function parseGameId(id: string): { scheduleId: string; date: string } | undefined {
+  const match = /^([0-9a-f-]{36})_(\d{4}-\d{2}-\d{2})$/.exec(id);
+  return match?.[1] && match[2] ? { scheduleId: match[1], date: match[2] } : undefined;
+}
+
+/** GRP-10: o próximo jogo do horário, a primeira ocorrência com `endsAt > now`. */
+export function nextOccurrence(schedule: WeeklySchedule, now: Date): Occurrence {
   const today = localDate(now, schedule.timeZone);
   const todayWeekday = new Date(`${today}T00:00:00Z`).getUTCDay();
   const nextOnWeekday = addDays(today, (schedule.weekday - todayWeekday + 7) % 7);
@@ -109,24 +121,7 @@ function weekdayOf(date: string): number {
   return new Date(`${date}T00:00:00Z`).getUTCDay();
 }
 
-/** A ocorrência do grupo nessa data local, ou `undefined` se não é o dia da semana do grupo (CMP-11). */
+/** A ocorrência do horário nessa data local, ou `undefined` se não é o dia da semana dele. */
 export function occurrenceOnDate(schedule: WeeklySchedule, date: string): Occurrence | undefined {
   return weekdayOf(date) === schedule.weekday ? occurrenceOn(schedule, date) : undefined;
-}
-
-/**
- * As ocorrências que começaram entre `from` e `to` (`from <= startsAt <= to`), da mais recente para a mais antiga
- * (CMP-11, 16). Andam de 7 em 7 dias pela data local, então a hora de parede segue o fuso (horário de verão).
- */
-export function occurrencesBetween(schedule: WeeklySchedule, from: Date, to: Date): Occurrence[] {
-  const today = localDate(to, schedule.timeZone);
-  const lastOnWeekday = addDays(today, -((weekdayOf(today) - schedule.weekday + 7) % 7));
-  const latest = occurrenceOn(schedule, lastOnWeekday);
-  const start = Date.parse(latest.startsAt) <= to.getTime() ? lastOnWeekday : addDays(lastOnWeekday, -7);
-  function back(date: string): Occurrence[] {
-    const occ = occurrenceOn(schedule, date);
-    if (Date.parse(occ.startsAt) < from.getTime()) return [];
-    return [occ, ...back(addDays(date, -7))];
-  }
-  return back(start);
 }

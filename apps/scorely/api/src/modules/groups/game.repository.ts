@@ -1,4 +1,4 @@
-import { GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { GetCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import {
   batchGetOrdered,
   dbItem,
@@ -12,39 +12,53 @@ import {
 import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
 import type { UserId } from '@scorely/api/src/lib/ids';
 import {
-  ATTENDANCE_ENTITY,
-  attendanceKey,
-  attendanceOrderLookupKey,
-  attendanceOrderLookupPk,
-  attendanceUserLookupKey,
   GAME_ENTITY,
-  gameDateLookupKey,
   gameKey,
+  gamePk,
+  groupGameLookupKey,
+  groupGamesLookupPk,
+  PLAYER_ENTITY,
+  PLAYER_SK_PREFIX,
+  playerKey,
 } from '@scorely/api/src/modules/groups/game.table';
 import { groupKey } from '@scorely/api/src/modules/groups/group.table';
-import type { Entity } from '@scorely/contracts';
 
-/** Jogo materializado (D1): só existe depois da 1ª confirmação ou do cancelamento. */
-export type GameRecord = Entity & {
+/**
+ * Jogo que virou item (GRP-10): só existe depois da 1ª escrita. O `id` é `<scheduleId>_<data>`. Guarda o início, o
+ * fim e o lugar de quando virou item; as vagas e o mínimo só quando são do jogo (GRP-45, 46).
+ */
+export interface GameRecord {
+  id: string;
   groupId: string;
+  scheduleId: string;
   date: string;
+  startsAt: string;
+  endsAt: string;
+  placeId?: string;
   cancelledAt?: string;
-  /** Vagas só deste jogo (GRP-45). Ausente = as do grupo. */
+  /** Vagas só deste jogo (GRP-45). Ausente = as do horário ou do grupo (GRP-66). */
   slots?: number;
-  /** Mínimo só deste jogo (GRP-46). Ausente = o do grupo. */
+  /** Mínimo só deste jogo (GRP-46). Ausente = o do horário ou do grupo. */
   minPlayers?: number;
   /** Quando o jogo chegou ao mínimo pela 1ª vez (GRP-47): o aviso sai uma vez só. */
   minReachedAt?: string;
-};
+  createdAt: string;
+  updatedAt?: string;
+  version?: number;
+}
 
-/** Vagas e mínimo só do jogo: número grava, `null` remove (volta ao padrão do grupo), ausente não muda. */
+/** Vagas e mínimo só do jogo: número grava, `null` remove (volta ao padrão), ausente não muda. */
 export interface GameSettingsPatch {
   slots?: number | null;
   minPlayers?: number | null;
 }
 
-/** Presença de um jogador num jogo (D5). */
-export type AttendanceRecord = Entity & { gameId: string; userId: UserId; confirmedAt: string };
+/** Quem confirmou no jogo (GRP-18–20), na partição do jogo. */
+export interface PlayerRecord {
+  gameId: string;
+  userId: UserId;
+  confirmedAt: string;
+}
 
 export interface ReadOptions {
   consistent?: boolean;
@@ -56,8 +70,8 @@ export type AddAttendanceResult = 'added' | 'exists' | 'cancelled' | 'archived';
 export type ReopenResult = 'reopened' | 'not_cancelled' | 'archived';
 
 export interface GameRepository {
-  findByDate(groupId: string, date: string, opts?: ReadOptions): Promise<GameRecord | undefined>;
-  /** Jogo + lookup da data numa transação. `false` = outro request criou o jogo dessa data antes. */
+  get(gameId: string, opts?: ReadOptions): Promise<GameRecord | undefined>;
+  /** GRP-10: o jogo e o lookup dos jogos do grupo numa transação. `false` = outro request criou o jogo antes. */
   create(game: GameRecord): Promise<boolean>;
   /** Marca como cancelado (a primeira data de cancelamento fica). */
   cancel(gameId: string, cancelledAt: string): Promise<void>;
@@ -67,32 +81,65 @@ export interface GameRepository {
   updateSettings(gameId: string, patch: GameSettingsPatch): Promise<GameRecord>;
   /** GRP-47: grava `minReachedAt` só se ainda não existe. `true` = esta chamada gravou (é quem avisa). */
   markMinReached(gameId: string, at: string): Promise<boolean>;
-  /** Lista inteira, na ordem de confirmação (D4). */
-  listAttendance(gameId: string, opts?: ReadOptions): Promise<AttendanceRecord[]>;
-  getAttendance(gameId: string, userId: UserId): Promise<AttendanceRecord | undefined>;
+  /** A lista inteira, na ordem de chegada: `confirmedAt` e, no empate, `userId` (GRP-18, 19). */
+  listPlayers(gameId: string, opts?: ReadOptions): Promise<PlayerRecord[]>;
+  getPlayer(gameId: string, userId: UserId): Promise<PlayerRecord | undefined>;
   /**
-   * Presença + 2 lookups numa transação, que também confere o jogo e o grupo (GRP-24, GRP-32).
-   * `exists` = o usuário já tinha presença; `cancelled` = o jogo foi cancelado; `archived` = o grupo foi
-   * arquivado (ganha de `cancelled` se os dois falharem). Em qualquer falha nada é gravado.
+   * O `PLAYER#` numa transação que também confere o jogo e o grupo (GRP-24, GRP-32).
+   * `exists` = a pessoa já estava; `cancelled` = o jogo foi cancelado; `archived` = o grupo foi arquivado (ganha
+   * de `cancelled` se os dois falharem). Em qualquer falha nada é gravado.
    */
-  addAttendance(a: AttendanceRecord, groupId: string): Promise<AddAttendanceResult>;
-  /** Apaga a presença e os 2 lookups numa transação. Já apagada → nada a fazer. */
-  removeAttendance(a: AttendanceRecord): Promise<void>;
+  addPlayer(p: PlayerRecord, groupId: string): Promise<AddAttendanceResult>;
+  /** Apaga o `PLAYER#`. Já apagado → nada a fazer. */
+  removePlayer(p: PlayerRecord): Promise<void>;
+  /**
+   * Os jogos do grupo que viraram item, em ordem de início (o lookup, CMP-11, 16). Com `startsFrom`, só os que
+   * começam nesse instante ou depois (os próximos jogos leem só a janela de agora, GRP-11).
+   */
+  listByGroup(groupId: string, opts?: { startsFrom?: string }): Promise<GameRecord[]>;
 }
 
-/** Os 3 Deletes da presença, para esta transação ou para a de remover membro (D12). */
-export function attendanceDeletes(a: AttendanceRecord) {
-  return [
-    {
-      Delete: {
-        TableName: tableName(),
-        Key: attendanceKey(a.id),
-        ConditionExpression: 'attribute_exists(PK)',
-      },
-    },
-    { Delete: { TableName: tableName(), Key: attendanceOrderLookupKey(a) } },
-    { Delete: { TableName: tableName(), Key: attendanceUserLookupKey(a.gameId, a.userId) } },
-  ];
+/** O Delete do jogador, para a transação de remover membro (GRP-25). */
+export function playerDeletes(p: PlayerRecord) {
+  return [{ Delete: { TableName: tableName(), Key: playerKey(p.gameId, p.userId) } }];
+}
+
+/** Os ids dos jogos do grupo que começam em `from` ou depois (o `SK` do lookup começa pelo `startsAt`). */
+async function queryGameIdsFrom(
+  groupId: string,
+  from: string,
+  startKey?: Record<string, unknown>,
+): Promise<string[]> {
+  const { Items = [], LastEvaluatedKey } = await dynamo().send(
+    new QueryCommand({
+      TableName: tableName(),
+      KeyConditionExpression: 'PK = :pk AND SK >= :from',
+      ExpressionAttributeValues: { ':pk': groupGamesLookupPk(groupId), ':from': from },
+      ProjectionExpression: 'id',
+      ConsistentRead: true,
+      ...(startKey && { ExclusiveStartKey: startKey }),
+    }),
+  );
+  const ids = Items.map((row) => row.id as string);
+  return LastEvaluatedKey ? [...ids, ...(await queryGameIdsFrom(groupId, from, LastEvaluatedKey))] : ids;
+}
+
+async function queryPlayers(
+  gameId: string,
+  consistent: boolean | undefined,
+  startKey?: Record<string, unknown>,
+): Promise<PlayerRecord[]> {
+  const { Items = [], LastEvaluatedKey } = await dynamo().send(
+    new QueryCommand({
+      TableName: tableName(),
+      KeyConditionExpression: 'PK = :pk AND begins_with(SK, :prefix)',
+      ExpressionAttributeValues: { ':pk': gamePk(gameId), ':prefix': PLAYER_SK_PREFIX },
+      ConsistentRead: consistent,
+      ...(startKey && { ExclusiveStartKey: startKey }),
+    }),
+  );
+  const page = Items.map((row) => stripKeys<PlayerRecord>(row));
+  return LastEvaluatedKey ? [...page, ...(await queryPlayers(gameId, consistent, LastEvaluatedKey))] : page;
 }
 
 async function getItem<T>(key: { PK: string; SK: string }, consistent = false): Promise<T | undefined> {
@@ -103,9 +150,8 @@ async function getItem<T>(key: { PK: string; SK: string }, consistent = false): 
 }
 
 export const dynamoGameRepository: GameRepository = {
-  async findByDate(groupId, date, opts) {
-    const pointer = await getItem<{ id: string }>(gameDateLookupKey(groupId, date), opts?.consistent);
-    return pointer ? getItem<GameRecord>(gameKey(pointer.id), opts?.consistent) : undefined;
+  async get(gameId, opts) {
+    return getItem<GameRecord>(gameKey(gameId), opts?.consistent);
   },
 
   async create(game) {
@@ -121,12 +167,11 @@ export const dynamoGameRepository: GameRepository = {
         Put: {
           TableName: tableName(),
           Item: dbItem(
-            gameDateLookupKey(game.groupId, game.date),
+            groupGameLookupKey(game.groupId, game.startsAt, game.id),
             LOOKUP_ENTITY,
             { id: game.id },
             game.createdAt,
           ),
-          ConditionExpression: 'attribute_not_exists(PK)',
         },
       },
     ]);
@@ -217,50 +262,33 @@ export const dynamoGameRepository: GameRepository = {
     return result.failed.includes(1) ? 'archived' : 'not_cancelled';
   },
 
-  async listAttendance(gameId, opts) {
-    const pointers = await queryLookupRows(attendanceOrderLookupPk(gameId), opts);
-    const rows = await batchGetOrdered(
-      pointers.map((p) => attendanceKey(p.id)),
-      opts,
+  async listPlayers(gameId, opts) {
+    const players = await queryPlayers(gameId, opts?.consistent);
+    return players.sort(
+      (x, y) => x.confirmedAt.localeCompare(y.confirmedAt) || x.userId.localeCompare(y.userId),
     );
-    return rows.map((row) => stripKeys<AttendanceRecord>(row));
   },
 
-  async getAttendance(gameId, userId) {
-    const pointer = await getItem<{ id: string }>(attendanceUserLookupKey(gameId, userId), true);
-    return pointer ? getItem<AttendanceRecord>(attendanceKey(pointer.id), true) : undefined;
+  async getPlayer(gameId, userId) {
+    return getItem<PlayerRecord>(playerKey(gameId, userId), true);
   },
 
-  async addAttendance(a, groupId) {
-    // Índices: 0 presença, 1 ordem, 2 presença da pessoa, 3 jogo não cancelado, 4 grupo não arquivado.
-    // Os ConditionCheck ficam na mesma transação: um cancelamento ou arquivamento simultâneo sempre vem
-    // antes ou depois da presença, nunca no meio (GRP-24, GRP-32).
+  async addPlayer(p, groupId) {
+    // Índices: 0 o jogador, 1 jogo não cancelado, 2 grupo não arquivado. Os ConditionCheck ficam na mesma transação:
+    // um cancelamento ou arquivamento simultâneo sempre vem antes ou depois da confirmação (GRP-24, GRP-32).
     const result = await transactWrite([
       {
         Put: {
           TableName: tableName(),
-          Item: dbItem(attendanceKey(a.id), ATTENDANCE_ENTITY, a),
-          ConditionExpression: 'attribute_not_exists(PK)',
-        },
-      },
-      {
-        Put: {
-          TableName: tableName(),
-          Item: dbItem(attendanceOrderLookupKey(a), LOOKUP_ENTITY, { id: a.id }, a.createdAt),
-        },
-      },
-      {
-        Put: {
-          TableName: tableName(),
-          Item: dbItem(attendanceUserLookupKey(a.gameId, a.userId), LOOKUP_ENTITY, { id: a.id }, a.createdAt),
+          Item: dbItem(playerKey(p.gameId, p.userId), PLAYER_ENTITY, p, p.confirmedAt),
           ConditionExpression: 'attribute_not_exists(PK)',
         },
       },
       {
         ConditionCheck: {
           TableName: tableName(),
-          Key: gameKey(a.gameId),
-          ConditionExpression: 'attribute_not_exists(cancelledAt)',
+          Key: gameKey(p.gameId),
+          ConditionExpression: 'attribute_exists(PK) AND attribute_not_exists(cancelledAt)',
         },
       },
       {
@@ -272,13 +300,24 @@ export const dynamoGameRepository: GameRepository = {
       },
     ]);
     if (result.ok) return 'added';
-    if (result.failed.includes(4)) return 'archived';
-    if (result.failed.includes(3)) return 'cancelled';
+    if (result.failed.includes(2)) return 'archived';
+    if (result.failed.includes(1)) return 'cancelled';
     return 'exists';
   },
 
-  async removeAttendance(a) {
-    // Condição falhou = outra desistência (ou remoção) apagou antes: o resultado é o mesmo.
-    await transactWrite(attendanceDeletes(a));
+  async removePlayer(p) {
+    // Já apagado (outra desistência ou remoção): o resultado é o mesmo.
+    await transactWrite(playerDeletes(p));
+  },
+
+  async listByGroup(groupId, opts) {
+    const ids = opts?.startsFrom
+      ? await queryGameIdsFrom(groupId, opts.startsFrom)
+      : (await queryLookupRows(groupGamesLookupPk(groupId))).map((r) => r.id);
+    const items = await batchGetOrdered(
+      ids.map((id) => gameKey(id)),
+      { consistent: true },
+    );
+    return items.map((row) => stripKeys<GameRecord>(row));
   },
 };

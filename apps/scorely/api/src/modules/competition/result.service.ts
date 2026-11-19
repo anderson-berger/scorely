@@ -1,16 +1,12 @@
 import { appError } from '@scorely/api/src/lib/errors';
 import type { UserId } from '@scorely/api/src/lib/ids';
-import { type Occurrence, occurrencesBetween } from '@scorely/api/src/lib/zoned';
+import type { Occurrence } from '@scorely/api/src/lib/zoned';
 import type {
   CompetitionRepository,
   StoredCompetition,
 } from '@scorely/api/src/modules/competition/competition.repository';
 import { competitionStatus } from '@scorely/api/src/modules/competition/competition.status';
-import {
-  createGameAccess,
-  type ListEntry,
-  scheduleOf,
-} from '@scorely/api/src/modules/competition/game.access';
+import { createGameAccess, type ListEntry } from '@scorely/api/src/modules/competition/game.access';
 import type { MatchRepository, StoredMatch } from '@scorely/api/src/modules/competition/match.repository';
 import { announcePodium, podiumIds } from '@scorely/api/src/modules/competition/ranking.service';
 import type {
@@ -28,6 +24,7 @@ import {
   requireMember,
   requirePermission,
 } from '@scorely/api/src/modules/groups/groups.deps';
+import type { ScheduleRepository } from '@scorely/api/src/modules/groups/schedule.repository';
 import type { NotificationService } from '@scorely/api/src/modules/notifications/notification.service';
 import type { TeamsRepository } from '@scorely/api/src/modules/teams/teams.repository';
 import type { UserDirectory } from '@scorely/api/src/modules/users/user.repository';
@@ -45,6 +42,8 @@ import type {
 
 export interface ResultDeps {
   groups: GroupRepository;
+  /** GRP-66: o horário do jogo, mesmo arquivado (as vagas dele valem no jogo passado). */
+  groupSchedules?: Pick<ScheduleRepository, 'get'>;
   games: GameRepository;
   teams: TeamsRepository;
   competitions: CompetitionRepository;
@@ -68,7 +67,7 @@ interface Roles {
 
 export function createResultService(deps: ResultDeps) {
   const now = deps.now ?? (() => new Date());
-  const { occurrenceFor, startedGame, listOf, publishedTeams } = createGameAccess({ ...deps, now });
+  const { startedGame, listOf, publishedTeams } = createGameAccess({ ...deps, now });
 
   /** CMP-29: a temporada do dia do jogo, se houver. */
   async function seasonFor(groupId: string, date: string): Promise<StoredSeason | undefined> {
@@ -160,7 +159,7 @@ export function createResultService(deps: ResultDeps) {
     const list = result?.list ?? (await listOf(group, record));
     const matches = await matchesOf(record.id);
     const played = new Set(matches.flatMap((m) => [...m.teams[0], ...m.teams[1]]));
-    const published = result ? undefined : await publishedTeams(group.id, occ.date);
+    const published = result ? undefined : await publishedTeams(record.id);
     const teams = result ? result.teams : (published?.teams ?? []);
     const extras = result ? (result.extras ?? []) : (published?.extras ?? []);
     const roles: Roles = result
@@ -234,6 +233,7 @@ export function createResultService(deps: ResultDeps) {
 
     const state: CompetitionGameState = result ? 'closed' : cancelled ? 'cancelled' : 'open';
     return {
+      id: record.id,
       date: occ.date,
       startsAt: occ.startsAt,
       state,
@@ -260,33 +260,40 @@ export function createResultService(deps: ResultDeps) {
   return {
     /** CMP-16: os jogos desde a ativação que viraram item, do mais recente ao mais antigo. */
     async list(userId: UserId, groupId: string): Promise<CompetitionGame[]> {
-      const { group } = await requireMember(deps, userId, groupId);
+      await requireMember(deps, userId, groupId);
       const competition = await deps.competitions.get(groupId);
       if (!competition) return [];
-      const occs = occurrencesBetween(scheduleOf(group), new Date(competition.trialStartedAt), now());
+      // CMP-16: os jogos que viraram item (o lookup dos jogos do grupo), começados desde a ativação.
+      const from = Date.parse(competition.trialStartedAt);
+      const at = now().getTime();
       const [records, results] = await Promise.all([
-        Promise.all(occs.map((o) => deps.games.findByDate(groupId, o.date))),
+        deps.games.listByGroup(groupId),
         deps.results.listByGroup(groupId),
       ]);
       const byGame = new Map(results.map((r) => [r.gameId, r]));
-      return occs.flatMap((occ, i): CompetitionGame[] => {
-        const record = records[i];
-        if (!record) return [];
+      const started = records
+        .filter((r) => Date.parse(r.startsAt) >= from && Date.parse(r.startsAt) <= at)
+        .sort((a, b) => b.startsAt.localeCompare(a.startsAt) || b.id.localeCompare(a.id));
+      return started.map((record): CompetitionGame => {
         const result = byGame.get(record.id);
         const cancelled = result ? result.cancelled : Boolean(record.cancelledAt);
         const state: CompetitionGameState = result ? 'closed' : cancelled ? 'cancelled' : 'open';
-        return [
-          { date: occ.date, startsAt: occ.startsAt, state, cancelled, friendly: result?.friendly ?? false },
-        ];
+        return {
+          id: record.id,
+          date: record.date,
+          startsAt: record.startsAt,
+          state,
+          cancelled,
+          friendly: result?.friendly ?? false,
+        };
       });
     },
 
     /** CMP-12–16: membros e reservas veem o jogo, inclusive com a competição vencida e o grupo arquivado. */
-    async get(userId: UserId, groupId: string, date: string): Promise<CompetitionGameDetail> {
+    async get(userId: UserId, groupId: string, gameId: string): Promise<CompetitionGameDetail> {
       const { group, roleId } = await requireMember(deps, userId, groupId);
       const competition = await deps.competitions.get(groupId);
-      const occ = occurrenceFor(group, competition, date);
-      const record = await startedGame(group, occ);
+      const { occ, record } = await startedGame(group, competition, gameId);
       const result = await deps.results.get(record.id);
       const season = await seasonFor(groupId, occ.date);
       const canRecord = permissionsOf(roleId).includes('results.record');
@@ -308,7 +315,7 @@ export function createResultService(deps: ResultDeps) {
     async close(
       userId: UserId,
       groupId: string,
-      date: string,
+      gameId: string,
       input: CloseGameInput,
     ): Promise<CompetitionGameDetail> {
       const { group } = await requirePermission(deps, userId, groupId, 'results.record');
@@ -316,15 +323,14 @@ export function createResultService(deps: ResultDeps) {
       const competition = await deps.competitions.get(groupId);
       if (!competition || competitionStatus(competition, now()) !== 'active')
         throw appError('COMPETITION_INACTIVE');
-      const occ = occurrenceFor(group, competition, date);
-      const record = await startedGame(group, occ);
+      const { occ, record } = await startedGame(group, competition, gameId);
       // CMP-32: o jogo de uma temporada travada não fecha nem é corrigido.
       const season = await seasonFor(groupId, occ.date);
       if (season && isLocked(season, now(), group.timeZone)) throw appError('SEASON_CLOSED');
       const cancelled = Boolean(record.cancelledAt);
       const [current, published, existing] = await Promise.all([
         listOf(group, record),
-        publishedTeams(groupId, date),
+        publishedTeams(gameId),
         deps.results.get(record.id),
       ]);
       // CMP-14: a lista (dentro ou fila) é a do 1º fechamento; mudar as vagas padrão depois não muda o jogo.

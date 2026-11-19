@@ -1,4 +1,4 @@
-import { currentOccurrence, layerOpensAt } from '@scorely/api/src/lib/zoned';
+import { layerOpensAt, nextOccurrence } from '@scorely/api/src/lib/zoned';
 import { describe, expect, it } from 'vitest';
 
 // Plano 007 (E2), tarefa 3: abertura de cada camada da lista (casos 5 e 6, parte de datas).
@@ -22,8 +22,14 @@ describe('zoned: abertura das camadas (plano 007, casos 5 e 6)', () => {
   });
 
   it('caso 6: a camada dos membros bate com o opensAt da ocorrência', () => {
-    const schedule = { weekday: 5, time: '19:00', timeZone: 'America/Sao_Paulo', listOpensHoursBefore: 48 };
-    const occ = currentOccurrence(schedule, THURSDAY_10H);
+    const schedule = {
+      weekday: 5,
+      start: '19:00',
+      end: '22:00',
+      timeZone: 'America/Sao_Paulo',
+      listOpensHoursBefore: 48,
+    };
+    const occ = nextOccurrence(schedule, THURSDAY_10H);
     expect(iso(layerOpensAt(occ.startsAt, 48))).toBe(iso(occ.opensAt));
   });
 });

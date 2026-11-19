@@ -28,23 +28,23 @@ export const competitionFunctions: AWS['functions'] = {
   },
   competitionGame: {
     handler: handler('getCompetitionGame'),
-    events: route('GET', '/groups/{id}/competition/games/{date}'),
+    events: route('GET', '/groups/{id}/competition/games/{gameId}'),
   },
   competitionCloseGame: {
     handler: handler('closeCompetitionGame'),
-    events: route('PUT', '/groups/{id}/competition/games/{date}'),
+    events: route('PUT', '/groups/{id}/competition/games/{gameId}'),
   },
   competitionCreateMatch: {
     handler: handler('createCompetitionMatch'),
-    events: route('POST', '/groups/{id}/competition/games/{date}/matches'),
+    events: route('POST', '/groups/{id}/competition/games/{gameId}/matches'),
   },
   competitionUpdateMatch: {
     handler: handler('updateCompetitionMatch'),
-    events: route('PUT', '/groups/{id}/competition/games/{date}/matches/{matchId}'),
+    events: route('PUT', '/groups/{id}/competition/games/{gameId}/matches/{matchId}'),
   },
   competitionDeleteMatch: {
     handler: handler('deleteCompetitionMatch'),
-    events: route('DELETE', '/groups/{id}/competition/games/{date}/matches/{matchId}'),
+    events: route('DELETE', '/groups/{id}/competition/games/{gameId}/matches/{matchId}'),
   },
   competitionRanking: {
     handler: handler('getCompetitionRanking'),

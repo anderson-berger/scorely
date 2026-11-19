@@ -25,9 +25,9 @@ import { createSeasonService } from '@scorely/api/src/modules/competition/season
 import type { TrophyRepository } from '@scorely/api/src/modules/competition/trophy.repository';
 import { createTrophyService } from '@scorely/api/src/modules/competition/trophy.service';
 import type {
-  AttendanceRecord,
   GameRecord,
   GameRepository,
+  PlayerRecord,
 } from '@scorely/api/src/modules/groups/game.repository';
 import type { GroupRepository, StoredGroup } from '@scorely/api/src/modules/groups/group.repository';
 import type { NotificationRepository } from '@scorely/api/src/modules/notifications/notification.repository';
@@ -124,7 +124,19 @@ const RULES_NEW: CompetitionRules = {
   tiebreak: [],
 };
 
-const gameId = (date: string) => `f0000000-0000-4000-8000-0000${date.replaceAll('-', '')}`;
+/** GRP-10, 64: o horário do grupo (sexta 19:00–22:00) e o id do jogo dele numa data (`<scheduleId>_<data>`). */
+const SCHEDULE_ID = 'eeeeeeee-0000-4000-8000-000000000001';
+const SCHEDULE = {
+  id: SCHEDULE_ID,
+  groupId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+  version: 1,
+  weekday: 5,
+  start: '19:00',
+  end: '22:00',
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+};
+const gameId = (date: string) => `${SCHEDULE_ID}_${date}`;
 
 const LISTS: Record<string, UserId[]> = {
   [OCT30]: [OWNER, A, B],
@@ -134,13 +146,25 @@ const LISTS: Record<string, UserId[]> = {
 
 function fakeGame(date: string, list: UserId[]): { record: GameRecord; list: UserId[] } {
   return {
-    record: { id: gameId(date), createdAt: `${date}T00:00:00.000Z`, groupId: GROUP_ID, date },
+    record: {
+      id: gameId(date),
+      groupId: GROUP_ID,
+      scheduleId: SCHEDULE_ID,
+      date,
+      // Sexta 19:00–22:00 em São Paulo (GRP-10: o item guarda o início e o fim).
+      startsAt: `${date}T22:00:00.000Z`,
+      endsAt: new Date(Date.parse(`${date}T22:00:00.000Z`) + 3 * 3600_000).toISOString(),
+      createdAt: `${date}T00:00:00.000Z`,
+      updatedAt: `${date}T00:00:00.000Z`,
+      version: 1,
+    },
     list,
   };
 }
 
 function publishedTeams(date: string, teams: string[][]): StoredTeams {
   return {
+    gameId: gameId(date),
     groupId: GROUP_ID,
     date,
     status: 'published',
@@ -173,8 +197,7 @@ function setup(opts: { competition?: Partial<StoredCompetition>; results?: Store
       createdAt: '2026-01-01T00:00:00.000Z',
       name: 'Vôlei de sexta',
       sportId: 'volleyball',
-      weekday: 5,
-      time: '19:00',
+      schedules: [SCHEDULE],
       timeZone: 'America/Sao_Paulo',
       slots: 5,
       listOpensHoursBefore: 48,
@@ -260,31 +283,36 @@ function setup(opts: { competition?: Partial<StoredCompetition>; results?: Store
   };
 
   const findGame = (id: string) => Object.values(state.games).find((g) => g.record.id === id);
+  /** O jogo pelo id (`GAME#<gameId>`), os jogadores (`PLAYER#`) e os jogos do grupo pelo lookup (competicao.md, seção 3). */
   const games: GameRepository = {
-    findByDate: async (groupId, date) =>
-      groupId === state.group.id ? structuredClone(state.games[date]?.record) : undefined,
-    listAttendance: async (id) =>
+    get: async (id) => structuredClone(findGame(id)?.record),
+    listPlayers: async (id) =>
       (findGame(id)?.list ?? []).map(
-        (userId, i): AttendanceRecord => ({
-          id: `a${i}-${id}`,
-          createdAt: new Date(Date.UTC(2026, 9, 1, 0, i)).toISOString(),
+        (userId, i): PlayerRecord => ({
           gameId: id,
           userId,
           confirmedAt: new Date(Date.UTC(2026, 9, 1, 0, i)).toISOString(),
         }),
       ),
+    listByGroup: async (groupId) =>
+      Object.values(state.games)
+        .map((g) => g.record)
+        .filter((g) => g.groupId === groupId)
+        .sort((x, y) => x.startsAt.localeCompare(y.startsAt))
+        .map((g) => structuredClone(g)),
     create: unused,
     cancel: unused,
     reopen: unused,
     updateSettings: unused,
     markMinReached: unused,
-    getAttendance: unused,
-    addAttendance: unused,
-    removeAttendance: unused,
+    getPlayer: unused,
+    addPlayer: unused,
+    removePlayer: unused,
   };
 
   const teams: TeamsRepository = {
-    get: async (groupId, date) => (groupId === GROUP_ID ? structuredClone(state.teams[date]) : undefined),
+    /** `GAME#<gameId>/TEAMS` (times.md, seção 3). */
+    get: async (id) => structuredClone(Object.values(state.teams).find((x) => x.gameId === id)),
     put: unused,
     delete: unused,
   };
@@ -527,7 +555,7 @@ async function open(t: T, at: Date, input: SeasonInput): Promise<Season> {
 /** Fecha (ou corrige) o jogo com todos da lista presentes; `winner` só no modo pelo dia. */
 function closeGame(t: T, date: string, winner?: 0 | 1) {
   const attendance = Object.fromEntries((LISTS[date] ?? []).map((id) => [pub(id), 'present' as const]));
-  return t.results.close(OWNER, GROUP_ID, date, {
+  return t.results.close(OWNER, GROUP_ID, gameId(date), {
     ...t.rv(date),
     attendance,
     friendly: false,
@@ -777,13 +805,13 @@ describe('entrou no pódio (CMP-38)', () => {
     expect(ofType(t, 'podium_entered')).toEqual([]);
 
     // Caio vence o Dono: Ana 1º, Caio 2º, Dono 3º, Beatriz 4º.
-    const detail = await t.matches.create(OWNER, GROUP_ID, NOV06, matchInput([C], [OWNER]));
+    const detail = await t.matches.create(OWNER, GROUP_ID, gameId(NOV06), matchInput([C], [OWNER]));
     expect(ofType(t, 'podium_entered').map((n) => n.userId)).toEqual([C]);
     expect(textOf(ofType(t, 'podium_entered')[0] as Sent)).toContain('Primavera');
 
     // O Dono vence: Ana e Dono 1º, Caio 3º. Quem está no top 3 continua o mesmo.
     const matchId = detail.matches[0]?.id ?? '';
-    await t.matches.update(OWNER, GROUP_ID, NOV06, matchId, {
+    await t.matches.update(OWNER, GROUP_ID, gameId(NOV06), matchId, {
       ...matchInput([C], [OWNER], 1),
       ...t.mv(matchId),
     });

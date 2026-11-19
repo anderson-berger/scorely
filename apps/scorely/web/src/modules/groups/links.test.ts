@@ -11,11 +11,16 @@ const membersOpenAt = '2026-11-04T22:00:00.000Z';
 const reservesOpenAt = '2026-11-05T22:00:00.000Z';
 const guestsOpenAt = '2026-11-06T16:00:00.000Z';
 
+const scheduleId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
 function game(overrides: Partial<Game> = {}): Game {
   return {
+    id: `${scheduleId}_2026-11-06`,
     groupId,
+    scheduleId,
     date: '2026-11-06',
     startsAt,
+    endsAt: '2026-11-06T23:00:00.000Z',
     opensAt: membersOpenAt,
     reservesOpensAt: reservesOpenAt,
     guestsOpensAt: guestsOpenAt,
@@ -34,12 +39,10 @@ function guestGame(myTier: Tier): GuestGame {
       id: groupId,
       name: 'Vôlei de sexta',
       sportId: 'volleyball',
-      weekday: 5,
-      time: '19:00',
       timeZone: 'America/Sao_Paulo',
     },
     myTier,
-    game: game(),
+    games: [game()],
   };
 }
 

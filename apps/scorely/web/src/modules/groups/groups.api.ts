@@ -14,15 +14,18 @@ import {
   MyGroupSchema,
   type PlaceInput,
   PlaceSchema,
+  type ScheduleInput,
+  ScheduleSchema,
   type UpdateGameInput,
   type UpdateGroupInput,
   type UpdatePlaceInput,
+  type UpdateScheduleInput,
   type VersionInput,
 } from '@scorely/contracts';
 import { request, send } from '@scorely/web/src/lib/http';
 import { contentTypeOf, uploadMedia } from '@scorely/web/src/lib/media';
 
-const game = (groupId: string, date: string) => `/groups/${groupId}/games/${date}`;
+const game = (groupId: string, gameId: string) => `/groups/${groupId}/games/${gameId}`;
 const play = (token: string) => `/play/${encodeURIComponent(token)}`;
 
 export const groupsApi = {
@@ -34,6 +37,22 @@ export const groupsApi = {
   get: (id: string) => request({ url: `/groups/${id}` }, GroupSchema),
   update: (id: string, patch: UpdateGroupInput) =>
     request({ url: `/groups/${id}`, method: 'PATCH', data: patch }, GroupSchema),
+  /** Horários do grupo (GRP-64–67). */
+  schedules: (id: string) => request({ url: `/groups/${id}/schedules` }, ScheduleSchema.array()),
+  createSchedule: (id: string, input: ScheduleInput) =>
+    request({ url: `/groups/${id}/schedules`, method: 'POST', data: input }, ScheduleSchema),
+  updateSchedule: (id: string, scheduleId: string, input: UpdateScheduleInput) =>
+    request({ url: `/groups/${id}/schedules/${scheduleId}`, method: 'PUT', data: input }, ScheduleSchema),
+  archiveSchedule: (id: string, scheduleId: string, input: VersionInput) =>
+    request(
+      { url: `/groups/${id}/schedules/${scheduleId}/archive`, method: 'POST', data: input },
+      ScheduleSchema,
+    ),
+  unarchiveSchedule: (id: string, scheduleId: string, input: VersionInput) =>
+    request(
+      { url: `/groups/${id}/schedules/${scheduleId}/unarchive`, method: 'POST', data: input },
+      ScheduleSchema,
+    ),
   /** Lugares do grupo (GRP-60–63). */
   places: (id: string) => request({ url: `/groups/${id}/places` }, PlaceSchema.array()),
   createPlace: (id: string, input: PlaceInput) =>
@@ -45,8 +64,8 @@ export const groupsApi = {
   unarchivePlace: (id: string, placeId: string, input: VersionInput) =>
     request({ url: `/groups/${id}/places/${placeId}/unarchive`, method: 'POST', data: input }, PlaceSchema),
   /** Vagas e mínimo só do jogo atual (GRP-45, 46); `null` = volta ao padrão do grupo. */
-  updateGame: (id: string, date: string, patch: UpdateGameInput) =>
-    request({ url: `/groups/${id}/games/${date}`, method: 'PATCH', data: patch }, GameSchema),
+  updateGame: (id: string, gameId: string, patch: UpdateGameInput) =>
+    request({ url: `/groups/${id}/games/${gameId}`, method: 'PATCH', data: patch }, GameSchema),
   rotateInvite: (id: string, kind: InviteKind) =>
     request({ url: `/groups/${id}/invite`, method: 'POST', data: { kind } }, InviteSchema),
   acceptInvite: (token: string) =>
@@ -70,19 +89,20 @@ export const groupsApi = {
     send({ url: `/groups/${id}/members/${userId}/staff-role`, method: 'DELETE' }),
   transfer: (id: string, userId: string) =>
     request({ url: `/groups/${id}/transfer`, method: 'POST', data: { userId } }, GroupSchema),
-  currentGame: (id: string) => request({ url: `/groups/${id}/games/current` }, GameSchema),
-  confirm: (id: string, date: string) =>
-    request({ url: `${game(id, date)}/attendance`, method: 'POST' }, GameSchema),
-  leave: (id: string, date: string) => send({ url: `${game(id, date)}/attendance`, method: 'DELETE' }),
-  cancel: (id: string, date: string) =>
-    request({ url: `${game(id, date)}/cancel`, method: 'POST' }, GameSchema),
-  reopen: (id: string, date: string) =>
-    request({ url: `${game(id, date)}/reopen`, method: 'POST' }, GameSchema),
+  /** GRP-11: os próximos jogos do grupo, em ordem de início. */
+  games: (id: string) => request({ url: `/groups/${id}/games` }, GameSchema.array()),
+  confirm: (id: string, gameId: string) =>
+    request({ url: `${game(id, gameId)}/attendance`, method: 'POST' }, GameSchema),
+  leave: (id: string, gameId: string) => send({ url: `${game(id, gameId)}/attendance`, method: 'DELETE' }),
+  cancel: (id: string, gameId: string) =>
+    request({ url: `${game(id, gameId)}/cancel`, method: 'POST' }, GameSchema),
+  reopen: (id: string, gameId: string) =>
+    request({ url: `${game(id, gameId)}/reopen`, method: 'POST' }, GameSchema),
   play: (token: string) => request({ url: play(token) }, GuestGameSchema),
-  playConfirm: (token: string, date: string) =>
-    request({ url: `${play(token)}/games/${date}/attendance`, method: 'POST' }, GameSchema),
-  playLeave: (token: string, date: string) =>
-    send({ url: `${play(token)}/games/${date}/attendance`, method: 'DELETE' }),
+  playConfirm: (token: string, gameId: string) =>
+    request({ url: `${play(token)}/games/${gameId}/attendance`, method: 'POST' }, GameSchema),
+  playLeave: (token: string, gameId: string) =>
+    send({ url: `${play(token)}/games/${gameId}/attendance`, method: 'DELETE' }),
 };
 
 /** Logo e capa do grupo (GRP-35): pede o envio → envia ao S3 → confirma (MID-04, MID-05). */

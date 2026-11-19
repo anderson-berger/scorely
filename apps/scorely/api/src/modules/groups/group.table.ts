@@ -87,3 +87,17 @@ export const PLACE_SK_PREFIX = 'PLACE#';
 export function placeKey(groupId: Group['id'], placeId: string) {
   return { PK: groupPk(groupId), SK: `${PLACE_SK_PREFIX}${placeId}` };
 }
+
+export const SCHEDULE_ENTITY = 'Schedule';
+
+/** Prefixo dos horários na partição do grupo: a lista é uma Query `begins_with`. */
+export const SCHEDULE_SK_PREFIX = 'SCHEDULE#';
+
+/**
+ * Horário do grupo (GRP-64–67): `PK=GROUP#<id>`, `SK=SCHEDULE#<scheduleId>`, `{ id, groupId, weekday, start, end,
+ * placeId?, slots?, minPlayers?, archivedAt? }`. Nunca apagado, só arquivado. O limite de ativos é o `scheduleCount`
+ * do `COUNTERS`, e toda escrita confere e soma o `scheduleRevision` (sem dois horários sobrepostos numa corrida).
+ */
+export function scheduleKey(groupId: Group['id'], scheduleId: string) {
+  return { PK: groupPk(groupId), SK: `${SCHEDULE_SK_PREFIX}${scheduleId}` };
+}

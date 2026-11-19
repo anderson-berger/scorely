@@ -31,6 +31,7 @@ const cardGroup = (overrides: {
   listOpensHoursBefore: overrides.listOpensHoursBefore ?? 48,
   reservesOpenHoursBefore: overrides.reservesOpenHoursBefore ?? 24,
   game: {
+    id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa_2026-11-10',
     date: '2026-11-10',
     startsAt: inHours(10),
     status: 'open',

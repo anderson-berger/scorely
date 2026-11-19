@@ -118,6 +118,18 @@ type RosterGame = Omit<Game, 'confirmed' | 'waitlist'> & {
 };
 
 const NOW = new Date('2026-11-05T13:00:00.000Z');
+/** GRP-10, 64: o horário do grupo e o id do jogo dele (`<scheduleId>_<data>`). */
+const SCHEDULE_ID = 'eeeeeeee-0000-4000-8000-000000000001';
+const SCHEDULE = {
+  id: SCHEDULE_ID,
+  groupId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+  version: 1,
+  weekday: 5,
+  start: '19:00',
+  end: '22:00',
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+};
 const LATER = new Date('2026-11-12T13:00:00.000Z');
 
 function storedGroup(extra: Partial<StoredGroup> = {}): StoredGroup {
@@ -126,8 +138,7 @@ function storedGroup(extra: Partial<StoredGroup> = {}): StoredGroup {
     createdAt: '2026-01-01T00:00:00.000Z',
     name: 'Vôlei de sexta',
     sportId: 'volleyball',
-    weekday: 5,
-    time: '19:00',
+    schedules: [SCHEDULE],
     timeZone: 'America/Sao_Paulo',
     slots: 12,
     listOpensHoursBefore: 48,
@@ -169,11 +180,18 @@ const MEMBERS: RosterMember[] = [
 ];
 
 /** Jogo atual: membros e convidados misturados, dentro e na fila. */
-function gameOf(confirmed: RosterAttendee[], waitlist: RosterAttendee[]): RosterGame {
+function gameOf(
+  confirmed: RosterAttendee[],
+  waitlist: RosterAttendee[],
+  extra: Partial<RosterGame> = {},
+): RosterGame {
   return {
+    id: `${SCHEDULE_ID}_2026-11-06`,
     groupId: GROUP_ID,
+    scheduleId: SCHEDULE_ID,
     date: '2026-11-06',
     startsAt: '2026-11-06T22:00:00.000Z',
+    endsAt: '2026-11-07T01:00:00.000Z',
     opensAt: '2026-11-04T22:00:00.000Z',
     reservesOpensAt: '2026-11-05T22:00:00.000Z',
     guestsOpensAt: '2026-11-06T10:00:00.000Z',
@@ -181,6 +199,7 @@ function gameOf(confirmed: RosterAttendee[], waitlist: RosterAttendee[]): Roster
     slots: 12,
     confirmed,
     waitlist,
+    ...extra,
   };
 }
 
@@ -212,7 +231,7 @@ const sports = { get: async (id: string) => TEST_SPORTS.find((s) => s.id === id)
 
 /**
  * Contexto em memória. `state` é mutável de propósito (sair do grupo/da lista entre chamadas).
- * Participação do grupo: os membros do roster; o `currentGame` responde `GROUP_ARCHIVED` com o grupo arquivado
+ * Participação do grupo: os membros do roster; o `upcoming` responde `GROUP_ARCHIVED` com o grupo arquivado
  * (o jogo só existe com o grupo ativo, GRP-37), então o service não deve chamá-lo nesse caso.
  */
 function setup(opts: { group?: Partial<StoredGroup>; members?: RosterMember[]; game?: RosterGame } = {}) {
@@ -221,6 +240,8 @@ function setup(opts: { group?: Partial<StoredGroup>; members?: RosterMember[]; g
     group: storedGroup(opts.group),
     members: opts.members ?? MEMBERS,
     game: opts.game ?? GAME,
+    /** Os próximos jogos dos outros horários (GRP-11), depois do `game`. */
+    others: [] as RosterGame[],
     /** Cargo de cada pessoa (GRP-48): `admin` dá o `teams.manage`. */
     staff: {} as Record<string, RoleId>,
   };
@@ -282,10 +303,13 @@ function setup(opts: { group?: Partial<StoredGroup>; members?: RosterMember[]; g
 
   const roster = {
     members: async (_userId: string, _groupId: string) => state.members.map((m) => ({ ...m })),
-    currentGame: async (_userId: string, _groupId: string) => {
+    /** GRP-11: os próximos jogos (um por horário). Com o grupo arquivado, GROUP_ARCHIVED (GRP-37). */
+    upcoming: async (_userId: string, _groupId: string) => {
       if (state.group.archivedAt) throw appError('GROUP_ARCHIVED');
-      return state.game;
+      return [state.game, ...state.others];
     },
+    game: unused,
+    guestView: unused,
   };
 
   /** USR-17: o PUT recebe o id público e traduz; `getMany` traz quem saiu do grupo. */
@@ -914,5 +938,34 @@ describe('times: a versão que a tela mostrou nas posições (TIM-25)', () => {
     expect(UpdatePlayerInputSchema.safeParse({ positions: ['setter'] }).success).toBe(false);
     expect(UpdatePlayerInputSchema.safeParse({ version: 1.5, positions: ['setter'] }).success).toBe(false);
     expect(UpdatePlayerInputSchema.safeParse({ version: 0, positions: ['setter'] }).success).toBe(true);
+  });
+});
+
+// Horários e jogo próprio (`.claude/work/horarios-jogo.md`): o grupo pode ter mais de um próximo jogo (GRP-11).
+describe('times: quem o dono classifica com mais de um próximo jogo (TIM-04)', () => {
+  const satGame = (confirmed: RosterAttendee[], waitlist: RosterAttendee[] = []) =>
+    gameOf(confirmed, waitlist, {
+      id: 'eeeeeeee-0000-4000-8000-000000000002_2026-11-07',
+      scheduleId: 'eeeeeeee-0000-4000-8000-000000000002',
+      date: '2026-11-07',
+      startsAt: '2026-11-07T12:00:00.000Z',
+      endsAt: '2026-11-07T14:00:00.000Z',
+    });
+
+  it('TIM-04: o convidado da lista de qualquer um dos próximos jogos entra na lista e pode ser classificado', async () => {
+    const t = setup({ game: gameOf([attendee(A, 'Ana', 'member', 0)], []) });
+    t.state.others = [satGame([attendee(OUTSIDER, 'Fora', 'guest', 0)], [attendee(H, 'Heitor', 'guest', 1)])];
+    const list = await t.service.list(OWNER, GROUP_ID);
+    expect(ids(list)).toEqual(expect.arrayContaining([OUTSIDER, H]));
+    const p = await t.service.update(OWNER, GROUP_ID, OUTSIDER, { ...t.v(OUTSIDER), positions: ['setter'] });
+    expect(p).toMatchObject({ userId: OUTSIDER, tier: 'guest', positions: ['setter'] });
+  });
+
+  it('TIM-04: o convidado que está em dois dos próximos jogos aparece uma vez só, depois dos membros', async () => {
+    const t = setup();
+    t.state.others = [satGame([attendee(G, 'Gabi', 'guest', 0)])];
+    const list = await t.service.list(OWNER, GROUP_ID);
+    expect(ids(list).filter((id) => id === G)).toHaveLength(1);
+    expect(ids(list).slice(0, 4)).toEqual([OWNER, B, A, R]);
   });
 });

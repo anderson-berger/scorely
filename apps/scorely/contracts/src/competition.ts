@@ -105,7 +105,7 @@ export const GameResultWinnerSchema = z.union([z.number().int().min(0), z.litera
 export type GameResultWinner = z.infer<typeof GameResultWinnerSchema>;
 
 /**
- * PUT /groups/{id}/competition/games/{date} (CMP-11–15): fecha (1ª vez) ou corrige. A chamada traz todos da lista
+ * PUT /groups/{id}/competition/games/{gameId} (CMP-11–15): fecha (1ª vez) ou corrige. A chamada traz todos da lista
  * do jogo, pelo id público. Sem `winner` = sem resultado. Jogo cancelado: chamada vazia e sem vencedor.
  */
 export const CloseGameInputSchema = z.object({
@@ -123,6 +123,8 @@ export type CompetitionGameState = z.infer<typeof CompetitionGameStateSchema>;
 
 /** Um jogo da lista (CMP-16). `cancelled` = cancelado e ainda não fechado. */
 export const CompetitionGameSchema = z.object({
+  /** GRP-10: o id do jogo, que vai nas rotas. */
+  id: z.string().min(1),
   date: LocalDateSchema,
   startsAt: z.iso.datetime(),
   state: CompetitionGameStateSchema,
@@ -205,7 +207,7 @@ export const MatchSchema = MatchInputSchema.extend({
 });
 export type Match = z.infer<typeof MatchSchema>;
 
-/** GET /groups/{id}/competition/games/{date} (CMP-12–16). */
+/** GET /groups/{id}/competition/games/{gameId} (CMP-12–16). */
 export const CompetitionGameDetailSchema = CompetitionGameSchema.extend({
   closed: z.boolean(),
   /** CMP-42: a versão do fechamento, que o `PUT` manda. `0` = ainda não fechado. */

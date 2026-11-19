@@ -10,7 +10,7 @@ import TeamsView from '@scorely/web/src/modules/teams/components/TeamsView.vue';
 import { teamsApi } from '@scorely/web/src/modules/teams/teams.api';
 import { defineComponent } from 'vue';
 
-/** `/play/:token`: o jogo da semana pelo link do jogo (plano 007, D7). Quem é do grupo vai para a página do grupo. */
+/** `/play/:token`: os próximos jogos do grupo pelo link do jogo (GRP-09). Quem é do grupo vai para a página do grupo. */
 export default defineComponent({
   name: 'PlayPage',
 
@@ -23,8 +23,8 @@ export default defineComponent({
   data() {
     return {
       view: undefined as GuestGame | undefined,
-      /** TIM-09 / GRP-09: os times publicados do jogo. */
-      teams: null as Teams | null,
+      /** TIM-09 / GRP-09: os times publicados de cada jogo, pelo id. */
+      teams: {} as Record<string, Teams | null>,
       error: '',
       busy: false,
     };
@@ -51,7 +51,10 @@ export default defineComponent({
           return;
         }
         this.view = view;
-        this.teams = await this.loadTeams();
+        const entries = await Promise.all(
+          view.games.map(async (g) => [g.id, await this.loadTeams(g.id)] as const),
+        );
+        this.teams = Object.fromEntries(entries);
       } catch (err) {
         this.view = undefined;
         this.error = errorMessage(err);
@@ -59,9 +62,9 @@ export default defineComponent({
     },
 
     /** Sem os times a página continua funcionando; eles só não aparecem. */
-    async loadTeams(): Promise<Teams | null> {
+    async loadTeams(gameId: string): Promise<Teams | null> {
       try {
-        return (await teamsApi.guestTeams(this.token)).teams;
+        return (await teamsApi.guestTeams(this.token, gameId)).teams;
       } catch {
         return null;
       }
@@ -79,14 +82,12 @@ export default defineComponent({
       }
     },
 
-    async confirm() {
-      const date = this.view?.game.date;
-      if (date) await this.run(() => groupsApi.playConfirm(this.token, date));
+    async confirm(gameId: string) {
+      await this.run(() => groupsApi.playConfirm(this.token, gameId));
     },
 
-    async leave() {
-      const date = this.view?.game.date;
-      if (date) await this.run(() => groupsApi.playLeave(this.token, date));
+    async leave(gameId: string) {
+      await this.run(() => groupsApi.playLeave(this.token, gameId));
     },
   },
 });
@@ -108,16 +109,23 @@ export default defineComponent({
           <div class="sc-label sc-accent">{{ $t('groups.gameWeek') }}</div>
           <h1 class="sc-title name">{{ view.group.name }}</h1>
           <div class="sc-caption meta">
-            {{ sports.sportName(view.group.sportId) }} ·
-            {{ $t('groups.schedule', { weekday: $t(`weekdays.${view.group.weekday}`), time: view.group.time }) }}
-            ({{ view.group.timeZone }})
+            {{ sports.sportName(view.group.sportId) }} ({{ view.group.timeZone }})
           </div>
         </header>
-        <GameCard :game="view.game" :busy="busy" @confirm="confirm" @leave="leave">
-          <template v-if="teams" #teams>
+        <!-- GRP-09: um card por próximo jogo, em ordem de início. -->
+        <GameCard
+          v-for="game in view.games"
+          :key="game.id"
+          class="play-game"
+          :game="game"
+          :busy="busy"
+          @confirm="confirm(game.id)"
+          @leave="leave(game.id)"
+        >
+          <template v-if="teams[game.id]" #teams>
             <section class="play-teams">
               <h2 class="sc-section">{{ $t('teams.cardTitle') }}</h2>
-              <TeamsView :teams="teams" :sport-id="view.group.sportId" :me-id="auth.user?.id ?? ''" />
+              <TeamsView :teams="teams[game.id]!" :sport-id="view.group.sportId" :me-id="auth.user?.id ?? ''" />
             </section>
           </template>
         </GameCard>
@@ -129,6 +137,10 @@ export default defineComponent({
 </template>
 
 <style scoped>
+.play-game {
+  margin-bottom: 16px;
+}
+
 .play-teams {
   margin-bottom: 20px;
 }

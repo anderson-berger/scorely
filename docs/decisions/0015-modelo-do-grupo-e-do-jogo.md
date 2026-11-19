@@ -124,3 +124,11 @@ LOOKUP#GROUP#<g>#GAME#<scheduleId>#<date> / META   { id }   um jogo só por ocor
 - As rotas `/games/{date}` passam a usar o id do jogo (ou `<scheduleId>:<date>` no jogo virtual).
 - Busca por distância ("vôlei perto de mim") não cabe em lookup sem GSI e vai precisar de outra solução, com custo.
 - Regra: `.claude/rules/dynamodb.md`.
+
+## Atualização (2026-11-15, tarefa dos horários e do jogo)
+
+Decidido com o dono ao implementar os horários:
+
+- **O id do jogo de um horário é `<scheduleId>_<data>`.** A chave `GAME#<scheduleId>_<data>` já é única por ocorrência, então sai o lookup `LOOKUP#GROUP#<g>#GAME#<scheduleId>#<date>`. Fica `LOOKUP#GROUP#<g>#GAME / <startsAt>#<gameId>`, para listar os jogos do grupo. O jogo avulso terá um uuid.
+- **Sem o `GAME#<id>/COUNTERS`.** A fila é implícita e não tem limite, então a ordem de chegada (o `confirmedAt` do `PLAYER#`) resolve a vaga. O contador volta se houver um limite de confirmações.
+- **As regras e o código do jogo continuam no módulo de grupos** (`grupos.md`, `modules/groups`) enquanto o único `context` for o grupo. O modelo no banco já é o desta ADR. O doc e o módulo do jogo nascem com o jogo sem grupo.

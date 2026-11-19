@@ -64,7 +64,7 @@ export default defineComponent({
     async load() {
       if (!this.shows) return;
       try {
-        this.detail = await competitionApi.game(this.group.id, this.game.date);
+        this.detail = await competitionApi.game(this.group.id, this.game.id);
       } catch {
         // Sem o jogo da competição a aba Jogo continua funcionando; a linha só não aparece.
         this.detail = undefined;
@@ -114,7 +114,7 @@ export default defineComponent({
     <GameCloseSheet
       v-model="closeOpen"
       :group-id="group.id"
-      :date="game.date"
+      :game-id="game.id"
       @saved="onChanged"
       @reload="$emit('reload')"
     />

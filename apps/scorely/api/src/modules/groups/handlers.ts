@@ -9,6 +9,8 @@ import { createGroupService } from '@scorely/api/src/modules/groups/group.servic
 import type { GroupsDeps, SportsDep } from '@scorely/api/src/modules/groups/groups.deps';
 import { dynamoPlaceRepository } from '@scorely/api/src/modules/groups/place.repository';
 import { createPlaceService } from '@scorely/api/src/modules/groups/place.service';
+import { dynamoScheduleRepository } from '@scorely/api/src/modules/groups/schedule.repository';
+import { createScheduleService } from '@scorely/api/src/modules/groups/schedule.service';
 import { mediaService } from '@scorely/api/src/modules/media/media.service';
 import { dynamoNotificationRepository } from '@scorely/api/src/modules/notifications/notification.repository';
 import { createNotificationService } from '@scorely/api/src/modules/notifications/notification.service';
@@ -21,11 +23,13 @@ import {
   MediaUploadInputSchema,
   PlaceInputSchema,
   RotateInviteInputSchema,
+  ScheduleInputSchema,
   SetRoleInputSchema,
   TransferGroupInputSchema,
   UpdateGameInputSchema,
   UpdateGroupInputSchema,
   UpdatePlaceInputSchema,
+  UpdateScheduleInputSchema,
   VersionInputSchema,
 } from '@scorely/contracts';
 
@@ -33,12 +37,14 @@ const deps: GroupsDeps & SportsDep = {
   groups: dynamoGroupRepository,
   games: dynamoGameRepository,
   places: dynamoPlaceRepository,
+  schedules: dynamoScheduleRepository,
   users: dynamoUserDirectory,
   notifications: createNotificationService(dynamoNotificationRepository),
   sports: sportService,
 };
 const groups = createGroupService(deps);
 const places = createPlaceService(deps);
+const schedules = createScheduleService(deps);
 const games = createGameService(deps);
 const images = createGroupImages({ ...deps, media: mediaService });
 
@@ -206,40 +212,39 @@ export async function leaveGroup(event: HttpEvent) {
   });
 }
 
-export async function currentGame(event: HttpEvent) {
-  return authRoute(event, async (auth) => {
-    return games.current(auth.userId, pathParam(event, 'id'));
-  });
+/** GRP-11: os próximos jogos do grupo. */
+export async function upcomingGames(event: HttpEvent) {
+  return authRoute(event, async (auth) => games.upcoming(auth.userId, pathParam(event, 'id')));
 }
 
 export async function confirm(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    return games.confirm(auth.userId, pathParam(event, 'id'), pathParam(event, 'date'));
+    return games.confirm(auth.userId, pathParam(event, 'id'), pathParam(event, 'gameId'));
   });
 }
 
 export async function leave(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    await games.leave(auth.userId, pathParam(event, 'id'), pathParam(event, 'date'));
+    await games.leave(auth.userId, pathParam(event, 'id'), pathParam(event, 'gameId'));
   });
 }
 
 export async function cancel(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    return games.cancel(auth.userId, pathParam(event, 'id'), pathParam(event, 'date'));
+    return games.cancel(auth.userId, pathParam(event, 'id'), pathParam(event, 'gameId'));
   });
 }
 
 export async function reopen(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    return games.reopen(auth.userId, pathParam(event, 'id'), pathParam(event, 'date'));
+    return games.reopen(auth.userId, pathParam(event, 'id'), pathParam(event, 'gameId'));
   });
 }
 
 export async function updateGame(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const patch = parseBody(event, UpdateGameInputSchema);
-    return games.updateGame(auth.userId, pathParam(event, 'id'), pathParam(event, 'date'), patch);
+    return games.updateGame(auth.userId, pathParam(event, 'id'), pathParam(event, 'gameId'), patch);
   });
 }
 
@@ -251,13 +256,13 @@ export async function playView(event: HttpEvent) {
 
 export async function playConfirm(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    return games.guestConfirm(auth.userId, pathParam(event, 'token'), pathParam(event, 'date'));
+    return games.guestConfirm(auth.userId, pathParam(event, 'token'), pathParam(event, 'gameId'));
   });
 }
 
 export async function playLeave(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    await games.guestLeave(auth.userId, pathParam(event, 'token'), pathParam(event, 'date'));
+    await games.guestLeave(auth.userId, pathParam(event, 'token'), pathParam(event, 'gameId'));
   });
 }
 
@@ -304,6 +309,56 @@ export async function unarchivePlace(event: HttpEvent) {
       auth.userId,
       pathParam(event, 'id'),
       pathParam(event, 'placeId'),
+      parseBody(event, VersionInputSchema),
+    ),
+  );
+}
+
+/** GRP-64: os horários do grupo, para membros e reservas. */
+export async function listSchedules(event: HttpEvent) {
+  return authRoute(event, async (auth) => schedules.list(auth.userId, pathParam(event, 'id')));
+}
+
+/** GRP-64, 65: cria um horário (`settings.edit`). */
+export async function createSchedule(event: HttpEvent) {
+  return authRoute(event, async (auth) =>
+    created(
+      await schedules.create(auth.userId, pathParam(event, 'id'), parseBody(event, ScheduleInputSchema)),
+    ),
+  );
+}
+
+/** GRP-66, 67: edita o horário inteiro, com a versão (ADR 0016). */
+export async function updateSchedule(event: HttpEvent) {
+  return authRoute(event, async (auth) =>
+    schedules.update(
+      auth.userId,
+      pathParam(event, 'id'),
+      pathParam(event, 'scheduleId'),
+      parseBody(event, UpdateScheduleInputSchema),
+    ),
+  );
+}
+
+/** GRP-67: arquiva o horário (e cancela o próximo jogo dele). */
+export async function archiveSchedule(event: HttpEvent) {
+  return authRoute(event, async (auth) =>
+    schedules.archive(
+      auth.userId,
+      pathParam(event, 'id'),
+      pathParam(event, 'scheduleId'),
+      parseBody(event, VersionInputSchema),
+    ),
+  );
+}
+
+/** GRP-67: desarquiva o horário. */
+export async function unarchiveSchedule(event: HttpEvent) {
+  return authRoute(event, async (auth) =>
+    schedules.unarchive(
+      auth.userId,
+      pathParam(event, 'id'),
+      pathParam(event, 'scheduleId'),
       parseBody(event, VersionInputSchema),
     ),
   );

@@ -53,6 +53,11 @@ export const ErrorCodeSchema = z.enum([
   'PLACE_NOT_FOUND',
   'PLACE_LIMIT_REACHED',
   'PLACE_IS_DEFAULT',
+  // horários (GRP-64–67)
+  'SCHEDULE_NOT_FOUND',
+  'SCHEDULE_OVERLAP',
+  'SCHEDULE_LIMIT_REACHED',
+  'SCHEDULE_LAST',
   'GAME_SLOTS_BELOW_CONFIRMED',
   // games
   'GAME_NOT_FOUND',
@@ -140,6 +145,10 @@ export const ErrorDetailsSchemas = {
   VERSION_CONFLICT: z.object({ currentVersion: z.number().int().nonnegative() }),
   /** GRP-60: quantos lugares ativos o grupo pode ter. */
   PLACE_LIMIT_REACHED: z.object({ max: z.number().int().positive() }),
+  /** GRP-65: o horário ativo com que o novo bate. */
+  SCHEDULE_OVERLAP: z.object({ scheduleId: z.uuid() }),
+  /** GRP-64: quantos horários ativos o plano do grupo permite. */
+  SCHEDULE_LIMIT_REACHED: z.object({ max: z.number().int().positive() }),
 } satisfies Partial<Record<ErrorCode, z.ZodType>>;
 export type ErrorDetails = {
   [C in keyof typeof ErrorDetailsSchemas]: z.infer<(typeof ErrorDetailsSchemas)[C]>;

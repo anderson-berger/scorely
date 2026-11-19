@@ -29,29 +29,29 @@ export const competitionApi = {
     request({ url: `${url(groupId)}/rules`, method: 'PUT', data: input }, CompetitionSchema),
 
   games: (groupId: string) => request({ url: `${url(groupId)}/games` }, CompetitionGameSchema.array()),
-  game: (groupId: string, date: string) =>
-    request({ url: `${url(groupId)}/games/${date}` }, CompetitionGameDetailSchema),
+  game: (groupId: string, gameId: string) =>
+    request({ url: `${url(groupId)}/games/${gameId}` }, CompetitionGameDetailSchema),
   /** Fecha (1ª vez) ou corrige (CMP-11–15). */
-  closeGame: (groupId: string, date: string, input: CloseGameInput) =>
+  closeGame: (groupId: string, gameId: string, input: CloseGameInput) =>
     request(
-      { url: `${url(groupId)}/games/${date}`, method: 'PUT', data: input },
+      { url: `${url(groupId)}/games/${gameId}`, method: 'PUT', data: input },
       CompetitionGameDetailSchema,
     ),
 
   /** Partidas (CMP-19–21): cada uma devolve o jogo atualizado. */
-  createMatch: (groupId: string, date: string, input: MatchInput) =>
+  createMatch: (groupId: string, gameId: string, input: MatchInput) =>
     request(
-      { url: `${url(groupId)}/games/${date}/matches`, method: 'POST', data: input },
+      { url: `${url(groupId)}/games/${gameId}/matches`, method: 'POST', data: input },
       CompetitionGameDetailSchema,
     ),
-  updateMatch: (groupId: string, date: string, matchId: string, input: UpdateMatchInput) =>
+  updateMatch: (groupId: string, gameId: string, matchId: string, input: UpdateMatchInput) =>
     request(
-      { url: `${url(groupId)}/games/${date}/matches/${matchId}`, method: 'PUT', data: input },
+      { url: `${url(groupId)}/games/${gameId}/matches/${matchId}`, method: 'PUT', data: input },
       CompetitionGameDetailSchema,
     ),
-  deleteMatch: (groupId: string, date: string, matchId: string, input: VersionInput) =>
+  deleteMatch: (groupId: string, gameId: string, matchId: string, input: VersionInput) =>
     request(
-      { url: `${url(groupId)}/games/${date}/matches/${matchId}`, method: 'DELETE', data: input },
+      { url: `${url(groupId)}/games/${gameId}/matches/${matchId}`, method: 'DELETE', data: input },
       CompetitionGameDetailSchema,
     ),
 

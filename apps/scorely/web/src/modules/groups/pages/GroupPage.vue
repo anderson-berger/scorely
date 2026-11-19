@@ -70,7 +70,10 @@ export default defineComponent({
     return {
       group: undefined as Group | undefined,
       /** `null`: grupo arquivado, sem jogo (GRP-37). `undefined`: ainda carregando. */
-      game: undefined as Game | null | undefined,
+      /** GRP-11: os próximos jogos (`null` = grupo arquivado, sem jogos). */
+      games: undefined as Game[] | null | undefined,
+      /** O jogo escolhido (aba Times e Ajustes); sem escolha, o primeiro dos próximos. */
+      selectedGameId: undefined as string | undefined,
       members: [] as Member[],
       /** CMP-05, 09: a competição do grupo; `undefined` sem ela carregada (a página funciona sem). */
       competition: undefined as Competition | undefined,
@@ -87,6 +90,12 @@ export default defineComponent({
   },
 
   computed: {
+    /** O jogo escolhido, ou o primeiro dos próximos (`null` no grupo arquivado). */
+    game(): Game | null | undefined {
+      if (this.games === undefined || this.games === null) return this.games;
+      return this.games.find((g) => g.id === this.selectedGameId) ?? this.games[0] ?? null;
+    },
+
     groupId(): string {
       return String(this.$route.params.id);
     },
@@ -224,14 +233,14 @@ export default defineComponent({
 
     /** Lê o grupo, o jogo, os membros e as posições, e confere a aba (GRP-29). */
     async fetch() {
-      const [group, game, members, competition] = await Promise.all([
+      const [group, games, members, competition] = await Promise.all([
         groupsApi.get(this.groupId),
-        gameUnlessArchived(() => groupsApi.currentGame(this.groupId)),
+        gameUnlessArchived(() => groupsApi.games(this.groupId)),
         groupsApi.members(this.groupId),
         this.loadCompetition(),
       ]);
       this.group = group;
-      this.game = game;
+      this.games = games;
       this.members = members;
       this.competition = competition;
       this.players = this.showsPositions ? await this.loadPlayers() : [];
@@ -324,19 +333,28 @@ export default defineComponent({
       }
     },
 
-    async confirm() {
-      if (this.game) await this.run(() => groupsApi.confirm(this.groupId, this.game?.date ?? ''));
+    /** GRP-17: confirma num dos próximos jogos (o do card). */
+    async confirm(gameId?: string) {
+      const id = gameId ?? this.game?.id;
+      if (id) await this.run(() => groupsApi.confirm(this.groupId, id));
     },
 
-    async leave() {
-      if (this.game) await this.run(() => groupsApi.leave(this.groupId, this.game?.date ?? ''));
+    async leave(gameId?: string) {
+      const id = gameId ?? this.game?.id;
+      if (id) await this.run(() => groupsApi.leave(this.groupId, id));
+    },
+
+    /** TIM-14: o jogo escolhido na aba Times (e nos Ajustes). */
+    selectGame(gameId: string) {
+      this.selectedGameId = gameId;
     },
 
     async cancel() {
       if (!this.game) return;
       const date = formatDateTime(this.game.startsAt);
       if (!(await this.ask(this.$t('groups.cancelConfirm', { date })))) return;
-      await this.run(() => groupsApi.cancel(this.groupId, this.game?.date ?? ''));
+      const id = this.game.id;
+      await this.run(() => groupsApi.cancel(this.groupId, id));
     },
 
     /** GRP-44: confirma antes, porque avisa a lista. */
@@ -344,7 +362,8 @@ export default defineComponent({
       if (!this.game) return;
       const date = formatDateTime(this.game.startsAt);
       if (!(await this.ask(this.$t('groups.reopenConfirm', { date })))) return;
-      await this.run(() => groupsApi.reopen(this.groupId, this.game?.date ?? ''), this.$t('groups.reopened'));
+      const id = this.game.id;
+      await this.run(() => groupsApi.reopen(this.groupId, id), this.$t('groups.reopened'));
     },
 
     /** GRP-29: confirma antes; a página continua aberta, agora arquivada (GRP-37). */
@@ -527,6 +546,7 @@ export default defineComponent({
             :is="Component"
             :group="group"
             :game="game"
+            :games="games ?? []"
             :members="members"
             :competition="competition"
             :busy="busy"
@@ -539,6 +559,7 @@ export default defineComponent({
             @edit-player="editPlayer"
             @confirm="confirm"
             @leave="leave"
+            @select-game="selectGame"
             @cancel="cancel"
             @reopen="reopen"
             @rotate="rotateInvite"

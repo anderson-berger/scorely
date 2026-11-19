@@ -38,6 +38,18 @@ function expectVersionIn(current: number, expected: number): void {
 //     `get(userId, groupId)`, `startTrial(userId, groupId)` e `updateRules(userId, groupId, rules)`, todos devolvendo
 //     a `Competition` do contrato.
 
+/** GRP-10, 64: o horário do grupo (sexta 19:00–22:00) e o id do jogo dele numa data (`<scheduleId>_<data>`). */
+const SCHEDULE_ID = 'eeeeeeee-0000-4000-8000-000000000001';
+const SCHEDULE = {
+  id: SCHEDULE_ID,
+  groupId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+  version: 1,
+  weekday: 5,
+  start: '19:00',
+  end: '22:00',
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+};
 const GROUP_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const OTHER_GROUP_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const OWNER = asUserId('11111111-1111-4111-8111-111111111111');
@@ -62,8 +74,7 @@ function storedGroup(extra: Partial<StoredGroup> = {}): StoredGroup {
     createdAt: '2026-01-01T00:00:00.000Z',
     name: 'Vôlei de sexta',
     sportId: 'volleyball',
-    weekday: 5,
-    time: '19:00',
+    schedules: [SCHEDULE],
     timeZone: 'America/Sao_Paulo',
     slots: 12,
     listOpensHoursBefore: 48,

@@ -39,7 +39,9 @@ export default defineComponent({
       /** GRP-58: a escolha da pessoa; vazio = o 1º esporte ativo do catálogo. */
       sportId: '',
       weekday: 5 as number,
-      time: '19:00',
+      /** GRP-64: o 1º horário (início e fim). */
+      start: '19:00',
+      end: '21:00',
       slots: 12,
       saving: false,
       /** Para onde ir quando o painel terminar de fechar: o grupo criado, ou de volta à lista. */
@@ -99,7 +101,8 @@ export default defineComponent({
         name: this.name,
         sportId: this.sport,
         weekday: this.weekday,
-        time: this.time,
+        start: this.start,
+        end: this.end,
         timeZone: this.timeZone,
         slots: this.slots,
       });
@@ -167,9 +170,15 @@ export default defineComponent({
       </fieldset>
 
       <div class="pair">
-        <div>
-          <label for="group-time" class="sc-label field-label">{{ $t('groups.time') }}</label>
-          <q-input v-model="time" for="group-time" type="time" outlined input-class="time-input" />
+        <div class="times">
+          <div>
+            <label for="group-start" class="sc-label field-label">{{ $t('groups.start') }}</label>
+            <q-input v-model="start" for="group-start" type="time" outlined input-class="time-input" />
+          </div>
+          <div>
+            <label for="group-end" class="sc-label field-label">{{ $t('groups.end') }}</label>
+            <q-input v-model="end" for="group-end" type="time" outlined input-class="time-input" />
+          </div>
         </div>
         <div>
           <div class="sc-label field-label">{{ $t('groups.slots') }}</div>
@@ -252,6 +261,12 @@ export default defineComponent({
 .pair {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.times {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 8px;
 }
 

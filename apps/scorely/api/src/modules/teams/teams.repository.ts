@@ -7,6 +7,8 @@ import type { PlayerPosition, TeamExtra, TeamRule, TeamsStatus } from '@scorely/
 
 /** Os times do jogo como ficam no banco (a resposta é o `Teams` de @scorely/contracts, montado pelo service). */
 export interface StoredTeams {
+  /** GRP-10: o jogo dos times (`<scheduleId>_<data>`). */
+  gameId: string;
   groupId: string;
   /** Data local do jogo (`Game.date`). */
   date: string;
@@ -35,14 +37,14 @@ export interface StoredTeams {
 const OPTIONAL = ['pinned', 'publishedAt', 'rules', 'apart', 'extras'] as const;
 
 export interface TeamsRepository {
-  get(groupId: string, date: string): Promise<StoredTeams | undefined>;
+  get(gameId: string): Promise<StoredTeams | undefined>;
   /**
    * Grava o item inteiro (o service mantém `createdAt` e `publishedAt`); a `version` segue (ADR 0013). Só grava na
    * versão esperada (`0` = o jogo ainda sem times, TIM-25); senão, `VERSION_CONFLICT`.
    */
   put(teams: StoredTeams, expectedVersion: number): Promise<void>;
   /** Descarta os times (TIM-06), só na versão esperada (TIM-25). */
-  delete(groupId: string, date: string, expectedVersion: number): Promise<void>;
+  delete(gameId: string, expectedVersion: number): Promise<void>;
 }
 
 /** O Delete dos times, antes da condição da versão. */
@@ -55,15 +57,13 @@ function deleteOf(key: { PK: string; SK: string }): {
 }
 
 export const dynamoTeamsRepository: TeamsRepository = {
-  async get(groupId, date) {
-    const { Item } = await dynamo().send(
-      new GetCommand({ TableName: tableName(), Key: teamsKey(groupId, date) }),
-    );
+  async get(gameId) {
+    const { Item } = await dynamo().send(new GetCommand({ TableName: tableName(), Key: teamsKey(gameId) }));
     return Item ? stripKeys<StoredTeams>(Item) : undefined;
   },
 
   async put(teams, expectedVersion) {
-    const key = teamsKey(teams.groupId, teams.date);
+    const key = teamsKey(teams.gameId);
     await sendVersioned(key, () =>
       dynamo().send(
         new UpdateCommand({
@@ -74,8 +74,8 @@ export const dynamoTeamsRepository: TeamsRepository = {
     );
   },
 
-  async delete(groupId, date, expectedVersion) {
-    const key = teamsKey(groupId, date);
+  async delete(gameId, expectedVersion) {
+    const key = teamsKey(gameId);
     await sendVersioned(key, () =>
       dynamo().send(new DeleteCommand(withVersion(deleteOf(key), expectedVersion))),
     );

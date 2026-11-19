@@ -16,11 +16,11 @@ export const teamsFunctions: AWS['functions'] = {
     handler: handler('updatePlayer'),
     events: route('PUT', '/groups/{id}/players/{userId}'),
   },
-  teamsGet: { handler: handler('getTeams'), events: route('GET', '/groups/{id}/games/{date}/teams') },
-  teamsSave: { handler: handler('saveTeams'), events: route('PUT', '/groups/{id}/games/{date}/teams') },
+  teamsGet: { handler: handler('getTeams'), events: route('GET', '/groups/{id}/games/{gameId}/teams') },
+  teamsSave: { handler: handler('saveTeams'), events: route('PUT', '/groups/{id}/games/{gameId}/teams') },
   teamsPublish: {
     handler: handler('publishTeams'),
-    events: route('POST', '/groups/{id}/games/{date}/teams/publish'),
+    events: route('POST', '/groups/{id}/games/{gameId}/teams/publish'),
   },
   teamSettingsGet: {
     handler: handler('getTeamSettings'),
@@ -32,15 +32,15 @@ export const teamsFunctions: AWS['functions'] = {
   },
   teamsDraw: {
     handler: handler('drawTeams'),
-    events: route('POST', '/groups/{id}/games/{date}/teams/draw'),
+    events: route('POST', '/groups/{id}/games/{gameId}/teams/draw'),
   },
   teamsUnpublish: {
     handler: handler('unpublishTeams'),
-    events: route('POST', '/groups/{id}/games/{date}/teams/unpublish'),
+    events: route('POST', '/groups/{id}/games/{gameId}/teams/unpublish'),
   },
   teamsDiscard: {
     handler: handler('discardTeams'),
-    events: route('DELETE', '/groups/{id}/games/{date}/teams'),
+    events: route('DELETE', '/groups/{id}/games/{gameId}/teams'),
   },
-  teamsGuest: { handler: handler('guestTeams'), events: route('GET', '/play/{token}/teams') },
+  teamsGuest: { handler: handler('guestTeams'), events: route('GET', '/play/{token}/games/{gameId}/teams') },
 };

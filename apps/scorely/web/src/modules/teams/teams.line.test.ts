@@ -26,6 +26,7 @@ const player = (userId: string): TeamPlayer => ({
 });
 
 const teams = (status: Teams['status'], ids: string[][]): Teams => ({
+  gameId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa_2026-11-13',
   groupId: GROUP,
   date: '2026-11-13',
   status,

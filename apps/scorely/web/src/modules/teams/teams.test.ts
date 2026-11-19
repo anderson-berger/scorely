@@ -101,6 +101,7 @@ const player = (userId: string, pinned: boolean): TeamPlayer => ({
 describe('Fixar neste time', () => {
   it('TIM-16: draftOf lê quem está fixo nos times', () => {
     const teams: Teams = {
+      gameId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa_2026-11-06',
       groupId: 'b0000000-0000-4000-8000-000000000001',
       date: '2026-11-06',
       status: 'draft',

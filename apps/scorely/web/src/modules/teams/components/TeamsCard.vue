@@ -141,7 +141,7 @@ export default defineComponent({
   methods: {
     async load() {
       try {
-        const res = await teamsApi.teams(this.groupId, this.game.date);
+        const res = await teamsApi.teams(this.groupId, this.game.id);
         this.teams = res.teams;
         this.defaultTeamCount = res.defaultTeamCount ?? TEAM_COUNT.min;
       } catch {
@@ -176,9 +176,7 @@ export default defineComponent({
     },
 
     save(draft: TeamsDraft) {
-      return this.run(() =>
-        teamsApi.saveTeams(this.groupId, this.game.date, { ...draft, ...this.version() }),
-      );
+      return this.run(() => teamsApi.saveTeams(this.groupId, this.game.id, { ...draft, ...this.version() }));
     },
 
     text(t: Text): string {
@@ -254,7 +252,7 @@ export default defineComponent({
 
     /** TIM-15: com os times publicados, confirma antes (eles voltam para rascunho). */
     draw() {
-      const run = () => this.run(() => teamsApi.drawTeams(this.groupId, this.game.date, this.version()));
+      const run = () => this.run(() => teamsApi.drawTeams(this.groupId, this.game.id, this.version()));
       if (this.teams?.status !== 'published') return run();
       this.$q
         .dialog({
@@ -271,13 +269,13 @@ export default defineComponent({
 
     publish() {
       return this.run(
-        () => teamsApi.publishTeams(this.groupId, this.game.date, this.version()),
+        () => teamsApi.publishTeams(this.groupId, this.game.id, this.version()),
         this.$t('teams.publishedToast'),
       );
     },
 
     unpublish() {
-      return this.run(() => teamsApi.unpublishTeams(this.groupId, this.game.date, this.version()));
+      return this.run(() => teamsApi.unpublishTeams(this.groupId, this.game.id, this.version()));
     },
 
     discard() {
@@ -290,7 +288,7 @@ export default defineComponent({
         })
         .onOk(() => {
           void this.run(async () => {
-            await teamsApi.discardTeams(this.groupId, this.game.date, this.version());
+            await teamsApi.discardTeams(this.groupId, this.game.id, this.version());
             return undefined;
           });
         });

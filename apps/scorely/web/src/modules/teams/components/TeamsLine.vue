@@ -41,7 +41,7 @@ export default defineComponent({
   methods: {
     async load() {
       try {
-        this.teams = (await teamsApi.teams(this.groupId, this.game.date)).teams;
+        this.teams = (await teamsApi.teams(this.groupId, this.game.id)).teams;
       } catch {
         // Sem os times a aba Jogo continua funcionando; a linha só não aparece.
         this.teams = undefined;

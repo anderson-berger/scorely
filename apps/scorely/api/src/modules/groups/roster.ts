@@ -9,7 +9,7 @@ export type RosterGame = Omit<Game, 'confirmed' | 'waitlist'> & {
   confirmed: RosterAttendee[];
   waitlist: RosterAttendee[];
 };
-export type GuestRoster = Omit<GuestGame, 'game'> & { game: RosterGame };
+export type GuestRoster = Omit<GuestGame, 'games'> & { games: RosterGame[] };
 
 /** Troca o id do sistema pelo público (a pessoa que sai na resposta). */
 function toPublic<T extends { userId: UserId; publicId: PublicUserId }>({
@@ -29,5 +29,5 @@ export function publicGame(game: RosterGame): Game {
 }
 
 export function publicGuestGame(guest: GuestRoster): GuestGame {
-  return { ...guest, game: publicGame(guest.game) };
+  return { ...guest, games: guest.games.map(publicGame) };
 }

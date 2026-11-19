@@ -20,7 +20,7 @@ import {
 import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
 import { appError } from '@scorely/api/src/lib/errors';
 import { asUserId, type UserId } from '@scorely/api/src/lib/ids';
-import { type AttendanceRecord, attendanceDeletes } from '@scorely/api/src/modules/groups/game.repository';
+import { type PlayerRecord, playerDeletes } from '@scorely/api/src/modules/groups/game.repository';
 import {
   GROUP_ENTITY,
   GROUP_INVITES_ENTITY,
@@ -34,6 +34,8 @@ import {
   groupReserveInviteLookupKey,
   groupSettingsKey,
   placeKey,
+  SCHEDULE_ENTITY,
+  scheduleKey,
   sportGroupLookupKey,
 } from '@scorely/api/src/modules/groups/group.table';
 import {
@@ -47,6 +49,11 @@ import {
   userGroupLookupKey,
   userGroupsLookupPk,
 } from '@scorely/api/src/modules/groups/membership.table';
+import {
+  byWeekdayAndStart,
+  dynamoScheduleRepository,
+  type StoredSchedule,
+} from '@scorely/api/src/modules/groups/schedule.repository';
 import type { Group, InviteKind, MemberTier, RoleId } from '@scorely/contracts';
 
 /**
@@ -56,8 +63,10 @@ import type { Group, InviteKind, MemberTier, RoleId } from '@scorely/contracts';
  */
 export type StoredGroup = Omit<
   Group,
-  'logoUrl' | 'coverUrl' | 'myTier' | 'myRoleId' | 'myPermissions' | 'myMemberInvite'
+  'logoUrl' | 'coverUrl' | 'myTier' | 'myRoleId' | 'myPermissions' | 'myMemberInvite' | 'schedules'
 > & {
+  /** GRP-64: os horários ativos, lidos junto com o grupo, por dia e início. */
+  schedules: StoredSchedule[];
   /** GRP-35: as mídias do logo e da capa; a URL é montada na resposta (MID-12). */
   logoMediaId?: string | undefined;
   coverMediaId?: string | undefined;
@@ -65,8 +74,6 @@ export type StoredGroup = Omit<
 
 /** Campos de cada item do grupo (o resto do `StoredGroup` é o `META`). */
 const SETTINGS_FIELDS = [
-  'weekday',
-  'time',
   'defaultPlaceId',
   'slots',
   'minPlayers',
@@ -89,7 +96,7 @@ const TOKEN_FIELDS = Object.values(TOKEN_FIELD);
 const OWN_FIELDS = ['createdAt', 'updatedAt', 'version'];
 
 /** Campos que não são de nenhum item: o `dbItem` e a gravação cuidam (a `settingsVersion` é a `version` do SETTINGS). */
-const COMPUTED = ['version', 'updatedAt', 'settingsVersion'];
+const COMPUTED = ['version', 'updatedAt', 'settingsVersion', 'schedules'];
 
 function pick(source: Record<string, unknown>, fields: readonly string[]): Record<string, unknown> {
   return Object.fromEntries(fields.flatMap((f) => (source[f] === undefined ? [] : [[f, source[f]]])));
@@ -192,8 +199,8 @@ export interface GroupRepository {
   get(id: string, opts?: { consistent?: boolean }): Promise<StoredGroup | undefined>;
   /** Grupo e tipo do link pelo token (membro, reserva ou convidado). */
   getByToken(token: string): Promise<{ group: StoredGroup; kind: InviteKind } | undefined>;
-  /** Os itens do grupo, os lookups dos tokens e do esporte e a participação do dono (cargo `owner`), numa transação. */
-  create(group: StoredGroup, ownerId: UserId): Promise<void>;
+  /** Os itens do grupo, os lookups dos tokens e do esporte e a participação do dono (cargo `owner`), e o 1º horário (GRP-64), numa transação. */
+  create(group: StoredGroup, ownerId: UserId, firstSchedule: Omit<StoredSchedule, 'version'>): Promise<void>;
   /** Papel no grupo (leitura consistente); `undefined` = não participa. */
   roleOf(groupId: string, userId: UserId): Promise<MemberTier | undefined>;
   /** GRP-02, 39: entra com o papel e o cargo Membro, com o limite conferido na gravação; reserva → membro apaga o convite. */
@@ -246,7 +253,8 @@ export interface GroupRepository {
     userId: UserId;
     tier: MemberTier;
     newToken?: string;
-    attendance?: AttendanceRecord;
+    /** GRP-25, 42: a presença em cada um dos próximos jogos em que a pessoa estava. */
+    players?: PlayerRecord[];
   }): Promise<RemoveMemberResult>;
 }
 
@@ -416,9 +424,20 @@ function limitItems(group: StoredGroup, tier: MemberTier, from?: MemberTier): Tr
   ];
 }
 
+/** GRP-64: os horários ativos do grupo, por dia e início. */
+async function activeSchedulesOf(groupId: string): Promise<StoredSchedule[]> {
+  const { schedules } = await dynamoScheduleRepository.list(groupId);
+  return schedules.filter((x) => !x.archivedAt).sort(byWeekdayAndStart);
+}
+
 export const dynamoGroupRepository: GroupRepository = {
   async get(id, opts) {
-    return assemble(await batchGetOrdered(groupKeys(id), { consistent: opts?.consistent ?? false }));
+    const [rows, schedules] = await Promise.all([
+      batchGetOrdered(groupKeys(id), { consistent: opts?.consistent ?? false }),
+      activeSchedulesOf(id),
+    ]);
+    const group = assemble(rows);
+    return group && { ...group, schedules };
   },
 
   async getByToken(token) {
@@ -436,7 +455,7 @@ export const dynamoGroupRepository: GroupRepository = {
     return group && { group, kind: pointer.kind };
   },
 
-  async create(group, ownerId) {
+  async create(group, ownerId, firstSchedule) {
     const { meta, settings, invites } = split(group);
     const at = group.createdAt;
     const put = (
@@ -458,7 +477,14 @@ export const dynamoGroupRepository: GroupRepository = {
       put(groupKey(group.id), GROUP_ENTITY, meta),
       put(groupSettingsKey(group.id), GROUP_SETTINGS_ENTITY, settings),
       ...(invites ? [put(groupInvitesKey(group.id), GROUP_INVITES_ENTITY, invites)] : []),
-      put(groupCountersKey(group.id), COUNTERS_ENTITY, { memberCount: 1, reserveCount: 0 }),
+      // GRP-64: o 1º horário nasce junto, e a contagem e a revisão dos horários começam com ele.
+      put(groupCountersKey(group.id), COUNTERS_ENTITY, {
+        memberCount: 1,
+        reserveCount: 0,
+        scheduleCount: 1,
+        scheduleRevision: 1,
+      }),
+      put(scheduleKey(group.id, firstSchedule.id), SCHEDULE_ENTITY, firstSchedule),
       ...tokenPuts,
       // GRP-01, 48: o criador é membro, com o cargo Dono.
       ...membershipPuts(group.id, ownerId, 'member', 'owner', at),
@@ -644,13 +670,20 @@ export const dynamoGroupRepository: GroupRepository = {
       rows.flatMap((row) => [...groupKeys(row.id), membershipKey(row.id, userId)]),
       { consistent: true },
     );
-    return rows.flatMap((row) => {
+    const found = rows.flatMap((row) => {
       const parts = items.filter((item) => item.PK === groupPk(row.id));
       const group = assemble(parts);
       const m = parts.find((p) => p.entity === MEMBERSHIP_ENTITY);
       if (!group || !m) return [];
       return [{ group, tier: m.tier as MemberTier, roleId: m.roleId as RoleId }];
     });
+    // GRP-64: os horários de cada grupo, para o próximo jogo do card.
+    return Promise.all(
+      found.map(async (row) => ({
+        ...row,
+        group: { ...row.group, schedules: await activeSchedulesOf(row.group.id) },
+      })),
+    );
   },
 
   async rotateToken(group, kind, newToken) {
@@ -770,7 +803,7 @@ export const dynamoGroupRepository: GroupRepository = {
     return updated;
   },
 
-  async removeMember({ group, userId, tier, newToken, attendance }) {
+  async removeMember({ group, userId, tier, newToken, players = [] }) {
     // O índice 0 é a participação, com o papel lido: assim o link trocado é sempre o do papel atual (D6 do 013).
     const result = await transactWrite([
       {
@@ -795,7 +828,7 @@ export const dynamoGroupRepository: GroupRepository = {
       },
       // Sem `newToken` é a saída (GRP-42): o link não muda.
       ...(newToken ? tokenSwap(group, tier, newToken) : []),
-      ...(attendance ? attendanceDeletes(attendance) : []),
+      ...players.flatMap(playerDeletes),
     ]);
     if (result.ok) return 'removed';
     if (!result.failed.includes(0)) return 'stale';

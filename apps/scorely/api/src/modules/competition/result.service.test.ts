@@ -10,9 +10,9 @@ import type {
 } from '@scorely/api/src/modules/competition/result.repository';
 import { createResultService } from '@scorely/api/src/modules/competition/result.service';
 import type {
-  AttendanceRecord,
   GameRecord,
   GameRepository,
+  PlayerRecord,
 } from '@scorely/api/src/modules/groups/game.repository';
 import type { GroupRepository, StoredGroup } from '@scorely/api/src/modules/groups/group.repository';
 import type { StoredTeams, TeamsRepository } from '@scorely/api/src/modules/teams/teams.repository';
@@ -120,7 +120,19 @@ const RULES: CompetitionRules = {
   tiebreak: ['attendance'],
 };
 
-const gameId = (date: string) => `f0000000-0000-4000-8000-0000${date.replaceAll('-', '')}`;
+/** GRP-10, 64: o horário do grupo (sexta 19:00–22:00) e o id do jogo dele numa data (`<scheduleId>_<data>`). */
+const SCHEDULE_ID = 'eeeeeeee-0000-4000-8000-000000000001';
+const SCHEDULE = {
+  id: SCHEDULE_ID,
+  groupId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+  version: 1,
+  weekday: 5,
+  start: '19:00',
+  end: '22:00',
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+};
+const gameId = (date: string) => `${SCHEDULE_ID}_${date}`;
 
 function storedGroup(extra: Partial<StoredGroup> = {}): StoredGroup {
   return {
@@ -128,8 +140,7 @@ function storedGroup(extra: Partial<StoredGroup> = {}): StoredGroup {
     createdAt: '2026-01-01T00:00:00.000Z',
     name: 'Vôlei de sexta',
     sportId: 'volleyball',
-    weekday: 5,
-    time: '19:00',
+    schedules: [SCHEDULE],
     timeZone: 'America/Sao_Paulo',
     slots: 5,
     listOpensHoursBefore: 48,
@@ -168,7 +179,19 @@ interface FakeGame {
 
 function fakeGame(date: string, list: UserId[], extra: Partial<GameRecord> = {}): FakeGame {
   return {
-    record: { id: gameId(date), createdAt: `${date}T00:00:00.000Z`, groupId: GROUP_ID, date, ...extra },
+    record: {
+      id: gameId(date),
+      groupId: GROUP_ID,
+      scheduleId: SCHEDULE_ID,
+      date,
+      // Sexta 19:00–22:00 em São Paulo (GRP-10: o item guarda o início e o fim).
+      startsAt: `${date}T22:00:00.000Z`,
+      endsAt: new Date(Date.parse(`${date}T22:00:00.000Z`) + 3 * 3600_000).toISOString(),
+      createdAt: `${date}T00:00:00.000Z`,
+      updatedAt: `${date}T00:00:00.000Z`,
+      version: 1,
+      ...extra,
+    },
     list,
   };
 }
@@ -188,6 +211,7 @@ function defaultGames(): Record<string, FakeGame> {
 
 function publishedTeams(date: string, teams: string[][], extra: Partial<StoredTeams> = {}): StoredTeams {
   return {
+    gameId: gameId(date),
     groupId: GROUP_ID,
     date,
     status: 'published',
@@ -216,6 +240,8 @@ function setup(
     competition?: Partial<StoredCompetition> | null;
     games?: Record<string, FakeGame>;
     teams?: Record<string, StoredTeams>;
+    /** GRP-66: horários arquivados, lidos pelo `groupSchedules.get` (não vêm com o grupo). */
+    archivedSchedules?: Record<string, { slots?: number }>;
   } = {},
 ) {
   const clock = { now: NOW };
@@ -272,31 +298,36 @@ function setup(
   };
 
   const findGame = (id: string) => Object.values(state.games).find((g) => g.record.id === id);
+  /** O jogo pelo id (`GAME#<gameId>`), os jogadores (`PLAYER#`) e os jogos do grupo pelo lookup (competicao.md, seção 3). */
   const games: GameRepository = {
-    findByDate: async (groupId, date) =>
-      groupId === state.group.id ? structuredClone(state.games[date]?.record) : undefined,
-    listAttendance: async (id) =>
+    get: async (id) => structuredClone(findGame(id)?.record),
+    listPlayers: async (id) =>
       (findGame(id)?.list ?? []).map(
-        (userId, i): AttendanceRecord => ({
-          id: `a${i}-${id}`,
-          createdAt: new Date(Date.UTC(2026, 9, 1, 0, i)).toISOString(),
+        (userId, i): PlayerRecord => ({
           gameId: id,
           userId,
           confirmedAt: new Date(Date.UTC(2026, 9, 1, 0, i)).toISOString(),
         }),
       ),
+    listByGroup: async (groupId) =>
+      Object.values(state.games)
+        .map((g) => g.record)
+        .filter((g) => g.groupId === groupId)
+        .sort((x, y) => x.startsAt.localeCompare(y.startsAt))
+        .map((g) => structuredClone(g)),
     create: unused,
     cancel: unused,
     reopen: unused,
     updateSettings: unused,
     markMinReached: unused,
-    getAttendance: unused,
-    addAttendance: unused,
-    removeAttendance: unused,
+    getPlayer: unused,
+    addPlayer: unused,
+    removePlayer: unused,
   };
 
   const teams: TeamsRepository = {
-    get: async (groupId, date) => (groupId === GROUP_ID ? structuredClone(state.teams[date]) : undefined),
+    /** `GAME#<gameId>/TEAMS` (times.md, seção 3). */
+    get: async (id) => structuredClone(Object.values(state.teams).find((x) => x.gameId === id)),
     put: unused,
     delete: unused,
   };
@@ -358,6 +389,12 @@ function setup(
     competitions,
     results,
     users,
+    groupSchedules: {
+      get: async (_groupId: string, scheduleId: string) => {
+        const found = opts.archivedSchedules?.[scheduleId];
+        return found && ({ ...SCHEDULE, ...found, archivedAt: '2026-11-01T00:00:00.000Z' } as never);
+      },
+    },
     now: () => clock.now,
   });
   /** CMP-42: a versão do fechamento que a tela mostrou (`0` = não fechado). */
@@ -405,7 +442,7 @@ const sorted = (list: readonly string[]) => [...list].sort();
 describe('quem fecha e quando (CMP-11)', () => {
   it('CMP-11: o dono fecha o jogo em andamento: o fechamento é gravado com a cópia do regulamento e os membros', async () => {
     const t = setup();
-    const res = await t.service.close(OWNER, GROUP_ID, NOV13, {
+    const res = await t.service.close(OWNER, GROUP_ID, gameId(NOV13), {
       ...t.rv(NOV13),
       attendance: wire(FULL_NOV13),
       winner: 0,
@@ -442,12 +479,12 @@ describe('quem fecha e quando (CMP-11)', () => {
   it('CMP-11: membro e reserva com o cargo Admin (results.record) fecham', async () => {
     const t = setup();
     t.state.staff[R] = 'admin';
-    await t.service.close(A, GROUP_ID, NOV13, {
+    await t.service.close(A, GROUP_ID, gameId(NOV13), {
       ...t.rv(NOV13),
       attendance: wire(FULL_NOV13),
       friendly: false,
     });
-    await t.service.close(R, GROUP_ID, NOV06, {
+    await t.service.close(R, GROUP_ID, gameId(NOV06), {
       ...t.rv(NOV06),
       attendance: wire({ [OWNER]: 'present', [R]: 'present' }),
     });
@@ -458,7 +495,7 @@ describe('quem fecha e quando (CMP-11)', () => {
     const t = setup();
     for (const who of [B, R]) {
       const err = await expectAppError(
-        t.service.close(who, GROUP_ID, NOV13, { ...t.rv(NOV13), attendance: wire(FULL_NOV13) }),
+        t.service.close(who, GROUP_ID, gameId(NOV13), { ...t.rv(NOV13), attendance: wire(FULL_NOV13) }),
         'GROUP_PERMISSION_DENIED',
         403,
       );
@@ -470,7 +507,7 @@ describe('quem fecha e quando (CMP-11)', () => {
   it('CMP-11: um jogo anterior, desde a ativação, ainda pode ser fechado depois', async () => {
     const t = setup();
     t.clock.now = new Date('2026-11-20T12:00:00.000Z');
-    const res = await t.service.close(OWNER, GROUP_ID, NOV06, {
+    const res = await t.service.close(OWNER, GROUP_ID, gameId(NOV06), {
       ...t.rv(NOV06),
       attendance: wire({ [OWNER]: 'present', [R]: 'absent' }),
     });
@@ -483,7 +520,7 @@ describe('quem fecha e quando (CMP-11)', () => {
     const t = setup({ games: withoutNov06 });
     for (const date of [OCT23, THURSDAY, NOV06])
       await expectAppError(
-        t.service.close(OWNER, GROUP_ID, date, {
+        t.service.close(OWNER, GROUP_ID, gameId(date), {
           ...t.rv(date),
           attendance: wire({ [OWNER]: 'present', [A]: 'present' }),
         }),
@@ -496,7 +533,7 @@ describe('quem fecha e quando (CMP-11)', () => {
   it('CMP-11: o 1º jogo é o que começou depois da ativação: ativada com o jogo já em andamento, ele fica de fora', async () => {
     const t = setup({ competition: { trialStartedAt: '2026-11-13T22:30:00.000Z' } });
     await expectAppError(
-      t.service.close(OWNER, GROUP_ID, NOV13, { ...t.rv(NOV13), attendance: wire(FULL_NOV13) }),
+      t.service.close(OWNER, GROUP_ID, gameId(NOV13), { ...t.rv(NOV13), attendance: wire(FULL_NOV13) }),
       'GAME_NOT_FOUND',
       404,
     );
@@ -505,18 +542,21 @@ describe('quem fecha e quando (CMP-11)', () => {
   it('CMP-11: jogo que ainda não começou → GAME_NOT_STARTED (409), sem gravar', async () => {
     const t = setup();
     await expectAppError(
-      t.service.close(OWNER, GROUP_ID, NOV20, { ...t.rv(NOV20), attendance: wire({ [OWNER]: 'present' }) }),
+      t.service.close(OWNER, GROUP_ID, gameId(NOV20), {
+        ...t.rv(NOV20),
+        attendance: wire({ [OWNER]: 'present' }),
+      }),
       'GAME_NOT_STARTED',
       409,
     );
     t.clock.now = new Date('2026-11-13T21:59:59.999Z');
     await expectAppError(
-      t.service.close(OWNER, GROUP_ID, NOV13, { ...t.rv(NOV13), attendance: wire(FULL_NOV13) }),
+      t.service.close(OWNER, GROUP_ID, gameId(NOV13), { ...t.rv(NOV13), attendance: wire(FULL_NOV13) }),
       'GAME_NOT_STARTED',
       409,
     );
     t.clock.now = new Date('2026-11-13T22:00:00.000Z');
-    await t.service.close(OWNER, GROUP_ID, NOV13, { ...t.rv(NOV13), attendance: wire(FULL_NOV13) });
+    await t.service.close(OWNER, GROUP_ID, gameId(NOV13), { ...t.rv(NOV13), attendance: wire(FULL_NOV13) });
     expect(t.writes).toEqual([{ op: 'create', gameId: gameId(NOV13) }]);
   });
 
@@ -524,7 +564,7 @@ describe('quem fecha e quando (CMP-11)', () => {
     for (const competition of [null, { activeUntil: '2026-11-13T23:00:00.000Z' }]) {
       const t = setup({ competition });
       await expectAppError(
-        t.service.close(OWNER, GROUP_ID, NOV13, { ...t.rv(NOV13), attendance: wire(FULL_NOV13) }),
+        t.service.close(OWNER, GROUP_ID, gameId(NOV13), { ...t.rv(NOV13), attendance: wire(FULL_NOV13) }),
         'COMPETITION_INACTIVE',
         409,
       );
@@ -536,7 +576,7 @@ describe('quem fecha e quando (CMP-11)', () => {
     const t = setup({ group: ARCHIVED });
     for (const who of [OWNER, A])
       await expectAppError(
-        t.service.close(who, GROUP_ID, NOV13, { ...t.rv(NOV13), attendance: wire(FULL_NOV13) }),
+        t.service.close(who, GROUP_ID, gameId(NOV13), { ...t.rv(NOV13), attendance: wire(FULL_NOV13) }),
         'GROUP_ARCHIVED',
         409,
       );
@@ -546,12 +586,12 @@ describe('quem fecha e quando (CMP-11)', () => {
   it('CMP-11: quem não participa, ou grupo inexistente → GROUP_NOT_FOUND (404)', async () => {
     const t = setup();
     await expectAppError(
-      t.service.close(OUTSIDER, GROUP_ID, NOV13, { ...t.rv(NOV13), attendance: wire(FULL_NOV13) }),
+      t.service.close(OUTSIDER, GROUP_ID, gameId(NOV13), { ...t.rv(NOV13), attendance: wire(FULL_NOV13) }),
       'GROUP_NOT_FOUND',
       404,
     );
     await expectAppError(
-      t.service.close(OWNER, OTHER_GROUP_ID, NOV13, { ...t.rv(NOV13), attendance: wire(FULL_NOV13) }),
+      t.service.close(OWNER, OTHER_GROUP_ID, gameId(NOV13), { ...t.rv(NOV13), attendance: wire(FULL_NOV13) }),
       'GROUP_NOT_FOUND',
       404,
     );
@@ -561,21 +601,25 @@ describe('quem fecha e quando (CMP-11)', () => {
     const bad = { version: 0, attendance: {} };
     // Tudo errado: fora do grupo ganha.
     const all = setup({ group: ARCHIVED, competition: null });
-    await expectAppError(all.service.close(OUTSIDER, GROUP_ID, OCT23, bad), 'GROUP_NOT_FOUND', 404);
+    await expectAppError(all.service.close(OUTSIDER, GROUP_ID, gameId(OCT23), bad), 'GROUP_NOT_FOUND', 404);
     // Sem cargo, num grupo arquivado e sem competição.
-    await expectAppError(all.service.close(B, GROUP_ID, OCT23, bad), 'GROUP_PERMISSION_DENIED', 403);
+    await expectAppError(all.service.close(B, GROUP_ID, gameId(OCT23), bad), 'GROUP_PERMISSION_DENIED', 403);
     // Com permissão: arquivado antes da competição inativa.
-    await expectAppError(all.service.close(OWNER, GROUP_ID, OCT23, bad), 'GROUP_ARCHIVED', 409);
+    await expectAppError(all.service.close(OWNER, GROUP_ID, gameId(OCT23), bad), 'GROUP_ARCHIVED', 409);
     // Ativo e sem competição: inativa antes do jogo.
     const inactive = setup({ competition: null });
-    await expectAppError(inactive.service.close(OWNER, GROUP_ID, OCT23, bad), 'COMPETITION_INACTIVE', 409);
+    await expectAppError(
+      inactive.service.close(OWNER, GROUP_ID, gameId(OCT23), bad),
+      'COMPETITION_INACTIVE',
+      409,
+    );
     // Competição ativa: o jogo não encontrado antes da chamada inválida.
     const active = setup();
-    await expectAppError(active.service.close(OWNER, GROUP_ID, THURSDAY, bad), 'GAME_NOT_FOUND', 404);
+    await expectAppError(active.service.close(OWNER, GROUP_ID, gameId(THURSDAY), bad), 'GAME_NOT_FOUND', 404);
     // Jogo futuro com chamada inválida: não começou vem antes.
-    await expectAppError(active.service.close(OWNER, GROUP_ID, NOV20, bad), 'GAME_NOT_STARTED', 409);
+    await expectAppError(active.service.close(OWNER, GROUP_ID, gameId(NOV20), bad), 'GAME_NOT_STARTED', 409);
     // Começou: aí sim a chamada.
-    await expectAppError(active.service.close(OWNER, GROUP_ID, NOV13, bad), 'RESULT_INVALID', 422);
+    await expectAppError(active.service.close(OWNER, GROUP_ID, gameId(NOV13), bad), 'RESULT_INVALID', 422);
   });
 });
 
@@ -585,7 +629,7 @@ describe('a chamada (CMP-12)', () => {
     for (const missing of [D, E]) {
       const { [missing]: _m, ...rest } = FULL_NOV13;
       const err = await expectAppError(
-        t.service.close(OWNER, GROUP_ID, NOV13, { ...t.rv(NOV13), attendance: wire(rest) }),
+        t.service.close(OWNER, GROUP_ID, gameId(NOV13), { ...t.rv(NOV13), attendance: wire(rest) }),
         'RESULT_INVALID',
         422,
       );
@@ -602,7 +646,7 @@ describe('a chamada (CMP-12)', () => {
       [{ [X]: 'present' }, X],
     ] as const) {
       const err = await expectAppError(
-        t.service.close(OWNER, GROUP_ID, NOV13, {
+        t.service.close(OWNER, GROUP_ID, gameId(NOV13), {
           ...t.rv(NOV13),
           attendance: wire({ ...FULL_NOV13, ...extra }),
         }),
@@ -616,7 +660,7 @@ describe('a chamada (CMP-12)', () => {
 
   it('CMP-12: a chamada é a que quem fecha marcou, para todos da lista, de qualquer papel', async () => {
     const t = setup();
-    const res = await t.service.close(OWNER, GROUP_ID, NOV13, {
+    const res = await t.service.close(OWNER, GROUP_ID, gameId(NOV13), {
       ...t.rv(NOV13),
       attendance: wire(FULL_NOV13),
       winner: 0,
@@ -635,7 +679,7 @@ describe('a chamada (CMP-12)', () => {
   it('CMP-12: antes de fechar, quem fecha vê a chamada sugerida: dentro = veio, fila = faltou', async () => {
     const t = setup();
     for (const who of [OWNER, A]) {
-      const res = await t.service.get(who, GROUP_ID, NOV13);
+      const res = await t.service.get(who, GROUP_ID, gameId(NOV13));
       expect(res.closed).toBe(false);
       for (const id of [OWNER, A, R, G, D]) expect(personOf(res, id)?.attendance).toBe('present');
       for (const id of [B, H, E]) expect(personOf(res, id)?.attendance).toBe('absent');
@@ -644,7 +688,7 @@ describe('a chamada (CMP-12)', () => {
 
   it('CMP-12: jogo cancelado fecha sem chamada nem resultado, e entra na competição como cancelado', async () => {
     const t = setup();
-    const res = await t.service.close(OWNER, GROUP_ID, OCT30, { ...t.rv(OCT30), attendance: {} });
+    const res = await t.service.close(OWNER, GROUP_ID, gameId(OCT30), { ...t.rv(OCT30), attendance: {} });
     expect(res).toMatchObject({ date: OCT30, closed: true, cancelled: true, state: 'closed' });
     expect(t.store.get(gameId(OCT30))).toMatchObject({ cancelled: true, attendance: {} });
     expect(t.store.get(gameId(OCT30))?.winner).toBeUndefined();
@@ -657,7 +701,7 @@ describe('a chamada (CMP-12)', () => {
       { attendance: {}, winner: 'draw' as const },
     ]) {
       const err = await expectAppError(
-        t.service.close(OWNER, GROUP_ID, OCT30, { ...t.rv(OCT30), ...t.rv(OCT30), ...input }),
+        t.service.close(OWNER, GROUP_ID, gameId(OCT30), { ...t.rv(OCT30), ...t.rv(OCT30), ...input }),
         'RESULT_INVALID',
         422,
       );
@@ -671,7 +715,11 @@ describe('o resultado do dia (CMP-13)', () => {
   it('CMP-13: o vencedor é um dos times publicados; fora deles → RESULT_INVALID winner_out_of_range', async () => {
     const t = setup();
     const err = await expectAppError(
-      t.service.close(OWNER, GROUP_ID, NOV13, { ...t.rv(NOV13), attendance: wire(FULL_NOV13), winner: 2 }),
+      t.service.close(OWNER, GROUP_ID, gameId(NOV13), {
+        ...t.rv(NOV13),
+        attendance: wire(FULL_NOV13),
+        winner: 2,
+      }),
       'RESULT_INVALID',
       422,
     );
@@ -681,7 +729,7 @@ describe('o resultado do dia (CMP-13)', () => {
 
   it('CMP-13: os times são os publicados, copiados para o jogo, pelo id público e o do avulso', async () => {
     const t = setup();
-    const res = await t.service.close(OWNER, GROUP_ID, NOV13, {
+    const res = await t.service.close(OWNER, GROUP_ID, gameId(NOV13), {
       ...t.rv(NOV13),
       attendance: wire(FULL_NOV13),
       winner: 1,
@@ -696,7 +744,7 @@ describe('o resultado do dia (CMP-13)', () => {
 
   it('CMP-13: empate é um resultado', async () => {
     const t = setup();
-    const res = await t.service.close(OWNER, GROUP_ID, NOV13, {
+    const res = await t.service.close(OWNER, GROUP_ID, gameId(NOV13), {
       ...t.rv(NOV13),
       attendance: wire(FULL_NOV13),
       winner: 'draw',
@@ -709,7 +757,11 @@ describe('o resultado do dia (CMP-13)', () => {
     for (const teams of [{}, { [NOV13]: publishedTeams(NOV13, TEAMS_NOV13, { status: 'draft' }) }]) {
       const t = setup({ teams });
       const err = await expectAppError(
-        t.service.close(OWNER, GROUP_ID, NOV13, { ...t.rv(NOV13), attendance: wire(FULL_NOV13), winner: 0 }),
+        t.service.close(OWNER, GROUP_ID, gameId(NOV13), {
+          ...t.rv(NOV13),
+          attendance: wire(FULL_NOV13),
+          winner: 0,
+        }),
         'RESULT_INVALID',
         422,
       );
@@ -720,7 +772,7 @@ describe('o resultado do dia (CMP-13)', () => {
 
   it('CMP-13: sem times publicados, o jogo fecha só com a chamada, e quem veio fica sem resultado (0)', async () => {
     const t = setup({ teams: { [NOV13]: publishedTeams(NOV13, TEAMS_NOV13, { status: 'draft' }) } });
-    const res = await t.service.close(OWNER, GROUP_ID, NOV13, {
+    const res = await t.service.close(OWNER, GROUP_ID, gameId(NOV13), {
       ...t.rv(NOV13),
       attendance: wire(FULL_NOV13),
     });
@@ -734,14 +786,18 @@ describe('o resultado do dia (CMP-13)', () => {
     const t = setup({ competition: { rules: { ...RULES, unit: 'match' } } });
     for (const winner of [0, 'draw'] as const) {
       const err = await expectAppError(
-        t.service.close(OWNER, GROUP_ID, NOV13, { ...t.rv(NOV13), attendance: wire(FULL_NOV13), winner }),
+        t.service.close(OWNER, GROUP_ID, gameId(NOV13), {
+          ...t.rv(NOV13),
+          attendance: wire(FULL_NOV13),
+          winner,
+        }),
         'RESULT_INVALID',
         422,
       );
       expect(err.details).toMatchObject({ reason: 'winner_with_match_unit' });
     }
     expect(t.writes).toEqual([]);
-    const res = await t.service.close(OWNER, GROUP_ID, NOV13, {
+    const res = await t.service.close(OWNER, GROUP_ID, gameId(NOV13), {
       ...t.rv(NOV13),
       attendance: wire(FULL_NOV13),
     });
@@ -753,7 +809,7 @@ describe('o resultado do dia (CMP-13)', () => {
 describe('os pontos do jogo (CMP-14)', () => {
   it('CMP-14: cada membro com o seu acontecimento e os pontos; reserva, convidados e avulso sem pontos', async () => {
     const t = setup();
-    const res = await t.service.close(OWNER, GROUP_ID, NOV13, {
+    const res = await t.service.close(OWNER, GROUP_ID, gameId(NOV13), {
       ...t.rv(NOV13),
       attendance: wire(FULL_NOV13),
       winner: 0,
@@ -779,7 +835,7 @@ describe('os pontos do jogo (CMP-14)', () => {
       expect(personOf(res, id)?.event).toBeUndefined();
       expect(personOf(res, id)?.points ?? 0).toBe(0);
     }
-    expect(await t.service.get(B, GROUP_ID, NOV13)).toEqual(res);
+    expect(await t.service.get(B, GROUP_ID, gameId(NOV13))).toEqual(res);
   });
 
   it('CMP-14: jogo cancelado fechado → quem estava dentro recebe o ponto de cancelado; fila e quem não confirmou, 0', async () => {
@@ -789,7 +845,7 @@ describe('os pontos do jogo (CMP-14)', () => {
         [OCT30]: fakeGame(OCT30, [OWNER, A, D, R, G, B], { cancelledAt: '2026-10-29T12:00:00.000Z' }),
       },
     });
-    const res = await t.service.close(OWNER, GROUP_ID, OCT30, { ...t.rv(OCT30), attendance: {} });
+    const res = await t.service.close(OWNER, GROUP_ID, gameId(OCT30), { ...t.rv(OCT30), attendance: {} });
     for (const id of [OWNER, A, D])
       expect(personOf(res, id)).toMatchObject({ event: 'cancelled', points: 4 });
     for (const id of [B, C, E]) expect(personOf(res, id)?.points).toBe(0);
@@ -797,14 +853,14 @@ describe('os pontos do jogo (CMP-14)', () => {
 
   it('CMP-14: o jogo guarda a cópia do regulamento: mudar o regulamento depois não muda os pontos nem a unidade', async () => {
     const t = setup();
-    await t.service.close(OWNER, GROUP_ID, NOV13, {
+    await t.service.close(OWNER, GROUP_ID, gameId(NOV13), {
       ...t.rv(NOV13),
       attendance: wire(FULL_NOV13),
       winner: 0,
     });
     t.state.competition = storedCompetition({ rules: { ...COMPETITION_PRESETS.winsOnly } });
 
-    const res = await t.service.get(OWNER, GROUP_ID, NOV13);
+    const res = await t.service.get(OWNER, GROUP_ID, gameId(NOV13));
     expect(res.unit).toBe('day');
     expect(personOf(res, OWNER)).toMatchObject({ event: 'win', points: 5 });
     expect(personOf(res, D)).toMatchObject({ event: 'noShow', points: -3 });
@@ -815,19 +871,19 @@ describe('os pontos do jogo (CMP-14)', () => {
     const t = setup({
       teams: { [NOV06]: publishedTeams(NOV06, [[OWNER], [R]]), [NOV13]: publishedTeams(NOV13, TEAMS_NOV13) },
     });
-    await t.service.close(OWNER, GROUP_ID, NOV13, {
+    await t.service.close(OWNER, GROUP_ID, gameId(NOV13), {
       ...t.rv(NOV13),
       attendance: wire(FULL_NOV13),
       winner: 0,
     });
 
     t.state.roster[R] = 'member';
-    const old = await t.service.get(OWNER, GROUP_ID, NOV13);
+    const old = await t.service.get(OWNER, GROUP_ID, gameId(NOV13));
     expect(personOf(old, R)?.event).toBeUndefined();
     expect(personOf(old, R)?.points ?? 0).toBe(0);
     expect(personOf(old, R)?.kind).not.toBe('member');
 
-    const next = await t.service.close(OWNER, GROUP_ID, NOV06, {
+    const next = await t.service.close(OWNER, GROUP_ID, gameId(NOV06), {
       ...t.rv(NOV06),
       attendance: wire({ [OWNER]: 'present', [R]: 'present' }),
       winner: 1,
@@ -837,14 +893,14 @@ describe('os pontos do jogo (CMP-14)', () => {
 
   it('CMP-14: quem saiu do grupo depois do fechamento continua com os pontos daquele jogo', async () => {
     const t = setup();
-    await t.service.close(OWNER, GROUP_ID, NOV13, {
+    await t.service.close(OWNER, GROUP_ID, gameId(NOV13), {
       ...t.rv(NOV13),
       attendance: wire(FULL_NOV13),
       winner: 0,
     });
     const { [D]: _d, [C]: _c, ...rest } = t.state.roster;
     t.state.roster = rest;
-    const res = await t.service.get(OWNER, GROUP_ID, NOV13);
+    const res = await t.service.get(OWNER, GROUP_ID, gameId(NOV13));
     expect(personOf(res, D)).toMatchObject({ kind: 'member', event: 'noShow', points: -3 });
     expect(personOf(res, C)).toMatchObject({ kind: 'member', event: 'notConfirmed', points: -1 });
   });
@@ -853,7 +909,7 @@ describe('os pontos do jogo (CMP-14)', () => {
 describe('corrigir e amistoso (CMP-15)', () => {
   it('CMP-15: fechar de novo corrige a chamada e o resultado, mantendo a cópia do regulamento, os membros e o createdAt', async () => {
     const t = setup();
-    await t.service.close(OWNER, GROUP_ID, NOV13, {
+    await t.service.close(OWNER, GROUP_ID, gameId(NOV13), {
       ...t.rv(NOV13),
       attendance: wire(FULL_NOV13),
       winner: 0,
@@ -862,7 +918,7 @@ describe('corrigir e amistoso (CMP-15)', () => {
     t.state.roster[R] = 'member';
     t.clock.now = LATER;
 
-    const res = await t.service.close(A, GROUP_ID, NOV13, {
+    const res = await t.service.close(A, GROUP_ID, gameId(NOV13), {
       ...t.rv(NOV13),
       attendance: wire({ ...FULL_NOV13, [D]: 'present' }),
       winner: 'draw',
@@ -887,7 +943,7 @@ describe('corrigir e amistoso (CMP-15)', () => {
 
   it('CMP-15: a correção copia os times publicados de agora e pode tirar o vencedor', async () => {
     const t = setup();
-    await t.service.close(OWNER, GROUP_ID, NOV13, {
+    await t.service.close(OWNER, GROUP_ID, gameId(NOV13), {
       ...t.rv(NOV13),
       attendance: wire(FULL_NOV13),
       winner: 0,
@@ -896,7 +952,7 @@ describe('corrigir e amistoso (CMP-15)', () => {
       [A, R],
       [OWNER, G, X],
     ]);
-    const res = await t.service.close(OWNER, GROUP_ID, NOV13, {
+    const res = await t.service.close(OWNER, GROUP_ID, gameId(NOV13), {
       ...t.rv(NOV13),
       attendance: wire(FULL_NOV13),
       winner: 0,
@@ -908,7 +964,7 @@ describe('corrigir e amistoso (CMP-15)', () => {
     expect(personOf(res, A)).toMatchObject({ team: 0, event: 'win', points: 5 });
     expect(personOf(res, OWNER)).toMatchObject({ team: 1, event: 'loss', points: 1 });
 
-    const none = await t.service.close(OWNER, GROUP_ID, NOV13, {
+    const none = await t.service.close(OWNER, GROUP_ID, gameId(NOV13), {
       ...t.rv(NOV13),
       attendance: wire(FULL_NOV13),
     });
@@ -919,7 +975,7 @@ describe('corrigir e amistoso (CMP-15)', () => {
 
   it('CMP-15: amistoso: o jogo continua fechado e visível, e ninguém pontua; desmarcar volta os pontos', async () => {
     const t = setup();
-    const res = await t.service.close(OWNER, GROUP_ID, NOV13, {
+    const res = await t.service.close(OWNER, GROUP_ID, gameId(NOV13), {
       ...t.rv(NOV13),
       attendance: wire(FULL_NOV13),
       winner: 0,
@@ -933,7 +989,7 @@ describe('corrigir e amistoso (CMP-15)', () => {
       friendly: true,
     });
 
-    const back = await t.service.close(OWNER, GROUP_ID, NOV13, {
+    const back = await t.service.close(OWNER, GROUP_ID, gameId(NOV13), {
       ...t.rv(NOV13),
       attendance: wire(FULL_NOV13),
       winner: 0,
@@ -944,7 +1000,7 @@ describe('corrigir e amistoso (CMP-15)', () => {
 
   it('CMP-15: sem `friendly` na entrada, o jogo não é amistoso', async () => {
     const t = setup();
-    const res = await t.service.close(OWNER, GROUP_ID, NOV13, {
+    const res = await t.service.close(OWNER, GROUP_ID, gameId(NOV13), {
       ...t.rv(NOV13),
       attendance: wire(FULL_NOV13),
     });
@@ -954,7 +1010,7 @@ describe('corrigir e amistoso (CMP-15)', () => {
 
   it('CMP-15: corrigir com a competição vencida → COMPETITION_INACTIVE, e o fechamento fica como estava', async () => {
     const t = setup();
-    await t.service.close(OWNER, GROUP_ID, NOV13, {
+    await t.service.close(OWNER, GROUP_ID, gameId(NOV13), {
       ...t.rv(NOV13),
       attendance: wire(FULL_NOV13),
       winner: 0,
@@ -963,7 +1019,11 @@ describe('corrigir e amistoso (CMP-15)', () => {
     t.state.competition = storedCompetition({ activeUntil: '2026-11-14T00:00:00.000Z' });
     t.clock.now = LATER;
     await expectAppError(
-      t.service.close(OWNER, GROUP_ID, NOV13, { ...t.rv(NOV13), attendance: wire(FULL_NOV13), winner: 1 }),
+      t.service.close(OWNER, GROUP_ID, gameId(NOV13), {
+        ...t.rv(NOV13),
+        attendance: wire(FULL_NOV13),
+        winner: 1,
+      }),
       'COMPETITION_INACTIVE',
       409,
     );
@@ -972,7 +1032,7 @@ describe('corrigir e amistoso (CMP-15)', () => {
 
   it('CMP-42: dois aparelhos fechando ao mesmo tempo → o 2º (que viu o jogo aberto, versão 0) recebe VERSION_CONFLICT, e o 1º fechamento fica', async () => {
     const t = setup();
-    await t.service.close(OWNER, GROUP_ID, NOV13, {
+    await t.service.close(OWNER, GROUP_ID, gameId(NOV13), {
       ...t.rv(NOV13),
       attendance: wire(FULL_NOV13),
       winner: 0,
@@ -982,7 +1042,7 @@ describe('corrigir e amistoso (CMP-15)', () => {
     t.clock.now = LATER;
 
     const err = await expectAppError(
-      t.service.close(A, GROUP_ID, NOV13, { version: 0, attendance: wire(FULL_NOV13), winner: 1 }),
+      t.service.close(A, GROUP_ID, gameId(NOV13), { version: 0, attendance: wire(FULL_NOV13), winner: 1 }),
       'VERSION_CONFLICT',
       409,
     );
@@ -996,7 +1056,7 @@ describe('corrigir e amistoso (CMP-15)', () => {
 describe('quem vê os jogos (CMP-16)', () => {
   it('CMP-16: a lista: os jogos desde a ativação que viraram item, do mais recente ao mais antigo, com o estado', async () => {
     const t = setup();
-    await t.service.close(OWNER, GROUP_ID, NOV13, {
+    await t.service.close(OWNER, GROUP_ID, gameId(NOV13), {
       ...t.rv(NOV13),
       attendance: wire(FULL_NOV13),
       winner: 0,
@@ -1021,7 +1081,7 @@ describe('quem vê os jogos (CMP-16)', () => {
 
   it('CMP-16: o cancelado fechado aparece como fechado, e continua marcado como cancelado', async () => {
     const t = setup();
-    await t.service.close(OWNER, GROUP_ID, OCT30, { ...t.rv(OCT30), attendance: {} });
+    await t.service.close(OWNER, GROUP_ID, gameId(OCT30), { ...t.rv(OCT30), attendance: {} });
     expect((await t.service.list(OWNER, GROUP_ID)).find((g) => g.date === OCT30)).toMatchObject({
       state: 'closed',
       cancelled: true,
@@ -1036,7 +1096,7 @@ describe('quem vê os jogos (CMP-16)', () => {
 
   it('CMP-16: membros e reservas veem, também com a competição vencida e com o grupo arquivado', async () => {
     const t = setup();
-    await t.service.close(OWNER, GROUP_ID, NOV13, {
+    await t.service.close(OWNER, GROUP_ID, gameId(NOV13), {
       ...t.rv(NOV13),
       attendance: wire(FULL_NOV13),
       winner: 0,
@@ -1045,28 +1105,28 @@ describe('quem vê os jogos (CMP-16)', () => {
     t.state.competition = storedCompetition({ activeUntil: '2026-11-13T23:00:00.000Z' });
     for (const who of [OWNER, B, R]) {
       expect((await t.service.list(who, GROUP_ID)).map((g) => g.date)).toEqual([NOV13, NOV06, OCT30]);
-      expect(personOf(await t.service.get(who, GROUP_ID, NOV13), OWNER)).toMatchObject({ points: 5 });
+      expect(personOf(await t.service.get(who, GROUP_ID, gameId(NOV13)), OWNER)).toMatchObject({ points: 5 });
     }
   });
 
   it('CMP-16: quem não participa, ou grupo inexistente → GROUP_NOT_FOUND (404) na lista e no jogo', async () => {
     const t = setup();
     await expectAppError(t.service.list(OUTSIDER, GROUP_ID), 'GROUP_NOT_FOUND', 404);
-    await expectAppError(t.service.get(OUTSIDER, GROUP_ID, NOV13), 'GROUP_NOT_FOUND', 404);
+    await expectAppError(t.service.get(OUTSIDER, GROUP_ID, gameId(NOV13)), 'GROUP_NOT_FOUND', 404);
     await expectAppError(t.service.list(OWNER, OTHER_GROUP_ID), 'GROUP_NOT_FOUND', 404);
-    await expectAppError(t.service.get(OWNER, OTHER_GROUP_ID, NOV13), 'GROUP_NOT_FOUND', 404);
+    await expectAppError(t.service.get(OWNER, OTHER_GROUP_ID, gameId(NOV13)), 'GROUP_NOT_FOUND', 404);
   });
 
   it('CMP-16: abrir um jogo de antes da ativação, ou uma data que não é jogo do grupo → GAME_NOT_FOUND', async () => {
     const t = setup();
-    await expectAppError(t.service.get(OWNER, GROUP_ID, OCT23), 'GAME_NOT_FOUND', 404);
-    await expectAppError(t.service.get(OWNER, GROUP_ID, THURSDAY), 'GAME_NOT_FOUND', 404);
+    await expectAppError(t.service.get(OWNER, GROUP_ID, gameId(OCT23)), 'GAME_NOT_FOUND', 404);
+    await expectAppError(t.service.get(OWNER, GROUP_ID, gameId(THURSDAY)), 'GAME_NOT_FOUND', 404);
   });
 
   it('CMP-16: jogo para fechar mostra só que falta fechar: sem pontos, e sem chamada para quem não fecha', async () => {
     const t = setup();
     for (const who of [B, R]) {
-      const res = await t.service.get(who, GROUP_ID, NOV13);
+      const res = await t.service.get(who, GROUP_ID, gameId(NOV13));
       expect(CompetitionGameDetailSchema.parse(res)).toEqual(res);
       expect(res).toMatchObject({ date: NOV13, state: 'open', closed: false, unit: 'day' });
       for (const p of res.people) {
@@ -1075,13 +1135,13 @@ describe('quem vê os jogos (CMP-16)', () => {
         expect(p.points).toBeUndefined();
       }
     }
-    const asCloser = await t.service.get(OWNER, GROUP_ID, NOV13);
+    const asCloser = await t.service.get(OWNER, GROUP_ID, gameId(NOV13));
     for (const p of asCloser.people) expect(p.points).toBeUndefined();
   });
 
   it('CMP-16: o jogo cancelado e ainda não fechado aparece como cancelado no detalhe', async () => {
     const t = setup();
-    expect(await t.service.get(OWNER, GROUP_ID, OCT30)).toMatchObject({
+    expect(await t.service.get(OWNER, GROUP_ID, gameId(OCT30))).toMatchObject({
       state: 'cancelled',
       cancelled: true,
       closed: false,
@@ -1090,13 +1150,13 @@ describe('quem vê os jogos (CMP-16)', () => {
 
   it('CMP-16: a lista e o jogo saem só com o id público (nenhum id do sistema na resposta)', async () => {
     const t = setup();
-    const closed = await t.service.close(OWNER, GROUP_ID, NOV13, {
+    const closed = await t.service.close(OWNER, GROUP_ID, gameId(NOV13), {
       ...t.rv(NOV13),
       attendance: wire(FULL_NOV13),
       winner: 0,
     });
     expect(leaksSystemId(closed)).toBe(false);
-    expect(leaksSystemId(await t.service.get(OWNER, GROUP_ID, NOV06))).toBe(false);
+    expect(leaksSystemId(await t.service.get(OWNER, GROUP_ID, gameId(NOV06)))).toBe(false);
     expect(leaksSystemId(await t.service.list(OWNER, GROUP_ID))).toBe(false);
   });
 });
@@ -1104,14 +1164,14 @@ describe('quem vê os jogos (CMP-16)', () => {
 describe('a lista do jogo do 1º fechamento (CMP-14, CMP-15)', () => {
   it('CMP-14: menos vagas no grupo depois do fechamento → quem estava dentro e faltou continua dentro, com falta (−3)', async () => {
     const t = setup();
-    await t.service.close(OWNER, GROUP_ID, NOV13, {
+    await t.service.close(OWNER, GROUP_ID, gameId(NOV13), {
       ...t.rv(NOV13),
       attendance: wire(FULL_NOV13),
       winner: 0,
     });
     t.state.group = storedGroup({ slots: 3 });
 
-    const res = await t.service.get(OWNER, GROUP_ID, NOV13);
+    const res = await t.service.get(OWNER, GROUP_ID, gameId(NOV13));
     expect(personOf(res, D)).toMatchObject({ inside: true, event: 'noShow', points: -3 });
     for (const id of [OWNER, A, R, G]) expect(personOf(res, id)?.inside).toBe(true);
     for (const id of [B, H, E]) expect(personOf(res, id)?.inside).toBe(false);
@@ -1119,14 +1179,14 @@ describe('a lista do jogo do 1º fechamento (CMP-14, CMP-15)', () => {
 
   it('CMP-14: mais vagas no grupo depois do fechamento → quem estava na fila continua na fila (faltou = 0, sem falta)', async () => {
     const t = setup();
-    await t.service.close(OWNER, GROUP_ID, NOV13, {
+    await t.service.close(OWNER, GROUP_ID, gameId(NOV13), {
       ...t.rv(NOV13),
       attendance: wire(FULL_NOV13),
       winner: 0,
     });
     t.state.group = storedGroup({ slots: 8 });
 
-    const res = await t.service.get(OWNER, GROUP_ID, NOV13);
+    const res = await t.service.get(OWNER, GROUP_ID, gameId(NOV13));
     expect(personOf(res, E)).toMatchObject({ inside: false, event: 'absentQueue', points: 0 });
     for (const id of [B, H, E]) expect(personOf(res, id)?.inside).toBe(false);
     expect(personOf(res, D)).toMatchObject({ inside: true, event: 'noShow', points: -3 });
@@ -1135,7 +1195,7 @@ describe('a lista do jogo do 1º fechamento (CMP-14, CMP-15)', () => {
   it('CMP-15: a correção feita depois de mudar as vagas mantém a lista do 1º fechamento', async () => {
     for (const slots of [3, 8]) {
       const t = setup();
-      await t.service.close(OWNER, GROUP_ID, NOV13, {
+      await t.service.close(OWNER, GROUP_ID, gameId(NOV13), {
         ...t.rv(NOV13),
         attendance: wire(FULL_NOV13),
         winner: 0,
@@ -1143,7 +1203,7 @@ describe('a lista do jogo do 1º fechamento (CMP-14, CMP-15)', () => {
       t.state.group = storedGroup({ slots });
       t.clock.now = LATER;
 
-      const res = await t.service.close(OWNER, GROUP_ID, NOV13, {
+      const res = await t.service.close(OWNER, GROUP_ID, gameId(NOV13), {
         ...t.rv(NOV13),
         attendance: wire(FULL_NOV13),
         winner: 1,
@@ -1153,7 +1213,7 @@ describe('a lista do jogo do 1º fechamento (CMP-14, CMP-15)', () => {
       expect(personOf(res, E)).toMatchObject({ inside: false, event: 'absentQueue', points: 0 });
       for (const id of [OWNER, A, R, G, D]) expect(personOf(res, id)?.inside).toBe(true);
       for (const id of [B, H, E]) expect(personOf(res, id)?.inside).toBe(false);
-      expect(await t.service.get(B, GROUP_ID, NOV13)).toEqual(res);
+      expect(await t.service.get(B, GROUP_ID, gameId(NOV13))).toEqual(res);
     }
   });
 });
@@ -1161,16 +1221,23 @@ describe('a lista do jogo do 1º fechamento (CMP-14, CMP-15)', () => {
 describe('fechamento com a versão que a tela mostrou (CMP-42)', () => {
   it('CMP-42: jogo não fechado vem com version 0; o 1º fechamento manda 0 e sai com a version 1', async () => {
     const t = setup();
-    expect((await t.service.get(OWNER, GROUP_ID, NOV13)).version).toBe(0);
-    const res = await t.service.close(OWNER, GROUP_ID, NOV13, { version: 0, attendance: wire(FULL_NOV13) });
+    expect((await t.service.get(OWNER, GROUP_ID, gameId(NOV13))).version).toBe(0);
+    const res = await t.service.close(OWNER, GROUP_ID, gameId(NOV13), {
+      version: 0,
+      attendance: wire(FULL_NOV13),
+    });
     expect(res.version).toBe(1);
-    expect((await t.service.get(OWNER, GROUP_ID, NOV13)).version).toBe(1);
+    expect((await t.service.get(OWNER, GROUP_ID, gameId(NOV13))).version).toBe(1);
   });
 
   it('CMP-42: a correção manda a versão do fechamento e soma 1', async () => {
     const t = setup();
-    await t.service.close(OWNER, GROUP_ID, NOV13, { version: 0, attendance: wire(FULL_NOV13), winner: 0 });
-    const res = await t.service.close(OWNER, GROUP_ID, NOV13, {
+    await t.service.close(OWNER, GROUP_ID, gameId(NOV13), {
+      version: 0,
+      attendance: wire(FULL_NOV13),
+      winner: 0,
+    });
+    const res = await t.service.close(OWNER, GROUP_ID, gameId(NOV13), {
       version: 1,
       attendance: wire(FULL_NOV13),
       winner: 1,
@@ -1181,12 +1248,20 @@ describe('fechamento com a versão que a tela mostrou (CMP-42)', () => {
 
   it('CMP-42: corrigir com a versão velha → VERSION_CONFLICT (409, currentVersion) e nada é gravado', async () => {
     const t = setup();
-    await t.service.close(OWNER, GROUP_ID, NOV13, { version: 0, attendance: wire(FULL_NOV13), winner: 0 });
-    await t.service.close(OWNER, GROUP_ID, NOV13, { version: 1, attendance: wire(FULL_NOV13), winner: 1 });
+    await t.service.close(OWNER, GROUP_ID, gameId(NOV13), {
+      version: 0,
+      attendance: wire(FULL_NOV13),
+      winner: 0,
+    });
+    await t.service.close(OWNER, GROUP_ID, gameId(NOV13), {
+      version: 1,
+      attendance: wire(FULL_NOV13),
+      winner: 1,
+    });
     const before = t.store.get(gameId(NOV13));
     const updates = t.writes.filter((w) => w.op === 'update').length;
     const err = await expectAppError(
-      t.service.close(A, GROUP_ID, NOV13, { version: 1, attendance: wire(FULL_NOV13), winner: 0 }),
+      t.service.close(A, GROUP_ID, gameId(NOV13), { version: 1, attendance: wire(FULL_NOV13), winner: 0 }),
       'VERSION_CONFLICT',
       409,
     );
@@ -1197,9 +1272,13 @@ describe('fechamento com a versão que a tela mostrou (CMP-42)', () => {
 
   it('CMP-42: corrigir mandando 0 (a tela viu o jogo aberto) → VERSION_CONFLICT com a versão do fechamento', async () => {
     const t = setup();
-    await t.service.close(OWNER, GROUP_ID, NOV13, { version: 0, attendance: wire(FULL_NOV13), winner: 0 });
+    await t.service.close(OWNER, GROUP_ID, gameId(NOV13), {
+      version: 0,
+      attendance: wire(FULL_NOV13),
+      winner: 0,
+    });
     const err = await expectAppError(
-      t.service.close(A, GROUP_ID, NOV13, { version: 0, attendance: wire(FULL_NOV13), winner: 1 }),
+      t.service.close(A, GROUP_ID, gameId(NOV13), { version: 0, attendance: wire(FULL_NOV13), winner: 1 }),
       'VERSION_CONFLICT',
       409,
     );
@@ -1211,5 +1290,74 @@ describe('fechamento com a versão que a tela mostrou (CMP-42)', () => {
     expect(CloseGameInputSchema.safeParse({ attendance: {} }).success).toBe(false);
     expect(CloseGameInputSchema.safeParse({ version: -1, attendance: {} }).success).toBe(false);
     expect(CloseGameInputSchema.safeParse({ version: 0, attendance: {} }).success).toBe(true);
+  });
+});
+
+// Horários e jogo próprio (`.claude/work/horarios-jogo.md`): os jogos saem do lookup dos jogos do grupo
+// (`LOOKUP#GROUP#<g>#GAME`), de todos os horários, e as rotas vão pelo id do jogo.
+describe('os jogos de todos os horários (CMP-16, CMP-11)', () => {
+  const SAT_SCHEDULE_ID = 'eeeeeeee-0000-4000-8000-000000000002';
+  const satGame = (date: string, list: UserId[]): FakeGame => {
+    const base = fakeGame(date, list);
+    return {
+      ...base,
+      record: {
+        ...base.record,
+        id: `${SAT_SCHEDULE_ID}_${date}`,
+        scheduleId: SAT_SCHEDULE_ID,
+        startsAt: `${date}T12:00:00.000Z`,
+        endsAt: `${date}T14:00:00.000Z`,
+      },
+    };
+  };
+
+  it('CMP-16: a lista traz os jogos de cada horário, do mais recente ao mais antigo, cada um com o id do jogo', async () => {
+    const t = setup({ games: { ...defaultGames(), '2026-11-07': satGame('2026-11-07', [OWNER, A]) } });
+    const list = await t.service.list(OWNER, GROUP_ID);
+    for (const game of list) expect(CompetitionGameSchema.parse(game)).toEqual(game);
+    expect(list.map((g) => [g.id, g.date])).toEqual([
+      [gameId(NOV13), NOV13],
+      [`${SAT_SCHEDULE_ID}_2026-11-07`, '2026-11-07'],
+      [gameId(NOV06), NOV06],
+      [gameId(OCT30), OCT30],
+    ]);
+  });
+
+  it('CMP-11: o jogo do outro horário é fechado pelo id dele', async () => {
+    const t = setup({ games: { ...defaultGames(), '2026-11-07': satGame('2026-11-07', [OWNER, A]) } });
+    const satId = `${SAT_SCHEDULE_ID}_2026-11-07`;
+    const res = await t.service.close(OWNER, GROUP_ID, satId, {
+      version: 0,
+      attendance: wire({ [OWNER]: 'present', [A]: 'present' }),
+    });
+    expect(res).toMatchObject({ id: satId, date: '2026-11-07', closed: true });
+    expect(t.store.get(satId)).toMatchObject({ gameId: satId, startsAt: '2026-11-07T12:00:00.000Z' });
+  });
+
+  it('CMP-11: o id de um jogo de outro grupo → GAME_NOT_FOUND', async () => {
+    const other = fakeGame(NOV13, [OWNER]);
+    const t = setup({
+      games: {
+        ...defaultGames(),
+        x: { ...other, record: { ...other.record, id: 'x_2026-11-13', groupId: OTHER_GROUP_ID } },
+      },
+    });
+    await expectAppError(t.service.get(OWNER, GROUP_ID, 'x_2026-11-13'), 'GAME_NOT_FOUND', 404);
+  });
+});
+
+describe('as vagas do horário arquivado (GRP-66)', () => {
+  it('GRP-66: jogo passado de um horário arquivado, com vagas próprias → a lista (dentro/fila) usa as do horário, e não as do grupo', async () => {
+    const t = setup({ group: { schedules: [] }, archivedSchedules: { [SCHEDULE_ID]: { slots: 7 } } });
+    const res = await t.service.get(OWNER, GROUP_ID, gameId(NOV13));
+    // Grupo: 5 vagas; horário: 7. Dentro = os 7 primeiros; só o Edu fica na fila.
+    for (const id of [OWNER, A, R, G, D, B, H]) expect(personOf(res, id)?.attendance).toBe('present');
+    expect(personOf(res, E)?.attendance).toBe('absent');
+  });
+
+  it('GRP-66: sem as vagas no horário arquivado → valem as do grupo', async () => {
+    const t = setup({ group: { schedules: [] }, archivedSchedules: { [SCHEDULE_ID]: {} } });
+    const res = await t.service.get(OWNER, GROUP_ID, gameId(NOV13));
+    for (const id of [B, H, E]) expect(personOf(res, id)?.attendance).toBe('absent');
   });
 });

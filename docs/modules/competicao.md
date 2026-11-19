@@ -1,6 +1,6 @@
 # Módulo Competição
 
-> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Se o código e este doc discordarem, um dos dois está errado. Conferido com o código em 2026-11-15.
+> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Se o código e este doc discordarem, um dos dois está errado. Conferido com o código em 2026-11-19.
 
 Código: `apps/scorely/api/src/modules/competition/`, `apps/scorely/web/src/modules/competition/`. Contrato: `apps/scorely/contracts/src/competition.ts`.
 
@@ -228,7 +228,7 @@ Hoje o módulo tem a **ativação** (teste e plano), o **regulamento do grupo** 
 
 ### Edição ao mesmo tempo
 
-- **CMP-42. Toda edição da competição manda a versão que a tela mostrou.** Vale para o regulamento (`PUT .../rules`, a versão da competição), o fechamento do jogo (`PUT .../games/{date}`, a versão do fechamento; `0` no 1º fechamento), a partida (editar e apagar) e a temporada (editar e cancelar). Criar uma partida ou uma temporada, começar o teste e encerrar a temporada não mandam versão. Encerrar confere a versão que a api acabou de ler: se alguém editou a temporada no mesmo instante, a resposta também é `VERSION_CONFLICT`. Versão diferente da atual responde `VERSION_CONFLICT` (409, `details.currentVersion`), e nada é gravado. A tela relê o que estava editando, fecha o painel e avisa: "Alguém mudou isto antes de você. Atualizamos; faça a mudança de novo." _(Nova em 2026-11-15.)_
+- **CMP-42. Toda edição da competição manda a versão que a tela mostrou.** Vale para o regulamento (`PUT .../rules`, a versão da competição), o fechamento do jogo (`PUT .../games/{gameId}`, a versão do fechamento; `0` no 1º fechamento), a partida (editar e apagar) e a temporada (editar e cancelar). Criar uma partida ou uma temporada, começar o teste e encerrar a temporada não mandam versão. Encerrar confere a versão que a api acabou de ler: se alguém editou a temporada no mesmo instante, a resposta também é `VERSION_CONFLICT`. Versão diferente da atual responde `VERSION_CONFLICT` (409, `details.currentVersion`), e nada é gravado. A tela relê o que estava editando, fecha o painel e avisa: "Alguém mudou isto antes de você. Atualizamos; faça a mudança de novo." _(Nova em 2026-11-15.)_
   - _Por quê:_ com cargos, duas pessoas podem editar a mesma coisa ao mesmo tempo. Sem a versão, a segunda gravação apagaria a primeira sem ninguém perceber ([ADR 0016](../decisions/0016-version-confere-nas-edicoes.md)).
 
 ### Telas (web)
@@ -247,7 +247,7 @@ Hoje o módulo tem a **ativação** (teste e plano), o **regulamento do grupo** 
   - Quem tem `seasons.manage` e não é dono não vê a linha com a competição desativada.
   - Uma ação barrada por `COMPETITION_INACTIVE` mostra a mensagem traduzida e recarrega a competição. As barradas por permissão seguem a GRP-57.
   - _Por quê:_ os Ajustes já são o lugar de configurar o grupo. Ativar é uma decisão de uma vez, e o regulamento é configuração, mesmo que também apareça para leitura na aba Competição.
-- **CMP-17. Fechar na aba Jogo:** com o jogo atual já começado (em andamento, ou cancelado com o horário passado) e a competição ativa, quem tem `results.record` vê, na aba Jogo, a **linha Competição**: "Fechar o jogo" (ou "Jogo fechado · corrigir"). Ela abre o **painel de fechar** ([GRP-29](grupos.md)):
+- **CMP-17. Fechar na aba Jogo:** com um dos próximos jogos já começado (em andamento, ou cancelado com o horário passado) e a competição ativa, quem tem `results.record` vê, na aba Jogo, a **linha Competição**: "Fechar o jogo" (ou "Jogo fechado · corrigir"). Ela abre o **painel de fechar** ([GRP-29](grupos.md)):
   - a chamada: a lista do jogo (dentro e depois fila), cada pessoa com veio / faltou (CMP-12);
   - no modo pelo dia, os times publicados como opções de vencedor, "Empate" e "Sem resultado" (CMP-13, 14: quem veio fica com 0). Sem times publicados, o aviso "Sem times publicados: o jogo fecha só com a chamada";
   - "Amistoso (não vale ponto)" (CMP-15);
@@ -302,7 +302,7 @@ Hoje o módulo tem a **ativação** (teste e plano), o **regulamento do grupo** 
 
 O estado (CMP-01) não é gravado: sai de `activeUntil` comparado com agora. Começar o teste grava o item com a condição de ele ainda não existir, então dois toques ao mesmo tempo não dão dois testes.
 
-Os jogos desde a ativação (CMP-11, 16) saem das datas: o grupo tem um horário semanal fixo (GRP-10), então as ocorrências entre `trialStartedAt` e agora são calculadas, e cada uma é buscada pelo lookup do jogo pela data (`LOOKUP#GAME#<groupId>#<data>`, do módulo de grupos). A lista dos jogos, os times publicados e o jogo pela data são lidos pelas funções dos módulos de grupos e de times; nada é gravado neles.
+Os jogos desde a ativação (CMP-11, 16) saem do lookup dos jogos do grupo (`LOOKUP#GROUP#<groupId>#GAME`, do módulo de grupos), que só tem os jogos que viraram item: jogo sem ninguém não tem o que fechar (CMP-11). Valem os de início entre `trialStartedAt` e agora. A lista dos jogos, os times publicados e o jogo pela data são lidos pelas funções dos módulos de grupos e de times; nada é gravado neles.
 
 O acesso, a permissão e o grupo arquivado são conferidos pelas funções do módulo de grupos (`groups.deps.ts`, GRP-04, 49, 52). A competição lê o grupo; o grupo não lê a competição.
 
@@ -322,26 +322,26 @@ O acesso, a permissão e o grupo arquivado são conferidos pelas funções do m�
 
 ### Rotas
 
-| Rota                                                                   | Quem             | Regras         |
-| ---------------------------------------------------------------------- | ---------------- | -------------- |
-| `GET /groups/{id}/competition`                                         | membro/reserva   | CMP-01, 05     |
-| `POST /groups/{id}/competition/trial`                                  | dono             | CMP-02         |
-| `PUT /groups/{id}/competition/rules`                                   | `seasons.manage` | CMP-04, 06, 07 |
-| `GET /groups/{id}/competition/games`                                   | membro/reserva   | CMP-16         |
-| `GET /groups/{id}/competition/games/{date}`                            | membro/reserva   | CMP-12–16      |
-| `PUT /groups/{id}/competition/games/{date}`                            | `results.record` | CMP-11–15      |
-| `POST /groups/{id}/competition/games/{date}/matches`                   | `results.record` | CMP-19–21      |
-| `PUT`/`DELETE /groups/{id}/competition/games/{date}/matches/{matchId}` | `results.record` | CMP-19–21      |
-| `GET /groups/{id}/competition/ranking` (`?gender=M` ou `F`)            | membro/reserva   | CMP-24–26      |
-| `GET /groups/{id}/competition/people/{userId}`                         | membro/reserva   | CMP-27         |
-| `GET /groups/{id}/competition/seasons`                                 | membro/reserva   | CMP-34         |
-| `POST /groups/{id}/competition/seasons`                                | `seasons.manage` | CMP-29, 30     |
-| `PUT`/`DELETE /groups/{id}/competition/seasons/{seasonId}`             | `seasons.manage` | CMP-30         |
-| `POST /groups/{id}/competition/seasons/{seasonId}/close`               | `seasons.manage` | CMP-32         |
-| `GET /me/trophies`                                                     | logado           | CMP-37         |
-| rotina diária (sem rota)                                               | —                | CMP-39         |
+| Rota                                                                     | Quem             | Regras         |
+| ------------------------------------------------------------------------ | ---------------- | -------------- |
+| `GET /groups/{id}/competition`                                           | membro/reserva   | CMP-01, 05     |
+| `POST /groups/{id}/competition/trial`                                    | dono             | CMP-02         |
+| `PUT /groups/{id}/competition/rules`                                     | `seasons.manage` | CMP-04, 06, 07 |
+| `GET /groups/{id}/competition/games`                                     | membro/reserva   | CMP-16         |
+| `GET /groups/{id}/competition/games/{gameId}`                            | membro/reserva   | CMP-12–16      |
+| `PUT /groups/{id}/competition/games/{gameId}`                            | `results.record` | CMP-11–15      |
+| `POST /groups/{id}/competition/games/{gameId}/matches`                   | `results.record` | CMP-19–21      |
+| `PUT`/`DELETE /groups/{id}/competition/games/{gameId}/matches/{matchId}` | `results.record` | CMP-19–21      |
+| `GET /groups/{id}/competition/ranking` (`?gender=M` ou `F`)              | membro/reserva   | CMP-24–26      |
+| `GET /groups/{id}/competition/people/{userId}`                           | membro/reserva   | CMP-27         |
+| `GET /groups/{id}/competition/seasons`                                   | membro/reserva   | CMP-34         |
+| `POST /groups/{id}/competition/seasons`                                  | `seasons.manage` | CMP-29, 30     |
+| `PUT`/`DELETE /groups/{id}/competition/seasons/{seasonId}`               | `seasons.manage` | CMP-30         |
+| `POST /groups/{id}/competition/seasons/{seasonId}/close`                 | `seasons.manage` | CMP-32         |
+| `GET /me/trophies`                                                       | logado           | CMP-37         |
+| rotina diária (sem rota)                                                 | —                | CMP-39         |
 
-O `PUT` recebe `{ version, attendance, winner?, friendly }`: a chamada de todos da lista, o vencedor (índice do time ou `draw`, só pelo dia) e o amistoso. Ele fecha (1ª vez) ou corrige. O detalhe do jogo (`GET .../games/{date}`) traz também as partidas, o vencedor do dia e, por pessoa, as vitórias, empates e derrotas (CMP-22). A partida (`POST`/`PUT`) recebe `{ teams: [string[], string[]], winner }`, pelo id público ou o do avulso; o `PUT` e o `DELETE` também mandam `version` (CMP-42). O regulamento, o fechamento, a partida e a temporada saem com a `version` de cada um.
+O `PUT` recebe `{ version, attendance, winner?, friendly }`: a chamada de todos da lista, o vencedor (índice do time ou `draw`, só pelo dia) e o amistoso. Ele fecha (1ª vez) ou corrige. O detalhe do jogo (`GET .../games/{gameId}`) traz também as partidas, o vencedor do dia e, por pessoa, as vitórias, empates e derrotas (CMP-22). A partida (`POST`/`PUT`) recebe `{ teams: [string[], string[]], winner }`, pelo id público ou o do avulso; o `PUT` e o `DELETE` também mandam `version` (CMP-42). O regulamento, o fechamento, a partida e a temporada saem com a `version` de cada um.
 
 Erros: `VERSION_CONFLICT` (409, CMP-42), `COMPETITION_TRIAL_USED`, `COMPETITION_INACTIVE`, `GAME_NOT_STARTED`, `MATCH_INVALID` (422, `details.reason`: `day_unit`, `person_unknown`, `team_empty`, `person_repeated`, `person_absent`; `details.userId?`), `GAME_MATCHES_FULL` (409), `MATCH_NOT_FOUND` (404), `RESULT_INVALID` (inclui `absent_played`) (422, `details.reason`: chamada sem alguém da lista, pessoa fora da lista, vencedor sem times ou fora deles, resultado na unidade por partida, chamada ou vencedor num jogo cancelado), e os do grupo (`GROUP_NOT_FOUND`, `GROUP_NOT_OWNER`, `GROUP_PERMISSION_DENIED`, `GROUP_ARCHIVED`, `GAME_NOT_FOUND`, `GAME_CANCELLED`, `GROUP_MEMBER_NOT_FOUND` (histórico de quem nunca esteve no grupo, CMP-27), `SEASON_INVALID` (422, `details.reason`: `duration`, `past_start`, `too_far`, `overlap`, `started`), `SEASON_NOT_FOUND` (404), `SEASON_CLOSED` (409), `VALIDATION_ERROR`).
 
@@ -358,7 +358,6 @@ Erros: `VERSION_CONFLICT` (409, CMP-42), `COMPETITION_TRIAL_USED`, `COMPETITION_
 - Os pontos de uma partida ficam só na partida: corrigir uma partida de um jogo já fechado muda os pontos dele na hora, sem passar pelo fechamento.
 - Não há cobrança no app. O plano é liberado pela equipe direto no banco (CMP-03), e ninguém é avisado de que o teste está acabando.
 - A aba Competição faz uma leitura a mais ao abrir a página do grupo, porque o grupo não sabe da competição.
-- Os jogos desde a ativação saem do horário semanal fixo (GRP-10). Quando a Agenda deixar o grupo ter mais de um horário ou jogos avulsos ([grupos.md](grupos.md), seção 5), a lista vai precisar de um lookup dos jogos do grupo.
 - A lista dos jogos lê um lookup por semana desde a ativação: até 53 leituras num ano de competição.
 - Quem tivesse só `seasons.manage` veria a aba Ajustes vazia com a competição desativada (GRP-29 mostra a aba, CMP-10 esconde a linha). Hoje não acontece: o único cargo é o Admin, com todas as permissões (GRP-50). Volta a valer com os cargos criados pelo grupo.
 

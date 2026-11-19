@@ -1,6 +1,6 @@
 # Módulo Times
 
-> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Se o código e este doc discordarem, um dos dois está errado. Conferido com o código em 2026-11-15.
+> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Se o código e este doc discordarem, um dos dois está errado. Conferido com o código em 2026-11-19.
 
 Código: `apps/scorely/api/src/modules/teams/`, `apps/scorely/web/src/modules/teams/`. Contrato: `apps/scorely/contracts/src/teams.ts`.
 
@@ -38,7 +38,7 @@ Hoje o módulo guarda as **posições de cada pessoa no grupo**, a **configuraç
 - **TIM-03. Todos do grupo veem as posições; só o dono muda.** Membros e reservas veem (`GET`); quem não participa do grupo recebe `GROUP_NOT_FOUND` (GRP-04). Mudar, para quem não tem `teams.manage`, responde `GROUP_PERMISSION_DENIED` (403 com corpo). _(Alterada em 2026-11-13: antes, só o dono, com `GROUP_NOT_OWNER`.)_ Com o grupo arquivado, mudar responde `GROUP_ARCHIVED` (GRP-32), e ver continua valendo.
   - _Por quê:_ posição não é avaliação de ninguém, e a lista fica mais útil ("quem levanta hoje?"). Quem monta os times é o dono.
   - _Alterada em 2026-11-11:_ antes só o dono via.
-- **TIM-04. O dono define as posições de quem está no grupo ou na lista do jogo atual:** membros, reservas e convidados que estão dentro ou na fila. Para outra pessoa, a resposta é `TEAM_PLAYER_NOT_FOUND` (404).
+- **TIM-04. O dono define as posições de quem está no grupo ou na lista de um dos próximos jogos** ([GRP-11](grupos.md)): membros, reservas e convidados que estão dentro ou na fila. _(Alterada em 2026-11-15: antes, só do jogo atual.)_ Para outra pessoa, a resposta é `TEAM_PLAYER_NOT_FOUND` (404).
   - A lista segue a ordem dos membros (GRP-06) e, depois, os convidados na ordem da lista do jogo. Com o grupo arquivado não há jogo (GRP-37), então ela tem só membros e reservas.
   - O que foi definido **fica guardado**, mesmo se a pessoa sair do grupo ou da lista. Se o convidado voltar outra semana, as posições dele já estão lá.
   - Estas são as posições **padrão** da pessoa. Mudar a posição só num jogo, sem mexer no padrão, é a TIM-13.
@@ -46,8 +46,8 @@ Hoje o módulo guarda as **posições de cada pessoa no grupo**, a **configuraç
 
 ### Times do jogo
 
-- **TIM-06. Cada jogo tem no máximo uma divisão de times, e só o jogo atual** (GRP-11). Outra data responde `GAME_NOT_FOUND`. Ela não existe até o dono salvar a primeira vez, e o dono pode descartá-la.
-  - _Por quê:_ o jogo atual é o único que existe hoje. O histórico dos times vem com as partidas (E4a).
+- **TIM-06. Cada jogo tem no máximo uma divisão de times, e só os próximos jogos têm times para montar** ([GRP-11](grupos.md)). Outro jogo responde `GAME_NOT_FOUND`. _(Alterada em 2026-11-15: antes, só o jogo atual, pela data.)_ Ela não existe até o dono salvar a primeira vez, e o dono pode descartá-la.
+  - _Por quê:_ só os próximos jogos aparecem na tela. Os times dos jogos passados ficam guardados para a competição.
 - **TIM-07. Só quem tem `teams.manage` monta, muda, publica e descarta os times.** Quem não tem recebe `GROUP_PERMISSION_DENIED` (403 com corpo); quem não participa do grupo, `GROUP_NOT_FOUND` (GRP-04). _(Alterada em 2026-11-13: antes, só o dono, com `GROUP_NOT_OWNER`.)_
 - **TIM-08. Como os times são montados:**
   - de 2 a 8 times, chamados "Time 1", "Time 2"... na ordem;
@@ -65,7 +65,7 @@ Hoje o módulo guarda as **posições de cada pessoa no grupo**, a **configuraç
 - **TIM-10. Aviso ao publicar:** na **primeira** publicação dos times do jogo, o aviso `teams_published` vai para todos da lista (dentro e fila), menos quem publicou. _(Alterada em 2026-11-13: antes, menos o dono do grupo.)_ Publicar de novo depois de voltar para rascunho, ou mudar os times publicados, não avisa outra vez.
   - O link do aviso é o grupo; para o convidado, o link do jogo (como o GRP-22).
   - _Por quê:_ todo mundo quer saber em que time está, mas cada troca pequena virando aviso seria barulho.
-- **TIM-11. Até quando dá para mexer:** enquanto o jogo é o atual e não está cancelado, até o fim dele (início + 3 h, GRP-12). Com o jogo cancelado, mudar responde `GAME_CANCELLED`, e os times não aparecem; reaberto (GRP-44), eles voltam como estavam. Com o grupo arquivado, mudar responde `GROUP_ARCHIVED` (GRP-32), e ver responde que não há times (arquivado não tem jogo, GRP-37).
+- **TIM-11. Até quando dá para mexer:** enquanto o jogo é um dos próximos e não está cancelado, até o fim dele (o fim do horário, GRP-12). Com o jogo cancelado, mudar responde `GAME_CANCELLED`, e os times não aparecem; reaberto (GRP-44), eles voltam como estavam. Com o grupo arquivado, mudar responde `GROUP_ARCHIVED` (GRP-32), e ver responde que não há times (arquivado não tem jogo, GRP-37).
   - _Por quê:_ durante o jogo o dono ainda troca gente entre os times (alguém chegou, alguém saiu).
 - **TIM-12. Quem saiu da lista continua no time, marcado.** Se alguém de um time desiste, é removido ou sai do grupo, o time mostra a pessoa com a marca "saiu da lista", para todos. O dono tira a pessoa quando quiser. Quem entrou na lista depois aparece para o dono como "sem time".
   - _Por quê:_ os times não mudam sozinhos pelas costas do dono; ele vê o que mudou e decide.
@@ -155,7 +155,7 @@ Hoje o módulo guarda as **posições de cada pessoa no grupo**, a **configuraç
   - Na aba Membros, cada pessoa fica num bloco separado (no desktop, em colunas com espaço entre elas), e as ações do dono sobre a pessoa (remover, convidar para membro) saem do meio da linha e vão para um menu "⋮" no fim dela.
   - Com o grupo arquivado, as posições aparecem, mas sem "+ Posição" e sem abrir o painel (GRP-37).
   - _Alterada em 2026-11-11:_ antes só o dono via, a função ficava ao lado do nome, e nada indicava que tocar abria o painel. _Alterada em 2026-11-12:_ o lápis em cada pessoa enchia a tela de botões; a dica de que dá para tocar passou para a própria linha e para o "⋮".
-- **TIM-14. Aba "Times" na página do grupo** (GRP-29), para todos. Na aba Jogo, fica só a linha que leva até aqui. Com o jogo cancelado, a aba mostra "Jogo cancelado, sem times":
+- **TIM-14. Aba "Times" na página do grupo** (GRP-29), para todos. Com mais de um próximo jogo, o topo da aba tem a escolha do jogo (o dia e a hora), começando pelo mais próximo. Na aba Jogo, fica só a linha que leva até aqui. Com o jogo cancelado, a aba mostra "Jogo cancelado, sem times":
   - **dono, sem times:** "Sortear" (TIM-15) e "Montar à mão", que cria o rascunho com a quantidade padrão de times (TIM-17), vazios, e todos de dentro em "sem time";
   - **dono, com times:** cada time com o número de pessoas (e "3 H · 3 M" com a preferência de gênero ligada, TIM-23) e, em cada pessoa, o nome e a posição principal no jogo (TIM-13). Uma marca "Rascunho" ou "Publicado", "sem time: N" quando houver, a marca "saiu da lista" (TIM-12), a marca "avulso" (TIM-24), um alfinete em quem está fixo (TIM-16) e, abaixo do time, o que está fora das regras (TIM-20);
   - **avulso:** "+ Avulso" (junto de "Times: − 2 +") abre o painel de baixo com nome, gênero (Homem, Mulher, Não informar) e posições, e o avulso entra em "sem time". Tocar num avulso abre o painel de mover com "Editar avulso" e "Remover avulso";
@@ -183,10 +183,10 @@ Hoje o módulo guarda as **posições de cada pessoa no grupo**, a **configuraç
 | Item                  | Chave                                | Para quê                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | --------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Jogador no grupo      | `PLAYER#<groupId>#<userId>` / `META` | `positions`, na ordem (a primeira é a principal, TIM-02). Entidade de relação com chave natural ([ADR 0009](../decisions/0009-entidade-de-relacao-chave-natural.md)), separada da participação para valer também para convidados (TIM-01)                                                                                                                                                                                                        |
-| Times do jogo         | `TEAMS#<groupId>#<data>` / `META`    | `status` (`draft`/`published`), `teams` (ids por time, na ordem), `positions` (só os ajustes do jogo, TIM-13), `pinned` (ids de quem está fixo, TIM-16), `publishedAt` (a 1ª publicação, TIM-10). `rules` e `apart` (a cópia das regras do último sorteio, TIM-19). `extras` (os avulsos do jogo: id, nome, gênero, posições, TIM-24). Chave natural pelo jogo (grupo + data, como o `LOOKUP#GAME`), sem depender de o jogo já ter item (GRP-10) |
+| Times do jogo         | `GAME#<gameId>` / `TEAMS`            | `status` (`draft`/`published`), `teams` (ids por time, na ordem), `positions` (só os ajustes do jogo, TIM-13), `pinned` (ids de quem está fixo, TIM-16), `publishedAt` (a 1ª publicação, TIM-10). `rules` e `apart` (a cópia das regras do último sorteio, TIM-19). `extras` (os avulsos do jogo: id, nome, gênero, posições, TIM-24). Chave natural pelo jogo (grupo + data, como o `LOOKUP#GAME`), sem depender de o jogo já ter item (GRP-10) |
 | Configuração de times | `GROUP#<groupId>` / `TEAM_SETTINGS`  | `teamCount`, `rules` (posição ou gênero, mínimo, máximo), `apart` (ids de cada regra de times opostos, TIM-22), `spreadGender` (TIM-23), `allowOutsideRules` (TIM-17). Sem item, vale o padrão (2 times, sem regras, não espalha, não permite)                                                                                                                                                                                                   |
 
-Não há lookup: quem aparece na lista já vem dos membros e do jogo atual (módulo de grupos), e as chaves se montam pelo par ou pela data.
+Não há lookup: quem aparece na lista já vem dos membros e dos próximos jogos (módulo de grupos), e as chaves se montam pelo par ou pelo id do jogo. Os times moram na partição do jogo (ADR 0014).
 
 ### Onde está cada regra
 
@@ -203,17 +203,17 @@ Não há lookup: quem aparece na lista já vem dos membros e do jogo atual (mód
 
 ### Rotas
 
-| Rota                                                         | Quem                  | Regras                                  |
-| ------------------------------------------------------------ | --------------------- | --------------------------------------- |
-| `GET /groups/{id}/players`                                   | membros e reservas    | TIM-01–04                               |
-| `PUT /groups/{id}/players/{userId}`                          | `teams.manage`        | TIM-02–04                               |
-| `GET /groups/{id}/games/{date}/teams`                        | membros e reservas    | TIM-06, 09, 12, 13                      |
-| `PUT /groups/{id}/games/{date}/teams`                        | `teams.manage`        | TIM-06–08, 11, 13, 16, 24               |
-| `POST /groups/{id}/games/{date}/teams/publish`, `/unpublish` | `teams.manage`        | TIM-08–11, 20                           |
-| `POST /groups/{id}/games/{date}/teams/draw`                  | `teams.manage`        | TIM-11, 15, 16, 19                      |
-| `GET /groups/{id}/team-settings`, `PUT`                      | `teams.manage`        | TIM-17, 18, 22, 23                      |
-| `DELETE /groups/{id}/games/{date}/teams`                     | `teams.manage`        | TIM-06, 11                              |
-| `GET /play/{token}/teams`                                    | logado (link do jogo) | TIM-09: só os times publicados (GRP-09) |
+| Rota                                                           | Quem                  | Regras                                  |
+| -------------------------------------------------------------- | --------------------- | --------------------------------------- |
+| `GET /groups/{id}/players`                                     | membros e reservas    | TIM-01–04                               |
+| `PUT /groups/{id}/players/{userId}`                            | `teams.manage`        | TIM-02–04                               |
+| `GET /groups/{id}/games/{gameId}/teams`                        | membros e reservas    | TIM-06, 09, 12, 13                      |
+| `PUT /groups/{id}/games/{gameId}/teams`                        | `teams.manage`        | TIM-06–08, 11, 13, 16, 24               |
+| `POST /groups/{id}/games/{gameId}/teams/publish`, `/unpublish` | `teams.manage`        | TIM-08–11, 20                           |
+| `POST /groups/{id}/games/{gameId}/teams/draw`                  | `teams.manage`        | TIM-11, 15, 16, 19                      |
+| `GET /groups/{id}/team-settings`, `PUT`                        | `teams.manage`        | TIM-17, 18, 22, 23                      |
+| `DELETE /groups/{id}/games/{gameId}/teams`                     | `teams.manage`        | TIM-06, 11                              |
+| `GET /play/{token}/games/{gameId}/teams`                       | logado (link do jogo) | TIM-09: só os times publicados (GRP-09) |
 
 O `GET /players` devolve todos os membros, reservas e convidados da lista atual, cada um com as suas posições. O `PUT /players` recebe `{ version, positions }` (a primeira é a principal) e devolve o jogador.
 
@@ -228,8 +228,8 @@ Erros: `VERSION_CONFLICT` (409, TIM-25), `TEAM_PLAYER_NOT_FOUND`, `TEAM_POSITION
 ## 4. Limites conhecidos
 
 - A lista de jogadores é carregada junto com a página. Um convidado que confirma depois só pode ser classificado quando a página recarrega (qualquer ação do dono recarrega).
-- O dono não tem uma lista dos convidados de semanas passadas: só classifica um convidado enquanto ele está na lista do jogo atual (TIM-04).
-- Os times de um jogo que terminou ficam guardados, mas ninguém vê (não há histórico, GRP-11). As partidas (E4a) vão usá-los.
+- O dono não tem uma lista dos convidados de semanas passadas: só classifica um convidado enquanto ele está na lista de um dos próximos jogos (TIM-04).
+- Os times de um jogo que terminou ficam guardados e só a competição os lê (não há histórico na tela, GRP-11).
 - As regras contam só a posição principal no jogo. Se o Fulano é ponteiro e às vezes levanta, ele só conta como levantador quando o dono muda a principal dele no jogo (TIM-13).
 - O avulso não tem histórico: na semana seguinte, o dono cadastra de novo (nome, gênero, posições).
 - A preferência de gênero não garante o melhor equilíbrio possível: o sorteio busca com um limite de passos, e na prática chega na diferença de no máximo 1 quando as regras deixam.
