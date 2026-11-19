@@ -32,6 +32,8 @@ import {
   type RoleId,
   type UpdateGroupInput,
   UpdateGroupInputSchema,
+  type UpdateGroupNameInput,
+  UpdateGroupNameInputSchema,
 } from '@scorely/contracts';
 
 /** Fuso do grupo quando nem o pedido nem o perfil do dono trazem um (D7 do 003). */
@@ -368,6 +370,15 @@ export function createGroupService(deps: GroupsDeps & SportsDep) {
       const updated = await deps.groups.update(groupId, changes, version);
       await plan?.afterUpdate(updated, userId);
       return viewFor(updated, tier, roleId);
+    },
+
+    /** GRP-71: quem tem `settings.edit` muda o nome, na versão da identidade (ADR 0013). */
+    async rename(userId: UserId, groupId: string, input: UpdateGroupNameInput): Promise<Group> {
+      const { group, tier, roleId } = await requirePermission(deps, userId, groupId, 'settings.edit');
+      requireActive(group);
+      const { version, name } = UpdateGroupNameInputSchema.parse(input);
+      const renamed = await deps.groups.rename(groupId, name, version);
+      return viewFor(renamed, tier, roleId);
     },
 
     /** Gera outro link do tipo: o anterior deixa de valer (D9 do 003, D5 do 007). */

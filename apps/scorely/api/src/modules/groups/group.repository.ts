@@ -244,6 +244,8 @@ export interface GroupRepository {
    * senão, `VERSION_CONFLICT` com a atual.
    */
   update(groupId: string, patch: GroupPatch, expectedSettingsVersion: number): Promise<StoredGroup>;
+  /** GRP-71: o nome novo no `META`, só na `version` da identidade esperada (ADR 0013, 0016). Devolve o grupo relido. */
+  rename(groupId: string, name: string, expectedVersion: number): Promise<StoredGroup>;
   /**
    * Tira a participação (com o convite pendente), baixa a contagem do papel, troca o link daquele papel e (se vier)
    * apaga a presença. Sem `newToken` é a saída (GRP-42): o link não muda.
@@ -801,6 +803,29 @@ export const dynamoGroupRepository: GroupRepository = {
     const updated = await this.get(groupId, { consistent: true });
     if (!updated) throw new Error('Group vanished after update');
     return updated;
+  },
+
+  async rename(groupId, name, expectedVersion) {
+    await sendVersioned(groupKey(groupId), () =>
+      dynamo().send(
+        new UpdateCommand(
+          withVersion(
+            touch({
+              TableName: tableName(),
+              Key: groupKey(groupId),
+              UpdateExpression: 'SET #name = :name',
+              ConditionExpression: 'attribute_exists(PK)',
+              ExpressionAttributeNames: { '#name': 'name' },
+              ExpressionAttributeValues: { ':name': name },
+            }),
+            expectedVersion,
+          ),
+        ),
+      ),
+    );
+    const renamed = await this.get(groupId, { consistent: true });
+    if (!renamed) throw new Error('Group vanished after renaming');
+    return renamed;
   },
 
   async removeMember({ group, userId, tier, newToken, players = [] }) {

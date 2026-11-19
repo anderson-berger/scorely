@@ -14,6 +14,7 @@ export const groupsFunctions: AWS['functions'] = {
   groupsUnarchive: { handler: handler('unarchive'), events: route('POST', '/groups/{id}/unarchive') },
   groupsGet: { handler: handler('get'), events: route('GET', '/groups/{id}') },
   groupsUpdate: { handler: handler('update'), events: route('PATCH', '/groups/{id}') },
+  groupsRename: { handler: handler('renameGroup'), events: route('PUT', '/groups/{id}/name') },
   groupsRotateInvite: { handler: handler('rotateInvite'), events: route('POST', '/groups/{id}/invite') },
   // Lugares (GRP-60–63)
   placesList: { handler: handler('listPlaces'), events: route('GET', '/groups/{id}/places') },
@@ -97,6 +98,11 @@ export const groupsFunctions: AWS['functions'] = {
   },
   gamesCancel: { handler: handler('cancel'), events: route('POST', '/groups/{id}/games/{gameId}/cancel') },
   gamesUpdate: { handler: handler('updateGame'), events: route('PATCH', '/groups/{id}/games/{gameId}') },
+  gamesCreateExtra: { handler: handler('createExtraGame'), events: route('POST', '/groups/{id}/games') },
+  gamesReschedule: {
+    handler: handler('rescheduleGame'),
+    events: route('POST', '/groups/{id}/games/{gameId}/reschedule'),
+  },
   gamesReopen: { handler: handler('reopen'), events: route('POST', '/groups/{id}/games/{gameId}/reopen') },
   playView: { handler: handler('playView'), events: route('GET', '/play/{token}') },
   playConfirm: {

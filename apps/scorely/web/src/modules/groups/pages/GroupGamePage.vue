@@ -5,6 +5,7 @@ import CompetitionGameLine from '@scorely/web/src/modules/competition/components
 import { gameCapacityPatch } from '@scorely/web/src/modules/groups/capacity';
 import CapacitySheet from '@scorely/web/src/modules/groups/components/CapacitySheet.vue';
 import GameCard from '@scorely/web/src/modules/groups/components/GameCard.vue';
+import GameWhenSheet from '@scorely/web/src/modules/groups/components/GameWhenSheet.vue';
 import { groupsApi } from '@scorely/web/src/modules/groups/groups.api';
 import {
   type GroupAccess,
@@ -23,7 +24,7 @@ import { defineComponent, type PropType } from 'vue';
 export default defineComponent({
   name: 'GroupGamePage',
 
-  components: { CapacitySheet, CompetitionGameLine, GameCard, TeamsLine },
+  components: { CapacitySheet, CompetitionGameLine, GameCard, GameWhenSheet, TeamsLine },
 
   inject: permissionLostInject,
 
@@ -54,7 +55,14 @@ export default defineComponent({
   },
 
   data() {
-    return { capacityOpen: false, savingCapacity: false, capacityGameId: undefined as string | undefined };
+    return {
+      capacityOpen: false,
+      savingCapacity: false,
+      capacityGameId: undefined as string | undefined,
+      /** GRP-68, 69: o painel do jogo extra (sem jogo) ou de remarcar (com o jogo). */
+      whenOpen: false,
+      whenGameId: undefined as string | undefined,
+    };
   },
 
   computed: {
@@ -62,12 +70,27 @@ export default defineComponent({
     capacityGame(): Game | undefined {
       return this.games.find((g) => g.id === this.capacityGameId);
     },
+
+    /** O jogo a remarcar (ausente = jogo extra novo). */
+    whenGame(): Game | undefined {
+      return this.games.find((g) => g.id === this.whenGameId);
+    },
+
+    /** GRP-68: marcar um jogo extra, com `game.manage` e o grupo ativo. */
+    canAddExtra(): boolean {
+      return this.access.game && !this.group.archivedAt;
+    },
   },
 
   methods: {
     /** GRP-45: quem tem `game.manage` muda as vagas do jogo enquanto dá para confirmar (antes do início, não cancelado). */
     canEditCapacity(game: Game): boolean {
       return this.access.game && (game.status === 'scheduled' || game.status === 'open');
+    },
+
+    openWhen(game?: Game) {
+      this.whenGameId = game?.id;
+      this.whenOpen = true;
     },
 
     openCapacity(game: Game) {
@@ -84,7 +107,7 @@ export default defineComponent({
       }
       this.savingCapacity = true;
       try {
-        await groupsApi.updateGame(this.group.id, game.id, patch);
+        await groupsApi.updateGame(this.group.id, game.id, { ...patch, version: game.version });
         this.capacityOpen = false;
         this.$q.notify({ type: 'positive', message: this.$t('groups.capacity.saved') });
         this.$emit('saved');
@@ -115,7 +138,9 @@ export default defineComponent({
       :sport-id="group.sportId"
       :can-edit-positions="canEditPositions"
       :can-edit-capacity="canEditCapacity(game)"
+      :can-reschedule="canEditCapacity(game)"
       @edit-capacity="openCapacity(game)"
+      @reschedule="openWhen(game)"
       @confirm="$emit('confirm', game.id)"
       @leave="$emit('leave', game.id)"
       @edit-player="$emit('editPlayer', $event)"
@@ -145,7 +170,26 @@ export default defineComponent({
     @save="onCapacity"
     @reset="saveCapacity({ slots: null, minPlayers: null })"
   />
+  <GameWhenSheet
+    v-model="whenOpen"
+    :group-id="group.id"
+    :time-zone="group.timeZone"
+    :slots="group.slots"
+    :min-players="group.minPlayers"
+    :game="whenGame"
+    @saved="$emit('saved')"
+  />
   <div v-if="games.length === 0" class="sc-card sc-caption no-game">{{ $t('groups.archivedGame') }}</div>
+  <q-btn
+    v-if="canAddExtra"
+    flat
+    no-caps
+    color="primary"
+    icon="add"
+    class="add-extra"
+    :label="$t('groups.when.addExtra')"
+    @click="openWhen()"
+  />
 
 </template>
 
@@ -154,6 +198,10 @@ export default defineComponent({
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.add-extra {
+  margin-top: 8px;
 }
 
 .no-game {

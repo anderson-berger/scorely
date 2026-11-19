@@ -1,13 +1,20 @@
+import { newEntity } from '@scorely/api/src/lib/entity';
 import { appError } from '@scorely/api/src/lib/errors';
+import { lazy } from '@scorely/api/src/lib/fn';
 import type { UserId } from '@scorely/api/src/lib/ids';
 import {
   gameIdOf,
   layerOpensAt,
+  localDate,
   nextOccurrence,
   type Occurrence,
+  occurrenceOnDate,
+  parseGameId,
   timeStatus,
   type WeeklySchedule,
+  zonedToUtc,
 } from '@scorely/api/src/lib/zoned';
+import { findOverlap, nextOccurrenceStart, type Span } from '@scorely/api/src/modules/groups/agenda';
 import type { GameRecord, PlayerRecord } from '@scorely/api/src/modules/groups/game.repository';
 import type { StoredGroup } from '@scorely/api/src/modules/groups/group.repository';
 import {
@@ -26,17 +33,24 @@ import {
   type RosterGame,
 } from '@scorely/api/src/modules/groups/roster';
 import type { StoredSchedule } from '@scorely/api/src/modules/groups/schedule.repository';
-import type {
-  Game,
-  GameStatus,
-  GuestGame,
-  MyAttendance,
-  MyGroup,
-  Tier,
-  UpdateGameInput,
+import type { GuestGame, MyAttendance, MyGroup, Tier, UpdateGameInput } from '@scorely/contracts';
+import {
+  type CreateGameInput,
+  CreateGameInputSchema,
+  type Game,
+  type GameStatus,
+  type RescheduleGameInput,
+  RescheduleGameInputSchema,
 } from '@scorely/contracts';
 
 const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+
+/** GRP-68, 69: até quantos dias à frente o jogo extra e o remarcado podem ir. */
+const MAX_DAYS_AHEAD = 30;
+
+/** Tentativas quando outra escrita da agenda passou na frente (GRP-70: relê e confere a sobreposição de novo). */
+const ATTEMPTS = 3;
 
 /** GRP-64: o jogo mais longo (6 h). Os próximos jogos que já são item começam, no máximo, 6 h antes de agora. */
 const MAX_GAME_MS = 6 * HOUR_MS;
@@ -48,7 +62,8 @@ const MAX_GAME_MS = 6 * HOUR_MS;
 interface GameSlot {
   id: string;
   group: StoredGroup;
-  scheduleId: string;
+  /** Ausente = jogo extra (GRP-68). */
+  scheduleId: string | undefined;
   schedule: StoredSchedule | undefined;
   occurrence: Occurrence;
   record: GameRecord | undefined;
@@ -118,6 +133,30 @@ function dayMonth(date: string): string {
   return `${day}/${month}`;
 }
 
+/** GRP-68, 69: o dia, o início e o fim digitados (no fuso do grupo) como instantes UTC. */
+function spanOf(group: StoredGroup, when: { date: string; start: string; end: string }) {
+  return {
+    date: when.date,
+    startsAt: zonedToUtc(when.date, when.start, group.timeZone).toISOString(),
+    endsAt: zonedToUtc(when.date, when.end, group.timeZone).toISOString(),
+  };
+}
+
+/** O dia de `date` mais `days` (datas locais `YYYY-MM-DD`). */
+function shiftDate(date: string, days: number): string {
+  return new Date(Date.parse(`${date}T00:00:00Z`) + days * DAY_MS).toISOString().slice(0, 10);
+}
+
+/** "15:00", no fuso do grupo (texto do aviso em pt-BR, NTF-03). */
+function hourMinute(instant: string, timeZone: string): string {
+  return new Intl.DateTimeFormat('pt-BR', {
+    timeZone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).format(new Date(instant));
+}
+
 /** Posição do usuário na lista (D4 do 003): antes de `slots` = dentro; o resto = fila. */
 function myAttendance(list: PlayerRecord[], slots: number, userId: UserId): MyAttendance | undefined {
   const index = list.findIndex((a) => a.userId === userId);
@@ -173,7 +212,7 @@ export function createGameService(deps: GroupsDeps) {
           id: record.id,
           group,
           scheduleId: record.scheduleId,
-          schedule: scheduleOf(record.scheduleId),
+          schedule: record.scheduleId === undefined ? undefined : scheduleOf(record.scheduleId),
           occurrence: occurrenceOfRecord(group, record),
           record,
           at,
@@ -205,14 +244,14 @@ export function createGameService(deps: GroupsDeps) {
    * GRP-10: materializa o jogo virtual, guardando o início, o fim e o lugar de agora. A chave é o id do jogo: perdeu a
    * corrida → relê o vencedor.
    */
-  async function ensureRecord(slot: GameSlot): Promise<GameRecord> {
-    if (slot.record) return slot.record;
+  async function createRecord(slot: GameSlot): Promise<{ record: GameRecord; won: boolean }> {
+    if (slot.record) return { record: slot.record, won: false };
     const at = slot.at.toISOString();
     const placeId = placeIdOf(slot);
     const created: GameRecord = {
       id: slot.id,
       groupId: slot.group.id,
-      scheduleId: slot.scheduleId,
+      ...(slot.scheduleId !== undefined && { scheduleId: slot.scheduleId }),
       date: slot.occurrence.date,
       startsAt: slot.occurrence.startsAt,
       endsAt: slot.occurrence.endsAt,
@@ -220,10 +259,81 @@ export function createGameService(deps: GroupsDeps) {
       createdAt: at,
       updatedAt: at,
     };
-    if (await deps.games.create(created)) return created;
+    if (await deps.games.create(created)) return { record: created, won: true };
     const winner = await deps.games.get(slot.id, { consistent: true });
     if (!winner) throw new Error('Game exists but could not be read');
-    return winner;
+    return { record: winner, won: false };
+  }
+
+  async function ensureRecord(slot: GameSlot): Promise<GameRecord> {
+    return (await createRecord(slot)).record;
+  }
+
+  /**
+   * ADR 0016: o item e a versão esperada para uma edição. O jogo virtual manda `0`: ele vira item agora, e quem perdeu a
+   * corrida da criação recebe `VERSION_CONFLICT`.
+   */
+  async function recordForWrite(
+    slot: GameSlot,
+    version: number,
+  ): Promise<{ record: GameRecord; expected: number }> {
+    if (slot.record) return { record: slot.record, expected: version };
+    if (version !== 0) throw appError('VERSION_CONFLICT', { currentVersion: 0 });
+    const { record, won } = await createRecord(slot);
+    if (!won) throw appError('VERSION_CONFLICT', { currentVersion: record.version ?? 0 });
+    // A versão que o banco deu ao item novo.
+    const fresh = (await deps.games.get(slot.id, { consistent: true })) ?? record;
+    return { record: fresh, expected: fresh.version ?? 0 };
+  }
+
+  /** GRP-70: os jogos do grupo (itens e calculados dos horários ativos) que batem com o intervalo. */
+  async function conflictOf(
+    group: StoredGroup,
+    candidate: Span & { gameId?: string; date: string },
+    schedules: StoredSchedule[],
+  ): Promise<string | undefined> {
+    const from = new Date(Date.parse(candidate.startsAt) - MAX_GAME_MS).toISOString();
+    const items = await deps.games.listByGroup(group.id, { startsFrom: from });
+    const calculated = await Promise.all(
+      schedules
+        .filter((s) => !s.archivedAt)
+        .flatMap((s) =>
+          [-1, 0, 1].map((d) => {
+            const date = shiftDate(candidate.date, d);
+            const occurrence = occurrenceOnDate(weekly(group, s), date);
+            return occurrence && { id: gameIdOf(s.id, date), occurrence };
+          }),
+        )
+        .filter((c) => c !== undefined)
+        // A ocorrência que já é item vale pelo item (o horário original de um jogo remarcado fica livre).
+        .map(async (c) => ((await deps.games.get(c.id)) ? undefined : { id: c.id, ...c.occurrence })),
+    );
+    const others = [...items, ...calculated.filter((c) => c !== undefined)];
+    return findOverlap(candidate, others);
+  }
+
+  /** Repete a escrita enquanto outra escrita da agenda passa na frente (`stale`). */
+  async function retry<T>(attempt: number, write: () => Promise<T | 'stale'>): Promise<T> {
+    const result = await write();
+    if (result !== 'stale') return result;
+    if (attempt >= ATTEMPTS) throw new Error('Game write kept conflicting with other writes');
+    return retry(attempt + 1, write);
+  }
+
+  /** GRP-68, 69: o início é depois de agora e no máximo 30 dias à frente. */
+  function checkRange(startsAt: string): void {
+    const start = Date.parse(startsAt);
+    const at = now().getTime();
+    if (start <= at || start > at + MAX_DAYS_AHEAD * DAY_MS) {
+      throw appError('GAME_START_OUT_OF_RANGE', { maxDays: MAX_DAYS_AHEAD });
+    }
+  }
+
+  /** GRP-68, 69: o lugar é um lugar ativo do grupo. */
+  async function checkPlace(groupId: string, placeId: string | undefined): Promise<void> {
+    if (placeId === undefined) return;
+    const place = await deps.places.get(groupId, placeId);
+    if (!place || place.archivedAt) throw appError('PLACE_NOT_FOUND');
   }
 
   async function listOf(record: GameRecord | undefined): Promise<PlayerRecord[]> {
@@ -268,7 +378,9 @@ export function createGameService(deps: GroupsDeps) {
     return {
       id: slot.id,
       groupId: group.id,
-      scheduleId: slot.scheduleId,
+      ...(slot.scheduleId !== undefined && { scheduleId: slot.scheduleId }),
+      version: record?.version ?? 0,
+      ...(record?.rescheduledAt !== undefined && { rescheduled: true as const }),
       date: occurrence.date,
       startsAt: occurrence.startsAt,
       endsAt: occurrence.endsAt,
@@ -579,6 +691,144 @@ export function createGameService(deps: GroupsDeps) {
     },
 
     /**
+     * GRP-68, 70: marca um jogo extra, fora dos horários. Não avisa ninguém. Ele nasce item, com um id próprio, e só
+     * é gravado se não bate com outro jogo do grupo (a revisão da agenda conferida na gravação).
+     */
+    async createExtra(userId: UserId, groupId: string, input: CreateGameInput): Promise<Game> {
+      const { group, tier } = await requirePermission(deps, userId, groupId, 'game.manage');
+      requireActive(group);
+      const data = CreateGameInputSchema.parse(input);
+      await checkPlace(group.id, data.placeId);
+      const slots = data.slots ?? group.slots;
+      const min = data.minPlayers ?? group.minPlayers;
+      if (min !== undefined && min > slots) throw appError('GROUP_MIN_PLAYERS_INVALID', { max: slots });
+      const span = spanOf(group, data);
+      checkRange(span.startsAt);
+      const placeId = data.placeId ?? group.defaultPlaceId;
+      const at = now();
+      const created = newEntity<GameRecord>(
+        {
+          groupId: group.id,
+          ...span,
+          // GRP-62, 66: sem o lugar dele, vale o padrão do grupo (o item guarda o lugar de quando nasceu, GRP-10).
+          ...(placeId !== undefined && { placeId }),
+          ...(data.slots !== undefined && { slots: data.slots }),
+          ...(data.minPlayers !== undefined && { minPlayers: data.minPlayers }),
+          updatedAt: at.toISOString(),
+        },
+        at,
+      );
+      await retry(1, async () => {
+        const { schedules, revision } = await deps.schedules.list(group.id);
+        const hit = await conflictOf(group, { ...span, gameId: created.id }, schedules);
+        if (hit) throw appError('GAME_OVERLAP', { gameId: hit });
+        return (await deps.games.createExtra(created, revision)) === 'created' ? true : 'stale';
+      });
+      const saved = (await deps.games.get(created.id, { consistent: true })) ?? created;
+      const slot: GameSlot = {
+        id: saved.id,
+        group,
+        scheduleId: undefined,
+        schedule: undefined,
+        occurrence: occurrenceOfRecord(group, saved),
+        record: saved,
+        at,
+      };
+      return view(userId, slot, tier);
+    },
+
+    /**
+     * GRP-69, 70: remarca um dos próximos jogos (o dia, a hora e o lugar; o horário não muda). Não passa do jogo
+     * seguinte do mesmo horário nem bate com outro jogo do grupo. Avisa a lista, menos quem remarcou.
+     */
+    async reschedule(
+      userId: UserId,
+      groupId: string,
+      gameId: string,
+      input: RescheduleGameInput,
+    ): Promise<Game> {
+      const { group, tier } = await requirePermission(deps, userId, groupId, 'game.manage');
+      requireActive(group);
+      const data = RescheduleGameInputSchema.parse(input);
+      const slot = await loadGame(group, gameId);
+      const status = statusOf(slot);
+      if (status === 'cancelled') throw appError('GAME_CANCELLED');
+      if (status === 'in_progress') throw appError('GAME_CLOSED');
+      await checkPlace(group.id, data.placeId);
+      const span = spanOf(group, data);
+      const currentPlace = placeIdOf(slot);
+      const unchanged =
+        span.startsAt === slot.occurrence.startsAt &&
+        span.endsAt === slot.occurrence.endsAt &&
+        (data.placeId === undefined || data.placeId === currentPlace);
+      if (unchanged) return view(userId, slot, tier);
+      checkRange(span.startsAt);
+      const original = parseGameId(slot.id);
+      if (slot.schedule && original) {
+        const nextStart = nextOccurrenceStart(slot.schedule, group.timeZone, original.date);
+        if (Date.parse(span.endsAt) > Date.parse(nextStart)) {
+          const nextDate = localDate(new Date(nextStart), group.timeZone);
+          throw appError('GAME_OVERLAP', { gameId: gameIdOf(slot.schedule.id, nextDate) });
+        }
+      }
+      // O jogo virtual só vira item depois de conferir a agenda (um erro não deixa item), e uma vez só.
+      const target = lazy(() => recordForWrite(slot, data.version));
+      const saved = await retry(1, async () => {
+        const { schedules, revision } = await deps.schedules.list(group.id);
+        const hit = await conflictOf(group, { ...span, gameId: slot.id }, schedules);
+        if (hit) throw appError('GAME_OVERLAP', { gameId: hit });
+        const { record, expected } = await target();
+        return deps.games.reschedule(
+          record.id,
+          { ...span, ...(data.placeId !== undefined && { placeId: data.placeId }) },
+          expected,
+          revision,
+        );
+      });
+      const list = await listOf(saved);
+      await Promise.all(
+        list
+          .filter((a) => a.userId !== userId)
+          .map(async (a) =>
+            deps.notifications.notify(a.userId, {
+              type: 'game_rescheduled',
+              title: `Jogo remarcado: ${group.name}`,
+              body: `Agora é ${dayMonth(span.date)} às ${hourMinute(span.startsAt, group.timeZone)}`,
+              link: await linkFor(group, a.userId),
+            }),
+          ),
+      );
+      return view(userId, { ...slot, occurrence: occurrenceOfRecord(group, saved), record: saved }, tier);
+    },
+
+    /**
+     * GRP-70: o 1º jogo que já é item (e ainda não acabou, de outro horário) com que as ocorrências de um horário nos
+     * próximos 30 dias batem. Os jogos do próprio horário que já são item ficam como estão (GRP-67).
+     */
+    async scheduleConflict(
+      group: StoredGroup,
+      candidate: { weekday: number; start: string; end: string },
+      exceptScheduleId?: string,
+    ): Promise<string | undefined> {
+      const at = now();
+      const items = (
+        await deps.games.listByGroup(group.id, {
+          startsFrom: new Date(at.getTime() - MAX_GAME_MS).toISOString(),
+        })
+      ).filter((r) => r.scheduleId === undefined || r.scheduleId !== exceptScheduleId);
+      const weeklyCandidate: WeeklySchedule = {
+        ...candidate,
+        timeZone: group.timeZone,
+        listOpensHoursBefore: 0,
+      };
+      const today = localDate(at, group.timeZone);
+      const spans = Array.from({ length: MAX_DAYS_AHEAD + 2 }, (_, i) =>
+        occurrenceOnDate(weeklyCandidate, shiftDate(today, i - 1)),
+      ).filter((o): o is Occurrence => o !== undefined && Date.parse(o.endsAt) > at.getTime());
+      return spans.map((o) => findOverlap(o, items)).find((id) => id !== undefined);
+    },
+
+    /**
      * GRP-45, 46: vagas e mínimo só de um jogo (`null` = volta ao padrão). Não desce abaixo de quem está dentro; mais
      * vagas promovem a fila (GRP-22); chegar ao mínimo avisa (GRP-47).
      */
@@ -597,11 +847,15 @@ export function createGameService(deps: GroupsDeps) {
       const inside = Math.min(list.length, current);
       if (slots < inside) throw appError('GAME_SLOTS_BELOW_CONFIRMED', { confirmed: inside });
       if (min !== undefined && min > slots) throw appError('GROUP_MIN_PLAYERS_INVALID', { max: slots });
-      const created = await ensureRecord(slot);
-      const record = await deps.games.updateSettings(created.id, {
-        ...(patch.slots !== undefined && { slots: patch.slots }),
-        ...(patch.minPlayers !== undefined && { minPlayers: patch.minPlayers }),
-      });
+      const target = await recordForWrite(slot, patch.version);
+      const record = await deps.games.updateSettings(
+        target.record.id,
+        {
+          ...(patch.slots !== undefined && { slots: patch.slots }),
+          ...(patch.minPlayers !== undefined && { minPlayers: patch.minPlayers }),
+        },
+        target.expected,
+      );
       await notifyMoreSlots(group, list, current, slots);
       await checkMinReached(slot, record, userId);
       return view(userId, { ...slot, record }, tier);

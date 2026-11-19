@@ -1,4 +1,5 @@
 import {
+  type CreateGameInput,
   type CreateGroupInput,
   GameSchema,
   type GrantableRoleId,
@@ -14,10 +15,12 @@ import {
   MyGroupSchema,
   type PlaceInput,
   PlaceSchema,
+  type RescheduleGameInput,
   type ScheduleInput,
   ScheduleSchema,
   type UpdateGameInput,
   type UpdateGroupInput,
+  type UpdateGroupNameInput,
   type UpdatePlaceInput,
   type UpdateScheduleInput,
   type VersionInput,
@@ -66,6 +69,15 @@ export const groupsApi = {
   /** Vagas e mínimo só do jogo atual (GRP-45, 46); `null` = volta ao padrão do grupo. */
   updateGame: (id: string, gameId: string, patch: UpdateGameInput) =>
     request({ url: `/groups/${id}/games/${gameId}`, method: 'PATCH', data: patch }, GameSchema),
+  /** GRP-68: marca um jogo extra. */
+  createExtraGame: (id: string, input: CreateGameInput) =>
+    request({ url: `/groups/${id}/games`, method: 'POST', data: input }, GameSchema),
+  /** GRP-69: remarca um jogo (o dia, a hora e o lugar). */
+  rescheduleGame: (id: string, gameId: string, input: RescheduleGameInput) =>
+    request({ url: `/groups/${id}/games/${gameId}/reschedule`, method: 'POST', data: input }, GameSchema),
+  /** GRP-71: o nome do grupo. */
+  rename: (id: string, input: UpdateGroupNameInput) =>
+    request({ url: `/groups/${id}/name`, method: 'PUT', data: input }, GroupSchema),
   rotateInvite: (id: string, kind: InviteKind) =>
     request({ url: `/groups/${id}/invite`, method: 'POST', data: { kind } }, InviteSchema),
   acceptInvite: (token: string) =>

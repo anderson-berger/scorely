@@ -206,6 +206,7 @@ const GAME: RosterGame = {
   id: `${SCHEDULE_ID}_2026-11-13`,
   groupId: GROUP_ID,
   scheduleId: SCHEDULE_ID,
+  version: 0,
   date: '2026-11-13',
   startsAt: '2026-11-13T22:00:00.000Z',
   endsAt: '2026-11-14T01:00:00.000Z',
@@ -276,6 +277,7 @@ function setup(opts: { group?: Partial<StoredGroup> } = {}) {
     archive: unused,
     unarchive: unused,
     update: unused,
+    rename: unused,
     removeMember: unused,
   };
 

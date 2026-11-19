@@ -7,6 +7,7 @@ export const NotificationTypeSchema = z.enum([
   'waitlist_promoted',
   'game_cancelled',
   'game_reopened',
+  'game_rescheduled',
   'member_invite',
   'teams_published',
   'game_confirmed',

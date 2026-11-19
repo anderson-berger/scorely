@@ -289,6 +289,7 @@ function setup(
     archive: unused,
     unarchive: unused,
     update: unused,
+    rename: unused,
     removeMember: unused,
   };
 
@@ -314,6 +315,8 @@ function setup(
     cancel: unused,
     reopen: unused,
     updateSettings: unused,
+    createExtra: unused,
+    reschedule: unused,
     markMinReached: unused,
     getPlayer: unused,
     addPlayer: unused,

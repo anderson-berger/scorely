@@ -18,16 +18,19 @@ import { sportService } from '@scorely/api/src/modules/sports/sport.service';
 import { dynamoUserDirectory } from '@scorely/api/src/modules/users/user.repository';
 import {
   AttachMediaInputSchema,
+  CreateGameInputSchema,
   CreateGroupInputSchema,
   GroupImageSlotSchema,
   MediaUploadInputSchema,
   PlaceInputSchema,
+  RescheduleGameInputSchema,
   RotateInviteInputSchema,
   ScheduleInputSchema,
   SetRoleInputSchema,
   TransferGroupInputSchema,
   UpdateGameInputSchema,
   UpdateGroupInputSchema,
+  UpdateGroupNameInputSchema,
   UpdatePlaceInputSchema,
   UpdateScheduleInputSchema,
   VersionInputSchema,
@@ -246,6 +249,34 @@ export async function updateGame(event: HttpEvent) {
     const patch = parseBody(event, UpdateGameInputSchema);
     return games.updateGame(auth.userId, pathParam(event, 'id'), pathParam(event, 'gameId'), patch);
   });
+}
+
+/** GRP-68: marca um jogo extra (`game.manage`). */
+export async function createExtraGame(event: HttpEvent) {
+  return authRoute(event, async (auth) =>
+    created(
+      await games.createExtra(auth.userId, pathParam(event, 'id'), parseBody(event, CreateGameInputSchema)),
+    ),
+  );
+}
+
+/** GRP-69: remarca um jogo, com a versão (`game.manage`). */
+export async function rescheduleGame(event: HttpEvent) {
+  return authRoute(event, async (auth) =>
+    games.reschedule(
+      auth.userId,
+      pathParam(event, 'id'),
+      pathParam(event, 'gameId'),
+      parseBody(event, RescheduleGameInputSchema),
+    ),
+  );
+}
+
+/** GRP-71: muda o nome do grupo, com a versão da identidade (`settings.edit`). */
+export async function renameGroup(event: HttpEvent) {
+  return authRoute(event, async (auth) =>
+    groups.rename(auth.userId, pathParam(event, 'id'), parseBody(event, UpdateGroupNameInputSchema)),
+  );
 }
 
 export async function playView(event: HttpEvent) {

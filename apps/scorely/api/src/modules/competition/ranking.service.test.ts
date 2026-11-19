@@ -294,6 +294,7 @@ function setup(
     archive: unused,
     unarchive: unused,
     update: unused,
+    rename: unused,
     removeMember: unused,
   };
 

@@ -279,6 +279,7 @@ function setup(opts: { competition?: Partial<StoredCompetition>; results?: Store
     archive: unused,
     unarchive: unused,
     update: unused,
+    rename: unused,
     removeMember: unused,
   };
 
@@ -304,6 +305,8 @@ function setup(opts: { competition?: Partial<StoredCompetition>; results?: Store
     cancel: unused,
     reopen: unused,
     updateSettings: unused,
+    createExtra: unused,
+    reschedule: unused,
     markMinReached: unused,
     getPlayer: unused,
     addPlayer: unused,

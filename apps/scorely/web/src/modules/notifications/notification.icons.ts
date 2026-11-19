@@ -6,6 +6,7 @@ export const notificationIcon: Record<NotificationType, string> = {
   waitlist_promoted: 'arrow_upward',
   game_cancelled: 'event_busy',
   game_reopened: 'event_available',
+  game_rescheduled: 'update',
   member_invite: 'how_to_reg',
   teams_published: 'groups',
   game_confirmed: 'check_circle',

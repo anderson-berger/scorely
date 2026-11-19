@@ -60,7 +60,12 @@ const OPTIONAL = ['placeId', 'slots', 'minPlayers'] as const;
  * A revisão dos horários no COUNTERS (GRP-65): confere a lida e soma 1; com `delta`, mexe também na contagem dos
  * ativos (com o limite, ao somar; com "fica pelo menos 1", ao tirar).
  */
-function revisionItem(groupId: string, revision: number, delta: -1 | 0 | 1, max?: number): TransactItem {
+export function revisionItem(
+  groupId: string,
+  revision: number,
+  delta: -1 | 0 | 1,
+  max?: number,
+): TransactItem {
   const conditions = [
     revision === 0
       ? '(attribute_not_exists(scheduleRevision) OR scheduleRevision = :rev)'

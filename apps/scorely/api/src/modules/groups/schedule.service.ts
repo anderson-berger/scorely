@@ -69,13 +69,16 @@ export function createScheduleService(deps: GroupsDeps) {
 
   /** GRP-65: os ativos (menos `except`) com que o horário bate, e a revisão da leitura. */
   async function checkOverlap(
-    groupId: string,
+    group: StoredGroup,
     candidate: Pick<Schedule, 'weekday' | 'start' | 'end'>,
     except?: string,
   ): Promise<number> {
-    const { schedules, revision } = await deps.schedules.list(groupId);
+    const { schedules, revision } = await deps.schedules.list(group.id);
     const hit = schedules.find((s) => !s.archivedAt && s.id !== except && overlaps(s, candidate));
     if (hit) throw appError('SCHEDULE_OVERLAP', { scheduleId: hit.id });
+    // GRP-70: também não bate com um jogo extra ou remarcado (os jogos do próprio horário ficam como estão).
+    const game = await games.scheduleConflict(group, candidate, except);
+    if (game) throw appError('GAME_OVERLAP', { gameId: game });
     return revision;
   }
 
@@ -102,7 +105,7 @@ export function createScheduleService(deps: GroupsDeps) {
 
     /** GRP-64, 65: cria, sem sobrepor e até o limite do plano. */
     async create(userId: UserId, groupId: string, input: ScheduleInput): Promise<Schedule> {
-      await manager(userId, groupId);
+      const group = await manager(userId, groupId);
       const data = ScheduleInputSchema.parse(input);
       await checkPlace(groupId, data.placeId);
       const at = now();
@@ -111,7 +114,7 @@ export function createScheduleService(deps: GroupsDeps) {
         at,
       );
       await retry(1, async () => {
-        const revision = await checkOverlap(groupId, data);
+        const revision = await checkOverlap(group, data);
         return (await deps.schedules.create(schedule, revision, max)) === 'created' ? true : 'stale';
       });
       return publicSchedule({ ...schedule, version: 1 });
@@ -135,7 +138,7 @@ export function createScheduleService(deps: GroupsDeps) {
       const saved = await retry(1, async () => {
         const revision = current.archivedAt
           ? (await deps.schedules.list(groupId)).revision
-          : await checkOverlap(groupId, data, scheduleId);
+          : await checkOverlap(group, data, scheduleId);
         return deps.schedules.update(groupId, scheduleId, data, version, revision);
       });
       if (plan) {
@@ -168,11 +171,11 @@ export function createScheduleService(deps: GroupsDeps) {
       scheduleId: string,
       { version }: VersionInput,
     ): Promise<Schedule> {
-      await manager(userId, groupId);
+      const group = await manager(userId, groupId);
       const current = await mustGet(groupId, scheduleId);
       if (!current.archivedAt) return publicSchedule(current);
       const saved = await retry(1, async () => {
-        const revision = await checkOverlap(groupId, current, scheduleId);
+        const revision = await checkOverlap(group, current, scheduleId);
         return deps.schedules.unarchive(groupId, scheduleId, version, revision, max);
       });
       return publicSchedule(saved);

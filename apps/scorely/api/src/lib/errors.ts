@@ -53,6 +53,8 @@ const CATALOG = {
   SCHEDULE_OVERLAP: { status: 409, message: 'The schedule overlaps another one of the group' },
   SCHEDULE_LIMIT_REACHED: { status: 409, message: 'The group reached the limit of active schedules' },
   SCHEDULE_LAST: { status: 409, message: 'The last active schedule cannot be archived' },
+  GAME_OVERLAP: { status: 409, message: 'Another game of the group happens at this time' },
+  GAME_START_OUT_OF_RANGE: { status: 422, message: 'The game is too far ahead' },
   GAME_SLOTS_BELOW_CONFIRMED: {
     status: 409,
     message: 'The slots cannot be fewer than the people already in',

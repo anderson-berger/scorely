@@ -149,6 +149,7 @@ function setup(opts: { group?: Partial<StoredGroup>; competition?: Partial<Store
     archive: unused,
     unarchive: unused,
     update: unused,
+    rename: unused,
     removeMember: unused,
   };
 

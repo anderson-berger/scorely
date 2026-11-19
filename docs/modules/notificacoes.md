@@ -1,6 +1,6 @@
 # Módulo Notificações
 
-> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-14.
+> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-19.
 
 Código: `apps/scorely/api/src/modules/notifications/`, `apps/scorely/web/src/modules/notifications/`. Contrato: `apps/scorely/contracts/src/notifications.ts`.
 
@@ -11,7 +11,7 @@ Avisar a pessoa, dentro do app, do que aconteceu sem ela estar olhando: entrou n
 ## 2. Regras de negócio
 
 - **NTF-01. Os outros módulos avisam por `notify(userId, { type, title, body?, link? })`.** Nenhum outro módulo grava notificação direto no banco.
-- **NTF-02. Tipos que existem hoje:** _(Alterada em 2026-11-14: entraram os 3 da competição.)_
+- **NTF-02. Tipos que existem hoje:** _(Alterada em 2026-11-14: entraram os 3 da competição. Alterada em 2026-11-19: entrou o `game_rescheduled`.)_
 
   | Tipo                 | Quem dispara                                                            | Link           |
   | -------------------- | ----------------------------------------------------------------------- | -------------- |
@@ -19,6 +19,7 @@ Avisar a pessoa, dentro do app, do que aconteceu sem ela estar olhando: entrou n
   | `waitlist_promoted`  | saiu alguém de dentro e a pessoa subiu da fila (GRP-22)                 | grupo ou jogo  |
   | `game_cancelled`     | quem tem `game.manage` cancelou o jogo (GRP-24)                         | grupo          |
   | `game_reopened`      | quem tem `game.manage` reabriu o jogo (GRP-44)                          | grupo          |
+  | `game_rescheduled`   | quem tem `game.manage` remarcou o jogo (GRP-69)                         | grupo ou jogo  |
   | `member_invite`      | a reserva foi convidada para virar membro (GRP-40)                      | grupo          |
   | `teams_published`    | os times do jogo foram publicados pela 1ª vez (TIM-10)                  | grupo ou jogo  |
   | `game_confirmed`     | o jogo chegou ao mínimo pela 1ª vez (GRP-47)                            | grupo ou jogo  |

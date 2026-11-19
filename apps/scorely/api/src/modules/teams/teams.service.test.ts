@@ -211,6 +211,7 @@ function gameOf(
     id: gameIdAt(date),
     groupId: GROUP_ID,
     scheduleId: SCHEDULE_ID,
+    version: 0,
     date,
     startsAt: '2026-11-06T22:00:00.000Z',
     endsAt: '2026-11-07T01:00:00.000Z',
@@ -309,6 +310,7 @@ function setup(opts: { group?: Partial<StoredGroup>; game?: RosterGame; random?:
     archive: unused,
     unarchive: unused,
     update: unused,
+    rename: unused,
     removeMember: unused,
   };
 

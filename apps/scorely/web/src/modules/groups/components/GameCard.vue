@@ -45,6 +45,8 @@ export default defineComponent({
     canEditPositions: { type: Boolean, default: false },
     /** GRP-45, 46: o dono muda as vagas e o mínimo só deste jogo. */
     canEditCapacity: { type: Boolean, default: false },
+    /** GRP-69: o dono remarca o jogo (as mesmas condições de mudar as vagas). */
+    canReschedule: { type: Boolean, default: false },
   },
 
   emits: {
@@ -52,6 +54,7 @@ export default defineComponent({
     leave: () => true,
     editPlayer: (_userId: string) => true,
     editCapacity: () => true,
+    reschedule: () => true,
   },
 
   data() {
@@ -218,6 +221,8 @@ export default defineComponent({
             {{ minimumLine }}
           </div>
           <div v-if="customCapacity" class="sc-label custom">{{ $t('groups.capacity.custom') }}</div>
+          <div v-if="game.scheduleId === undefined" class="sc-label custom">{{ $t('groups.when.extraMark') }}</div>
+          <div v-if="game.rescheduled" class="sc-label custom">{{ $t('groups.when.rescheduledMark') }}</div>
           <q-btn
             v-if="canEditCapacity"
             flat
@@ -228,6 +233,17 @@ export default defineComponent({
             class="capacity"
             :label="$t('groups.capacity.editGame')"
             @click="$emit('editCapacity')"
+          />
+          <q-btn
+            v-if="canReschedule"
+            flat
+            dense
+            no-caps
+            color="primary"
+            icon="update"
+            class="capacity"
+            :label="$t('groups.when.reschedule')"
+            @click="$emit('reschedule')"
           />
         </div>
 

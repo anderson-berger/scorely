@@ -8,6 +8,7 @@ import CapacityCard from '@scorely/web/src/modules/groups/components/CapacityCar
 import GroupImagesCard from '@scorely/web/src/modules/groups/components/GroupImagesCard.vue';
 import LayersCard from '@scorely/web/src/modules/groups/components/LayersCard.vue';
 import LimitsCard from '@scorely/web/src/modules/groups/components/LimitsCard.vue';
+import NameCard from '@scorely/web/src/modules/groups/components/NameCard.vue';
 import PlacesCard from '@scorely/web/src/modules/groups/components/PlacesCard.vue';
 import SchedulesCard from '@scorely/web/src/modules/groups/components/SchedulesCard.vue';
 import { type GroupAccess, NO_ACCESS } from '@scorely/web/src/modules/groups/permissions';
@@ -30,6 +31,7 @@ export default defineComponent({
     GroupImagesCard,
     LayersCard,
     LimitsCard,
+    NameCard,
     PlacesCard,
     SchedulesCard,
     TeamSettingsRows,
@@ -118,6 +120,7 @@ export default defineComponent({
       />
       <SeasonSettingsRow v-if="showsSeasons" :group="group" />
       <GroupImagesCard v-if="access.settings" :group="group" @saved="$emit('saved')" />
+      <NameCard v-if="access.settings" :group="group" @saved="$emit('saved')" />
       <PlacesCard v-if="access.settings" :group="group" @saved="$emit('saved')" />
     </div>
 

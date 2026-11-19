@@ -59,6 +59,9 @@ export const ErrorCodeSchema = z.enum([
   'SCHEDULE_LIMIT_REACHED',
   'SCHEDULE_LAST',
   'GAME_SLOTS_BELOW_CONFIRMED',
+  // jogo extra e remarcar (GRP-68–70)
+  'GAME_OVERLAP',
+  'GAME_START_OUT_OF_RANGE',
   // games
   'GAME_NOT_FOUND',
   'GAME_LIST_NOT_OPEN',
@@ -147,6 +150,10 @@ export const ErrorDetailsSchemas = {
   PLACE_LIMIT_REACHED: z.object({ max: z.number().int().positive() }),
   /** GRP-65: o horário ativo com que o novo bate. */
   SCHEDULE_OVERLAP: z.object({ scheduleId: z.uuid() }),
+  /** GRP-70: o jogo do grupo com que o novo bate. */
+  GAME_OVERLAP: z.object({ gameId: z.string().min(1) }),
+  /** GRP-68, 69: quantos dias à frente o jogo extra e o remarcado podem ir. */
+  GAME_START_OUT_OF_RANGE: z.object({ maxDays: z.number().int().positive() }),
   /** GRP-64: quantos horários ativos o plano do grupo permite. */
   SCHEDULE_LIMIT_REACHED: z.object({ max: z.number().int().positive() }),
 } satisfies Partial<Record<ErrorCode, z.ZodType>>;

@@ -64,7 +64,9 @@ export function createGameAccess(deps: {
       // GRP-66: o horário vale mesmo arquivado: o jogo passado continua com as vagas dele.
       const schedule =
         group.schedules.find((s) => s.id === record.scheduleId) ??
-        (await deps.groupSchedules?.get(group.id, record.scheduleId));
+        (record.scheduleId === undefined
+          ? undefined
+          : await deps.groupSchedules?.get(group.id, record.scheduleId));
       const slots = record.slots ?? schedule?.slots ?? group.slots;
       const players = await deps.games.listPlayers(record.id);
       return players.map((a, i) => ({ id: a.userId, inside: i < slots }));

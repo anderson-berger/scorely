@@ -1,13 +1,17 @@
 import { GetCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import {
   batchGetOrdered,
+  currentVersion,
   dbItem,
   isConditionFailed,
   LOOKUP_ENTITY,
   queryLookupRows,
+  sendVersioned,
   stripKeys,
   touch,
   transactWrite,
+  versionConflict,
+  withVersion,
 } from '@scorely/api/src/lib/db';
 import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
 import type { UserId } from '@scorely/api/src/lib/ids';
@@ -22,6 +26,7 @@ import {
   playerKey,
 } from '@scorely/api/src/modules/groups/game.table';
 import { groupKey } from '@scorely/api/src/modules/groups/group.table';
+import { revisionItem } from '@scorely/api/src/modules/groups/schedule.repository';
 
 /**
  * Jogo que virou item (GRP-10): só existe depois da 1ª escrita. O `id` é `<scheduleId>_<data>`. Guarda o início, o
@@ -30,7 +35,8 @@ import { groupKey } from '@scorely/api/src/modules/groups/group.table';
 export interface GameRecord {
   id: string;
   groupId: string;
-  scheduleId: string;
+  /** Ausente = jogo extra (GRP-68). */
+  scheduleId?: string;
   date: string;
   startsAt: string;
   endsAt: string;
@@ -42,6 +48,8 @@ export interface GameRecord {
   minPlayers?: number;
   /** Quando o jogo chegou ao mínimo pela 1ª vez (GRP-47): o aviso sai uma vez só. */
   minReachedAt?: string;
+  /** GRP-69: quando o jogo foi remarcado pela última vez. */
+  rescheduledAt?: string;
   createdAt: string;
   updatedAt?: string;
   version?: number;
@@ -51,6 +59,14 @@ export interface GameRecord {
 export interface GameSettingsPatch {
   slots?: number | null;
   minPlayers?: number | null;
+}
+
+/** GRP-69: o dia, o início, o fim e o lugar novos de um jogo remarcado (sem o lugar, fica o que era). */
+export interface GameMove {
+  date: string;
+  startsAt: string;
+  endsAt: string;
+  placeId?: string;
 }
 
 /** Quem confirmou no jogo (GRP-18–20), na partição do jogo. */
@@ -77,8 +93,23 @@ export interface GameRepository {
   cancel(gameId: string, cancelledAt: string): Promise<void>;
   /** Tira o `cancelledAt` numa transação que também confere o grupo não arquivado (GRP-44). Nada é gravado em falha. */
   reopen(gameId: string, groupId: string): Promise<ReopenResult>;
-  /** GRP-45, 46: grava ou remove as vagas e o mínimo do jogo; devolve o item novo. */
-  updateSettings(gameId: string, patch: GameSettingsPatch): Promise<GameRecord>;
+  /** GRP-45, 46: grava ou remove as vagas e o mínimo do jogo, na versão esperada (ADR 0016); devolve o item novo. */
+  updateSettings(gameId: string, patch: GameSettingsPatch, expectedVersion: number): Promise<GameRecord>;
+  /**
+   * GRP-68, 70: o jogo extra, o lookup do grupo e a revisão da agenda lida, numa transação. `stale` = outra escrita
+   * da agenda passou na frente (relê e confere de novo).
+   */
+  createExtra(game: GameRecord, revision: number): Promise<'created' | 'stale'>;
+  /**
+   * GRP-69, 70: muda o dia, a hora e o lugar na versão esperada e na revisão lida; troca o lookup do grupo na mesma
+   * transação. `stale` = a revisão mudou.
+   */
+  reschedule(
+    gameId: string,
+    to: GameMove,
+    expectedVersion: number,
+    revision: number,
+  ): Promise<GameRecord | 'stale'>;
   /** GRP-47: grava `minReachedAt` só se ainda não existe. `true` = esta chamada gravou (é quem avisa). */
   markMinReached(gameId: string, at: string): Promise<boolean>;
   /** A lista inteira, na ordem de chegada: `confirmedAt` e, no empate, `userId` (GRP-18, 19). */
@@ -192,7 +223,7 @@ export const dynamoGameRepository: GameRepository = {
     );
   },
 
-  async updateSettings(gameId, patch) {
+  async updateSettings(gameId, patch, expectedVersion) {
     const entries = Object.entries(patch).filter(([, v]) => v !== undefined);
     const set = entries.filter(([, v]) => v !== null);
     const remove = entries.filter(([, v]) => v === null);
@@ -200,22 +231,117 @@ export const dynamoGameRepository: GameRepository = {
       ...(set.length > 0 ? [`SET ${set.map(([k]) => `#${k} = :${k}`).join(', ')}`] : []),
       ...(remove.length > 0 ? [`REMOVE ${remove.map(([k]) => `#${k}`).join(', ')}`] : []),
     ];
-    const { Attributes } = await dynamo().send(
-      new UpdateCommand(
-        touch({
-          TableName: tableName(),
-          Key: gameKey(gameId),
-          UpdateExpression: clauses.join(' '),
-          ConditionExpression: 'attribute_exists(PK)',
-          ExpressionAttributeNames: Object.fromEntries(entries.map(([k]) => [`#${k}`, k])),
-          ...(set.length > 0 && {
-            ExpressionAttributeValues: Object.fromEntries(set.map(([k, v]) => [`:${k}`, v])),
-          }),
-          ReturnValues: 'ALL_NEW',
-        }),
+    const { Attributes } = await sendVersioned(gameKey(gameId), () =>
+      dynamo().send(
+        new UpdateCommand(
+          withVersion(
+            touch({
+              TableName: tableName(),
+              Key: gameKey(gameId),
+              UpdateExpression: clauses.join(' '),
+              ConditionExpression: 'attribute_exists(PK)',
+              ExpressionAttributeNames: Object.fromEntries(entries.map(([k]) => [`#${k}`, k])),
+              ...(set.length > 0 && {
+                ExpressionAttributeValues: Object.fromEntries(set.map(([k, v]) => [`:${k}`, v])),
+              }),
+              ReturnValues: 'ALL_NEW',
+            }),
+            expectedVersion,
+          ),
+        ),
       ),
     );
     return stripKeys<GameRecord>(Attributes ?? {});
+  },
+
+  async createExtra(game, revision) {
+    const result = await transactWrite([
+      {
+        Put: {
+          TableName: tableName(),
+          Item: dbItem(gameKey(game.id), GAME_ENTITY, game),
+          ConditionExpression: 'attribute_not_exists(PK)',
+        },
+      },
+      {
+        Put: {
+          TableName: tableName(),
+          Item: dbItem(
+            groupGameLookupKey(game.groupId, game.startsAt, game.id),
+            LOOKUP_ENTITY,
+            { id: game.id },
+            game.createdAt,
+          ),
+        },
+      },
+      revisionItem(game.groupId, revision, 0),
+    ]);
+    return result.ok ? 'created' : 'stale';
+  },
+
+  async reschedule(gameId, to, expectedVersion, revision) {
+    const before = await getItem<GameRecord>(gameKey(gameId), true);
+    if (!before) throw await versionConflict(async () => 0);
+    const names = { '#date': 'date', '#startsAt': 'startsAt', '#endsAt': 'endsAt', '#placeId': 'placeId' };
+    const moved = to.startsAt !== before.startsAt;
+    const result = await transactWrite([
+      {
+        Update: withVersion(
+          touch({
+            TableName: tableName(),
+            Key: gameKey(gameId),
+            UpdateExpression: `SET #date = :date, #startsAt = :startsAt, #endsAt = :endsAt, rescheduledAt = :at${
+              to.placeId === undefined ? '' : ', #placeId = :placeId'
+            }`,
+            ConditionExpression: 'attribute_exists(PK)',
+            ExpressionAttributeNames: {
+              '#date': names['#date'],
+              '#startsAt': names['#startsAt'],
+              '#endsAt': names['#endsAt'],
+              ...(to.placeId !== undefined && { '#placeId': names['#placeId'] }),
+            },
+            ExpressionAttributeValues: {
+              ':date': to.date,
+              ':startsAt': to.startsAt,
+              ':endsAt': to.endsAt,
+              ':at': new Date().toISOString(),
+              ...(to.placeId !== undefined && { ':placeId': to.placeId }),
+            },
+          }),
+          expectedVersion,
+        ),
+      },
+      revisionItem(before.groupId, revision, 0),
+      ...(moved
+        ? [
+            {
+              Delete: {
+                TableName: tableName(),
+                Key: groupGameLookupKey(before.groupId, before.startsAt, gameId),
+              },
+            },
+            {
+              Put: {
+                TableName: tableName(),
+                Item: dbItem(
+                  groupGameLookupKey(before.groupId, to.startsAt, gameId),
+                  LOOKUP_ENTITY,
+                  { id: gameId },
+                  before.createdAt,
+                ),
+              },
+            },
+          ]
+        : []),
+    ]);
+    if (!result.ok) {
+      const current = await currentVersion(gameKey(gameId));
+      if (current !== expectedVersion) throw await versionConflict(async () => current);
+      return 'stale';
+    }
+    const after = await getItem<GameRecord>(gameKey(gameId), true);
+    if (!after) throw new Error('Game vanished after rescheduling');
+    return after;
   },
 
   async markMinReached(gameId, at) {

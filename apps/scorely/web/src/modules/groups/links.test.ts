@@ -18,6 +18,7 @@ function game(overrides: Partial<Game> = {}): Game {
     id: `${scheduleId}_2026-11-06`,
     groupId,
     scheduleId,
+    version: 0,
     date: '2026-11-06',
     startsAt,
     endsAt: '2026-11-06T23:00:00.000Z',

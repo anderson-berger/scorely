@@ -52,6 +52,9 @@ function durationOk(t: { start: string; end: string }): boolean {
   return minutes >= SCHEDULE_DURATION.minMinutes && minutes <= SCHEDULE_DURATION.maxMinutes;
 }
 
+/** O nome do grupo (GRP-16, 71). */
+const GroupNameSchema = z.string().trim().min(1, 'Name is required').max(80);
+
 /** Os campos de um horário (GRP-64). Lugar, vagas e mínimo ausentes = os do grupo (GRP-66). */
 const ScheduleFieldsSchema = z.object({
   weekday: WeekdaySchema,
@@ -178,7 +181,7 @@ export const GroupLayersSchema = z
  */
 export const CreateGroupInputSchema = z
   .object({
-    name: z.string().trim().min(1, 'Name is required').max(80),
+    name: GroupNameSchema,
     /** GRP-58: um esporte do catálogo (ESP), ativo. Não muda depois. */
     sportId: SportIdSchema,
     /** GRP-34, 64: o primeiro horário do grupo. */
@@ -335,8 +338,12 @@ export const GameSchema = z.object({
   /** GRP-10: o id do jogo, `<scheduleId>_<data>`. É o que vai nas rotas. */
   id: z.string().min(1),
   groupId: z.uuid(),
-  /** GRP-64: o horário de que o jogo é. */
-  scheduleId: z.uuid(),
+  /** GRP-64: o horário de que o jogo é. Ausente = jogo extra (GRP-68). */
+  scheduleId: z.uuid().optional(),
+  /** GRP-59: a versão do jogo (`0` = o jogo ainda é virtual). */
+  version: VersionSchema,
+  /** GRP-69: o jogo foi remarcado (a marca "Remarcado"). */
+  rescheduled: z.literal(true).optional(),
   date: LocalDateSchema,
   startsAt: z.iso.datetime(),
   /** GRP-12: o fim do jogo (o do horário, ou o guardado quando virou item, GRP-10). */
@@ -367,11 +374,42 @@ export type Game = z.infer<typeof GameSchema>;
  */
 export const UpdateGameInputSchema = z
   .object({
+    /** GRP-59: a versão do jogo que a tela mostrou (o jogo virtual manda `0`). */
+    version: VersionSchema,
     slots: SlotsSchema.nullable().optional(),
     minPlayers: MinPlayersSchema.nullable().optional(),
   })
-  .refine((patch) => Object.keys(patch).length > 0, { message: 'Nothing to update' });
+  .refine(hasChanges, { message: 'Nothing to update' });
 export type UpdateGameInput = z.infer<typeof UpdateGameInputSchema>;
+
+/** Quando um jogo extra ou remarcado acontece (GRP-68, 69): a data, o início e o fim, no fuso do grupo. */
+const GameWhenSchema = z.object({
+  date: LocalDateSchema,
+  start: LocalTimeSchema,
+  end: LocalTimeSchema,
+});
+
+/** POST /groups/{id}/games (`game.manage`, GRP-68): um jogo extra. Lugar, vagas e mínimo ausentes = os do grupo. */
+export const CreateGameInputSchema = GameWhenSchema.extend({
+  placeId: z.uuid().optional(),
+  slots: SlotsSchema.optional(),
+  minPlayers: MinPlayersSchema.optional(),
+}).refine(durationOk, { message: DURATION_MESSAGE, path: ['end'] });
+export type CreateGameInput = z.infer<typeof CreateGameInputSchema>;
+
+/** POST /groups/{id}/games/{gameId}/reschedule (`game.manage`, GRP-69). Sem o lugar, fica o que era. */
+export const RescheduleGameInputSchema = GameWhenSchema.extend({
+  version: VersionSchema,
+  placeId: z.uuid().optional(),
+}).refine(durationOk, { message: DURATION_MESSAGE, path: ['end'] });
+export type RescheduleGameInput = z.infer<typeof RescheduleGameInputSchema>;
+
+/** PUT /groups/{id}/name (`settings.edit`, GRP-71): o nome novo, com a versão da identidade (ADR 0013). */
+export const UpdateGroupNameInputSchema = z.object({
+  version: VersionSchema,
+  name: GroupNameSchema,
+});
+export type UpdateGroupNameInput = z.infer<typeof UpdateGroupNameInputSchema>;
 
 /** GET /me/groups: cada grupo com o resumo do jogo atual. */
 export const MyGroupSchema = GroupSchema.extend({
