@@ -12,11 +12,11 @@ const NUMBER = String.raw`-?\d{1,3}(?:\.\d+)?`;
 /** As formas em que um link do Google Maps (ou um texto colado) traz o ponto, da mais precisa para a menos. */
 const PATTERNS: RegExp[] = [
   // O ponto exato do lugar: `!3d-23.5!4d-46.6`.
-  new RegExp(String.raw`!3d(${NUMBER})!4d(${NUMBER})`),
+  new RegExp(`!3d(${NUMBER})!4d(${NUMBER})`),
   // `?q=-23.5,-46.6`, `&ll=...`, `query=...`, `destination=...`.
   new RegExp(String.raw`[?&](?:q|ll|query|destination|center)=(${NUMBER}),\s*(${NUMBER})`),
   // O centro do mapa: `/@-23.5,-46.6,17z`.
-  new RegExp(String.raw`@(${NUMBER}),(${NUMBER})`),
+  new RegExp(`@(${NUMBER}),(${NUMBER})`),
   // Coordenadas soltas: "-23.5, -46.6".
   new RegExp(String.raw`^\s*(${NUMBER})\s*,\s*(${NUMBER})\s*$`),
 ];
