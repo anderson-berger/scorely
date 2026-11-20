@@ -5,7 +5,7 @@ import type { UserId } from '@scorely/api/src/lib/ids';
 import { verifyJwt } from '@scorely/api/src/lib/jwt';
 import type { AuthRepository } from '@scorely/api/src/modules/auth/auth.repository';
 import { AUTH_LIMITS, createAuthService } from '@scorely/api/src/modules/auth/auth.service';
-import type { LoginCode, Session } from '@scorely/api/src/modules/auth/auth.table';
+import { type LoginCode, loginCodeKey, type Session } from '@scorely/api/src/modules/auth/auth.table';
 import type { MeRecord, UserRecord, UserRepository } from '@scorely/api/src/modules/users/user.repository';
 import { createUserService } from '@scorely/api/src/modules/users/user.service';
 import {
@@ -24,17 +24,17 @@ function memoryAuthRepo(): AuthRepository {
   const codes = new Map<string, LoginCode>();
   const sessions = new Map<string, Session>();
   return {
-    getCode: async (email) => structuredClone(codes.get(email)),
-    putCode: async (code) => void codes.set(code.email, structuredClone(code)),
+    getCode: async (email) => structuredClone(codes.get(loginCodeKey(email).PK)),
+    putCode: async (code) => void codes.set(loginCodeKey(code.email).PK, structuredClone(code)),
     async registerAttempt(email, max) {
-      const code = codes.get(email);
+      const code = codes.get(loginCodeKey(email).PK);
       if (!code || code.attempts >= max) return undefined;
       code.attempts += 1;
       return structuredClone(code);
     },
     async consumeCode(email, hash) {
-      if (codes.get(email)?.codeHash !== hash) return false;
-      return codes.delete(email);
+      if (codes.get(loginCodeKey(email).PK)?.codeHash !== hash) return false;
+      return codes.delete(loginCodeKey(email).PK);
     },
     getSession: async (id) => structuredClone(sessions.get(id)),
     putSession: async (s) => void sessions.set(s.id, structuredClone(s)),
@@ -191,6 +191,39 @@ describe('auth: pedir código', () => {
       code: 'AUTH_CODE_LIMIT',
     });
     t.advance(60 * 60);
+    await expect(t.service.requestCode(EMAIL)).resolves.toBeDefined();
+  });
+});
+
+describe('auth: email normalizado e janela (AUTH-01, AUTH-02)', () => {
+  it('AUTH-01: Ana@Example.com com espaços é o mesmo limite que ana@example.com', async () => {
+    const t = setup();
+    await t.service.requestCode(EMAIL);
+    const cooldown = await errorOf(t.service.requestCode('  Ana@Example.COM '));
+    expect(cooldown).toMatchObject({ status: 429, code: 'AUTH_CODE_COOLDOWN' });
+  });
+
+  it('AUTH-01: o código pedido com o email em maiúsculas vale para o email normalizado, na mesma conta', async () => {
+    const t = setup();
+    await t.service.requestCode(' Ana@Example.com');
+    const result = await t.service.verifyCode(EMAIL, t.lastCode());
+    expect(result.user.email).toBe(EMAIL);
+    t.advance(AUTH_LIMITS.resendCooldownSeconds);
+    await t.service.requestCode(EMAIL);
+    const again = await t.service.verifyCode('ANA@example.com ', t.lastCode());
+    expect(again.isNewUser).toBe(false);
+    expect(again.user.id).toBe(result.user.id);
+  });
+
+  it('AUTH-02: a hora conta do 1º pedido, mesmo com todos os códigos já vencidos', async () => {
+    const t = setup();
+    for (const _ of range(AUTH_LIMITS.codesPerHour)) {
+      await t.service.requestCode(EMAIL);
+      t.advance(AUTH_LIMITS.codeTtlSeconds);
+    }
+    // 5 pedidos a cada 10 min: 50 min desde o 1º, ainda dentro da janela
+    expect(await errorOf(t.service.requestCode(EMAIL))).toMatchObject({ code: 'AUTH_CODE_LIMIT' });
+    t.advance(AUTH_LIMITS.codeTtlSeconds);
     await expect(t.service.requestCode(EMAIL)).resolves.toBeDefined();
   });
 });

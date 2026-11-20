@@ -5,7 +5,7 @@ import { appError } from '@scorely/api/src/lib/errors';
 import type { UserId } from '@scorely/api/src/lib/ids';
 import { signJwt } from '@scorely/api/src/lib/jwt';
 import type { AuthRepository } from '@scorely/api/src/modules/auth/auth.repository';
-import type { LoginCode, Session } from '@scorely/api/src/modules/auth/auth.table';
+import { type LoginCode, normalizeEmail, type Session } from '@scorely/api/src/modules/auth/auth.table';
 import { loginCodeEmail } from '@scorely/api/src/modules/auth/login-code.email';
 import type { NotificationService } from '@scorely/api/src/modules/notifications/notification.service';
 import type { UserService } from '@scorely/api/src/modules/users/user.service';
@@ -69,7 +69,8 @@ export function createAuthService({
 
   return {
     /** Gera e envia um código de 6 dígitos, com o email no `locale` pedido. Serve para login e cadastro. */
-    async requestCode(email: string, locale?: Locale): Promise<RequestCodeResult> {
+    async requestCode(rawEmail: string, locale?: Locale): Promise<RequestCodeResult> {
+      const email = normalizeEmail(rawEmail);
       const at = now();
       const previous = await repo.getCode(email);
 
@@ -91,7 +92,7 @@ export function createAuthService({
         email,
         codeHash: codeHash(email, code),
         attempts: 0,
-        expiresAt: expiresAt.toISOString(),
+        codeExpiresAt: expiresAt.toISOString(),
         sentAt: at.toISOString(),
         windowStart,
         windowCount,
@@ -108,10 +109,11 @@ export function createAuthService({
     },
 
     /** Confere o código e abre uma sessão. Cria o usuário no primeiro login. */
-    async verifyCode(email: string, code: string): Promise<LoginResult> {
+    async verifyCode(rawEmail: string, code: string): Promise<LoginResult> {
+      const email = normalizeEmail(rawEmail);
       // Conta a tentativa antes de comparar: chamadas em paralelo não ganham tentativas extras.
       const record = await repo.registerAttempt(email, AUTH_LIMITS.maxAttempts);
-      if (!record || new Date(record.expiresAt) <= now()) throw appError('AUTH_CODE_INVALID');
+      if (!record || new Date(record.codeExpiresAt) <= now()) throw appError('AUTH_CODE_INVALID');
       if (!safeEqual(codeHash(email, code), record.codeHash)) throw appError('AUTH_CODE_INVALID');
       if (!(await repo.consumeCode(email, record.codeHash))) throw appError('AUTH_CODE_INVALID');
 

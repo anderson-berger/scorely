@@ -1,6 +1,6 @@
 # Módulo Auth
 
-> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-19.
+> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-20.
 
 Código: `apps/scorely/api/src/modules/auth/`, `apps/scorely/api/src/lib/auth.ts`, `apps/scorely/web/src/modules/auth/`, `apps/scorely/web/src/app/guard.ts`. Contrato: `apps/scorely/contracts/src/auth.ts`.
 
@@ -75,15 +75,15 @@ Entrar no scorely **sem senha**. A pessoa digita o email, recebe um código de 6
 
 ### Dados
 
-| Item   | Chave                        | Campos                                                                                          |
-| ------ | ---------------------------- | ----------------------------------------------------------------------------------------------- |
-| Código | `AUTH#CODE#<email>` / `META` | `email`, `codeHash`, `attempts`, `codeExpiresAt`, `sentAt`, `windowStart`, `windowCount`, `ttl` |
-| Sessão | `SESSION#<id>` / `META`      | `id`, `userId`, `tokenHash`, `expiresAt`, `ttl`                                                 |
+| Item   | Chave                        | Campos                                                                                                       |
+| ------ | ---------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Código | `AUTH#CODE#<email>` / `META` | `email`, `codeHash`, `attempts`, `codeExpiresAt`, `sentAt`, `windowStart`, `windowCount`, `createdAt`, `ttl` |
+| Sessão | `SESSION#<id>` / `META`      | `id`, `userId`, `tokenHash`, `expiresAt`, `createdAt`, `ttl`                                                 |
 
 - Os dois são internos da api e não estão no contrato.
 - Os hashes usam HMAC com o `AUTH_SECRET`, que fica no SSM.
 - O `<email>` da chave já vem normalizado (AUTH-01).
-- **Não são entidades:** não têm `updatedAt` nem `version`, como os lookups e os contadores ([ADR 0013](../decisions/0013-version-e-updatedat.md)).
+- **Não são entidades:** não têm `updatedAt` nem `version`, como os lookups e os contadores ([ADR 0013](../decisions/0013-version-e-updatedat.md)). O `createdAt` fica, como em todo item. No código, ele é o instante do último pedido, igual ao `sentAt`.
   - _Por quê:_ ninguém edita esses itens nem confere a versão deles. Uma `version` que sobe a cada tentativa e a cada renovação é só ruído.
 - **Código:** cada campo de tempo tem um papel diferente.
   - `codeExpiresAt` diz até quando o código vale (10 min).
