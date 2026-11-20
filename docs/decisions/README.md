@@ -20,3 +20,4 @@ Uma linha por decisão. Abra só a que importa. Nova decisão: copie [`_template
 | 0014 | [O que é de uma entidade mora na partição dela](0014-itens-do-grupo-na-particao-do-grupo.md)                            | aceita                     |
 | 0015 | [Modelo do grupo, do esporte e do jogo](0015-modelo-do-grupo-e-do-jogo.md)                                              | aceita                     |
 | 0016 | [Edição manda a `version`; disputa por lugar usa contador](0016-version-confere-nas-edicoes.md)                         | aceita                     |
+| 0017 | [Grupo v2, escrito do zero ao lado do antigo](0017-grupo-v2-lado-a-lado.md)                                             | aceita                     |

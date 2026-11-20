@@ -5,6 +5,7 @@ export * from '@scorely/contracts/src/competition';
 export * from '@scorely/contracts/src/entity';
 export * from '@scorely/contracts/src/errors';
 export * from '@scorely/contracts/src/groups';
+export * from '@scorely/contracts/src/groups-v2';
 export * from '@scorely/contracts/src/media';
 export * from '@scorely/contracts/src/notifications';
 export * from '@scorely/contracts/src/places';

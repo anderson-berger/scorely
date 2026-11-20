@@ -1,4 +1,4 @@
-import type { PublicUserId } from '@scorely/contracts';
+import type { PublicGroupId, PublicUserId } from '@scorely/contracts';
 
 /**
  * Id do sistema da pessoa (uuid). Fica no token, no banco e dentro da api; nunca sai numa resposta (USR-16).
@@ -17,4 +17,20 @@ export function asUserId(id: string): UserId {
  */
 export function asPublicUserId(raw: string): PublicUserId {
   return raw as PublicUserId;
+}
+
+/**
+ * Id do sistema do grupo v2 (uuid). É a chave do banco e nunca sai numa resposta (GRV-08): fora da api, só o
+ * `PublicGroupId` (de @scorely/contracts).
+ */
+export type GroupId = string & { readonly __brand: 'GroupId' };
+
+/** Só para quem lê o id do banco (e para os testes). */
+export function asGroupId(id: string): GroupId {
+  return id as GroupId;
+}
+
+/** Id público do grupo vindo da rota (`{id}`). Sem validar o formato: um código malformado só não é achado (GRV-04). */
+export function asPublicGroupId(raw: string): PublicGroupId {
+  return raw as PublicGroupId;
 }

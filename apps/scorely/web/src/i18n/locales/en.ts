@@ -493,6 +493,14 @@ export const en: MessageSchema = {
     memberActions: 'Actions for {name}',
     removeReserveConfirm: 'Remove {name} from the reserves? The reserve link will change too.',
   },
+  groupsV2: {
+    title: 'My groups',
+    create: 'Create group',
+    createTitle: 'New group',
+    createHint: 'Just the name. The rest comes later.',
+    name: 'Group name',
+    cancel: 'Cancel',
+  },
   teams: {
     positionsHint: 'Mark where this person plays in this group. The star marks the main position.',
     editPositions: 'Positions of {name}',

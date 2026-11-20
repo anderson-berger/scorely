@@ -501,6 +501,14 @@ export const ptBR = {
     memberActions: 'Ações para {name}',
     removeReserveConfirm: 'Remover {name} das reservas? O link de reserva também vai mudar.',
   },
+  groupsV2: {
+    title: 'Meus grupos',
+    create: 'Criar grupo',
+    createTitle: 'Novo grupo',
+    createHint: 'Só o nome. O resto vem depois.',
+    name: 'Nome do grupo',
+    cancel: 'Cancelar',
+  },
   teams: {
     positionsHint: 'Marque onde essa pessoa joga neste grupo. A estrela marca a posição principal.',
     editPositions: 'Posições de {name}',

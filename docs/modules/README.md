@@ -5,6 +5,7 @@
 | Módulo (pasta em `apps/<projeto>/api/src/modules/`) | Doc                                | Prefixo das regras |
 | --------------------------------------------------- | ---------------------------------- | ------------------ |
 | `scorely/groups`                                    | [grupos.md](grupos.md)             | `GRP`              |
+| `scorely/groups-v2`                                 | [grupos-v2.md](grupos-v2.md)       | `GRV`              |
 | `scorely/auth`                                      | [auth.md](auth.md)                 | `AUTH`             |
 | `scorely/users`                                     | [usuarios.md](usuarios.md)         | `USR`              |
 | `scorely/notifications`                             | [notificacoes.md](notificacoes.md) | `NTF`              |

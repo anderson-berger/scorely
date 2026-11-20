@@ -3,6 +3,7 @@ import { applyPreferences, clearSavedPreferences, updatePreferences } from '@sco
 import { session } from '@scorely/web/src/lib/session';
 import { authApi } from '@scorely/web/src/modules/auth/auth.api';
 import { useGroupsStore } from '@scorely/web/src/modules/groups/groups.store';
+import { useGroupsV2Store } from '@scorely/web/src/modules/groups-v2/groups-v2.store';
 import { usersApi } from '@scorely/web/src/modules/users/users.api';
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
@@ -49,6 +50,7 @@ export const useAuthStore = defineStore('auth', () => {
     hasSession.value = false;
     user.value = undefined;
     useGroupsStore().reset();
+    useGroupsV2Store().reset();
     // USR-14: esquece as preferências da pessoa; volta para o idioma da tela de login e o fuso do navegador.
     clearSavedPreferences();
     applyPreferences();

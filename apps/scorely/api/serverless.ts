@@ -3,6 +3,7 @@ import { AUTHORIZER } from '@scorely/api/src/lib/auth';
 import { authFunctions } from '@scorely/api/src/modules/auth/functions';
 import { competitionFunctions } from '@scorely/api/src/modules/competition/functions';
 import { groupsFunctions } from '@scorely/api/src/modules/groups/functions';
+import { groupsV2Functions } from '@scorely/api/src/modules/groups-v2/functions';
 import { healthFunctions } from '@scorely/api/src/modules/health/functions';
 import { notificationsFunctions } from '@scorely/api/src/modules/notifications/functions';
 import { sportsFunctions } from '@scorely/api/src/modules/sports/functions';
@@ -154,6 +155,7 @@ const config: AWS = {
     ...usersFunctions,
     ...notificationsFunctions,
     ...groupsFunctions,
+    ...groupsV2Functions,
     ...teamsFunctions,
     ...competitionFunctions,
   },
