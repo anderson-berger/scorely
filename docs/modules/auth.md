@@ -1,6 +1,6 @@
 # Módulo Auth
 
-> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-14.
+> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-19.
 
 Código: `apps/scorely/api/src/modules/auth/`, `apps/scorely/api/src/lib/auth.ts`, `apps/scorely/web/src/modules/auth/`, `apps/scorely/web/src/app/guard.ts`. Contrato: `apps/scorely/contracts/src/auth.ts`.
 
@@ -21,9 +21,14 @@ Entrar no scorely **sem senha**. A pessoa digita o email, recebe um código de 6
 
 - **AUTH-01. Pedir o código** gera 6 dígitos novos e manda por email, no idioma pedido (padrão `pt-BR`).
   - Um código novo substitui o anterior: só o último vale.
+  - O email vale sem espaços nas pontas e em minúsculas: `Ana@X.com ` e `ana@x.com` são o mesmo código, o mesmo limite e a mesma conta.
+  - _Por quê:_ sem isso, trocar uma maiúscula daria outro limite (AUTH-02) e outra conta.
 - **AUTH-02. Limites para pedir o código:**
   - 60 s de espera entre dois pedidos. Antes disso a resposta é `AUTH_CODE_COOLDOWN` (429, `details.retryInSeconds`).
   - No máximo 5 pedidos por hora por email. Passou disso, a resposta é `AUTH_CODE_LIMIT` (429).
+  - A hora conta a partir do 1º pedido da janela. Passada uma hora desse pedido, a contagem recomeça do zero.
+  - A janela é conferida pela hora gravada no item, nunca pela remoção do item. O TTL do DynamoDB só limpa o banco e pode atrasar até ~48 h ([ADR 0004](../decisions/0004-ttl-com-expiresat.md)).
+  - Os valores de todos os limites estão na tabela de "Limites" da seção 3.
   - _Por quê:_ impede usar o scorely para mandar spam para um email e encarecer o SES.
 - **AUTH-03. Conferir o código:**
   - Cada código aceita 5 tentativas.
@@ -70,12 +75,33 @@ Entrar no scorely **sem senha**. A pessoa digita o email, recebe um código de 6
 
 ### Dados
 
-| Item   | Chave                        | Observação                                                                     |
-| ------ | ---------------------------- | ------------------------------------------------------------------------------ |
-| Código | `AUTH#CODE#<email>` / `META` | hash do código, tentativas, janela do limite. `ttl` até o fim da janela de 1 h |
-| Sessão | `SESSION#<id>` / `META`      | `userId`, hash do segredo, `expiresAt` e `ttl`                                 |
+| Item   | Chave                        | Campos                                                                                          |
+| ------ | ---------------------------- | ----------------------------------------------------------------------------------------------- |
+| Código | `AUTH#CODE#<email>` / `META` | `email`, `codeHash`, `attempts`, `codeExpiresAt`, `sentAt`, `windowStart`, `windowCount`, `ttl` |
+| Sessão | `SESSION#<id>` / `META`      | `id`, `userId`, `tokenHash`, `expiresAt`, `ttl`                                                 |
 
-Os dois são internos da api e não estão no contrato. Os hashes usam HMAC com o `AUTH_SECRET`, que fica no SSM.
+- Os dois são internos da api e não estão no contrato.
+- Os hashes usam HMAC com o `AUTH_SECRET`, que fica no SSM.
+- O `<email>` da chave já vem normalizado (AUTH-01).
+- **Não são entidades:** não têm `updatedAt` nem `version`, como os lookups e os contadores ([ADR 0013](../decisions/0013-version-e-updatedat.md)).
+  - _Por quê:_ ninguém edita esses itens nem confere a versão deles. Uma `version` que sobe a cada tentativa e a cada renovação é só ruído.
+- **Código:** cada campo de tempo tem um papel diferente.
+  - `codeExpiresAt` diz até quando o código vale (10 min).
+  - `windowStart` e `windowCount` guardam a janela do limite por hora (AUTH-02). Por isso o item fica no banco depois de o código vencer.
+  - `ttl` serve só para limpeza: vai até o fim da janela de 1 h, ou até o código vencer, o que for mais tarde.
+- **Sessão:** o `expiresAt` é a validade (AUTH-09). O `ttl` é o mesmo instante e serve só para limpeza.
+
+### Limites
+
+| Limite                              | Valor                            | Quando passa               |
+| ----------------------------------- | -------------------------------- | -------------------------- |
+| Validade do código                  | 10 min                           | `AUTH_CODE_INVALID` (400)  |
+| Espera entre dois pedidos de código | 60 s                             | `AUTH_CODE_COOLDOWN` (429) |
+| Pedidos de código por email         | 5 por hora, desde o 1º pedido    | `AUTH_CODE_LIMIT` (429)    |
+| Tentativas por código               | 5                                | `AUTH_CODE_INVALID` (400)  |
+| Validade do access token            | 1 h                              | 403 do API Gateway         |
+| Validade da sessão                  | 30 dias desde a última renovação | `SESSION_EXPIRED` (401)    |
+| Pedidos por IP                      | nenhum                           | (ver "Limites conhecidos") |
 
 ### Rotas
 
@@ -96,5 +122,8 @@ Os limites estão em `AUTH_LIMITS` (`auth.service.ts`). As regras da navegação
 
 - O motivo da auth própria no lugar do Cognito ainda está "a confirmar" no ADR 0003.
 - No dev local, o código aparece no terminal em vez de ir por email.
+- **Não há limite por IP.** Os limites do AUTH-02 são por email, então quem tem uma lista de emails pode pedir um código para cada um sem trava. O caminho natural é o WAF ou o throttling do API Gateway, e nenhum dos dois muda os dados.
+- **Dívida técnica: a sessão não sabe de qual aparelho é.** Ela não guarda aparelho, navegador nem último uso, então não existe tela de "meus aparelhos".
+- **Dívida técnica: não há como encerrar todas as sessões de uma pessoa.** Não existe uma lista das sessões por usuário, e "sair de todos os aparelhos" e "apagar conta" não têm como achá-las. Quando um dos dois entrar, a ideia é um lookup `LOOKUP#USER#<userId>#SESSION`, `SK=<sessionId>`, gravado na transação da sessão e com o mesmo `ttl`. Ele também resolve a dívida de cima.
 - O AUTH-16 só cobre conta e sessão sumindo juntas. Uma sessão viva com a conta apagada renovaria normalmente; hoje não há como apagar conta, então isso fica para quando houver.
 - Nas rotas dos outros módulos, o token de uma conta que não existe mais segue a regra de cada módulo (ex.: grupo não encontrado). Na prática o web carrega o `/me` ao abrir e cai no login por ele.

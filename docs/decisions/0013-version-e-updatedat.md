@@ -9,7 +9,7 @@ Só algumas entidades guardam `updatedAt` (temporada, times, preferências), e n
 
 ## Decisão
 
-Toda entidade (inclusive a de relação e o item extra na partição de outra, como `USER#<id> / PRIVATE`) nasce com `updatedAt = createdAt` e `version = 1`. Toda alteração grava `updatedAt` com o instante dela e soma 1 na `version` (`ADD version :one`), no mesmo `Update` ou `Put`. Lookups e contadores ficam de fora: não são entidades. A `version` e o `updatedAt` saem nas respostas que espalham o item do banco, mas ainda não estão nos contratos, e nenhuma condição usa a `version`.
+Toda entidade (inclusive a de relação e o item extra na partição de outra, como `USER#<id> / PRIVATE`) nasce com `updatedAt = createdAt` e `version = 1`. Toda alteração grava `updatedAt` com o instante dela e soma 1 na `version` (`ADD version :one`), no mesmo `Update` ou `Put`. Lookups e contadores ficam de fora: não são entidades. Os itens internos do auth (o código de login e a sessão) também ficam de fora (decisão do dono em 2026-11-20). Eles vivem pouco, ninguém os edita e nada confere a versão deles. A `version` e o `updatedAt` saem nas respostas que espalham o item do banco, mas ainda não estão nos contratos, e nenhuma condição usa a `version`.
 
 ## Por quê
 
