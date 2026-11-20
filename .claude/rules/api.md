@@ -13,18 +13,23 @@ Nos `handlers.ts`, cada rota é uma `export async function <nome>(event: HttpEve
 const users = createUserService(dynamoUserRepository);
 
 export async function me(event: HttpEvent) {
-  return authRoute(event, async (auth) => users.get(auth.userId));
+  return authRoute(event, async (auth) => {
+    const user = await users.get(auth.userId);
+    return user;
+  });
 }
 
 export async function updateMe(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const patch = parseBody(event, UpdateMeInputSchema);
-    return users.update(auth.userId, patch);
+    const user = await users.update(auth.userId, patch);
+    return user;
   });
 }
 ```
 
 - O nome da função é exatamente o do `functions.ts` (`handler('me')` → `export async function me`).
+- O callback aguarda o service e devolve o valor: `const user = await users.get(...); return user;`, não `return users.get(...)`. O hover mostra o tipo resolvido (`Me`, não `Promise<Me>`). O resultado em runtime é o mesmo (o `route` aguarda de qualquer forma). `created(await ...)` continua como está.
 - Só o `event` é anotado (`HttpEvent`); o `auth` vem tipado pelo callback do `authRoute`.
 - Helper compartilhado entre rotas é função do módulo, sem `export`.
 - Fora dos handlers, função exportada também é **declaração** (`export function x() {}`), não arrow em const. Factories que devolvem objeto (`createUserService`) e valores (`const users = ...`) continuam como estão.

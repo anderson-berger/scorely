@@ -22,6 +22,7 @@ export async function get(event: HttpEvent) {
   return route(event, async () => {
     const id = event.pathParameters?.id;
     if (!id) throw new HttpError(400, 'MISSING_ID', 'id é obrigatório');
-    return service.get(id);
+    const result = await service.get(id);
+    return result;
   });
 }

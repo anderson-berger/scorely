@@ -5,6 +5,7 @@ import { newPublicId } from '@scorely/api/src/modules/users/public-id';
 import type { MeRecord, UserRecord, UserRepository } from '@scorely/api/src/modules/users/user.repository';
 import { createUserService, toMe } from '@scorely/api/src/modules/users/user.service';
 import {
+  MeSchema,
   type Preferences,
   PUBLIC_USER_ID_ALPHABET,
   type PublicUserId,
@@ -40,7 +41,11 @@ function memoryUserRepo(taken: readonly string[] = []) {
     const profile = profiles.get(id);
     const priv = privates.get(id);
     if (!profile || priv === undefined) return undefined;
-    return structuredClone({ ...profile, ...priv, preferences: prefs.get(id) ?? {} });
+    return structuredClone({
+      ...profile,
+      private: priv,
+      preferences: prefs.get(id) ?? {},
+    });
   };
   const idOf = (email: string) => [...privates.entries()].find(([, p]) => p.email === email)?.[0];
   const repo: UserRepository = {
@@ -67,13 +72,10 @@ function memoryUserRepo(taken: readonly string[] = []) {
       const priv = privates.get(id);
       if (!profile || !priv) return undefined;
       expectVersionIn(profile.version, patch.version);
-      const { locale, timeZone, name, version: _version, ...rest } = patch;
+      const { private: privatePatch, preferences, version: _version, ...rest } = patch;
       profile.version += 1;
-      Object.assign(prefs.get(id) ?? {}, {
-        ...(locale && { locale }),
-        ...(timeZone && { timeZone }),
-      });
-      Object.assign(priv, name !== undefined ? { name } : {});
+      Object.assign(prefs.get(id) ?? {}, preferences ?? {});
+      Object.assign(priv, privatePatch ?? {});
       Object.assign(profile, rest);
       return me(id);
     },
@@ -111,7 +113,7 @@ const winner: MeRecord = {
   nickname: '7K3QX9TA',
   createdAt: '2026-01-01T00:00:00.000Z',
   version: 1,
-  email: EMAIL,
+  private: { email: EMAIL },
   preferences: {},
 };
 
@@ -153,7 +155,12 @@ describe('conta e email (USR-01, USR-13)', () => {
     const { userId, me: first, created } = await service.findOrCreateByEmail(EMAIL);
     expect(created).toBe(true);
     const me = await service.get(userId);
-    expect(me).toMatchObject({ id: first.id, email: EMAIL, preferences: {} });
+    expect(me).toMatchObject({
+      id: first.id,
+      private: { email: EMAIL },
+      preferences: {},
+    });
+    expect(me).not.toHaveProperty('email');
     expect(me).not.toHaveProperty('locale');
     expect(me).not.toHaveProperty('timeZone');
   });
@@ -164,11 +171,14 @@ describe('conta e email (USR-01, USR-13)', () => {
     const { userId, me } = await service.findOrCreateByEmail(EMAIL);
     expect(me.nickname).toBe('7K3QX9TA');
     expect(me.nickname).toBe(me.id);
-    expect(me.name).toBeUndefined();
-    expect(memory.created[0]?.user).toMatchObject({ publicId: '7K3QX9TA', nickname: '7K3QX9TA' });
+    expect(me.private.name).toBeUndefined();
+    expect(memory.created[0]?.user).toMatchObject({
+      publicId: '7K3QX9TA',
+      nickname: '7K3QX9TA',
+    });
     const read = await service.get(userId);
     expect(read.nickname).toBe('7K3QX9TA');
-    expect(read.name).toBeUndefined();
+    expect(read.private.name).toBeUndefined();
   });
 
   it('USR-02: o código sorteado de novo (USR-15) também vira o apelido', async () => {
@@ -195,9 +205,13 @@ describe('conta e email (USR-01, USR-13)', () => {
     const memory = memoryUserRepo();
     const service = createUserService(memory.repo, () => clock.now);
     const { userId } = await service.findOrCreateByEmail(EMAIL);
-    const patched = await service.update(userId, { ...memory.v(userId), name: 'Ana Souza' });
-    expect(patched.name).toBe('Ana Souza');
-    expect((await service.get(userId)).name).toBe('Ana Souza');
+    const patched = await service.update(userId, {
+      ...memory.v(userId),
+      private: { name: 'Ana Souza' },
+    });
+    expect(patched.private.name).toBe('Ana Souza');
+    expect(patched).not.toHaveProperty('name');
+    expect((await service.get(userId)).private.name).toBe('Ana Souza');
     const profile = await memory.repo.get(userId);
     expect(profile).not.toHaveProperty('name');
     expect(profile).not.toHaveProperty('email');
@@ -241,7 +255,10 @@ describe('id público, o código de amigo (USR-15)', () => {
     const gen = codes('7K3QX9TA');
     const service = createUserService(memory.repo, () => clock.now, undefined, gen.next);
     const { userId, me } = await service.findOrCreateByEmail(EMAIL);
-    expect(memory.created[0]?.user).toMatchObject({ id: userId, publicId: '7K3QX9TA' });
+    expect(memory.created[0]?.user).toMatchObject({
+      id: userId,
+      publicId: '7K3QX9TA',
+    });
     expect(me.id).toBe('7K3QX9TA');
     expect(userId).not.toBe(me.id);
     expect(userId).toMatch(/^[0-9a-f-]{36}$/);
@@ -255,7 +272,10 @@ describe('id público, o código de amigo (USR-15)', () => {
     const second = await service.findOrCreateByEmail(EMAIL);
     expect(second.me.id).toBe(first.me.id);
     expect(gen.state.calls).toBe(1);
-    await service.update(first.userId, { ...memory.v(first.userId), name: 'Ana' });
+    await service.update(first.userId, {
+      ...memory.v(first.userId),
+      private: { name: 'Ana' },
+    });
     expect((await service.get(first.userId)).id).toBe('7K3QX9TA');
   });
 
@@ -297,7 +317,10 @@ describe('o id do sistema não sai (USR-16)', () => {
     const service = createUserService(memory.repo, () => clock.now, undefined, codes('7K3QX9TA').next);
     const { userId, me } = await service.findOrCreateByEmail(EMAIL);
     const read = await service.get(userId);
-    const patched = await service.update(userId, { ...memory.v(userId), name: 'Ana' });
+    const patched = await service.update(userId, {
+      ...memory.v(userId),
+      private: { name: 'Ana' },
+    });
     for (const m of [me, read, patched]) {
       expect(m.id).toBe('7K3QX9TA');
       expect(m).not.toHaveProperty('publicId');
@@ -305,15 +328,18 @@ describe('o id do sistema não sai (USR-16)', () => {
     }
   });
 
-  it('USR-16: toMe troca o `id` pelo público e tira `publicId`; o nome e o email vão só para a própria pessoa', () => {
-    const record: MeRecord = { ...winner, name: 'Ana', nickname: 'Aninha' };
+  it('USR-16: toMe troca o `id` pelo público e tira `publicId`; o nome e o email vão em `private`', () => {
+    const record: MeRecord = {
+      ...winner,
+      private: { email: EMAIL, name: 'Ana' },
+      nickname: 'Aninha',
+    };
     const me = toMe(record, () => 'unused');
     expect(me).toEqual({
       id: '7K3QX9TA',
       createdAt: winner.createdAt,
       nickname: 'Aninha',
-      name: 'Ana',
-      email: EMAIL,
+      private: { email: EMAIL, name: 'Ana' },
       preferences: {},
       version: 1,
     });
@@ -340,9 +366,12 @@ describe('quem a ação atinge (USR-17)', () => {
     const service = createUserService(memory.repo, () => clock.now, undefined, gen.next);
     const ana = await service.findOrCreateByEmail('ana@example.com');
     const bia = await service.findOrCreateByEmail('bia@example.com');
-    await service.update(ana.userId, { ...memory.v(ana.userId), name: 'Ana' });
-    expect((await service.get(ana.userId)).name).toBe('Ana');
-    expect((await service.get(bia.userId)).name).toBeUndefined();
+    await service.update(ana.userId, {
+      ...memory.v(ana.userId),
+      private: { name: 'Ana' },
+    });
+    expect((await service.get(ana.userId)).private.name).toBe('Ana');
+    expect((await service.get(bia.userId)).private.name).toBeUndefined();
   });
 
   it('USR-17: o diretório traduz id público → id do sistema; o código desconhecido fica de fora', async () => {
@@ -391,7 +420,9 @@ describe('conta que não existe mais (AUTH-16)', () => {
   it('AUTH-16: PATCH /me com conta inexistente → SESSION_INVALID (401) e nada é criado', async () => {
     const memory = memoryUserRepo();
     const service = createUserService(memory.repo, () => clock.now);
-    const err = await service.update(ghost, { ...memory.v(ghost), name: 'Ana' }).catch((e: unknown) => e);
+    const err = await service
+      .update(ghost, { ...memory.v(ghost), private: { name: 'Ana' } })
+      .catch((e: unknown) => e);
     expect(err).toMatchObject({ code: 'SESSION_INVALID', status: 401 });
     expect(memory.profiles.size).toBe(0);
   });
@@ -404,28 +435,44 @@ describe('campos do perfil (USR-03)', () => {
     const { userId } = await service.findOrCreateByEmail(EMAIL);
     await service.update(userId, { ...memory.v(userId), nickname: 'Aninha' });
     const err = await service
-      .update(userId, { ...memory.v(userId), nickname: '7K3QX9TA', name: 'Ana' })
+      .update(userId, {
+        ...memory.v(userId),
+        nickname: '7K3QX9TA',
+        private: { name: 'Ana' },
+      })
       .catch((e: unknown) => e);
-    expect(err).toMatchObject({ code: 'USER_NICKNAME_IS_PUBLIC_ID', status: 422 });
+    expect(err).toMatchObject({
+      code: 'USER_NICKNAME_IS_PUBLIC_ID',
+      status: 422,
+    });
     const after = await service.get(userId);
     expect(after.nickname).toBe('Aninha');
-    expect(after.name).toBeUndefined();
+    expect(after.private.name).toBeUndefined();
   });
 
   it('USR-03: o código com espaços em volta (o PATCH /me faz trim) também é recusado', async () => {
     const memory = memoryUserRepo();
     const service = createUserService(memory.repo, () => clock.now, undefined, codes('7K3QX9TA').next);
     const { userId } = await service.findOrCreateByEmail(EMAIL);
-    const input = UpdateMeInputSchema.parse({ ...memory.v(userId), nickname: '  7K3QX9TA  ' });
+    const input = UpdateMeInputSchema.parse({
+      ...memory.v(userId),
+      nickname: '  7K3QX9TA  ',
+    });
     const err = await service.update(userId, input).catch((e: unknown) => e);
-    expect(err).toMatchObject({ code: 'USER_NICKNAME_IS_PUBLIC_ID', status: 422 });
+    expect(err).toMatchObject({
+      code: 'USER_NICKNAME_IS_PUBLIC_ID',
+      status: 422,
+    });
   });
 
   it('USR-03: a comparação é exata: o código em minúsculas é aceito como apelido', async () => {
     const memory = memoryUserRepo();
     const service = createUserService(memory.repo, () => clock.now, undefined, codes('7K3QX9TA').next);
     const { userId } = await service.findOrCreateByEmail(EMAIL);
-    const patched = await service.update(userId, { ...memory.v(userId), nickname: '7k3qx9ta' });
+    const patched = await service.update(userId, {
+      ...memory.v(userId),
+      nickname: '7k3qx9ta',
+    });
     expect(patched.nickname).toBe('7k3qx9ta');
   });
 
@@ -435,13 +482,16 @@ describe('campos do perfil (USR-03)', () => {
     const service = createUserService(memory.repo, () => clock.now, undefined, gen.next);
     const ana = await service.findOrCreateByEmail('ana@example.com');
     await service.findOrCreateByEmail('bia@example.com');
-    const patched = await service.update(ana.userId, { ...memory.v(ana.userId), nickname: 'BBBBBBBB' });
+    const patched = await service.update(ana.userId, {
+      ...memory.v(ana.userId),
+      nickname: 'BBBBBBBB',
+    });
     expect(patched.nickname).toBe('BBBBBBBB');
   });
 
-  it('USR-03: o nome não volta a ficar vazio: vazio, só espaços ou null são recusados no PATCH /me', () => {
+  it('USR-03: o nome (em `private`) não volta a ficar vazio: vazio, só espaços ou null são recusados no PATCH /me', () => {
     for (const name of ['', '   ', null]) {
-      expect(UpdateMeInputSchema.safeParse({ version: 1, name }).success).toBe(false);
+      expect(UpdateMeInputSchema.safeParse({ version: 1, private: { name } }).success).toBe(false);
     }
   });
 
@@ -449,23 +499,55 @@ describe('campos do perfil (USR-03)', () => {
     const memory = memoryUserRepo();
     const service = createUserService(memory.repo, () => clock.now);
     const { userId } = await service.findOrCreateByEmail(EMAIL);
-    await service.update(userId, { ...memory.v(userId), name: 'Ana' });
-    const patched = await service.update(userId, { ...memory.v(userId), name: 'Ana Souza' });
-    expect(patched.name).toBe('Ana Souza');
+    await service.update(userId, {
+      ...memory.v(userId),
+      private: { name: 'Ana' },
+    });
+    const patched = await service.update(userId, {
+      ...memory.v(userId),
+      private: { name: 'Ana Souza' },
+    });
+    expect(patched.private.name).toBe('Ana Souza');
   });
 });
 
-describe('updatedAt e version nas respostas (ADR 0013)', () => {
-  it('ADR 0013: toMe mantém o `updatedAt` e a `version` do perfil', () => {
-    const record = {
+describe('resposta montada campo a campo pelo contrato (USR-13, ADR 0013)', () => {
+  const full = (): MeRecord =>
+    ({
       ...winner,
       nickname: 'Aninha',
+      gender: 'F',
       updatedAt: '2026-11-10T09:00:00.000Z',
       version: 4,
-    } as MeRecord;
-    const me = toMe(record, () => 'unused');
-    expect(me).toMatchObject({ updatedAt: '2026-11-10T09:00:00.000Z', version: 4 });
-    expect(me).not.toHaveProperty('publicId');
+      avatarMediaId: 'media-1',
+      private: { email: EMAIL, name: 'Ana' },
+      preferences: { locale: 'en', timeZone: 'America/Sao_Paulo' },
+      futureField: 'x',
+    }) as MeRecord;
+
+  it('ADR 0013: toMe mantém a `version` do perfil e não devolve `updatedAt`', () => {
+    const me = toMe(full(), () => 'https://cdn.test/avatar/media-1');
+    expect(me.version).toBe(4);
+    expect(me).not.toHaveProperty('updatedAt');
+  });
+
+  it('USR-13: toMe só devolve os campos do contrato (nem `publicId`, `avatarMediaId`, `updatedAt` nem campo novo do banco)', () => {
+    const me = toMe(full(), () => 'https://cdn.test/avatar/media-1');
+    expect(Object.keys(me).sort()).toEqual(
+      ['avatarUrl', 'createdAt', 'gender', 'id', 'nickname', 'preferences', 'private', 'version'].sort(),
+    );
+    expect(MeSchema.strict().safeParse(me).success).toBe(true);
+  });
+
+  it('USR-13: toMe põe o email e o nome em `private` e o idioma e o fuso em `preferences`, nunca na raiz', () => {
+    const me = toMe(full(), () => 'u');
+    expect(me.private).toEqual({ email: EMAIL, name: 'Ana' });
+    expect(me.preferences).toEqual({
+      locale: 'en',
+      timeZone: 'America/Sao_Paulo',
+    });
+    expect(me).not.toHaveProperty('email');
+    expect(me).not.toHaveProperty('name');
   });
 });
 
@@ -484,34 +566,97 @@ describe('salvar o perfil com a versão que a tela mostrou (USR-18)', () => {
 
   it('USR-18: o PATCH /me com a version atual grava e devolve a nova (soma 1)', async () => {
     const t = await fresh();
-    const patched = await t.service.update(t.userId, { version: 1, nickname: 'Aninha' });
+    const patched = await t.service.update(t.userId, {
+      version: 1,
+      nickname: 'Aninha',
+    });
     expect(patched).toMatchObject({ nickname: 'Aninha', version: 2 });
     expect((await t.service.get(t.userId)).version).toBe(2);
   });
 
   it('USR-18: só o nome (parte privada) ou só as preferências também somam 1 na version do perfil', async () => {
     const t = await fresh();
-    expect((await t.service.update(t.userId, { version: 1, name: 'Ana' })).version).toBe(2);
-    expect((await t.service.update(t.userId, { version: 2, locale: 'en' })).version).toBe(3);
-    expect((await t.service.update(t.userId, { version: 3, timeZone: 'America/Manaus' })).version).toBe(4);
+    expect(
+      (
+        await t.service.update(t.userId, {
+          version: 1,
+          private: { name: 'Ana' },
+        })
+      ).version,
+    ).toBe(2);
+    expect(
+      (
+        await t.service.update(t.userId, {
+          version: 2,
+          preferences: { locale: 'en' },
+        })
+      ).version,
+    ).toBe(3);
+    expect(
+      (
+        await t.service.update(t.userId, {
+          version: 3,
+          preferences: { timeZone: 'America/Manaus' },
+        })
+      ).version,
+    ).toBe(4);
   });
 
   it('USR-18: o perfil mudou em outro lugar → VERSION_CONFLICT (409, currentVersion) e nada é gravado', async () => {
     const t = await fresh();
     await t.service.update(t.userId, { version: 1, nickname: 'Aninha' });
     const err = await t.service
-      .update(t.userId, { version: 1, nickname: 'Outra', name: 'Ana' })
+      .update(t.userId, {
+        version: 1,
+        nickname: 'Outra',
+        private: { name: 'Ana' },
+      })
       .catch((e: unknown) => e);
-    expect(err).toMatchObject({ code: 'VERSION_CONFLICT', status: 409, details: { currentVersion: 2 } });
+    expect(err).toMatchObject({
+      code: 'VERSION_CONFLICT',
+      status: 409,
+      details: { currentVersion: 2 },
+    });
     const me = await t.service.get(t.userId);
     expect(me).toMatchObject({ nickname: 'Aninha', version: 2 });
-    expect(me.name).toBeUndefined();
+    expect(me.private.name).toBeUndefined();
   });
 
   it('USR-18: o contrato do PATCH /me exige a version (inteiro ≥ 0), e ela sozinha não é mudança', () => {
-    expect(UpdateMeInputSchema.safeParse({ name: 'Ana' }).success).toBe(false);
-    expect(UpdateMeInputSchema.safeParse({ version: -1, name: 'Ana' }).success).toBe(false);
+    expect(UpdateMeInputSchema.safeParse({ private: { name: 'Ana' } }).success).toBe(false);
+    expect(UpdateMeInputSchema.safeParse({ version: -1, private: { name: 'Ana' } }).success).toBe(false);
     expect(UpdateMeInputSchema.safeParse({ version: 1 }).success).toBe(false);
-    expect(UpdateMeInputSchema.safeParse({ version: 1, name: 'Ana' }).success).toBe(true);
+    expect(UpdateMeInputSchema.safeParse({ version: 1, private: { name: 'Ana' } }).success).toBe(true);
+  });
+
+  it('USR-03: grupo vazio não é mudança; um campo dentro de `private` ou `preferences` é', () => {
+    expect(UpdateMeInputSchema.safeParse({ version: 1, preferences: {} }).success).toBe(false);
+    expect(UpdateMeInputSchema.safeParse({ version: 1, private: {} }).success).toBe(false);
+    expect(
+      UpdateMeInputSchema.safeParse({
+        version: 1,
+        private: {},
+        preferences: {},
+      }).success,
+    ).toBe(false);
+    expect(UpdateMeInputSchema.safeParse({ version: 1, private: { name: 'X' } }).success).toBe(true);
+    expect(
+      UpdateMeInputSchema.safeParse({
+        version: 1,
+        preferences: { locale: 'en' },
+      }).success,
+    ).toBe(true);
+    expect(
+      UpdateMeInputSchema.safeParse({
+        version: 1,
+        nickname: 'X',
+        preferences: {},
+      }).success,
+    ).toBe(true);
+  });
+
+  it('USR-03: idioma, fuso e nome na raiz do corpo não valem mais (só dentro de `preferences` e `private`)', () => {
+    expect(UpdateMeInputSchema.safeParse({ version: 1, locale: 'en' }).success).toBe(false);
+    expect(UpdateMeInputSchema.safeParse({ version: 1, name: 'Ana' }).success).toBe(false);
   });
 });

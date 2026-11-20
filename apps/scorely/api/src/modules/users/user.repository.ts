@@ -4,7 +4,6 @@ import {
   currentVersion,
   dbItem,
   LOOKUP_ENTITY,
-  setCreatedAtIfNew,
   stripKeys,
   type TransactItem,
   touch,
@@ -24,7 +23,7 @@ import {
   userPrivateKey,
   userPublicIdLookupKey,
 } from '@scorely/api/src/modules/users/user.table';
-import type { Me, Preferences, PublicUserId, UpdateMeInput, User } from '@scorely/contracts';
+import type { Preferences, Private, PublicUserId, UpdateMeInput, User } from '@scorely/contracts';
 
 /**
  * O perfil como fica no banco (`META`): `id` é o id do sistema, `publicId` o código de amigo (USR-15) e
@@ -39,7 +38,7 @@ export type UserRecord = Omit<User, 'id' | 'avatarUrl'> & {
   version: number;
 };
 /** A própria pessoa como fica no banco: perfil + parte privada (email e nome) + preferências (USR-13, 14). */
-export type MeRecord = UserRecord & Pick<Me, 'email' | 'name' | 'preferences'>;
+export type MeRecord = UserRecord & { private: Private; preferences: Preferences };
 /** Resultado da criação: o lookup de email ou o do id público já existia. */
 export type CreateUserResult = 'created' | 'email_taken' | 'public_id_taken';
 
@@ -69,41 +68,45 @@ export interface UserRepository {
 }
 
 const PROFILE_FIELDS = ['nickname', 'gender'] as const;
-const PRIVATE_FIELDS = ['name'] as const;
-const PREFERENCE_FIELDS = ['locale', 'timeZone'] as const;
 
-/** Só os campos de preferência de um item (sem chaves, `createdAt`, `updatedAt`). */
+/** Só os campos de preferência de um item (sem chaves nem `createdAt`). */
 function preferencesOf(row: Record<string, unknown> | undefined): Preferences {
   if (!row) return {};
   const { locale, timeZone } = row as Preferences;
   return { ...(locale !== undefined && { locale }), ...(timeZone !== undefined && { timeZone }) };
 }
 
-/** `SET`/`REMOVE` dos campos do patch (`null` remove), com os nomes e valores da expressão. */
-function updateParts(
-  fields: [string, unknown][],
-  extraSet: string[] = [],
-  extraValues: Record<string, unknown> = {},
-) {
-  const set = fields.filter(([, v]) => v !== null);
-  const remove = fields.filter(([, v]) => v === null);
-  const setClauses = [...set.map(([k]) => `#${k} = :${k}`), ...extraSet];
-  const expression = [
-    setClauses.length > 0 && `SET ${setClauses.join(', ')}`,
-    remove.length > 0 && `REMOVE ${remove.map(([k]) => `#${k}`).join(', ')}`,
-  ]
-    .filter(Boolean)
-    .join(' ');
-  const values = { ...Object.fromEntries(set.map(([k, v]) => [`:${k}`, v])), ...extraValues };
+/** `SET` dos campos do patch, com os nomes e valores da expressão (nenhum campo do `UpdateMeInput` aceita `null`). */
+function updateParts(fields: [string, unknown][]) {
   return {
-    UpdateExpression: expression,
+    UpdateExpression: `SET ${fields.map(([k]) => `#${k} = :${k}`).join(', ')}`,
     ExpressionAttributeNames: Object.fromEntries(fields.map(([k]) => [`#${k}`, k])),
-    ...(Object.keys(values).length > 0 && { ExpressionAttributeValues: values }),
+    ExpressionAttributeValues: Object.fromEntries(fields.map(([k, v]) => [`:${k}`, v])),
   };
 }
 
+/** Altera um item da pessoa que não é entidade (`PRIVATE`, `PREFERENCES`): sem `updatedAt` nem `version` (ADR 0013). */
+function updatePart(Key: Record<string, string>, fields: [string, unknown][]): TransactItem[] {
+  if (fields.length === 0) return [];
+  return [
+    {
+      Update: {
+        TableName: tableName(),
+        Key,
+        ConditionExpression: 'attribute_exists(PK)',
+        ...updateParts(fields),
+      },
+    },
+  ];
+}
+
+/** Os campos definidos de um objeto, como pares para o `SET`. */
+function definedFields(group: object | undefined): [string, unknown][] {
+  return Object.entries(group ?? {}).filter(([, v]) => v !== undefined);
+}
+
 function pick(patch: UserPatch, keys: readonly string[]): [string, unknown][] {
-  return Object.entries(patch).filter(([k, v]) => keys.includes(k) && v !== undefined);
+  return definedFields(Object.fromEntries(Object.entries(patch).filter(([k]) => keys.includes(k))));
 }
 
 export const dynamoUserRepository: UserRepository = {
@@ -124,8 +127,7 @@ export const dynamoUserRepository: UserRepository = {
     const name = priv?.name as string | undefined;
     return {
       ...stripKeys<UserRecord>(profile),
-      email,
-      ...(name !== undefined && { name }),
+      private: { email, ...(name !== undefined && { name }) },
       preferences: preferencesOf(bySk.get('PREFERENCES')),
     };
   },
@@ -154,18 +156,11 @@ export const dynamoUserRepository: UserRepository = {
       Put: { TableName: tableName(), Item, ConditionExpression: 'attribute_not_exists(PK)' },
     });
     // A ordem importa: o índice que falhou diz qual lookup já existia (3 = email, 4 = id público).
-    // USR-13: a parte privada nasce só com o email (o nome vem pelo PATCH /me).
+    // USR-13, 14: a parte privada nasce só com o email (o nome vem pelo PATCH /me) e as preferências, vazias.
     const result = await transactWrite([
       put(dbItem(userKey(user.id), USER_ENTITY, user)),
       put(dbItem(userPrivateKey(user.id), USER_PRIVATE_ENTITY, { email }, user.createdAt)),
-      put(
-        dbItem(
-          userPreferencesKey(user.id),
-          USER_PREFERENCES_ENTITY,
-          { updatedAt: user.createdAt },
-          user.createdAt,
-        ),
-      ),
+      put(dbItem(userPreferencesKey(user.id), USER_PREFERENCES_ENTITY, {}, user.createdAt)),
       put(dbItem(userEmailLookupKey(email), LOOKUP_ENTITY, { id: user.id }, user.createdAt)),
       put(dbItem(userPublicIdLookupKey(user.publicId), LOOKUP_ENTITY, { id: user.id }, user.createdAt)),
     ]);
@@ -176,12 +171,10 @@ export const dynamoUserRepository: UserRepository = {
 
   async update(id, patch) {
     const profile = pick(patch, PROFILE_FIELDS);
-    const privateFields = pick(patch, PRIVATE_FIELDS);
-    const preferences = pick(patch, PREFERENCE_FIELDS);
-    const now = new Date();
-    const created = setCreatedAtIfNew(now);
+    const privateFields = definedFields(patch.private);
+    const preferences = definedFields(patch.preferences);
     // O índice 0 é sempre o perfil: toda mudança soma 1 na versão dele (USR-18), com a condição da versão que a tela
-    // mostrou, mesmo quando só o nome ou as preferências mudam.
+    // mostrou, mesmo quando só o nome ou as preferências mudam. A parte privada e as preferências não têm versão.
     const items: TransactItem[] = [
       {
         Update: withVersion(
@@ -192,43 +185,13 @@ export const dynamoUserRepository: UserRepository = {
               ConditionExpression: 'attribute_exists(PK)',
               ...(profile.length > 0 && updateParts(profile)),
             },
-            now,
+            new Date(),
           ),
           patch.version,
         ),
       },
-      ...(privateFields.length > 0
-        ? [
-            {
-              Update: touch(
-                {
-                  TableName: tableName(),
-                  Key: userPrivateKey(id),
-                  ConditionExpression: 'attribute_exists(PK)',
-                  ...updateParts(privateFields),
-                },
-                now,
-              ),
-            },
-          ]
-        : []),
-      ...(preferences.length > 0
-        ? [
-            {
-              Update: touch(
-                {
-                  TableName: tableName(),
-                  Key: userPreferencesKey(id),
-                  ...updateParts(preferences, ['entity = :entity', created.expression], {
-                    ':entity': USER_PREFERENCES_ENTITY,
-                    ...created.values,
-                  }),
-                },
-                now,
-              ),
-            },
-          ]
-        : []),
+      ...updatePart(userPrivateKey(id), privateFields),
+      ...updatePart(userPreferencesKey(id), preferences),
     ];
     const result = await transactWrite(items);
     if (!result.ok) {

@@ -1,6 +1,7 @@
 // Como o código de login e a sessão são salvos e buscados (single-table, sem GSI).
 // Os dois são internos do servidor (não estão em @scorely/contracts) e expiram: além do `ttl`
 // (o DynamoDB apaga com até ~48h de atraso), o service confere o `codeExpiresAt` / `expiresAt` ao ler.
+import { normalizeEmail } from '@scorely/api/src/lib/email';
 import type { UserId } from '@scorely/api/src/lib/ids';
 import type { Entity } from '@scorely/contracts';
 
@@ -25,11 +26,6 @@ export interface Session extends Entity {
   userId: UserId;
   tokenHash: string;
   expiresAt: string;
-}
-
-/** Email como chave: sem espaços nas pontas e em minúsculas (AUTH-01). */
-export function normalizeEmail(email: string) {
-  return email.trim().toLowerCase();
 }
 
 /**

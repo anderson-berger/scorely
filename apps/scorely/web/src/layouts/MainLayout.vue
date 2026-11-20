@@ -105,7 +105,7 @@ export default defineComponent({
                 <q-item>
                   <q-item-section>
                     <q-item-label>{{ displayName(auth.user) }}</q-item-label>
-                    <q-item-label caption>{{ auth.user.email }}</q-item-label>
+                    <q-item-label caption>{{ auth.user.private.email }}</q-item-label>
                   </q-item-section>
                 </q-item>
                 <q-separator />

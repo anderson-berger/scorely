@@ -62,76 +62,92 @@ export async function create(event: HttpEvent) {
 
 export async function myGroups(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    return groups.myGroups(auth.userId);
+    const result = await groups.myGroups(auth.userId);
+    return result;
   });
 }
 
 export async function archivedGroups(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    return groups.archivedGroups(auth.userId);
+    const result = await groups.archivedGroups(auth.userId);
+    return result;
   });
 }
 
 export async function archive(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    return groups.archive(auth.userId, pathParam(event, 'id'));
+    const result = await groups.archive(auth.userId, pathParam(event, 'id'));
+    return result;
   });
 }
 
 export async function unarchive(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    return groups.unarchive(auth.userId, pathParam(event, 'id'));
+    const result = await groups.unarchive(auth.userId, pathParam(event, 'id'));
+    return result;
   });
 }
 
 export async function get(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    return groups.get(auth.userId, pathParam(event, 'id'));
+    const result = await groups.get(auth.userId, pathParam(event, 'id'));
+    return result;
   });
 }
 
 export async function update(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    return groups.update(auth.userId, pathParam(event, 'id'), parseBody(event, UpdateGroupInputSchema));
+    const result = await groups.update(
+      auth.userId,
+      pathParam(event, 'id'),
+      parseBody(event, UpdateGroupInputSchema),
+    );
+    return result;
   });
 }
 
 export async function rotateInvite(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const { kind } = parseBody(event, RotateInviteInputSchema);
-    return groups.rotateInvite(auth.userId, pathParam(event, 'id'), kind);
+    const result = await groups.rotateInvite(auth.userId, pathParam(event, 'id'), kind);
+    return result;
   });
 }
 
 export async function requestImageUpload(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const input = parseBody(event, MediaUploadInputSchema);
-    return images.requestUpload(auth.userId, pathParam(event, 'id'), slotOf(event), input);
+    const result = await images.requestUpload(auth.userId, pathParam(event, 'id'), slotOf(event), input);
+    return result;
   });
 }
 
 export async function attachImage(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const input = parseBody(event, AttachMediaInputSchema);
-    return images.attach(auth.userId, pathParam(event, 'id'), slotOf(event), input);
+    const result = await images.attach(auth.userId, pathParam(event, 'id'), slotOf(event), input);
+    return result;
   });
 }
 
 export async function detachImage(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    return images.detach(auth.userId, pathParam(event, 'id'), slotOf(event));
+    const result = await images.detach(auth.userId, pathParam(event, 'id'), slotOf(event));
+    return result;
   });
 }
 
 export async function acceptInvite(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    return groups.acceptInvite(auth.userId, pathParam(event, 'token'));
+    const result = await groups.acceptInvite(auth.userId, pathParam(event, 'token'));
+    return result;
   });
 }
 
 export async function members(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    return groups.members(auth.userId, pathParam(event, 'id'));
+    const result = await groups.members(auth.userId, pathParam(event, 'id'));
+    return result;
   });
 }
 
@@ -173,17 +189,19 @@ export async function clearStaffRole(event: HttpEvent) {
 export async function transferGroup(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const { userId } = parseBody(event, TransferGroupInputSchema);
-    return groups.transfer(auth.userId, pathParam(event, 'id'), userId);
+    const result = await groups.transfer(auth.userId, pathParam(event, 'id'), userId);
+    return result;
   });
 }
 
 export async function inviteToMember(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    return groups.inviteToMember(
+    const result = await groups.inviteToMember(
       auth.userId,
       pathParam(event, 'id'),
       asPublicUserId(pathParam(event, 'userId')),
     );
+    return result;
   });
 }
 
@@ -199,7 +217,8 @@ export async function cancelMemberInvite(event: HttpEvent) {
 
 export async function acceptMemberInvite(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    return groups.acceptMemberInvite(auth.userId, pathParam(event, 'id'));
+    const result = await groups.acceptMemberInvite(auth.userId, pathParam(event, 'id'));
+    return result;
   });
 }
 
@@ -217,12 +236,16 @@ export async function leaveGroup(event: HttpEvent) {
 
 /** GRP-11: os próximos jogos do grupo. */
 export async function upcomingGames(event: HttpEvent) {
-  return authRoute(event, async (auth) => games.upcoming(auth.userId, pathParam(event, 'id')));
+  return authRoute(event, async (auth) => {
+    const result = await games.upcoming(auth.userId, pathParam(event, 'id'));
+    return result;
+  });
 }
 
 export async function confirm(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    return games.confirm(auth.userId, pathParam(event, 'id'), pathParam(event, 'gameId'));
+    const result = await games.confirm(auth.userId, pathParam(event, 'id'), pathParam(event, 'gameId'));
+    return result;
   });
 }
 
@@ -234,20 +257,28 @@ export async function leave(event: HttpEvent) {
 
 export async function cancel(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    return games.cancel(auth.userId, pathParam(event, 'id'), pathParam(event, 'gameId'));
+    const result = await games.cancel(auth.userId, pathParam(event, 'id'), pathParam(event, 'gameId'));
+    return result;
   });
 }
 
 export async function reopen(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    return games.reopen(auth.userId, pathParam(event, 'id'), pathParam(event, 'gameId'));
+    const result = await games.reopen(auth.userId, pathParam(event, 'id'), pathParam(event, 'gameId'));
+    return result;
   });
 }
 
 export async function updateGame(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const patch = parseBody(event, UpdateGameInputSchema);
-    return games.updateGame(auth.userId, pathParam(event, 'id'), pathParam(event, 'gameId'), patch);
+    const result = await games.updateGame(
+      auth.userId,
+      pathParam(event, 'id'),
+      pathParam(event, 'gameId'),
+      patch,
+    );
+    return result;
   });
 }
 
@@ -262,32 +293,44 @@ export async function createExtraGame(event: HttpEvent) {
 
 /** GRP-69: remarca um jogo, com a versão (`game.manage`). */
 export async function rescheduleGame(event: HttpEvent) {
-  return authRoute(event, async (auth) =>
-    games.reschedule(
+  return authRoute(event, async (auth) => {
+    const result = await games.reschedule(
       auth.userId,
       pathParam(event, 'id'),
       pathParam(event, 'gameId'),
       parseBody(event, RescheduleGameInputSchema),
-    ),
-  );
+    );
+    return result;
+  });
 }
 
 /** GRP-71: muda o nome do grupo, com a versão da identidade (`settings.edit`). */
 export async function renameGroup(event: HttpEvent) {
-  return authRoute(event, async (auth) =>
-    groups.rename(auth.userId, pathParam(event, 'id'), parseBody(event, UpdateGroupNameInputSchema)),
-  );
+  return authRoute(event, async (auth) => {
+    const result = await groups.rename(
+      auth.userId,
+      pathParam(event, 'id'),
+      parseBody(event, UpdateGroupNameInputSchema),
+    );
+    return result;
+  });
 }
 
 export async function playView(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    return games.guestView(auth.userId, pathParam(event, 'token'));
+    const result = await games.guestView(auth.userId, pathParam(event, 'token'));
+    return result;
   });
 }
 
 export async function playConfirm(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    return games.guestConfirm(auth.userId, pathParam(event, 'token'), pathParam(event, 'gameId'));
+    const result = await games.guestConfirm(
+      auth.userId,
+      pathParam(event, 'token'),
+      pathParam(event, 'gameId'),
+    );
+    return result;
   });
 }
 
@@ -299,7 +342,10 @@ export async function playLeave(event: HttpEvent) {
 
 /** GRP-63: os lugares do grupo, para membros e reservas. */
 export async function listPlaces(event: HttpEvent) {
-  return authRoute(event, async (auth) => places.list(auth.userId, pathParam(event, 'id')));
+  return authRoute(event, async (auth) => {
+    const result = await places.list(auth.userId, pathParam(event, 'id'));
+    return result;
+  });
 }
 
 /** GRP-60: cadastra um lugar (`settings.edit`). */
@@ -311,43 +357,49 @@ export async function createPlace(event: HttpEvent) {
 
 /** GRP-60: edita o lugar, com a versão (ADR 0016). */
 export async function updatePlace(event: HttpEvent) {
-  return authRoute(event, async (auth) =>
-    places.update(
+  return authRoute(event, async (auth) => {
+    const result = await places.update(
       auth.userId,
       pathParam(event, 'id'),
       pathParam(event, 'placeId'),
       parseBody(event, UpdatePlaceInputSchema),
-    ),
-  );
+    );
+    return result;
+  });
 }
 
 /** GRP-61: arquiva o lugar. */
 export async function archivePlace(event: HttpEvent) {
-  return authRoute(event, async (auth) =>
-    places.archive(
+  return authRoute(event, async (auth) => {
+    const result = await places.archive(
       auth.userId,
       pathParam(event, 'id'),
       pathParam(event, 'placeId'),
       parseBody(event, VersionInputSchema),
-    ),
-  );
+    );
+    return result;
+  });
 }
 
 /** GRP-61: desarquiva o lugar. */
 export async function unarchivePlace(event: HttpEvent) {
-  return authRoute(event, async (auth) =>
-    places.unarchive(
+  return authRoute(event, async (auth) => {
+    const result = await places.unarchive(
       auth.userId,
       pathParam(event, 'id'),
       pathParam(event, 'placeId'),
       parseBody(event, VersionInputSchema),
-    ),
-  );
+    );
+    return result;
+  });
 }
 
 /** GRP-64: os horários do grupo, para membros e reservas. */
 export async function listSchedules(event: HttpEvent) {
-  return authRoute(event, async (auth) => schedules.list(auth.userId, pathParam(event, 'id')));
+  return authRoute(event, async (auth) => {
+    const result = await schedules.list(auth.userId, pathParam(event, 'id'));
+    return result;
+  });
 }
 
 /** GRP-64, 65: cria um horário (`settings.edit`). */
@@ -361,36 +413,39 @@ export async function createSchedule(event: HttpEvent) {
 
 /** GRP-66, 67: edita o horário inteiro, com a versão (ADR 0016). */
 export async function updateSchedule(event: HttpEvent) {
-  return authRoute(event, async (auth) =>
-    schedules.update(
+  return authRoute(event, async (auth) => {
+    const result = await schedules.update(
       auth.userId,
       pathParam(event, 'id'),
       pathParam(event, 'scheduleId'),
       parseBody(event, UpdateScheduleInputSchema),
-    ),
-  );
+    );
+    return result;
+  });
 }
 
 /** GRP-67: arquiva o horário (e cancela o próximo jogo dele). */
 export async function archiveSchedule(event: HttpEvent) {
-  return authRoute(event, async (auth) =>
-    schedules.archive(
+  return authRoute(event, async (auth) => {
+    const result = await schedules.archive(
       auth.userId,
       pathParam(event, 'id'),
       pathParam(event, 'scheduleId'),
       parseBody(event, VersionInputSchema),
-    ),
-  );
+    );
+    return result;
+  });
 }
 
 /** GRP-67: desarquiva o horário. */
 export async function unarchiveSchedule(event: HttpEvent) {
-  return authRoute(event, async (auth) =>
-    schedules.unarchive(
+  return authRoute(event, async (auth) => {
+    const result = await schedules.unarchive(
       auth.userId,
       pathParam(event, 'id'),
       pathParam(event, 'scheduleId'),
       parseBody(event, VersionInputSchema),
-    ),
-  );
+    );
+    return result;
+  });
 }

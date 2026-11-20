@@ -41,8 +41,7 @@ const LOGIN: LoginResult = {
     id: PublicUserIdSchema.parse('7K3QX9TA'),
     createdAt: '2026-01-01T00:00:00.000Z',
     version: 1,
-    email: 'ana@example.com',
-    name: 'Ana',
+    private: { email: 'ana@example.com', name: 'Ana' },
     nickname: 'Aninha',
     preferences: { locale: 'en', timeZone: 'Asia/Tokyo' },
   },
@@ -111,8 +110,10 @@ describe('auth store: conta nova vai para o perfil (AUTH-13)', () => {
   it('AUTH-13: apelido trocado → não precisa do perfil, mesmo sem nome', async () => {
     const t = await boot();
     const { authApi } = await import('@scorely/web/src/modules/auth/auth.api');
-    const { name: _name, ...withoutName } = LOGIN.user;
-    vi.mocked(authApi.verifyCode).mockResolvedValue({ ...LOGIN, user: withoutName });
+    vi.mocked(authApi.verifyCode).mockResolvedValue({
+      ...LOGIN,
+      user: { ...LOGIN.user, private: { email: 'ana@example.com' } },
+    });
     await t.auth.login('ana@example.com', '123456');
     expect(t.auth.needsProfile).toBe(false);
   });
@@ -122,7 +123,7 @@ describe('auth store: conta nova vai para o perfil (AUTH-13)', () => {
     const { authApi } = await import('@scorely/web/src/modules/auth/auth.api');
     vi.mocked(authApi.verifyCode).mockResolvedValue({
       ...LOGIN,
-      user: { ...LOGIN.user, name: 'Ana', nickname: LOGIN.user.id },
+      user: { ...LOGIN.user, nickname: LOGIN.user.id },
     });
     await t.auth.login('ana@example.com', '123456');
     expect(t.auth.needsProfile).toBe(true);

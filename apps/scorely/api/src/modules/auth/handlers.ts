@@ -26,21 +26,24 @@ const auth = lazy(() =>
 export async function requestCode(event: HttpEvent) {
   return route(event, async () => {
     const { email, locale } = parseBody(event, RequestCodeInputSchema);
-    return auth().requestCode(email, locale);
+    const result = await auth().requestCode(email, locale);
+    return result;
   });
 }
 
 export async function verifyCode(event: HttpEvent) {
   return route(event, async () => {
     const { email, code } = parseBody(event, VerifyCodeInputSchema);
-    return auth().verifyCode(email, code);
+    const result = await auth().verifyCode(email, code);
+    return result;
   });
 }
 
 export async function refresh(event: HttpEvent) {
   return route(event, async () => {
     const { refreshToken } = parseBody(event, RefreshInputSchema);
-    return auth().refresh(refreshToken);
+    const result = await auth().refresh(refreshToken);
+    return result;
   });
 }
 

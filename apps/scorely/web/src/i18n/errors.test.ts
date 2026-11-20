@@ -35,7 +35,7 @@ describe('errorMessage', () => {
 
 describe('issueMessage', () => {
   it('campo específico, depois genérico pelo código do Zod', () => {
-    const parsed = UpdateMeInputSchema.safeParse({ name: '' });
+    const parsed = UpdateMeInputSchema.safeParse({ version: 1, private: { name: '' } });
     expect(parsed.success).toBe(false);
     expect(issueMessage(parsed.error?.issues[0])).toBe('Informe o nome');
     expect(issueMessage({ code: 'too_big', path: ['outro'] })).toBe('Valor muito longo');

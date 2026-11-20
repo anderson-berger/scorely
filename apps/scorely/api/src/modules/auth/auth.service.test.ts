@@ -62,7 +62,11 @@ function memoryUserRepo() {
     const profile = profiles.get(id);
     const email = emails.get(id);
     if (!profile || email === undefined) return undefined;
-    return structuredClone({ ...profile, email, preferences: prefs.get(id) ?? {} });
+    return structuredClone({
+      ...profile,
+      private: { email },
+      preferences: prefs.get(id) ?? {},
+    });
   };
   const idOf = (email: string) => [...emails.entries()].find(([, e]) => e === email)?.[0];
   const repo: UserRepository = {
@@ -85,8 +89,8 @@ function memoryUserRepo() {
       const profile = profiles.get(id);
       const preferences = prefs.get(id);
       if (!profile || !preferences) return undefined;
-      const { locale, timeZone, ...rest } = patch;
-      Object.assign(preferences, { ...(locale && { locale }), ...(timeZone && { timeZone }) });
+      const { private: _private, preferences: preferencesPatch, ...rest } = patch;
+      Object.assign(preferences, { ...preferencesPatch });
       Object.assign(profile, rest);
       return me(id);
     },
@@ -207,7 +211,7 @@ describe('auth: email normalizado e janela (AUTH-01, AUTH-02)', () => {
     const t = setup();
     await t.service.requestCode(' Ana@Example.com');
     const result = await t.service.verifyCode(EMAIL, t.lastCode());
-    expect(result.user.email).toBe(EMAIL);
+    expect(result.user.private.email).toBe(EMAIL);
     t.advance(AUTH_LIMITS.resendCooldownSeconds);
     await t.service.requestCode(EMAIL);
     const again = await t.service.verifyCode('ANA@example.com ', t.lastCode());
@@ -222,7 +226,9 @@ describe('auth: email normalizado e janela (AUTH-01, AUTH-02)', () => {
       t.advance(AUTH_LIMITS.codeTtlSeconds);
     }
     // 5 pedidos a cada 10 min: 50 min desde o 1º, ainda dentro da janela
-    expect(await errorOf(t.service.requestCode(EMAIL))).toMatchObject({ code: 'AUTH_CODE_LIMIT' });
+    expect(await errorOf(t.service.requestCode(EMAIL))).toMatchObject({
+      code: 'AUTH_CODE_LIMIT',
+    });
     t.advance(AUTH_LIMITS.codeTtlSeconds);
     await expect(t.service.requestCode(EMAIL)).resolves.toBeDefined();
   });
@@ -233,7 +239,7 @@ describe('auth: verificar código', () => {
     const t = await withCode();
     const result = await t.service.verifyCode(EMAIL, t.lastCode());
     expect(result.isNewUser).toBe(true);
-    expect(result.user.email).toBe(EMAIL);
+    expect(result.user.private.email).toBe(EMAIL);
     const userId = t.systemIdOf(EMAIL);
     expect(t.notified).toEqual([`${userId}:welcome`]);
     expect(verifyJwt(result.accessToken, SECRET, t.nowSeconds())?.sub).toBe(userId);
@@ -343,7 +349,7 @@ describe('auth: idioma do email do código', () => {
     const t = setup();
     await t.service.requestCode(EMAIL, 'en');
     const result = await t.service.verifyCode(EMAIL, codeIn(t.sent[0]?.text ?? '') ?? '');
-    expect(result.user.email).toBe(EMAIL);
+    expect(result.user.private.email).toBe(EMAIL);
   });
 
   it('caso 6: requestCode sem locale → email em português (igual a hoje)', async () => {
@@ -376,17 +382,27 @@ describe('auth: a pessoa e as preferências no login e na renovação (USR-14)',
   it('AUTH-06: o login devolve a pessoa com o email e as preferências (vazias numa conta nova)', async () => {
     const t = await withCode();
     const result = await t.service.verifyCode(EMAIL, t.lastCode());
-    expect(result.user).toMatchObject({ email: EMAIL, preferences: {} });
+    expect(result.user).toMatchObject({
+      private: { email: EMAIL },
+      preferences: {},
+    });
+    expect(result.user).not.toHaveProperty('email');
     expect(result.user).not.toHaveProperty('locale');
     expect(result.user).not.toHaveProperty('timeZone');
   });
 
   it('AUTH-06: o login traz o idioma e o fuso guardados nas preferências', async () => {
     const t = await loggedIn();
-    await t.users.update(t.systemIdOf(EMAIL), { version: 1, locale: 'en', timeZone: 'Asia/Tokyo' });
+    await t.users.update(t.systemIdOf(EMAIL), {
+      version: 1,
+      preferences: { locale: 'en', timeZone: 'Asia/Tokyo' },
+    });
     const again = await loginAgain(t);
-    expect(again.user.preferences).toEqual({ locale: 'en', timeZone: 'Asia/Tokyo' });
-    expect(again.user.email).toBe(EMAIL);
+    expect(again.user.preferences).toEqual({
+      locale: 'en',
+      timeZone: 'Asia/Tokyo',
+    });
+    expect(again.user.private.email).toBe(EMAIL);
   });
 
   it('AUTH-07: a renovação devolve as preferências atuais da pessoa', async () => {
@@ -398,9 +414,15 @@ describe('auth: a pessoa e as preferências no login e na renovação (USR-14)',
   it('AUTH-07: mudou num aparelho → a renovação do outro já traz as preferências novas', async () => {
     const t = await loggedIn();
     const other = await loginAgain(t);
-    await t.users.update(t.systemIdOf(EMAIL), { version: 1, locale: 'en', timeZone: 'Europe/Lisbon' });
+    await t.users.update(t.systemIdOf(EMAIL), {
+      version: 1,
+      preferences: { locale: 'en', timeZone: 'Europe/Lisbon' },
+    });
     const next = await t.service.refresh(other.refreshToken);
-    expect(next.preferences).toEqual({ locale: 'en', timeZone: 'Europe/Lisbon' });
+    expect(next.preferences).toEqual({
+      locale: 'en',
+      timeZone: 'Europe/Lisbon',
+    });
     expect(next.refreshToken).not.toBe(other.refreshToken);
     expect(verifyJwt(next.accessToken, SECRET, t.nowSeconds())?.sub).toBe(t.systemIdOf(EMAIL));
   });

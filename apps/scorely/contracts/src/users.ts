@@ -1,4 +1,4 @@
-import { hasChanges, VersionSchema } from '@scorely/contracts/src/entity';
+import { VersionSchema } from '@scorely/contracts/src/entity';
 import { z } from 'zod';
 
 /** Alfabeto do id público (Crockford base32: sem `I`, `L`, `O` e `U`). */
@@ -47,7 +47,10 @@ export const TimeZoneSchema = z
 export type TimeZone = z.infer<typeof TimeZoneSchema>;
 
 /** Limites do nome e do apelido (USR-03). */
-export const USER_LIMITS = { name: { min: 1, max: 80 }, nickname: { min: 1, max: 40 } } as const;
+export const USER_LIMITS = {
+  name: { min: 1, max: 80 },
+  nickname: { min: 1, max: 40 },
+} as const;
 
 /**
  * O perfil da pessoa: o que os outros módulos podem ler. Sem email nem nome (USR-13) e sem preferências (USR-14).
@@ -72,30 +75,53 @@ export const PreferencesSchema = z.object({
 });
 export type Preferences = z.infer<typeof PreferencesSchema>;
 
-/** `GET /me`, `PATCH /me` e as rotas da foto: o perfil, o email e o nome (só para a própria pessoa, USR-13) e as preferências. */
+/** Só a própria pessoa recebe (USR-13): o email e o nome. */
+export const PrivateSchema = z.object({
+  email: z.email(),
+  name: z.string().min(USER_LIMITS.name.min).max(USER_LIMITS.name.max).optional(),
+});
+export type Private = z.infer<typeof PrivateSchema>;
+
+/**
+ * `GET /me`, `PATCH /me`, as rotas da foto e o `user` do login: a raiz é o perfil (como os outros veem) e a `version`;
+ * `private` (USR-13) e `preferences` (USR-14) só a própria pessoa recebe. Sem `updatedAt` (ADR 0013).
+ */
 export const MeSchema = UserSchema.extend({
   /** USR-18: a versão do perfil, que o `PATCH /me` manda. */
   version: VersionSchema,
-  email: z.email(),
-  name: z.string().min(USER_LIMITS.name.min).max(USER_LIMITS.name.max).optional(),
+  private: PrivateSchema,
   preferences: PreferencesSchema,
 });
 export type Me = z.infer<typeof MeSchema>;
 
-/** PATCH /me. O apelido não pode ser removido (USR-03). */
+/** Há algum campo no grupo (um grupo vazio não conta como mudança). */
+function hasKeys(group: unknown): boolean {
+  return typeof group === 'object' && group !== null && Object.keys(group).length > 0;
+}
+
+/** PATCH /me, no mesmo formato da resposta. O apelido não pode ser removido (USR-03). */
 export const UpdateMeInputSchema = z
   .object({
-    name: z.string().trim().min(USER_LIMITS.name.min, 'Name is required').max(USER_LIMITS.name.max),
     nickname: z
       .string()
       .trim()
       .min(USER_LIMITS.nickname.min, 'Nickname is required')
       .max(USER_LIMITS.nickname.max),
     gender: GenderSchema,
-    locale: LocaleSchema,
-    timeZone: TimeZoneSchema,
+    private: z
+      .object({
+        name: z.string().trim().min(USER_LIMITS.name.min, 'Name is required').max(USER_LIMITS.name.max),
+      })
+      .partial(),
+    preferences: z.object({ locale: LocaleSchema, timeZone: TimeZoneSchema }).partial(),
   })
   .partial()
   .extend({ version: VersionSchema })
-  .refine(hasChanges, 'Nothing to update');
+  .refine(
+    (patch) =>
+      Object.entries(patch).some(([key, value]) =>
+        key === 'version' ? false : key === 'private' || key === 'preferences' ? hasKeys(value) : true,
+      ),
+    'Nothing to update',
+  );
 export type UpdateMeInput = z.infer<typeof UpdateMeInputSchema>;

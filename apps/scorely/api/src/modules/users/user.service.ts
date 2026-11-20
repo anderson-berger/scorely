@@ -21,13 +21,22 @@ const PUBLIC_ID_ATTEMPTS = 3;
 
 /**
  * USR-16: a pessoa como sai na resposta: `id` = id público, sem `publicId` nem `avatarMediaId`. A `avatarUrl` é
- * montada pelo id da mídia (MID-12): nenhum item guarda a URL. O `updatedAt` e a `version` são os do perfil (ADR 0013).
+ * montada pelo id da mídia (MID-12): nenhum item guarda a URL. A `version` é a do perfil; o `updatedAt` não sai (ADR 0013).
  */
 export function toMe(record: MeRecord, urlOf: MediaService['urlOf']): Me {
-  const { id: _id, publicId, avatarMediaId, ...rest } = record;
+  const { publicId, avatarMediaId, gender } = record;
+  // Campo a campo: nada do banco sai sem estar no contrato (USR-13, ADR 0013).
   return {
     id: publicId,
-    ...rest,
+    nickname: record.nickname,
+    ...(gender !== undefined && { gender }),
+    createdAt: record.createdAt,
+    version: record.version,
+    private: {
+      email: record.private.email,
+      ...(record.private.name !== undefined && { name: record.private.name }),
+    },
+    preferences: record.preferences,
     ...(avatarMediaId !== undefined && { avatarUrl: urlOf('avatar', avatarMediaId) }),
   };
 }
@@ -56,7 +65,7 @@ export function createUserService(
     const user = newEntity<UserRecord>({ publicId, nickname: publicId, version: 1 }, now());
     const result = await repo.create(user, email);
     if (result === 'created') {
-      return { userId: user.id, me: show({ ...user, email, preferences: {} }), created: true };
+      return { userId: user.id, me: show({ ...user, private: { email }, preferences: {} }), created: true };
     }
     if (result === 'public_id_taken') {
       if (attempt >= PUBLIC_ID_ATTEMPTS) throw appError('USER_CREATE_CONFLICT');

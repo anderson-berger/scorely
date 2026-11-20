@@ -8,19 +8,19 @@ const ME = {
   id: PublicUserIdSchema.parse('7K3QX9TA'),
   createdAt: '2026-01-01T00:00:00.000Z',
   version: 1,
-  email: 'ana@example.com',
+  private: { email: 'ana@example.com' },
   preferences: {},
 };
 
 describe('nome mostrado (USR-04)', () => {
   it('USR-04: mostra o apelido, mesmo com o nome preenchido', () => {
-    const me: Me = { ...ME, name: 'Ana Souza', nickname: 'Aninha' };
+    const me: Me = { ...ME, private: { email: 'ana@example.com', name: 'Ana Souza' }, nickname: 'Aninha' };
     expect(displayName(me)).toBe('Aninha');
   });
 
   it('USR-04: conta nova mostra o apelido inicial (o código, USR-02), nunca o email', () => {
     const shown = displayName({ ...ME, nickname: ME.id });
     expect(shown).toBe('7K3QX9TA');
-    expect(shown).not.toBe(ME.email);
+    expect(shown).not.toBe(ME.private.email);
   });
 });

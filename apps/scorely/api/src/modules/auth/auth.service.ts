@@ -1,11 +1,11 @@
 import { hmac, randomCode, randomToken, safeEqual } from '@scorely/api/src/lib/crypto';
-import type { Mailer } from '@scorely/api/src/lib/email';
+import { type Mailer, normalizeEmail } from '@scorely/api/src/lib/email';
 import { newEntity } from '@scorely/api/src/lib/entity';
 import { appError } from '@scorely/api/src/lib/errors';
 import type { UserId } from '@scorely/api/src/lib/ids';
 import { signJwt } from '@scorely/api/src/lib/jwt';
 import type { AuthRepository } from '@scorely/api/src/modules/auth/auth.repository';
-import { type LoginCode, normalizeEmail, type Session } from '@scorely/api/src/modules/auth/auth.table';
+import type { LoginCode, Session } from '@scorely/api/src/modules/auth/auth.table';
 import { loginCodeEmail } from '@scorely/api/src/modules/auth/login-code.email';
 import type { NotificationService } from '@scorely/api/src/modules/notifications/notification.service';
 import type { UserService } from '@scorely/api/src/modules/users/user.service';

@@ -1,6 +1,6 @@
 # Módulo Usuários
 
-> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-15.
+> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-20.
 
 Código: `apps/scorely/api/src/modules/users/`, `apps/scorely/web/src/modules/users/`, `apps/scorely/web/src/lib/preferences.ts`. Contrato: `apps/scorely/contracts/src/users.ts`.
 
@@ -26,6 +26,9 @@ Os dados da pessoa ficam em três partes, cada uma com quem pode ler:
 - **USR-13. O email e o nome ficam fora do perfil.** Os dois são guardados à parte, na parte privada, e só o login e a própria pessoa (`GET /me`) os leem. Quando outro módulo busca pessoas (membros, lista do jogo, times, ranking), nenhum dos dois vem junto.
   - _Por quê:_ o email é o dado mais sensível da conta, e o nome completo não serve para os outros (na pelada todo mundo é o apelido, USR-04). Guardados longe do perfil, um erro numa resposta de lista não tem como vazá-los.
   - _Alterada em 2026-11-14:_ antes só o email ficava à parte, e o nome ia para o ranking, os times e a configuração de times.
+  - Na resposta da própria pessoa (`GET /me`, `PATCH /me`, as rotas da foto e o login), o email e o nome vêm dentro de `private`, e não na raiz. A raiz é o perfil, igual ao que os outros veem; `private` e `preferences` só a própria pessoa recebe.
+    - _Por quê:_ a fronteira fica no formato da resposta, sem depender de comentário: o que está na raiz é público, e o que está agrupado é só da pessoa.
+    - _Alterada em 2026-11-20:_ antes o email e o nome vinham na raiz, misturados com o perfil.
 - **USR-15. Cada pessoa tem um id público, o código de amigo.** São 8 caracteres de letras maiúsculas e dígitos, sem `I`, `L`, `O` e `U` (ex.: `7K3QX9TA`).
   - Nasce no primeiro login, é único e não muda.
   - A pessoa vê o próprio código no perfil, com um botão para copiar.
@@ -97,9 +100,12 @@ Os dados da pessoa ficam em três partes, cada uma com quem pode ler:
 | Email → usuário      | `LOOKUP#USER#EMAIL#<email>` / `META`     | email único (USR-01)                                                                                                              |
 | Id público → usuário | `LOOKUP#USER#PUBLIC#<publicId>` / `META` | código único (USR-15); a tradução da entrada (USR-17)                                                                             |
 
-Os três itens da pessoa têm `createdAt`, `updatedAt` e `version` ([ADR 0013](../decisions/0013-version-e-updatedat.md)).
+- O `<email>` da chave do lookup já vem normalizado (USR-01): quem monta a chave normaliza, como no código de login (AUTH-01).
+- **Só o perfil (`META`) é entidade:** tem `createdAt`, `updatedAt` e `version` ([ADR 0013](../decisions/0013-version-e-updatedat.md)). A parte privada e as preferências não são entidades: têm só o `createdAt`, sem `updatedAt` nem `version`, como os lookups.
+  - _Por quê:_ toda mudança pelo `PATCH /me` soma 1 na `version` do perfil, mesmo quando muda só o nome ou o fuso (USR-18). Essa `version` já conta as mudanças da pessoa inteira. A dos outros dois itens subia junto e nada a conferia: era só ruído.
+  - _Alterada em 2026-11-20:_ antes os três itens tinham `updatedAt` e `version`.
 
-O primeiro login grava o perfil (com o apelido igual ao código), a parte privada, as preferências e os dois lookups numa transação só. Se o código sorteado já existir, a transação falha e o login sorteia outro (até 3 vezes). O `PATCH /me` grava no perfil, na parte privada e nas preferências, cada campo na sua parte, também numa transação.
+O primeiro login grava o perfil (com o apelido igual ao código), a parte privada, as preferências (vazias) e os dois lookups numa transação só. Os três itens da pessoa existem sempre: o `PATCH /me` só altera, nunca cria. Se o código sorteado já existir, a transação falha e o login sorteia outro (até 3 vezes). O `PATCH /me` grava no perfil, na parte privada e nas preferências, cada campo na sua parte, também numa transação.
 
 Os outros módulos leem pessoas pelo `UserDirectory`, que só busca o perfil (`META`). Ele também traduz ids públicos para ids do sistema (USR-17); o que não existe fica de fora, e o módulo responde o erro de pessoa fora do grupo.
 
@@ -113,7 +119,29 @@ Os outros módulos leem pessoas pelo `UserDirectory`, que só busca o perfil (`M
 | `PUT /me/avatar`         | logado | USR-08 (MID-05–09)  |
 | `DELETE /me/avatar`      | logado | USR-08 (MID-10)     |
 
-O `GET /me` e o `PATCH /me` devolvem o perfil (com `id` = id público, USR-16), o email, o nome e as preferências (`preferences: { locale?, timeZone? }`). Nas rotas dos outros módulos, todo `{userId}` e todo `userId` do corpo é o id público, e a pessoa vem com o `nickname` (USR-04). O `name` só existe no `GET /me` e no `PATCH /me`: nenhuma outra resposta tem esse campo para uma pessoa com conta (USR-13).
+O `GET /me`, o `PATCH /me`, as rotas da foto e o login (`POST /auth/verify`, campo `user`) devolvem a pessoa no mesmo formato:
+
+```json
+{
+  "id": "7K3M9QXZ",
+  "nickname": "Fulaninho",
+  "gender": "M",
+  "avatarUrl": "https://…/public/avatar/<mediaId>",
+  "createdAt": "…",
+  "version": 3,
+  "private": { "email": "fulano@exemplo.com", "name": "Fulano" },
+  "preferences": { "locale": "pt-BR", "timeZone": "America/Sao_Paulo" }
+}
+```
+
+- A raiz é o perfil (`id` = id público, USR-16) e a `version` dele (USR-18). `private` traz o email e o nome (USR-13); `preferences`, o idioma e o fuso (USR-14).
+- A resposta tem só esses campos: ela é montada campo a campo a partir do contrato, e nada do banco sai sem estar nele (nem o `updatedAt`, nem campo novo do perfil).
+  - _Por quê:_ espalhar o item do banco na resposta fazia todo campo novo gravado no perfil sair no `/me` sem ninguém decidir.
+  - _Alterada em 2026-11-20:_ antes a resposta espalhava o item do perfil, e o `updatedAt` saía fora do contrato.
+
+O corpo do `PATCH /me` tem o mesmo formato: `{ version, nickname?, gender?, private?: { name? }, preferences?: { locale?, timeZone? } }`. Pelo menos um campo tem que mudar (USR-03); um grupo vazio (`preferences: {}`) não conta como mudança.
+
+Nas rotas dos outros módulos, todo `{userId}` e todo `userId` do corpo é o id público, e a pessoa vem com o `nickname` (USR-04). O `name` e o `email` só existem no `private` das respostas da própria pessoa: nenhuma outra resposta tem esse campo para uma pessoa com conta (USR-13).
 
 Erros: `VERSION_CONFLICT` (409, USR-18), `USER_CREATE_CONFLICT`, `USER_NICKNAME_IS_PUBLIC_ID` (422, USR-03) e `SESSION_INVALID` (401) quando a conta do token não existe mais (AUTH-16 em [auth.md](auth.md)). Os da foto vêm da mídia (`MEDIA_NOT_FOUND`, `MEDIA_NOT_UPLOADED` e `MEDIA_INVALID`).
 

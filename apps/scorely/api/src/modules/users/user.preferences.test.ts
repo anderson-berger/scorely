@@ -32,7 +32,11 @@ function memoryUserRepo() {
     const profile = profiles.get(id);
     const priv = privates.get(id);
     if (!profile || priv === undefined) return undefined;
-    return structuredClone({ ...profile, ...priv, preferences: prefs.get(id) ?? {} });
+    return structuredClone({
+      ...profile,
+      private: priv,
+      preferences: prefs.get(id) ?? {},
+    });
   };
   const idOf = (email: string) => [...privates.entries()].find(([, p]) => p.email === email)?.[0];
   const assign = (target: Record<string, unknown>, patch: Record<string, unknown>) =>
@@ -65,9 +69,9 @@ function memoryUserRepo() {
         throw appError('VERSION_CONFLICT', { currentVersion: profile.version });
       writes.count += 1;
       profile.version += 1;
-      const { locale, timeZone, name, version: _version, ...rest } = patch;
-      assign(preferences, { locale, timeZone });
-      assign(priv, { name });
+      const { private: privatePatch, preferences: preferencesPatch, version: _version, ...rest } = patch;
+      assign(preferences, { ...preferencesPatch });
+      assign(priv, { ...privatePatch });
       assign(profile, rest);
       return me(id);
     },
@@ -97,7 +101,9 @@ async function withUser() {
     const version = memory.profiles.get(userId)?.version ?? 0;
     const withVersion =
       body && typeof body === 'object' && !Array.isArray(body) ? { version, ...body } : body;
-    const event = { body: JSON.stringify(withVersion) } as APIGatewayProxyEventV2;
+    const event = {
+      body: JSON.stringify(withVersion),
+    } as APIGatewayProxyEventV2;
     return route(event, async () => service.update(userId, parseBody(event, UpdateMeInputSchema)));
   };
   return { service, userId, memory, writes: memory.writes, patchMe };
@@ -106,53 +112,87 @@ async function withUser() {
 const bodyOf = (res: unknown) => JSON.parse((res as { body: string }).body);
 
 describe('perfil: idioma e fuso nas preferências', () => {
-  it('USR-14: PATCH /me { locale, timeZone } → 200 com as preferências; GET /me devolve as mesmas', async () => {
+  it('USR-14: PATCH /me { preferences: { locale, timeZone } } → 200 com as preferências; GET /me devolve as mesmas', async () => {
     const t = await withUser();
-    const res = await t.patchMe({ locale: 'en', timeZone: 'Europe/Lisbon' });
+    const res = await t.patchMe({
+      preferences: { locale: 'en', timeZone: 'Europe/Lisbon' },
+    });
     expect(res).toMatchObject({ statusCode: 200 });
     const body = bodyOf(res);
-    expect(body).toMatchObject({ id: PUBLIC_ID, email: EMAIL });
-    expect(body.preferences).toEqual({ locale: 'en', timeZone: 'Europe/Lisbon' });
+    expect(body).toMatchObject({ id: PUBLIC_ID, private: { email: EMAIL } });
+    expect(body).not.toHaveProperty('email');
+    expect(body.preferences).toEqual({
+      locale: 'en',
+      timeZone: 'Europe/Lisbon',
+    });
     expect(body).not.toHaveProperty('locale');
     expect(body).not.toHaveProperty('timeZone');
-    expect((await t.service.get(t.userId)).preferences).toEqual({ locale: 'en', timeZone: 'Europe/Lisbon' });
+    expect((await t.service.get(t.userId)).preferences).toEqual({
+      locale: 'en',
+      timeZone: 'Europe/Lisbon',
+    });
   });
 
   it('USR-14: idioma e fuso são gravados nas preferências, nunca no perfil', async () => {
     const t = await withUser();
-    await t.patchMe({ locale: 'en', timeZone: 'Europe/Lisbon' });
+    await t.patchMe({
+      preferences: { locale: 'en', timeZone: 'Europe/Lisbon' },
+    });
     expect(t.memory.profiles.get(t.userId)).not.toHaveProperty('locale');
     expect(t.memory.profiles.get(t.userId)).not.toHaveProperty('timeZone');
-    expect(t.memory.prefs.get(t.userId)).toEqual({ locale: 'en', timeZone: 'Europe/Lisbon' });
+    expect(t.memory.prefs.get(t.userId)).toEqual({
+      locale: 'en',
+      timeZone: 'Europe/Lisbon',
+    });
   });
 
   it('USR-03: PATCH /me misto → apelido no perfil, nome na parte privada (USR-13), idioma nas preferências', async () => {
     const t = await withUser();
-    const res = await t.patchMe({ name: 'Ana Souza', nickname: 'Aninha', locale: 'en' });
-    expect(res).toMatchObject({ statusCode: 200 });
-    expect(bodyOf(res)).toMatchObject({
-      name: 'Ana Souza',
+    const res = await t.patchMe({
+      private: { name: 'Ana Souza' },
       nickname: 'Aninha',
       preferences: { locale: 'en' },
     });
-    expect(t.memory.profiles.get(t.userId)).toMatchObject({ nickname: 'Aninha' });
+    expect(res).toMatchObject({ statusCode: 200 });
+    expect(bodyOf(res)).toMatchObject({
+      private: { name: 'Ana Souza' },
+      nickname: 'Aninha',
+      preferences: { locale: 'en' },
+    });
+    expect(t.memory.profiles.get(t.userId)).toMatchObject({
+      nickname: 'Aninha',
+    });
     expect(t.memory.profiles.get(t.userId)).not.toHaveProperty('name');
-    expect(t.memory.privates.get(t.userId)).toEqual({ email: EMAIL, name: 'Ana Souza' });
+    expect(t.memory.privates.get(t.userId)).toEqual({
+      email: EMAIL,
+      name: 'Ana Souza',
+    });
     expect(t.memory.prefs.get(t.userId)).toEqual({ locale: 'en' });
   });
 
   it('USR-03: PATCH /me só do perfil não mexe nas preferências', async () => {
     const t = await withUser();
-    await t.patchMe({ locale: 'en', timeZone: 'Asia/Tokyo' });
-    const res = await t.patchMe({ name: 'Ana' });
-    expect(bodyOf(res).preferences).toEqual({ locale: 'en', timeZone: 'Asia/Tokyo' });
+    await t.patchMe({ preferences: { locale: 'en', timeZone: 'Asia/Tokyo' } });
+    const res = await t.patchMe({ private: { name: 'Ana' } });
+    expect(bodyOf(res).preferences).toEqual({
+      locale: 'en',
+      timeZone: 'Asia/Tokyo',
+    });
   });
 
   it('USR-03: PATCH /me só do idioma não mexe no perfil', async () => {
     const t = await withUser();
-    await t.patchMe({ name: 'Ana', nickname: 'Aninha', gender: 'F' });
-    const res = await t.patchMe({ locale: 'en' });
-    expect(bodyOf(res)).toMatchObject({ name: 'Ana', nickname: 'Aninha', gender: 'F' });
+    await t.patchMe({
+      private: { name: 'Ana' },
+      nickname: 'Aninha',
+      gender: 'F',
+    });
+    const res = await t.patchMe({ preferences: { locale: 'en' } });
+    expect(bodyOf(res)).toMatchObject({
+      private: { name: 'Ana' },
+      nickname: 'Aninha',
+      gender: 'F',
+    });
   });
 
   it('USR-03: apelido null → 422 VALIDATION_ERROR, nada gravado e o apelido continua', async () => {
@@ -179,28 +219,63 @@ describe('perfil: idioma e fuso nas preferências', () => {
 
   it('USR-03: apelido com 40 caracteres passa; com 41 → 422 VALIDATION_ERROR', async () => {
     const t = await withUser();
-    expect(await t.patchMe({ nickname: 'a'.repeat(40) })).toMatchObject({ statusCode: 200 });
-    expect(await t.patchMe({ nickname: 'a'.repeat(41) })).toMatchObject({ statusCode: 422 });
+    expect(await t.patchMe({ nickname: 'a'.repeat(40) })).toMatchObject({
+      statusCode: 200,
+    });
+    expect(await t.patchMe({ nickname: 'a'.repeat(41) })).toMatchObject({
+      statusCode: 422,
+    });
   });
 
   it('USR-05: PATCH /me { timeZone: Mars/Olympus } → 422 VALIDATION_ERROR e nada gravado', async () => {
     const t = await withUser();
-    const res = await t.patchMe({ timeZone: 'Mars/Olympus' });
+    const res = await t.patchMe({ preferences: { timeZone: 'Mars/Olympus' } });
     expect(res).toMatchObject({ statusCode: 422 });
     const { error } = bodyOf(res);
     expect(error.code).toBe('VALIDATION_ERROR');
-    expect(error.details.issues[0]).toMatchObject({ code: 'custom', path: ['timeZone'] });
+    expect(error.details.issues[0]).toMatchObject({
+      code: 'custom',
+      path: ['preferences', 'timeZone'],
+    });
     expect(t.writes.count).toBe(0);
     expect((await t.service.get(t.userId)).preferences.timeZone).toBeUndefined();
   });
 
   it('USR-03: PATCH /me { locale: es } → 422 VALIDATION_ERROR', async () => {
     const t = await withUser();
-    const res = await t.patchMe({ locale: 'es' });
+    const res = await t.patchMe({ preferences: { locale: 'es' } });
     expect(res).toMatchObject({ statusCode: 422 });
     const { error } = bodyOf(res);
     expect(error.code).toBe('VALIDATION_ERROR');
-    expect(error.details.issues[0]).toMatchObject({ code: 'invalid_value', path: ['locale'] });
+    expect(error.details.issues[0]).toMatchObject({
+      code: 'invalid_value',
+      path: ['preferences', 'locale'],
+    });
+    expect(t.writes.count).toBe(0);
+  });
+
+  it('USR-03: PATCH /me só do fuso grava nas preferências, soma 1 na version e não mexe no resto', async () => {
+    const t = await withUser();
+    const before = t.memory.profiles.get(t.userId)?.version ?? 0;
+    const res = await t.patchMe({
+      preferences: { timeZone: 'America/Manaus' },
+    });
+    expect(res).toMatchObject({ statusCode: 200 });
+    expect(bodyOf(res)).toMatchObject({
+      version: before + 1,
+      preferences: { timeZone: 'America/Manaus' },
+    });
+    expect(t.memory.prefs.get(t.userId)).toEqual({
+      timeZone: 'America/Manaus',
+    });
+    expect(t.memory.privates.get(t.userId)).toEqual({ email: EMAIL });
+  });
+
+  it('USR-03: PATCH /me só com grupo vazio (`preferences: {}`) → 422 VALIDATION_ERROR e nada gravado', async () => {
+    const t = await withUser();
+    const res = await t.patchMe({ preferences: {} });
+    expect(res).toMatchObject({ statusCode: 422 });
+    expect(bodyOf(res).error.code).toBe('VALIDATION_ERROR');
     expect(t.writes.count).toBe(0);
   });
 
@@ -210,7 +285,7 @@ describe('perfil: idioma e fuso nas preferências', () => {
 
   it('USR-05: PATCH /me grava o fuso das preferências no nome canônico', async () => {
     const t = await withUser();
-    await t.patchMe({ timeZone: 'Brazil/East' });
+    await t.patchMe({ preferences: { timeZone: 'Brazil/East' } });
     expect((await t.service.get(t.userId)).preferences.timeZone).toBe('America/Sao_Paulo');
   });
 });

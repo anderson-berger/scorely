@@ -45,7 +45,11 @@ const players = createPlayerService({
 });
 const teams = createTeamsService({
   groups: dynamoGroupRepository,
-  roster: { game: games.gameRoster, materialize: games.materialize, guestView: games.guestRoster },
+  roster: {
+    game: games.gameRoster,
+    materialize: games.materialize,
+    guestView: games.guestRoster,
+  },
   players: dynamoPlayerRepository,
   users: dynamoUserDirectory,
   notifications: groupsDeps.notifications,
@@ -63,45 +67,51 @@ const teamSettings = createTeamSettingsService({
 
 export async function listPlayers(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    return players.list(auth.userId, pathParam(event, 'id'));
+    const result = await players.list(auth.userId, pathParam(event, 'id'));
+    return result;
   });
 }
 
 export async function updatePlayer(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const input = parseBody(event, UpdatePlayerInputSchema);
-    return players.update(
+    const result = await players.update(
       auth.userId,
       pathParam(event, 'id'),
       asPublicUserId(pathParam(event, 'userId')),
       input,
     );
+    return result;
   });
 }
 
 export async function getTeamSettings(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    return teamSettings.get(auth.userId, pathParam(event, 'id'));
+    const result = await teamSettings.get(auth.userId, pathParam(event, 'id'));
+    return result;
   });
 }
 
 export async function updateTeamSettings(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const input = parseBody(event, UpdateTeamSettingsInputSchema);
-    return teamSettings.update(auth.userId, pathParam(event, 'id'), input);
+    const result = await teamSettings.update(auth.userId, pathParam(event, 'id'), input);
+    return result;
   });
 }
 
 export async function getTeams(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    return teams.get(auth.userId, pathParam(event, 'id'), pathParam(event, 'gameId'));
+    const result = await teams.get(auth.userId, pathParam(event, 'id'), pathParam(event, 'gameId'));
+    return result;
   });
 }
 
 export async function saveTeams(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const input = parseBody(event, SaveTeamsInputSchema);
-    return teams.save(auth.userId, pathParam(event, 'id'), pathParam(event, 'gameId'), input);
+    const result = await teams.save(auth.userId, pathParam(event, 'id'), pathParam(event, 'gameId'), input);
+    return result;
   });
 }
 
@@ -109,7 +119,13 @@ export async function publishTeams(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     // TIM-25: a versão dos times que a tela mostrou.
     const input = parseBody(event, VersionInputSchema);
-    return teams.publish(auth.userId, pathParam(event, 'id'), pathParam(event, 'gameId'), input);
+    const result = await teams.publish(
+      auth.userId,
+      pathParam(event, 'id'),
+      pathParam(event, 'gameId'),
+      input,
+    );
+    return result;
   });
 }
 
@@ -117,7 +133,8 @@ export async function drawTeams(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     // TIM-25: a versão dos times que a tela mostrou.
     const input = parseBody(event, VersionInputSchema);
-    return teams.draw(auth.userId, pathParam(event, 'id'), pathParam(event, 'gameId'), input);
+    const result = await teams.draw(auth.userId, pathParam(event, 'id'), pathParam(event, 'gameId'), input);
+    return result;
   });
 }
 
@@ -125,7 +142,13 @@ export async function unpublishTeams(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     // TIM-25: a versão dos times que a tela mostrou.
     const input = parseBody(event, VersionInputSchema);
-    return teams.unpublish(auth.userId, pathParam(event, 'id'), pathParam(event, 'gameId'), input);
+    const result = await teams.unpublish(
+      auth.userId,
+      pathParam(event, 'id'),
+      pathParam(event, 'gameId'),
+      input,
+    );
+    return result;
   });
 }
 
@@ -138,6 +161,7 @@ export async function discardTeams(event: HttpEvent) {
 
 export async function guestTeams(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    return teams.guestGet(auth.userId, pathParam(event, 'token'), pathParam(event, 'gameId'));
+    const result = await teams.guestGet(auth.userId, pathParam(event, 'token'), pathParam(event, 'gameId'));
+    return result;
   });
 }

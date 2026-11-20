@@ -8,31 +8,36 @@ const users = createUserService(dynamoUserRepository);
 
 export async function me(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    return users.get(auth.userId);
+    const user = await users.get(auth.userId);
+    return user;
   });
 }
 
 export async function updateMe(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const patch = parseBody(event, UpdateMeInputSchema);
-    return users.update(auth.userId, patch);
+    const result = await users.update(auth.userId, patch);
+    return result;
   });
 }
 
 export async function requestAvatarUpload(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    return users.requestAvatarUpload(auth.userId, parseBody(event, MediaUploadInputSchema));
+    const result = await users.requestAvatarUpload(auth.userId, parseBody(event, MediaUploadInputSchema));
+    return result;
   });
 }
 
 export async function setAvatar(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    return users.setAvatar(auth.userId, parseBody(event, AttachMediaInputSchema));
+    const result = await users.setAvatar(auth.userId, parseBody(event, AttachMediaInputSchema));
+    return result;
   });
 }
 
 export async function clearAvatar(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    return users.clearAvatar(auth.userId);
+    const result = await users.clearAvatar(auth.userId);
+    return result;
   });
 }

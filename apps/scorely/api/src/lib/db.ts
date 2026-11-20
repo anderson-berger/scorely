@@ -10,6 +10,7 @@ import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
 import { type AppError, appError } from '@scorely/api/src/lib/errors';
 import { chunk } from '@scorely/api/src/lib/fn';
 import { LOGIN_CODE_ENTITY, SESSION_ENTITY } from '@scorely/api/src/modules/auth/auth.table';
+import { USER_PREFERENCES_ENTITY, USER_PRIVATE_ENTITY } from '@scorely/api/src/modules/users/user.table';
 import { z } from 'zod';
 
 export interface Key {
@@ -22,12 +23,17 @@ export const LOOKUP_ENTITY = 'Lookup';
 /** `entity` do contador que nasce por `Put` (ex.: `GROUP#<id> / COUNTERS`). */
 export const COUNTERS_ENTITY = 'Counters';
 
-/** Itens que não são entidades: sem `updatedAt` nem `version` (ADR 0013). Inclui o código de login e a sessão do auth. */
+/**
+ * Itens que não são entidades: sem `updatedAt` nem `version` (ADR 0013). Inclui o código de login e a sessão do auth
+ * e a parte privada e as preferências do usuário (a `version` da pessoa é a do `META`, USR-18).
+ */
 const NOT_ENTITIES: ReadonlySet<string> = new Set([
   LOOKUP_ENTITY,
   COUNTERS_ENTITY,
   LOGIN_CODE_ENTITY,
   SESSION_ENTITY,
+  USER_PRIVATE_ENTITY,
+  USER_PREFERENCES_ENTITY,
 ]);
 
 /** Remove os atributos de infraestrutura antes de devolver a entidade (`updatedAt` e `version` saem, ADR 0013). */

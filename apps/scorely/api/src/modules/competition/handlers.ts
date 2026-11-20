@@ -64,67 +64,92 @@ const matches = createMatchService({
 });
 
 export async function getCompetition(event: HttpEvent) {
-  return authRoute(event, async (auth) => competition.get(auth.userId, pathParam(event, 'id')));
+  return authRoute(event, async (auth) => {
+    const result = await competition.get(auth.userId, pathParam(event, 'id'));
+    return result;
+  });
 }
 
 export async function startCompetitionTrial(event: HttpEvent) {
-  return authRoute(event, async (auth) => competition.startTrial(auth.userId, pathParam(event, 'id')));
+  return authRoute(event, async (auth) => {
+    const result = await competition.startTrial(auth.userId, pathParam(event, 'id'));
+    return result;
+  });
 }
 
 export async function updateCompetitionRules(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const input = parseBody(event, UpdateCompetitionRulesInputSchema);
-    return competition.updateRules(auth.userId, pathParam(event, 'id'), input);
+    const result = await competition.updateRules(auth.userId, pathParam(event, 'id'), input);
+    return result;
   });
 }
 
 export async function listCompetitionGames(event: HttpEvent) {
-  return authRoute(event, async (auth) => results.list(auth.userId, pathParam(event, 'id')));
+  return authRoute(event, async (auth) => {
+    const result = await results.list(auth.userId, pathParam(event, 'id'));
+    return result;
+  });
 }
 
 export async function getCompetitionGame(event: HttpEvent) {
-  return authRoute(event, async (auth) =>
-    results.get(auth.userId, pathParam(event, 'id'), pathParam(event, 'gameId')),
-  );
+  return authRoute(event, async (auth) => {
+    const result = await results.get(auth.userId, pathParam(event, 'id'), pathParam(event, 'gameId'));
+    return result;
+  });
 }
 
 export async function closeCompetitionGame(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const input = parseBody(event, CloseGameInputSchema);
-    return results.close(auth.userId, pathParam(event, 'id'), pathParam(event, 'gameId'), input);
+    const result = await results.close(
+      auth.userId,
+      pathParam(event, 'id'),
+      pathParam(event, 'gameId'),
+      input,
+    );
+    return result;
   });
 }
 
 export async function createCompetitionMatch(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const input = parseBody(event, MatchInputSchema);
-    return matches.create(auth.userId, pathParam(event, 'id'), pathParam(event, 'gameId'), input);
+    const result = await matches.create(
+      auth.userId,
+      pathParam(event, 'id'),
+      pathParam(event, 'gameId'),
+      input,
+    );
+    return result;
   });
 }
 
 export async function updateCompetitionMatch(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const input = parseBody(event, UpdateMatchInputSchema);
-    return matches.update(
+    const result = await matches.update(
       auth.userId,
       pathParam(event, 'id'),
       pathParam(event, 'gameId'),
       pathParam(event, 'matchId'),
       input,
     );
+    return result;
   });
 }
 
 export async function deleteCompetitionMatch(event: HttpEvent) {
-  return authRoute(event, async (auth) =>
-    matches.remove(
+  return authRoute(event, async (auth) => {
+    const result = await matches.remove(
       auth.userId,
       pathParam(event, 'id'),
       pathParam(event, 'gameId'),
       pathParam(event, 'matchId'),
       parseBody(event, VersionInputSchema),
-    ),
-  );
+    );
+    return result;
+  });
 }
 
 const ranking = createRankingService({
@@ -141,14 +166,20 @@ const ranking = createRankingService({
 export async function getCompetitionRanking(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const query = RankingQuerySchema.parse(event.queryStringParameters ?? {});
-    return ranking.ranking(auth.userId, pathParam(event, 'id'), query.gender, query.season);
+    const result = await ranking.ranking(auth.userId, pathParam(event, 'id'), query.gender, query.season);
+    return result;
   });
 }
 
 export async function getCompetitionPerson(event: HttpEvent) {
-  return authRoute(event, async (auth) =>
-    ranking.person(auth.userId, pathParam(event, 'id'), asPublicUserId(pathParam(event, 'userId'))),
-  );
+  return authRoute(event, async (auth) => {
+    const result = await ranking.person(
+      auth.userId,
+      pathParam(event, 'id'),
+      asPublicUserId(pathParam(event, 'userId')),
+    );
+    return result;
+  });
 }
 
 const seasons = createSeasonService({
@@ -163,38 +194,50 @@ const seasons = createSeasonService({
 });
 
 export async function listCompetitionSeasons(event: HttpEvent) {
-  return authRoute(event, async (auth) => seasons.list(auth.userId, pathParam(event, 'id')));
+  return authRoute(event, async (auth) => {
+    const result = await seasons.list(auth.userId, pathParam(event, 'id'));
+    return result;
+  });
 }
 
 export async function createCompetitionSeason(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const input = parseBody(event, SeasonInputSchema);
-    return seasons.create(auth.userId, pathParam(event, 'id'), input);
+    const result = await seasons.create(auth.userId, pathParam(event, 'id'), input);
+    return result;
   });
 }
 
 export async function updateCompetitionSeason(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const input = parseBody(event, SeasonUpdateInputSchema);
-    return seasons.update(auth.userId, pathParam(event, 'id'), pathParam(event, 'seasonId'), input);
+    const result = await seasons.update(
+      auth.userId,
+      pathParam(event, 'id'),
+      pathParam(event, 'seasonId'),
+      input,
+    );
+    return result;
   });
 }
 
 export async function deleteCompetitionSeason(event: HttpEvent) {
-  return authRoute(event, async (auth) =>
-    seasons.remove(
+  return authRoute(event, async (auth) => {
+    const result = await seasons.remove(
       auth.userId,
       pathParam(event, 'id'),
       pathParam(event, 'seasonId'),
       parseBody(event, VersionInputSchema),
-    ),
-  );
+    );
+    return result;
+  });
 }
 
 export async function closeCompetitionSeason(event: HttpEvent) {
-  return authRoute(event, async (auth) =>
-    seasons.close(auth.userId, pathParam(event, 'id'), pathParam(event, 'seasonId')),
-  );
+  return authRoute(event, async (auth) => {
+    const result = await seasons.close(auth.userId, pathParam(event, 'id'), pathParam(event, 'seasonId'));
+    return result;
+  });
 }
 
 const trophies = createTrophyService({
@@ -204,5 +247,8 @@ const trophies = createTrophyService({
 });
 
 export async function myTrophies(event: HttpEvent) {
-  return authRoute(event, async (auth) => trophies.mine(auth.userId));
+  return authRoute(event, async (auth) => {
+    const result = await trophies.mine(auth.userId);
+    return result;
+  });
 }

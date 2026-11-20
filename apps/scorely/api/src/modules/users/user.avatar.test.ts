@@ -38,7 +38,11 @@ function memoryUserRepo() {
     const profile = users.get(id);
     const email = emails.get(id);
     if (!profile || email === undefined) return undefined;
-    return structuredClone({ ...profile, email, preferences: prefs.get(id) ?? {} });
+    return structuredClone({
+      ...profile,
+      private: { email },
+      preferences: prefs.get(id) ?? {},
+    });
   };
   const idOf = (email: string) => [...emails.entries()].find(([, e]) => e === email)?.[0];
   const write = (target: Record<string, unknown>, part: Record<string, unknown>) =>
@@ -65,8 +69,8 @@ function memoryUserRepo() {
       const user = users.get(id);
       const preferences = prefs.get(id);
       if (!user || !preferences) return undefined;
-      const { locale, timeZone, ...rest } = patch;
-      write(preferences, { locale, timeZone });
+      const { private: _private, preferences: preferencesPatch, ...rest } = patch;
+      write(preferences, { ...preferencesPatch });
       write(user, rest);
       return me(id);
     },
@@ -144,7 +148,14 @@ async function withUser() {
   const { userId, me } = await service.findOrCreateByEmail(EMAIL);
   await service.requestAvatarUpload(userId, { contentType: 'image/webp' });
   fake.calls.requestUpload.length = 0;
-  return { service, userId, me, calls: fake.calls, failNext: fake.failNext, users: memory.users };
+  return {
+    service,
+    userId,
+    me,
+    calls: fake.calls,
+    failNext: fake.failNext,
+    users: memory.users,
+  };
 }
 
 const errorOf = (p: Promise<unknown>) => p.catch((e: unknown) => e);
@@ -152,7 +163,9 @@ const errorOf = (p: Promise<unknown>) => p.catch((e: unknown) => e);
 describe('foto de perfil pela mídia (USR-08)', () => {
   it('USR-08: pedir o envio → mídia `avatar` da própria pessoa (dono e quem envia = ela), com 512×512 e 2 MB', async () => {
     const t = await withUser();
-    const upload = await t.service.requestAvatarUpload(t.userId, { contentType: 'image/webp' });
+    const upload = await t.service.requestAvatarUpload(t.userId, {
+      contentType: 'image/webp',
+    });
     expect(t.calls.requestUpload).toEqual([
       {
         purpose: 'avatar',
@@ -161,7 +174,11 @@ describe('foto de perfil pela mídia (USR-08)', () => {
         contentType: 'image/webp',
       },
     ]);
-    expect(upload).toMatchObject({ width: 512, height: 512, maxBytes: 2 * 1024 * 1024 });
+    expect(upload).toMatchObject({
+      width: 512,
+      height: 512,
+      maxBytes: 2 * 1024 * 1024,
+    });
   });
 
   it('USR-08: confirmar → liga a mídia no item da própria pessoa (`avatar`) e devolve a pessoa (com email e preferências) com `avatarUrl`', async () => {
@@ -169,10 +186,22 @@ describe('foto de perfil pela mídia (USR-08)', () => {
     const mediaId = randomUUID();
     const user = await t.service.setAvatar(t.userId, { mediaId });
     expect(t.calls.attach).toHaveLength(1);
-    expect(t.calls.attach[0]).toMatchObject({ mediaId, purpose: 'avatar', ownerId: t.userId });
-    expect(t.calls.attach[0]?.target).toMatchObject({ key: userKey(t.userId), field: 'avatar' });
+    expect(t.calls.attach[0]).toMatchObject({
+      mediaId,
+      purpose: 'avatar',
+      ownerId: t.userId,
+    });
+    expect(t.calls.attach[0]?.target).toMatchObject({
+      key: userKey(t.userId),
+      field: 'avatar',
+    });
     const url = `${BASE}/public/avatar/${mediaId}`;
-    expect(user).toMatchObject({ id: PUBLIC_ID, email: EMAIL, preferences: {}, avatarUrl: url });
+    expect(user).toMatchObject({
+      id: PUBLIC_ID,
+      private: { email: EMAIL },
+      preferences: {},
+      avatarUrl: url,
+    });
     expect((await t.service.get(t.userId)).avatarUrl).toBe(url);
   });
 
@@ -205,8 +234,15 @@ describe('foto de perfil pela mídia (USR-08)', () => {
     await t.service.setAvatar(t.userId, { mediaId });
     const user = await t.service.clearAvatar(t.userId);
     expect(t.calls.detach).toHaveLength(1);
-    expect(t.calls.detach[0]).toMatchObject({ purpose: 'avatar', ownerId: t.userId, current: mediaId });
-    expect(t.calls.detach[0]?.target).toMatchObject({ key: userKey(t.userId), field: 'avatar' });
+    expect(t.calls.detach[0]).toMatchObject({
+      purpose: 'avatar',
+      ownerId: t.userId,
+      current: mediaId,
+    });
+    expect(t.calls.detach[0]?.target).toMatchObject({
+      key: userKey(t.userId),
+      field: 'avatar',
+    });
     expect(user.id).toBe(PUBLIC_ID);
     expect(user).not.toHaveProperty('avatarUrl');
     expect(user).not.toHaveProperty('avatarMediaId');
@@ -216,7 +252,11 @@ describe('foto de perfil pela mídia (USR-08)', () => {
   it('USR-08: remover sem foto → devolve o User sem foto', async () => {
     const t = await withUser();
     const user = await t.service.clearAvatar(t.userId);
-    expect(user).toMatchObject({ id: PUBLIC_ID, email: EMAIL, preferences: {} });
+    expect(user).toMatchObject({
+      id: PUBLIC_ID,
+      private: { email: EMAIL },
+      preferences: {},
+    });
     expect(user.avatarUrl).toBeUndefined();
   });
 

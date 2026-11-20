@@ -61,7 +61,7 @@ export default defineComponent({
   computed: {
     /** USR-03: o nome é opcional até ser salvo; depois, não volta a ficar vazio. */
     nameRequired(): boolean {
-      return Boolean(this.auth.user?.name);
+      return Boolean(this.auth.user?.private.name);
     },
 
     avatarInitials(): string {
@@ -148,7 +148,7 @@ export default defineComponent({
     edit(editor: Exclude<Editor, ''>) {
       const u = this.auth.user;
       if (!u) return;
-      this.name = u.name ?? '';
+      this.name = u.private.name ?? '';
       // USR-02: o apelido com que a conta nasce é o código; o campo abre vazio para a pessoa escolher.
       this.nickname = u.nickname === u.id ? '' : u.nickname;
       this.gender = u.gender;
@@ -215,17 +215,16 @@ export default defineComponent({
     async save() {
       // No primeiro acesso, "Seus dados" também grava o idioma e o fuso detectados (como antes do painel).
       const you = {
-        ...(this.name.trim() && { name: this.name }),
+        ...(this.name.trim() && { private: { name: this.name } }),
         nickname: this.nickname,
         ...(this.gender && { gender: this.gender }),
       };
+      const preferences = {
+        ...(this.locale && { locale: this.locale }),
+        ...(this.timeZone && { timeZone: this.timeZone }),
+      };
       const fields =
-        this.editor === 'you'
-          ? { ...you, ...(this.welcome && { locale: this.locale, timeZone: this.timeZone }) }
-          : {
-              ...(this.locale && { locale: this.locale }),
-              ...(this.timeZone && { timeZone: this.timeZone }),
-            };
+        this.editor === 'you' ? { ...you, ...(this.welcome && { preferences }) } : { preferences };
       // USR-18: a versão do perfil que a tela mostra.
       const parsed = UpdateMeInputSchema.safeParse({ ...fields, version: this.auth.user?.version ?? 0 });
       if (!parsed.success) {
@@ -277,8 +276,8 @@ export default defineComponent({
             </div>
             <div class="who-text">
               <div class="sc-display who-name">{{ shownName }}</div>
-              <div v-if="auth.user.name" class="sc-caption">{{ auth.user.name }}</div>
-              <div class="sc-caption">{{ auth.user.email }}</div>
+              <div v-if="auth.user.private.name" class="sc-caption">{{ auth.user.private.name }}</div>
+              <div class="sc-caption">{{ auth.user.private.email }}</div>
             </div>
           </div>
 
