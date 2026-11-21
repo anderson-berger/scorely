@@ -2,7 +2,14 @@ import { randomUUID } from 'node:crypto';
 import type { AppError } from '@scorely/api/src/lib/errors';
 import { createGroupV2Images } from '@scorely/api/src/modules/groups-v2/group-v2.images';
 import { createGroupV2Service } from '@scorely/api/src/modules/groups-v2/group-v2.service';
-import { ANA, BIA, memoryGroupsV2, pid } from '@scorely/api/src/modules/groups-v2/groups-v2.memory';
+import {
+  ANA,
+  BIA,
+  memoryGroupsV2,
+  noEmails,
+  noNotifications,
+  pid,
+} from '@scorely/api/src/modules/groups-v2/groups-v2.memory';
 import type { MediaService } from '@scorely/api/src/modules/media/media.service';
 import { type GroupImageSlot, MEDIA_PURPOSES } from '@scorely/contracts';
 import { describe, expect, it } from 'vitest';
@@ -75,6 +82,8 @@ async function setup() {
   };
   const service = createGroupV2Service({
     groups: mem.repo,
+    emails: noEmails,
+    notifications: noNotifications,
     users: { getMany: async () => [], resolve: async () => new Map() },
     now: () => clock.now,
     newPublicId: () => pid(CODE),

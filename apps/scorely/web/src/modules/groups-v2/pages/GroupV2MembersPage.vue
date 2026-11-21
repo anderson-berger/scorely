@@ -77,10 +77,9 @@ export default defineComponent({
 
     async invitePromote(member: GroupMemberV2) {
       try {
+        // A validade fica de fora: a api usa o padrão (GRV-18, 32). O convite pessoal tem sempre 1 uso (GRV-23).
         await groupsV2Api.createInvite(this.group.id, {
           tier: 'member',
-          validityDays: 7,
-          maxUses: null,
           target: { publicId: member.user.id },
         });
         await this.load();
@@ -132,10 +131,8 @@ export default defineComponent({
     async remove(member: GroupMemberV2) {
       try {
         await groupsV2Api.removeMember(this.group.id, member.user.id);
-        // GRV-37: o convite pelo qual a pessoa entrou, se ainda vale, pode ser cancelado no aviso.
-        const invite = this.invites.find(
-          (i) => i.status === 'active' && i.usedBy.some((u) => u.id === member.user.id),
-        );
+        // GRV-37: o convite da participação (o último pelo qual entrou ou subiu), se ainda vale, pode ser cancelado no aviso.
+        const invite = this.invites.find((i) => i.status === 'active' && i.id === member.inviteId);
         await this.load();
         if (invite && this.canInvite) this.offerRevoke(member, invite);
         else this.$q.notify({ type: 'positive', message: this.$t('groupsV2.members.removed') });

@@ -51,13 +51,13 @@ export interface GroupsV2Deps {
   users: Pick<UserDirectory, 'getMany' | 'resolve'>;
   now?: () => Date;
   newPublicId?: () => PublicGroupId;
-  /** GRV-23: o email da conta (parte privada, USR-13) e a conta de um email. Sem isto, só o convite pelo id público funciona. */
-  emails?: {
+  /** GRV-23: o email da conta (parte privada, USR-13) e a conta de um email. */
+  emails: {
     emailOf(userId: UserId): Promise<string | undefined>;
     userIdOf(email: string): Promise<UserId | undefined>;
   };
-  /** GRV-23: o aviso `group_invited`. Sem isto, ninguém é avisado. */
-  notifications?: Pick<NotificationService, 'notify'>;
+  /** GRV-23: o aviso `group_invited`. */
+  notifications: { notify(...args: Parameters<NotificationService['notify']>): Promise<unknown> };
   /** GRV-18: o token do link do convite. Padrão: 32 bytes aleatórios em base64url. */
   newToken?: () => string;
 }
@@ -214,7 +214,7 @@ export function createGroupV2Service(deps: GroupsV2Deps) {
       'publicId' in wanted ? (await deps.users.resolve([wanted.publicId])).get(wanted.publicId) : undefined;
     if ('publicId' in wanted && byPublicId === undefined) throw appError('USER_NOT_FOUND');
     const email = 'email' in wanted ? normalizeEmail(wanted.email) : undefined;
-    const accountId = byPublicId ?? (email !== undefined ? await deps.emails?.userIdOf(email) : undefined);
+    const accountId = byPublicId ?? (email !== undefined ? await deps.emails.userIdOf(email) : undefined);
     if (accountId !== undefined) {
       const current = await deps.groups.getMembership(groupId, accountId);
       if (current && !(current.tier === 'reserve' && input.tier === 'member')) {
@@ -233,7 +233,7 @@ export function createGroupV2Service(deps: GroupsV2Deps) {
     const target = invite.target;
     if (!target) return true;
     if ('userId' in target) return target.userId === userId;
-    return (await deps.emails?.emailOf(userId)) === target.email;
+    return (await deps.emails.emailOf(userId)) === target.email;
   }
 
   /** GRV-18: cria o convite do grupo. */
@@ -269,7 +269,7 @@ export function createGroupV2Service(deps: GroupsV2Deps) {
     const invite: StoredInviteV2 = { ...entity, updatedAt: entity.createdAt };
     await deps.groups.createInvite(invite);
     if (accountId !== undefined) {
-      await deps.notifications?.notify(accountId, {
+      await deps.notifications.notify(accountId, {
         type: 'group_invited',
         title: 'Convite para um grupo',
         body: `Você foi convidado para ${group.name}.`,
@@ -311,12 +311,12 @@ export function createGroupV2Service(deps: GroupsV2Deps) {
   }
 
   /** O convite do token e o grupo dele; se não vale, `GROUP_INVITE_INVALID` com o motivo (GRV-21). */
-  async function validInvite(token: string) {
+  async function validInvite(token: string, consistent = false) {
     const invalid = (reason: GroupInviteInvalidReasonV2) => appError('GROUP_INVITE_INVALID', { reason });
     const pointer = await deps.groups.resolveToken(token);
     if (!pointer) throw invalid('not_found');
     const [invite, group] = await Promise.all([
-      deps.groups.getInvite(pointer.groupId, pointer.inviteId),
+      deps.groups.getInvite(pointer.groupId, pointer.inviteId, { consistent }),
       deps.groups.get(pointer.groupId),
     ]);
     if (!invite || !group || isGone(invite, now())) throw invalid('not_found');
@@ -344,13 +344,15 @@ export function createGroupV2Service(deps: GroupsV2Deps) {
     };
   }
 
-  const JOIN_ATTEMPTS = 3;
+  /** Com limite, cada uso que entra antes faz reler (a condição é `uses` igual ao lido). */
+  const JOIN_ATTEMPTS = 5;
 
   /** GRV-22: entra, sobe de reserva para membro, ou não muda nada. */
   async function joinByInvite(userId: UserId, token: string, attempt = 1): Promise<GroupV2> {
-    const { invite, group } = await validInvite(token);
+    // Depois de a gravação falhar, a releitura é forte: a condição `uses` igual ao lido precisa do valor atual.
+    const { invite, group } = await validInvite(token, attempt > 1);
     if (!(await isForUser(invite, userId))) throw appError('GROUP_INVITE_NOT_FOR_YOU');
-    const current = await deps.groups.getMembership(group.id, userId);
+    const current = await deps.groups.getMembership(group.id, userId, { consistent: attempt > 1 });
     // Só a reserva com convite de membro muda de situação; os outros casos de quem já participa não mudam nada.
     if (current && !(current.tier === 'reserve' && invite.tier === 'member')) {
       return forViewer(group, current, deps.media?.urlOf);
@@ -368,7 +370,7 @@ export function createGroupV2Service(deps: GroupsV2Deps) {
 
   /** GRV-24: os convites pessoais que valem para a pessoa, pelo id público ou pelo email, do mais novo para o mais antigo. */
   async function myInvites(userId: UserId): Promise<MyGroupInviteV2[]> {
-    const email = await deps.emails?.emailOf(userId);
+    const email = await deps.emails.emailOf(userId);
     const pointers = (
       await Promise.all([
         deps.groups.listInvitesFor({ userId }),
@@ -420,24 +422,26 @@ export function createGroupV2Service(deps: GroupsV2Deps) {
 
   /** GRV-29: os participantes, o dono primeiro, depois os membros e as reservas, por data de entrada. */
   async function members(userId: UserId, publicId: PublicGroupId): Promise<GroupMemberV2[]> {
-    const { id } = await access(userId, publicId);
-    const [list, invites] = await Promise.all([deps.groups.listMembers(id), deps.groups.listInvites(id)]);
-    const creatorOf = new Map(invites.map((i) => [i.id, i.createdBy]));
+    const { id, membership } = await access(userId, publicId);
+    // GRV-29, 37: o convite da participação só sai para quem administra os convites.
+    const showInvite = permissionsOf(membership).includes('members.invite');
+    const list = await deps.groups.listMembers(id);
     const people = await profiles([
       ...list.map((m) => m.userId),
-      ...list.flatMap((m) => (m.inviteId !== undefined ? (creatorOf.get(m.inviteId) ?? []) : [])),
+      ...list.flatMap((m) => (m.invitedBy !== undefined ? [m.invitedBy] : [])),
     ]);
     const rank = (m: StoredMembershipV2) => (m.role === 'owner' ? 0 : m.tier === 'member' ? 1 : 2);
     return [...list]
       .sort((a, b) => rank(a) - rank(b) || a.createdAt.localeCompare(b.createdAt))
       .map((m) => {
-        const inviter = m.inviteId !== undefined ? creatorOf.get(m.inviteId) : undefined;
+        const inviter = m.invitedBy;
         return {
           user: profileOf(people, m.userId),
           tier: m.tier,
           role: m.role,
           joinedAt: m.createdAt,
           ...(inviter !== undefined && people.has(inviter) && { invitedBy: profileOf(people, inviter) }),
+          ...(showInvite && m.inviteId !== undefined && { inviteId: m.inviteId }),
         };
       });
   }

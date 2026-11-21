@@ -81,6 +81,8 @@ export const CreateGroupInviteV2InputSchema = z.object({
   target: GroupInviteTargetInputV2Schema.optional(),
 });
 export type CreateGroupInviteV2Input = z.infer<typeof CreateGroupInviteV2InputSchema>;
+/** O corpo como a tela manda: o que fica de fora a api completa com o padrão (GRV-18, 32). */
+export type CreateGroupInviteV2Body = z.input<typeof CreateGroupInviteV2InputSchema>;
 
 /** Situação do convite, calculada ao ler (GRV-19). `declined` só vem com o convite pessoal (etapa B). */
 export const GroupInviteStatusV2Schema = z.enum(['active', 'expired', 'exhausted', 'revoked', 'declined']);
@@ -101,7 +103,7 @@ export const GroupInviteV2Schema = z.object({
   /** Quem entrou por ele (perfis). */
   usedBy: z.array(UserSchema),
   /** Para quem é, no convite pessoal (GRV-23): o perfil, se foi pelo id público; o email, se foi por ele. */
-  target: z.union([z.object({ user: UserSchema }), z.object({ email: z.string() })]).optional(),
+  target: z.union([z.object({ user: UserSchema }), z.object({ email: EmailSchema })]).optional(),
 });
 export type GroupInviteV2 = z.infer<typeof GroupInviteV2Schema>;
 
@@ -148,7 +150,9 @@ export const GroupMemberV2Schema = z.object({
   role: GroupRoleV2Schema,
   /** A data de entrada: não muda quando a reserva vira membro (GRV-22). */
   joinedAt: z.iso.datetime(),
-  /** Quem criou o convite pelo qual entrou ou subiu, quando houve. */
+  /** Quem criou o convite pelo qual entrou ou subiu, quando houve. Guardado na participação: não some com o convite. */
   invitedBy: UserSchema.optional(),
+  /** O convite pelo qual entrou ou subiu (GRV-29, 37). Só para quem tem `members.invite`. */
+  inviteId: z.uuid().optional(),
 });
 export type GroupMemberV2 = z.infer<typeof GroupMemberV2Schema>;

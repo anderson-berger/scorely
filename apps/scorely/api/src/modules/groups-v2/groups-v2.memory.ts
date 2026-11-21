@@ -7,10 +7,18 @@ import {
   type StoredInviteV2,
   type StoredMembershipV2,
 } from '@scorely/api/src/modules/groups-v2/group-v2.repository';
+import type { GroupsV2Deps } from '@scorely/api/src/modules/groups-v2/group-v2.service';
 import type { PublicGroupId } from '@scorely/contracts';
 
 export const ANA = asUserId('11111111-1111-4111-8111-111111111111');
 export const BIA = asUserId('22222222-2222-4222-8222-222222222222');
+
+/** Fakes das deps que o teste não usa: nenhuma conta tem email (GRV-23) e nenhum aviso sai. */
+export const noEmails: GroupsV2Deps['emails'] = {
+  emailOf: async () => undefined,
+  userIdOf: async () => undefined,
+};
+export const noNotifications: GroupsV2Deps['notifications'] = { notify: async () => undefined };
 
 export function pid(code: string): PublicGroupId {
   return code as PublicGroupId;
@@ -142,8 +150,14 @@ export function memoryGroupsV2() {
               role: 'member',
               createdAt: now.toISOString(),
               inviteId: invite.id,
+              invitedBy: invite.createdBy,
             }
-          : { ...(current as StoredMembershipV2), tier: 'member', inviteId: invite.id },
+          : {
+              ...(current as StoredMembershipV2),
+              tier: 'member',
+              inviteId: invite.id,
+              invitedBy: invite.createdBy,
+            },
       );
       uses.set(`${inviteKey(invite.groupId, invite.id)}#${userId}`, {
         groupId: invite.groupId,

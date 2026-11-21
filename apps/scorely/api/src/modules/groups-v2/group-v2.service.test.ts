@@ -1,6 +1,13 @@
 import type { AppError } from '@scorely/api/src/lib/errors';
 import { createGroupV2Service } from '@scorely/api/src/modules/groups-v2/group-v2.service';
-import { ANA, BIA, memoryGroupsV2, pid } from '@scorely/api/src/modules/groups-v2/groups-v2.memory';
+import {
+  ANA,
+  BIA,
+  memoryGroupsV2,
+  noEmails,
+  noNotifications,
+  pid,
+} from '@scorely/api/src/modules/groups-v2/groups-v2.memory';
 import { PublicGroupIdSchema } from '@scorely/contracts';
 import { describe, expect, it } from 'vitest';
 
@@ -11,6 +18,8 @@ function setup(codes: string[] = []) {
   const queue = { rest: [...codes] };
   const service = createGroupV2Service({
     groups: mem.repo,
+    emails: noEmails,
+    notifications: noNotifications,
     users: { getMany: async () => [], resolve: async () => new Map() },
     now: () => NOW,
     newPublicId: () => {

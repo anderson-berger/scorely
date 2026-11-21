@@ -1,5 +1,5 @@
 import {
-  type CreateGroupInviteV2Input,
+  type CreateGroupInviteV2Body,
   type CreateGroupV2Input,
   type GroupImageSlot,
   GroupInvitePreviewV2Schema,
@@ -20,7 +20,7 @@ export const groupsV2Api = {
   get: (id: string) => request({ url: `/v2/groups/${encodeURIComponent(id)}` }, GroupV2Schema),
 
   // Convites (GRV-18–22)
-  createInvite: (id: string, input: CreateGroupInviteV2Input) =>
+  createInvite: (id: string, input: CreateGroupInviteV2Body) =>
     request(
       { url: `/v2/groups/${encodeURIComponent(id)}/invites`, method: 'POST', data: input },
       GroupInviteV2Schema,

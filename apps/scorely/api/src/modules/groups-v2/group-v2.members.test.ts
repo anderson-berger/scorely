@@ -2,7 +2,14 @@ import type { AppError } from '@scorely/api/src/lib/errors';
 import type { UserId } from '@scorely/api/src/lib/ids';
 import { asPublicUserId, asUserId } from '@scorely/api/src/lib/ids';
 import { createGroupV2Service } from '@scorely/api/src/modules/groups-v2/group-v2.service';
-import { ANA, BIA, memoryGroupsV2, pid } from '@scorely/api/src/modules/groups-v2/groups-v2.memory';
+import {
+  ANA,
+  BIA,
+  memoryGroupsV2,
+  noEmails,
+  noNotifications,
+  pid,
+} from '@scorely/api/src/modules/groups-v2/groups-v2.memory';
 import type { UserRecord } from '@scorely/api/src/modules/users/user.repository';
 import { describe, expect, it } from 'vitest';
 
@@ -49,6 +56,8 @@ function setup() {
   };
   const service = createGroupV2Service({
     groups: mem.repo,
+    emails: noEmails,
+    notifications: noNotifications,
     users,
     now: () => clock.now,
     newPublicId: () => pid('K3X9PQ2A'),
@@ -548,5 +557,44 @@ describe('groups-v2 membros, sair e remover (GRV-29–31)', () => {
     expect((await errorOf(service.removeMember(DUDA, gid, asPublicUserId('3CCCCCCC'))))?.code).toBe(
       'GROUP_NOT_FOUND',
     );
+  });
+});
+
+describe('groups-v2 convidado por e id do convite (GRV-29, 37)', () => {
+  it('GRV-29: a participação guarda quem criou o convite (invitedBy), ao entrar e ao subir', async () => {
+    const { service, gid, members } = await withGroup();
+    const reserve = await service.createInvite(ANA, gid, RESERVE_INVITE);
+    const member = await service.createInvite(ANA, gid, MEMBER_INVITE);
+    await service.joinByInvite(BIA, reserve.token);
+    expect([...members.values()].find((m) => m.userId === BIA)?.invitedBy).toBe(ANA);
+    await service.joinByInvite(BIA, member.token);
+    const stored = [...members.values()].find((m) => m.userId === BIA);
+    expect(stored?.invitedBy).toBe(ANA);
+    expect(stored?.inviteId).toBe(member.id);
+  });
+
+  it('GRV-29: "convidado por" continua depois que o convite some', async () => {
+    const { service, gid, invites } = await withGroup();
+    const invite = await service.createInvite(ANA, gid, MEMBER_INVITE);
+    await service.joinByInvite(BIA, invite.token);
+    invites.clear();
+    const bia = (await service.members(ANA, gid)).find((m) => m.user.id === PUBLIC[BIA]);
+    expect(bia?.invitedBy).toMatchObject({ id: PUBLIC[ANA], nickname: 'ana' });
+  });
+
+  it('GRV-29/37: inviteId vem só para quem tem members.invite, e é o convite da participação', async () => {
+    const { service, gid } = await withGroup();
+    const reserve = await service.createInvite(ANA, gid, RESERVE_INVITE);
+    const member = await service.createInvite(ANA, gid, MEMBER_INVITE);
+    await service.joinByInvite(BIA, reserve.token);
+    await service.joinByInvite(CAIO, member.token);
+    await service.joinByInvite(BIA, member.token);
+    const byOwner = await service.members(ANA, gid);
+    expect(byOwner.find((m) => m.user.id === PUBLIC[BIA])?.inviteId).toBe(member.id);
+    expect(byOwner.find((m) => m.user.id === PUBLIC[CAIO])?.inviteId).toBe(member.id);
+    expect(byOwner[0]?.inviteId).toBeUndefined();
+    const byMember = await service.members(BIA, gid);
+    expect(byMember.every((m) => m.inviteId === undefined)).toBe(true);
+    expect(byMember.find((m) => m.user.id === PUBLIC[CAIO])?.invitedBy?.nickname).toBe('ana');
   });
 });

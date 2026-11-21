@@ -1,4 +1,4 @@
-import { GetCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
+import { GetCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import {
   batchGetOrdered,
   dbItem,
@@ -63,6 +63,8 @@ export interface StoredMembershipV2 {
   createdAt: string;
   /** O convite pelo qual entrou ou subiu, quando houve (GRV-29). */
   inviteId?: string | undefined;
+  /** Quem criou esse convite (GRV-29): guardado aqui para não sumir com o convite. */
+  invitedBy?: UserId | undefined;
 }
 
 /** Para quem é o convite pessoal (GRV-23). */
@@ -123,7 +125,11 @@ export interface GroupV2Repository {
   resolve(publicId: PublicGroupId): Promise<GroupId | undefined>;
   /** `consistent`: leitura forte, para ler logo depois de a mídia gravar (GRV-09). */
   get(id: GroupId, opts?: { consistent?: boolean }): Promise<StoredGroupV2 | undefined>;
-  getMembership(id: GroupId, userId: UserId): Promise<StoredMembershipV2 | undefined>;
+  getMembership(
+    id: GroupId,
+    userId: UserId,
+    opts?: { consistent?: boolean },
+  ): Promise<StoredMembershipV2 | undefined>;
   /** Os grupos da pessoa com a participação dela (ordem qualquer: o service ordena). */
   listMine(userId: UserId): Promise<{ group: StoredGroupV2; membership: StoredMembershipV2 }[]>;
 
@@ -131,7 +137,12 @@ export interface GroupV2Repository {
   createInvite(invite: StoredInviteV2): Promise<void>;
   /** Todos os convites do grupo, em ordem qualquer (o service ordena e filtra). */
   listInvites(groupId: GroupId): Promise<StoredInviteV2[]>;
-  getInvite(groupId: GroupId, inviteId: string): Promise<StoredInviteV2 | undefined>;
+  /** `consistent`: leitura forte, para reler depois de a gravação de entrar falhar (GRV-22). */
+  getInvite(
+    groupId: GroupId,
+    inviteId: string,
+    opts?: { consistent?: boolean },
+  ): Promise<StoredInviteV2 | undefined>;
   /** Token → chave do convite. */
   resolveToken(token: string): Promise<{ groupId: GroupId; inviteId: string } | undefined>;
   /** Marca como cancelado (GRV-20) e agenda a limpeza (`ttl`). Quem chama já conferiu que vale. */
@@ -196,11 +207,13 @@ function lookupTtls(invite: StoredInviteV2, ttl: number): TransactItem[] {
         ]
       : []),
   ];
+  // O lookup é gravado com o convite: faltar é bug, e o Update não pode criar um item só com a chave e o `ttl`.
   return keys.map((Key) => ({
     Update: {
       TableName: tableName(),
       Key,
       UpdateExpression: 'SET #ttl = :ttl',
+      ConditionExpression: 'attribute_exists(PK)',
       ExpressionAttributeNames: { '#ttl': 'ttl' },
       ExpressionAttributeValues: { ':ttl': ttl },
     },
@@ -208,6 +221,35 @@ function lookupTtls(invite: StoredInviteV2, ttl: number): TransactItem[] {
 }
 
 const joinedPk = (id: GroupId) => `GROUP2#${id}`;
+
+/**
+ * Convite sem prazo que deixou de valer: os `INVITEUSE` já gravados ganham o `ttl` dele, logo depois da transação e
+ * fora dela (o convite sem limite pode ter muitos usos). Se falhar, o uso que sobrar é ignorado na lista (GRV-19).
+ */
+async function expireInviteUses(invite: StoredInviteV2, ttl: number): Promise<void> {
+  if (invite.expiresAt !== undefined) return; // com prazo, o `ttl` já foi gravado em cada uso
+  try {
+    const rows = await queryByPrefix(invite.groupId, `${GROUP_V2_INVITE_USE_PREFIX}${invite.id}#`);
+    await Promise.all(
+      rows.map((row) =>
+        dynamo().send(
+          new UpdateCommand({
+            TableName: tableName(),
+            Key: { PK: row.PK as string, SK: row.SK as string },
+            UpdateExpression: 'SET #ttl = :ttl',
+            ConditionExpression: 'attribute_exists(PK)',
+            ExpressionAttributeNames: { '#ttl': 'ttl' },
+            ExpressionAttributeValues: { ':ttl': ttl },
+          }),
+        ),
+      ),
+    );
+  } catch (error) {
+    console.error(
+      JSON.stringify({ msg: 'Invite uses ttl failed', inviteId: invite.id, error: String(error) }),
+    );
+  }
+}
 
 /** Query de uma partição do grupo por prefixo de `SK`, seguindo as páginas. */
 async function queryByPrefix(
@@ -294,8 +336,8 @@ export const dynamoGroupV2Repository: GroupV2Repository = {
     return item ? stripKeys<StoredGroupV2>(item) : undefined;
   },
 
-  async getMembership(id, userId) {
-    const item = await getItem(groupV2MemberKey(id, userId));
+  async getMembership(id, userId, opts) {
+    const item = await getItem(groupV2MemberKey(id, userId), opts?.consistent);
     return item ? stripKeys<StoredMembershipV2>(item) : undefined;
   },
 
@@ -350,8 +392,8 @@ export const dynamoGroupV2Repository: GroupV2Repository = {
     return rows.map((row) => ({ ...stripKeys<StoredInviteV2>(row), ttl: row.ttl as number | undefined }));
   },
 
-  async getInvite(groupId, inviteId) {
-    const item = await getItem(groupV2InviteKey(groupId, inviteId));
+  async getInvite(groupId, inviteId, opts) {
+    const item = await getItem(groupV2InviteKey(groupId, inviteId), opts?.consistent);
     return item ? { ...stripKeys<StoredInviteV2>(item), ttl: item.ttl as number | undefined } : undefined;
   },
 
@@ -380,6 +422,7 @@ export const dynamoGroupV2Repository: GroupV2Repository = {
       },
       ...lookupTtls(invite, graceTtl(at)),
     ]);
+    await expireInviteUses(invite, graceTtl(at));
   },
 
   async listInvitesFor(target) {
@@ -426,6 +469,7 @@ export const dynamoGroupV2Repository: GroupV2Repository = {
       },
       ...lookupTtls(invite, graceTtl(at)),
     ]);
+    await expireInviteUses(invite, graceTtl(at));
   },
 
   async listInviteUses(groupId) {
@@ -445,9 +489,16 @@ export const dynamoGroupV2Repository: GroupV2Repository = {
           ConditionExpression:
             'attribute_exists(PK) AND attribute_not_exists(revokedAt) AND attribute_not_exists(declinedAt)' +
             ' AND (attribute_not_exists(expiresAt) OR expiresAt > :now)' +
-            ' AND (attribute_not_exists(maxUses) OR uses < maxUses)',
+            // Com limite, `uses` igual ao lido: outro uso que entrou antes faz o service reler (e o `ttl` de esgotado
+            // nunca é calculado sobre uma leitura atrasada).
+            (invite.maxUses !== undefined ? ' AND uses = :uses' : ''),
           ...(lastUse && { ExpressionAttributeNames: { '#ttl': 'ttl' } }),
-          ExpressionAttributeValues: { ':one': 1, ':now': at, ...(lastUse && { ':ttl': graceTtl(now) }) },
+          ExpressionAttributeValues: {
+            ':one': 1,
+            ':now': at,
+            ...(invite.maxUses !== undefined && { ':uses': invite.uses }),
+            ...(lastUse && { ':ttl': graceTtl(now) }),
+          },
         },
         now,
       ),
@@ -467,6 +518,7 @@ export const dynamoGroupV2Repository: GroupV2Repository = {
                   role: 'member',
                   createdAt: at,
                   inviteId: invite.id,
+                  invitedBy: invite.createdBy,
                 } satisfies StoredMembershipV2,
                 at,
               ),
@@ -477,17 +529,24 @@ export const dynamoGroupV2Repository: GroupV2Repository = {
             Update: {
               TableName: tableName(),
               Key: groupV2MemberKey(invite.groupId, userId),
-              UpdateExpression: 'SET tier = :member, inviteId = :inviteId',
+              UpdateExpression: 'SET tier = :member, inviteId = :inviteId, invitedBy = :invitedBy',
               ConditionExpression: 'tier = :reserve',
               ExpressionAttributeValues: {
                 ':member': 'member',
                 ':reserve': 'reserve',
                 ':inviteId': invite.id,
+                ':invitedBy': invite.createdBy,
               },
             },
           };
     const use: StoredInviteUseV2 = { groupId: invite.groupId, inviteId: invite.id, userId, createdAt: at };
-    const ttl = invite.expiresAt !== undefined ? graceTtl(new Date(invite.expiresAt)) : undefined;
+    // Com prazo, o `ttl` já é conhecido; sem prazo, este uso que esgota leva o `ttl` (a Query de depois pode não vê-lo).
+    const ttl =
+      invite.expiresAt !== undefined
+        ? graceTtl(new Date(invite.expiresAt))
+        : lastUse
+          ? graceTtl(now)
+          : undefined;
     const items: TransactItem[] = [
       useInvite,
       membership,
@@ -521,6 +580,7 @@ export const dynamoGroupV2Repository: GroupV2Repository = {
         : []),
     ];
     const result = await transactWrite(items);
+    if (result.ok && lastUse) await expireInviteUses(invite, graceTtl(now));
     if (result.ok) return 'ok';
     if (result.failed.includes(0)) return 'invite_stale';
     if (result.failed.includes(1)) return 'membership_stale';
