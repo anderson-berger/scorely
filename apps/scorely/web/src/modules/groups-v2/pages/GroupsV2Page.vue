@@ -1,11 +1,14 @@
 <script lang="ts">
 import { errorMessage } from '@scorely/web/src/i18n/errors';
+import GroupV2Cover from '@scorely/web/src/modules/groups-v2/components/GroupV2Cover.vue';
 import { useGroupsV2Store } from '@scorely/web/src/modules/groups-v2/groups-v2.store';
 import { defineComponent } from 'vue';
 
-/** GRV-06: os meus grupos, um card por grupo com o nome. Sem grupo, só o botão "Criar grupo". */
+/** GRV-06: os meus grupos, em cards de capa (capa, logo sobreposto e nome). Sem grupo, só o botão "Criar grupo". */
 export default defineComponent({
   name: 'GroupsV2Page',
+
+  components: { GroupV2Cover },
 
   setup() {
     return { groups: useGroupsV2Store() };
@@ -75,6 +78,7 @@ export default defineComponent({
           :to="{ name: 'group-v2', params: { id: g.id } }"
           class="sc-card card"
         >
+          <GroupV2Cover :group="g" />
           <span class="sc-display card-name">{{ g.name }}</span>
         </router-link>
       </div>
@@ -113,7 +117,7 @@ export default defineComponent({
 
 .card {
   display: block;
-  padding: 20px;
+  overflow: hidden;
   color: inherit;
   text-decoration: none;
   border: 1px solid var(--sc-line);
@@ -121,6 +125,8 @@ export default defineComponent({
 }
 
 .card-name {
+  display: block;
+  padding: 0 16px 16px;
   font-size: 20px;
 }
 

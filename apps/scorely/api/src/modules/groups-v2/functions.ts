@@ -11,4 +11,17 @@ export const groupsV2Functions: AWS['functions'] = {
   createGroupV2: { handler: handler('createGroupV2'), events: route('POST', '/v2/groups') },
   getGroupV2: { handler: handler('getGroupV2'), events: route('GET', '/v2/groups/{publicId}') },
   myGroupsV2: { handler: handler('myGroupsV2'), events: route('GET', '/v2/me/groups') },
+  // Logo e capa (GRV-09): `slot` = logo | cover
+  groupsV2ImageUpload: {
+    handler: handler('requestImageUploadV2'),
+    events: route('POST', '/v2/groups/{publicId}/images/{slot}/upload'),
+  },
+  groupsV2ImageAttach: {
+    handler: handler('attachImageV2'),
+    events: route('PUT', '/v2/groups/{publicId}/images/{slot}'),
+  },
+  groupsV2ImageDetach: {
+    handler: handler('detachImageV2'),
+    events: route('DELETE', '/v2/groups/{publicId}/images/{slot}'),
+  },
 };

@@ -15,9 +15,21 @@ export const groupsV2Routes: RouteRecordRaw[] = [
       },
     ],
   },
+  // GRV-13: o casco carrega o grupo e mostra a barra; cada área é uma rota filha.
   {
     path: 'v2/groups/:id',
-    name: 'group-v2',
     component: () => import('@scorely/web/src/modules/groups-v2/pages/GroupV2Page.vue'),
+    children: [
+      {
+        path: '',
+        name: 'group-v2',
+        component: () => import('@scorely/web/src/modules/groups-v2/pages/GroupV2HomePage.vue'),
+      },
+      {
+        path: 'settings',
+        name: 'group-v2-settings',
+        component: () => import('@scorely/web/src/modules/groups-v2/pages/GroupV2SettingsPage.vue'),
+      },
+    ],
   },
 ];

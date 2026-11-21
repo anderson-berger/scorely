@@ -34,5 +34,8 @@ export const GroupV2Schema = z.object({
   version: VersionSchema,
   name: z.string(),
   myRole: GroupRoleV2Schema,
+  /** Logo e capa (GRV-09, GRV-10): URLs públicas das mídias `group.logo` e `group.cover`, só quando existem. */
+  logoUrl: z.url().optional(),
+  coverUrl: z.url().optional(),
 });
 export type GroupV2 = z.infer<typeof GroupV2Schema>;

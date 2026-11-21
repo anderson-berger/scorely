@@ -29,6 +29,9 @@ export interface StoredGroupV2 {
   createdAt: string;
   updatedAt: string;
   version: number;
+  /** Ids das mídias do logo e da capa (GRV-09): só quando há imagem; a URL é montada na resposta (MID-12). */
+  logoMediaId?: string | undefined;
+  coverMediaId?: string | undefined;
 }
 
 /** A participação (GRV-02), `GROUP2#<id> / MEMBER#<userId>`. */
@@ -47,14 +50,20 @@ export interface GroupV2Repository {
   create(group: StoredGroupV2, ownerId: UserId): Promise<CreateGroupV2Result>;
   /** LOOKUP público → uuid. */
   resolve(publicId: PublicGroupId): Promise<GroupId | undefined>;
-  get(id: GroupId): Promise<StoredGroupV2 | undefined>;
+  /** `consistent`: leitura forte, para ler logo depois de a mídia gravar (GRV-09). */
+  get(id: GroupId, opts?: { consistent?: boolean }): Promise<StoredGroupV2 | undefined>;
   getMembership(id: GroupId, userId: UserId): Promise<StoredMembershipV2 | undefined>;
   /** Os grupos da pessoa com a participação dela (ordem qualquer: o service ordena). */
   listMine(userId: UserId): Promise<{ group: StoredGroupV2; membership: StoredMembershipV2 }[]>;
 }
 
-async function getItem(Key: Record<string, string>): Promise<Record<string, unknown> | undefined> {
-  const { Item } = await dynamo().send(new GetCommand({ TableName: tableName(), Key }));
+async function getItem(
+  Key: Record<string, string>,
+  consistent = false,
+): Promise<Record<string, unknown> | undefined> {
+  const { Item } = await dynamo().send(
+    new GetCommand({ TableName: tableName(), Key, ConsistentRead: consistent }),
+  );
   return Item;
 }
 
@@ -93,8 +102,8 @@ export const dynamoGroupV2Repository: GroupV2Repository = {
     return pointer ? asGroupId(pointer.id as string) : undefined;
   },
 
-  async get(id) {
-    const item = await getItem(groupV2Key(id));
+  async get(id, opts) {
+    const item = await getItem(groupV2Key(id), opts?.consistent);
     return item ? stripKeys<StoredGroupV2>(item) : undefined;
   },
 

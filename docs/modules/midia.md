@@ -1,6 +1,6 @@
 # Módulo Mídia
 
-> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-14.
+> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-20.
 
 Código: `apps/scorely/api/src/modules/media/`, `apps/scorely/api/src/lib/storage.ts`, `apps/scorely/web/src/lib/media.ts`. Contrato: `apps/scorely/contracts/src/media.ts`.
 
@@ -8,7 +8,7 @@ Código: `apps/scorely/api/src/modules/media/`, `apps/scorely/api/src/lib/storag
 
 Guardar os arquivos enviados pelas pessoas (por enquanto, só imagens) do mesmo jeito em qualquer área: perfil, grupo e, depois, time e campeonato. O módulo cuida **do arquivo**: o envio, a conferência, os dados no banco, a troca e a remoção.
 
-**Quem pode** enviar ou trocar é decisão da área. A foto de perfil é da própria pessoa (USR-08 em [usuarios.md](usuarios.md)), e o logo e a capa são do dono do grupo (GRP-35 em [grupos.md](grupos.md)).
+**Quem pode** enviar ou trocar é decisão da área. A foto de perfil é da própria pessoa (USR-08 em [usuarios.md](usuarios.md)), e o logo e a capa são do dono do grupo (GRP-35 em [grupos.md](grupos.md) e GRV-09 em [grupos-v2.md](grupos-v2.md)).
 
 | Termo      | Significado                                                                          |
 | ---------- | ------------------------------------------------------------------------------------ |
@@ -102,10 +102,11 @@ A URL pública é `<endereço base>/<purpose>/<mediaId>`, e o endereço base é 
 
 A mídia não tem rotas próprias. As rotas ficam nas áreas:
 
-| Área     | Rotas                                                                                                                                           |
-| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| Usuários | `POST /me/avatar/upload`, `PUT /me/avatar`, `DELETE /me/avatar`                                                                                 |
-| Grupos   | `POST /groups/{id}/images/{slot}/upload`, `PUT /groups/{id}/images/{slot}`, `DELETE /groups/{id}/images/{slot}`, com `slot` = `logo` ou `cover` |
+| Área        | Rotas                                                                                                                                           |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Usuários    | `POST /me/avatar/upload`, `PUT /me/avatar`, `DELETE /me/avatar`                                                                                 |
+| Grupos      | `POST /groups/{id}/images/{slot}/upload`, `PUT /groups/{id}/images/{slot}`, `DELETE /groups/{id}/images/{slot}`, com `slot` = `logo` ou `cover` |
+| Grupos (v2) | as mesmas, em `/v2/groups/{publicId}/images/{slot}` (GRV-09)                                                                                    |
 
 Erros: `MEDIA_NOT_FOUND`, `MEDIA_NOT_UPLOADED` e `MEDIA_INVALID`.
 
