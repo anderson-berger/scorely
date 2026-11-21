@@ -16,6 +16,7 @@ export const NotificationTypeSchema = z.enum([
   'season_closed',
   'trophy_awarded',
   'podium_entered',
+  'group_invited',
 ]);
 export type NotificationType = z.infer<typeof NotificationTypeSchema>;
 

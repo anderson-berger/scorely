@@ -70,6 +70,29 @@ export default defineComponent({
       return formatDateTime(iso, 'date');
     },
 
+    /** GRV-32: "Convidar para membro" na reserva, para quem tem `members.invite`. */
+    promotable(member: GroupMemberV2): boolean {
+      return this.canInvite && member.tier === 'reserve';
+    },
+
+    async invitePromote(member: GroupMemberV2) {
+      try {
+        await groupsV2Api.createInvite(this.group.id, {
+          tier: 'member',
+          validityDays: 7,
+          maxUses: null,
+          target: { publicId: member.user.id },
+        });
+        await this.load();
+        this.$q.notify({
+          type: 'positive',
+          message: this.$t('groupsV2.members.inviteSent', { name: member.user.nickname }),
+        });
+      } catch (err) {
+        this.$q.notify({ type: 'negative', message: errorMessage(err) });
+      }
+    },
+
     /** GRV-32: Remover aparece em todas as linhas, menos a do dono e a própria. */
     removable(member: GroupMemberV2): boolean {
       return this.canRemove && member.role !== 'owner' && member.user.id !== this.auth.user?.id;
@@ -214,7 +237,7 @@ export default defineComponent({
                 </span>
               </span>
               <q-btn
-                v-if="removable(m)"
+                v-if="removable(m) || promotable(m)"
                 flat
                 round
                 dense
@@ -223,7 +246,10 @@ export default defineComponent({
               >
                 <q-menu>
                   <q-list>
-                    <q-item v-close-popup clickable @click="confirmRemove(m)">
+                    <q-item v-if="promotable(m)" v-close-popup clickable @click="invitePromote(m)">
+                      <q-item-section>{{ $t('groupsV2.members.inviteAsMember') }}</q-item-section>
+                    </q-item>
+                    <q-item v-if="removable(m)" v-close-popup clickable @click="confirmRemove(m)">
                       <q-item-section class="text-negative">{{ $t('groupsV2.members.remove') }}</q-item-section>
                     </q-item>
                   </q-list>

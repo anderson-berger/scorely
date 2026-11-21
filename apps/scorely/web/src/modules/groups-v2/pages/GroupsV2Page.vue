@@ -1,6 +1,10 @@
 <script lang="ts">
+import type { MyGroupInviteV2 } from '@scorely/contracts';
 import { errorMessage } from '@scorely/web/src/i18n/errors';
+import { groupColor } from '@scorely/web/src/modules/groups/groups';
+import { initials } from '@scorely/web/src/modules/groups/scoreboard';
 import GroupV2Cover from '@scorely/web/src/modules/groups-v2/components/GroupV2Cover.vue';
+import { groupsV2Api } from '@scorely/web/src/modules/groups-v2/groups-v2.api';
 import { useGroupsV2Store } from '@scorely/web/src/modules/groups-v2/groups-v2.store';
 import { defineComponent } from 'vue';
 
@@ -14,9 +18,13 @@ export default defineComponent({
     return { groups: useGroupsV2Store() };
   },
 
+  data() {
+    return { invites: [] as MyGroupInviteV2[], busy: '' };
+  },
+
   computed: {
     empty(): boolean {
-      return this.groups.loaded && this.groups.mine.length === 0;
+      return this.groups.loaded && this.groups.mine.length === 0 && this.invites.length === 0;
     },
   },
 
@@ -32,9 +40,40 @@ export default defineComponent({
   },
 
   methods: {
+    groupColor,
+    initials,
+
+    /** GRV-36: entrar pelo cartão usa o mesmo caminho do link (GRV-22) e leva à página do grupo. */
+    async join(invite: MyGroupInviteV2) {
+      this.busy = invite.id;
+      try {
+        const group = await groupsV2Api.joinInvite(invite.token);
+        await this.$router.push({ name: 'group-v2', params: { id: group.id } });
+      } catch (err) {
+        this.$q.notify({ type: 'negative', message: errorMessage(err) });
+        await this.load();
+      } finally {
+        this.busy = '';
+      }
+    },
+
+    async decline(invite: MyGroupInviteV2) {
+      this.busy = invite.id;
+      try {
+        await groupsV2Api.declineInvite(invite.id);
+        this.$q.notify({ type: 'positive', message: this.$t('groupsV2.myInvites.declined') });
+      } catch (err) {
+        this.$q.notify({ type: 'negative', message: errorMessage(err) });
+      } finally {
+        this.busy = '';
+        await this.load();
+      }
+    },
+
     async load() {
       try {
-        await this.groups.loadMine();
+        const [, invites] = await Promise.all([this.groups.loadMine(), groupsV2Api.myInvites()]);
+        this.invites = invites;
       } catch (err) {
         this.$q.notify({ type: 'negative', message: errorMessage(err) });
       }
@@ -59,6 +98,48 @@ export default defineComponent({
           :to="{ name: 'group-v2-create' }"
         />
       </div>
+
+      <section v-if="invites.length > 0" class="invites">
+        <h2 class="sc-section">{{ $t('groupsV2.myInvites.title') }}</h2>
+        <ul class="invite-list">
+          <li v-for="i in invites" :key="i.id" class="sc-card invite">
+            <span class="invite-head">
+              <img v-if="i.logoUrl" :src="i.logoUrl" alt="" class="invite-logo" />
+              <span
+                v-else
+                class="sc-display invite-logo"
+                :style="{ background: `var(--sc-group-${groupColor(i.groupId)})` }"
+                aria-hidden="true"
+                >{{ initials(i.name) }}</span
+              >
+              <span class="sc-display invite-name">{{ i.name }}</span>
+            </span>
+            <span class="sc-caption">
+              {{ $t('groupsV2.myInvites.invitedBy', { name: i.invitedBy.nickname }) }} ·
+              {{ $t(`groupsV2.tier.${i.tier}`) }} · {{ $t('groupsV2.myInvites.participants', { count: i.participants }) }}
+            </span>
+            <span class="invite-actions">
+              <q-btn
+                flat
+                no-caps
+                class="sc-btn-outline"
+                :label="$t('groupsV2.myInvites.decline')"
+                :disable="busy === i.id"
+                @click="decline(i)"
+              />
+              <q-btn
+                color="primary"
+                unelevated
+                no-caps
+                class="sc-btn-main"
+                :label="i.myTier ? $t('groupsV2.myInvites.promote') : $t('groupsV2.myInvites.join')"
+                :loading="busy === i.id"
+                @click="join(i)"
+              />
+            </span>
+          </li>
+        </ul>
+      </section>
 
       <div v-if="empty" class="empty">
         <q-btn
@@ -106,6 +187,49 @@ export default defineComponent({
 .new {
   min-height: 44px;
   min-width: 44px;
+}
+
+.invite-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.invite {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+}
+
+.invite-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.invite-logo {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  object-fit: cover;
+}
+
+.invite-name {
+  font-size: 18px;
+}
+
+.invite-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .grid {

@@ -13,6 +13,8 @@ import {
 import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
 import { asGroupId, type GroupId, type UserId } from '@scorely/api/src/lib/ids';
 import {
+  emailGroupInvitesV2LookupKey,
+  emailGroupInvitesV2LookupPk,
   GROUP_V2_ENTITY,
   GROUP_V2_INVITE_ENTITY,
   GROUP_V2_INVITE_PREFIX,
@@ -20,12 +22,15 @@ import {
   GROUP_V2_INVITE_USE_PREFIX,
   GROUP_V2_MEMBER_ENTITY,
   GROUP_V2_MEMBER_PREFIX,
+  groupV2InviteIdLookupKey,
   groupV2InviteKey,
   groupV2InviteTokenLookupKey,
   groupV2InviteUseKey,
   groupV2Key,
   groupV2MemberKey,
   groupV2PublicIdLookupKey,
+  userGroupInvitesV2LookupKey,
+  userGroupInvitesV2LookupPk,
   userGroupsV2LookupKey,
   userGroupsV2LookupPk,
 } from '@scorely/api/src/modules/groups-v2/group-v2.table';
@@ -60,6 +65,9 @@ export interface StoredMembershipV2 {
   inviteId?: string | undefined;
 }
 
+/** Para quem é o convite pessoal (GRV-23). */
+export type InviteTargetV2 = { userId: UserId } | { email: string };
+
 /** O convite como fica no banco (GRV-18), `GROUP2#<groupId> / INVITE#<id>`. Interno da api. */
 export interface StoredInviteV2 {
   id: string;
@@ -74,6 +82,8 @@ export interface StoredInviteV2 {
   uses: number;
   revokedAt?: string | undefined;
   declinedAt?: string | undefined;
+  /** Para quem é, no convite pessoal (GRV-23). O email vai normalizado. */
+  target?: InviteTargetV2 | undefined;
   /** Epoch em segundos: 30 dias depois de deixar de valer (GRV-19). Só limpa a tabela, quem vale é o resto. */
   ttl?: number | undefined;
   createdAt: string;
@@ -125,7 +135,13 @@ export interface GroupV2Repository {
   /** Token → chave do convite. */
   resolveToken(token: string): Promise<{ groupId: GroupId; inviteId: string } | undefined>;
   /** Marca como cancelado (GRV-20) e agenda a limpeza (`ttl`). Quem chama já conferiu que vale. */
-  revokeInvite(groupId: GroupId, inviteId: string, token: string, at: Date): Promise<void>;
+  revokeInvite(invite: StoredInviteV2, at: Date): Promise<void>;
+  /** Os convites pessoais da pessoa, pelo id ou pelo email (GRV-24); em ordem qualquer, inclusive os que já não valem. */
+  listInvitesFor(target: InviteTargetV2): Promise<{ groupId: GroupId; inviteId: string }[]>;
+  /** Id do convite pessoal → chave dele (GRV-24, recusar). */
+  resolveInviteId(inviteId: string): Promise<{ groupId: GroupId; inviteId: string } | undefined>;
+  /** Marca como recusado (GRV-24) e agenda a limpeza (`ttl`). Quem chama já conferiu que vale. */
+  declineInvite(invite: StoredInviteV2, at: Date): Promise<void>;
   /** Quem entrou por convites do grupo (GRV-19). */
   listInviteUses(groupId: GroupId): Promise<StoredInviteUseV2[]>;
   /**
@@ -146,17 +162,49 @@ export interface GroupV2Repository {
   removeMembership(groupId: GroupId, userId: UserId): Promise<boolean>;
 }
 
-/** Agenda a limpeza do lookup do token junto com a do convite (o lookup nasce sem `ttl` quando o convite não tem prazo). */
-function tokenLookupTtl(token: string, ttl: number): TransactItem {
-  return {
+/** O convite pessoal grava os lookups do alvo e o do id, na mesma transação do convite (GRV-24). */
+function targetLookups(invite: StoredInviteV2): TransactItem[] {
+  if (!invite.target) return [];
+  const body = {
+    groupId: invite.groupId,
+    inviteId: invite.id,
+    ...(invite.ttl !== undefined && { ttl: invite.ttl }),
+  };
+  const put = (key: { PK: string; SK: string }): TransactItem => ({
+    Put: { TableName: tableName(), Item: dbItem(key, LOOKUP_ENTITY, body, invite.createdAt) },
+  });
+  return [
+    put(
+      'userId' in invite.target
+        ? userGroupInvitesV2LookupKey(invite.target.userId, invite.id)
+        : emailGroupInvitesV2LookupKey(invite.target.email, invite.id),
+    ),
+    put(groupV2InviteIdLookupKey(invite.id)),
+  ];
+}
+
+/** Os lookups do convite somem junto com ele: o do token e, no convite pessoal, os do alvo e do id (GRV-24). */
+function lookupTtls(invite: StoredInviteV2, ttl: number): TransactItem[] {
+  const keys = [
+    groupV2InviteTokenLookupKey(invite.token),
+    ...(invite.target
+      ? [
+          'userId' in invite.target
+            ? userGroupInvitesV2LookupKey(invite.target.userId, invite.id)
+            : emailGroupInvitesV2LookupKey(invite.target.email, invite.id),
+          groupV2InviteIdLookupKey(invite.id),
+        ]
+      : []),
+  ];
+  return keys.map((Key) => ({
     Update: {
       TableName: tableName(),
-      Key: groupV2InviteTokenLookupKey(token),
+      Key,
       UpdateExpression: 'SET #ttl = :ttl',
       ExpressionAttributeNames: { '#ttl': 'ttl' },
       ExpressionAttributeValues: { ':ttl': ttl },
     },
-  };
+  }));
 }
 
 const joinedPk = (id: GroupId) => `GROUP2#${id}`;
@@ -292,6 +340,7 @@ export const dynamoGroupV2Repository: GroupV2Repository = {
           ConditionExpression: 'attribute_not_exists(PK)',
         },
       },
+      ...targetLookups(invite),
     ]);
     if (!result.ok) throw new Error('Invite create failed');
   },
@@ -313,7 +362,8 @@ export const dynamoGroupV2Repository: GroupV2Repository = {
       : undefined;
   },
 
-  async revokeInvite(groupId, inviteId, token, at) {
+  async revokeInvite(invite, at) {
+    const { groupId, id: inviteId } = invite;
     await transactWrite([
       {
         Update: touch(
@@ -328,7 +378,53 @@ export const dynamoGroupV2Repository: GroupV2Repository = {
           at,
         ),
       },
-      tokenLookupTtl(token, graceTtl(at)),
+      ...lookupTtls(invite, graceTtl(at)),
+    ]);
+  },
+
+  async listInvitesFor(target) {
+    const pk =
+      'userId' in target
+        ? userGroupInvitesV2LookupPk(target.userId)
+        : emailGroupInvitesV2LookupPk(target.email);
+    const { Items = [] } = await dynamo().send(
+      new QueryCommand({
+        TableName: tableName(),
+        KeyConditionExpression: 'PK = :pk',
+        ExpressionAttributeValues: { ':pk': pk },
+      }),
+    );
+    return Items.map((row) => ({
+      groupId: asGroupId(row.groupId as string),
+      inviteId: row.inviteId as string,
+    }));
+  },
+
+  async resolveInviteId(inviteId) {
+    const pointer = await getItem(groupV2InviteIdLookupKey(inviteId));
+    return pointer
+      ? { groupId: asGroupId(pointer.groupId as string), inviteId: pointer.inviteId as string }
+      : undefined;
+  },
+
+  async declineInvite(invite, at) {
+    const { groupId, id: inviteId } = invite;
+    await transactWrite([
+      {
+        Update: touch(
+          {
+            TableName: tableName(),
+            Key: groupV2InviteKey(groupId, inviteId),
+            UpdateExpression: 'SET declinedAt = :at, #ttl = :ttl',
+            ConditionExpression:
+              'attribute_exists(PK) AND attribute_not_exists(declinedAt) AND attribute_not_exists(revokedAt)',
+            ExpressionAttributeNames: { '#ttl': 'ttl' },
+            ExpressionAttributeValues: { ':at': at.toISOString(), ':ttl': graceTtl(at) },
+          },
+          at,
+        ),
+      },
+      ...lookupTtls(invite, graceTtl(at)),
     ]);
   },
 
@@ -407,7 +503,7 @@ export const dynamoGroupV2Repository: GroupV2Repository = {
         },
       },
       // Convite sem prazo que esgota: o lookup do token também ganha o `ttl` (some junto com o convite).
-      ...(lastUse ? [tokenLookupTtl(invite.token, graceTtl(now))] : []),
+      ...(lastUse ? lookupTtls(invite, graceTtl(now)) : []),
       ...(action === 'join'
         ? [
             {

@@ -80,6 +80,13 @@ export default defineComponent({
             ? this.$t('groupsV2.invites.oneUse')
             : this.$t('groupsV2.invites.uses', { count: invite.uses }),
       ];
+      if (invite.target) {
+        parts.push(
+          'user' in invite.target
+            ? this.$t('groupsV2.invites.forUser', { name: invite.target.user.nickname })
+            : this.$t('groupsV2.invites.forEmail', { email: invite.target.email }),
+        );
+      }
       return parts.join(' · ');
     },
 

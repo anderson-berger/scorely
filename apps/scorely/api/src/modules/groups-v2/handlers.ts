@@ -5,7 +5,9 @@ import { createGroupV2Images } from '@scorely/api/src/modules/groups-v2/group-v2
 import { dynamoGroupV2Repository } from '@scorely/api/src/modules/groups-v2/group-v2.repository';
 import { createGroupV2Service } from '@scorely/api/src/modules/groups-v2/group-v2.service';
 import { mediaService } from '@scorely/api/src/modules/media/media.service';
-import { dynamoUserDirectory } from '@scorely/api/src/modules/users/user.repository';
+import { dynamoNotificationRepository } from '@scorely/api/src/modules/notifications/notification.repository';
+import { createNotificationService } from '@scorely/api/src/modules/notifications/notification.service';
+import { dynamoUserDirectory, dynamoUserRepository } from '@scorely/api/src/modules/users/user.repository';
 import {
   AttachMediaInputSchema,
   CreateGroupInviteV2InputSchema,
@@ -18,6 +20,12 @@ const groups = createGroupV2Service({
   groups: dynamoGroupV2Repository,
   media: mediaService,
   users: dynamoUserDirectory,
+  notifications: createNotificationService(dynamoNotificationRepository),
+  // GRV-23: o email só da parte privada (USR-13) e a conta de um email, pelo lookup do login.
+  emails: {
+    emailOf: async (userId) => (await dynamoUserRepository.getMe(userId))?.private.email,
+    userIdOf: async (email) => (await dynamoUserRepository.getByEmail(email))?.id,
+  },
 });
 const images = createGroupV2Images({ groups: dynamoGroupV2Repository, media: mediaService });
 
@@ -141,5 +149,18 @@ export async function removeMemberV2(event: HttpEvent) {
       asPublicGroupId(pathParam(event, 'publicId')),
       asPublicUserId(pathParam(event, 'userPublicId')),
     );
+  });
+}
+
+export async function myGroupInvitesV2(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
+    const list = await groups.myInvites(auth.userId);
+    return list;
+  });
+}
+
+export async function declineGroupInviteV2(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
+    await groups.declineInvite(auth.userId, pathParam(event, 'inviteId'));
   });
 }

@@ -72,12 +72,38 @@ export function memoryGroupsV2() {
     async resolveToken(token) {
       return tokens.get(token);
     },
-    async revokeInvite(groupId, inviteId, _token, at) {
+    async revokeInvite({ groupId, id: inviteId }, at) {
       const invite = invites.get(inviteKey(groupId, inviteId));
       if (!invite || invite.revokedAt !== undefined) return;
       invites.set(inviteKey(groupId, inviteId), {
         ...invite,
         revokedAt: at.toISOString(),
+        ttl: graceTtl(at),
+        updatedAt: at.toISOString(),
+        version: invite.version + 1,
+      });
+    },
+    async listInvitesFor(target) {
+      return [...invites.values()]
+        .filter((i) => {
+          const t = i.target;
+          if (!t) return false;
+          return 'userId' in target
+            ? 'userId' in t && t.userId === target.userId
+            : 'email' in t && t.email === target.email;
+        })
+        .map((i) => ({ groupId: i.groupId, inviteId: i.id }));
+    },
+    async resolveInviteId(inviteId) {
+      const found = [...invites.values()].find((i) => i.id === inviteId && i.target !== undefined);
+      return found && { groupId: found.groupId, inviteId: found.id };
+    },
+    async declineInvite({ groupId, id: inviteId }, at) {
+      const invite = invites.get(inviteKey(groupId, inviteId));
+      if (!invite || invite.declinedAt !== undefined) return;
+      invites.set(inviteKey(groupId, inviteId), {
+        ...invite,
+        declinedAt: at.toISOString(),
         ttl: graceTtl(at),
         updatedAt: at.toISOString(),
         version: invite.version + 1,

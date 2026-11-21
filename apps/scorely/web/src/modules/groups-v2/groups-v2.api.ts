@@ -7,6 +7,7 @@ import {
   GroupMemberV2Schema,
   GroupV2Schema,
   MediaUploadSchema,
+  MyGroupInviteV2Schema,
 } from '@scorely/contracts';
 import { request, send } from '@scorely/web/src/lib/http';
 import { contentTypeOf, uploadMedia } from '@scorely/web/src/lib/media';
@@ -35,6 +36,11 @@ export const groupsV2Api = {
     request({ url: `/v2/invites/${encodeURIComponent(token)}` }, GroupInvitePreviewV2Schema),
   joinInvite: (token: string) =>
     request({ url: `/v2/invites/${encodeURIComponent(token)}/join`, method: 'POST' }, GroupV2Schema),
+
+  // Convites para mim (GRV-24)
+  myInvites: () => request({ url: '/v2/me/group-invites' }, MyGroupInviteV2Schema.array()),
+  declineInvite: (inviteId: string) =>
+    send({ url: `/v2/me/group-invites/${encodeURIComponent(inviteId)}`, method: 'DELETE' }),
 
   // Membros (GRV-29–31)
   members: (id: string) =>

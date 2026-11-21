@@ -39,6 +39,12 @@ export const groupsV2Functions: AWS['functions'] = {
   },
   previewGroupInviteV2: { handler: handler('previewInviteV2'), events: route('GET', '/v2/invites/{token}') },
   joinGroupInviteV2: { handler: handler('joinInviteV2'), events: route('POST', '/v2/invites/{token}/join') },
+  // Convite pessoal (GRV-23, 24)
+  myGroupInvitesV2: { handler: handler('myGroupInvitesV2'), events: route('GET', '/v2/me/group-invites') },
+  declineGroupInviteV2: {
+    handler: handler('declineGroupInviteV2'),
+    events: route('DELETE', '/v2/me/group-invites/{inviteId}'),
+  },
   listGroupMembersV2: {
     handler: handler('listMembersV2'),
     events: route('GET', '/v2/groups/{publicId}/members'),

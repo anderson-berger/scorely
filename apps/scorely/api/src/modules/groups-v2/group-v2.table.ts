@@ -61,3 +61,29 @@ export function groupV2InviteTokenLookupKey(token: string) {
 export function groupV2InviteUseKey(id: GroupId, inviteId: string, userId: UserId) {
   return { PK: `GROUP2#${id}`, SK: `${GROUP_V2_INVITE_USE_PREFIX}${inviteId}#${userId}` };
 }
+
+/**
+ * Convites para a pessoa (GRV-24): `PK=LOOKUP#USER#<userId>#GROUP2INVITE`, `SK=<inviteId>`, `{ groupId, inviteId }`.
+ * Do convite pessoal pelo id público. Leitura: Query.
+ */
+export function userGroupInvitesV2LookupKey(userId: UserId, inviteId: string) {
+  return { PK: userGroupInvitesV2LookupPk(userId), SK: inviteId };
+}
+
+export function userGroupInvitesV2LookupPk(userId: UserId) {
+  return `LOOKUP#USER#${userId}#GROUP2INVITE`;
+}
+
+/** Convites para o email (GRV-24): `PK=LOOKUP#EMAIL#<email>#GROUP2INVITE`, `SK=<inviteId>`. O email já vem normalizado. */
+export function emailGroupInvitesV2LookupKey(email: string, inviteId: string) {
+  return { PK: emailGroupInvitesV2LookupPk(email), SK: inviteId };
+}
+
+export function emailGroupInvitesV2LookupPk(email: string) {
+  return `LOOKUP#EMAIL#${email}#GROUP2INVITE`;
+}
+
+/** Id → convite pessoal (GRV-24, recusar): `PK=LOOKUP#GROUP2INVITEID#<inviteId>`, `SK=META`, `{ groupId, inviteId }`. */
+export function groupV2InviteIdLookupKey(inviteId: string) {
+  return { PK: `LOOKUP#GROUP2INVITEID#${inviteId}`, SK: 'META' };
+}

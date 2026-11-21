@@ -15,4 +15,5 @@ export const notificationIcon: Record<NotificationType, string> = {
   season_closed: 'emoji_events',
   trophy_awarded: 'workspace_premium',
   podium_entered: 'trending_up',
+  group_invited: 'mail',
 };

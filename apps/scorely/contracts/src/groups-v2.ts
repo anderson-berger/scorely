@@ -1,5 +1,5 @@
 import { VersionSchema } from '@scorely/contracts/src/entity';
-import { UserSchema } from '@scorely/contracts/src/users';
+import { EmailSchema, PublicUserIdSchema, UserSchema } from '@scorely/contracts/src/users';
 import { z } from 'zod';
 
 // Grupo v2 (docs/modules/grupos-v2.md, ADR 0017). Convive com o grupo antigo (`groups.ts`) até a troca.
@@ -63,11 +63,22 @@ export const GroupInviteMaxUsesV2Schema = z.number().int().min(1).max(100).nulla
 /** Máximo de convites ativos por grupo (GRV-18). */
 export const GROUP_INVITE_MAX_ACTIVE = 50;
 
-/** Corpo do `POST /v2/groups/{publicId}/invites` (GRV-18). Padrões: membro, 7 dias, sem limite. */
+/** Para quem é o convite pessoal (GRV-23): pelo id público ou pelo email (guardado normalizado). */
+export const GroupInviteTargetInputV2Schema = z.union([
+  z.object({ publicId: PublicUserIdSchema }),
+  z.object({ email: EmailSchema }),
+]);
+export type GroupInviteTargetInputV2 = z.infer<typeof GroupInviteTargetInputV2Schema>;
+
+/**
+ * Corpo do `POST /v2/groups/{publicId}/invites` (GRV-18, 23). Padrões: membro, 7 dias, sem limite, para qualquer
+ * pessoa. Com `target`, o convite tem sempre 1 uso: a api ignora o `maxUses`.
+ */
 export const CreateGroupInviteV2InputSchema = z.object({
   tier: GroupTierV2Schema.default('member'),
   validityDays: GroupInviteValidityV2Schema.default(7),
   maxUses: GroupInviteMaxUsesV2Schema.default(null),
+  target: GroupInviteTargetInputV2Schema.optional(),
 });
 export type CreateGroupInviteV2Input = z.infer<typeof CreateGroupInviteV2InputSchema>;
 
@@ -89,6 +100,8 @@ export const GroupInviteV2Schema = z.object({
   createdAt: z.iso.datetime(),
   /** Quem entrou por ele (perfis). */
   usedBy: z.array(UserSchema),
+  /** Para quem é, no convite pessoal (GRV-23): o perfil, se foi pelo id público; o email, se foi por ele. */
+  target: z.union([z.object({ user: UserSchema }), z.object({ email: z.string() })]).optional(),
 });
 export type GroupInviteV2 = z.infer<typeof GroupInviteV2Schema>;
 
@@ -115,6 +128,16 @@ export const GroupInviteInvalidReasonV2Schema = z.enum([
   'declined',
 ]);
 export type GroupInviteInvalidReasonV2 = z.infer<typeof GroupInviteInvalidReasonV2Schema>;
+
+/** Um convite pessoal para mim (GRV-24, 36): a apresentação do grupo (GRV-21) e quem convidou. */
+export const MyGroupInviteV2Schema = GroupInvitePreviewV2Schema.extend({
+  id: z.uuid(),
+  /** O token, para entrar (GRV-22) e abrir `/v2/join/<token>`. */
+  token: z.string().min(1),
+  invitedBy: UserSchema,
+  createdAt: z.iso.datetime(),
+});
+export type MyGroupInviteV2 = z.infer<typeof MyGroupInviteV2Schema>;
 
 // ---- Membros (GRV-29) ----
 
