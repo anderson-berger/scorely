@@ -1,5 +1,6 @@
 import { appError } from '@scorely/api/src/lib/errors';
 import type { UserId } from '@scorely/api/src/lib/ids';
+import { requirePermission } from '@scorely/api/src/modules/groups-v2/group-v2.permissions';
 import type { GroupV2Repository } from '@scorely/api/src/modules/groups-v2/group-v2.repository';
 import { forViewer } from '@scorely/api/src/modules/groups-v2/group-v2.service';
 import { groupV2Key } from '@scorely/api/src/modules/groups-v2/group-v2.table';
@@ -25,17 +26,17 @@ export interface GroupV2ImagesDeps {
 }
 
 /**
- * Logo e capa do grupo v2 (GRV-09). Só o dono troca, conferido em cada passo (MID-01); a mídia cuida do arquivo.
+ * Logo e capa do grupo v2 (GRV-09). Só quem tem `group.edit` troca, conferido em cada passo (MID-01); a mídia cuida do arquivo.
  * Os métodos recebem o id público e traduzem para o uuid aqui, na entrada.
  */
 export function createGroupV2Images(deps: GroupV2ImagesDeps) {
-  /** GRV-09: sem participação (ou código inexistente) → `GROUP_NOT_FOUND`; participante que não é dono → `GROUP_NOT_OWNER`. */
-  async function requireOwner(userId: UserId, publicId: PublicGroupId) {
+  /** GRV-09: sem participação (ou código inexistente) → `GROUP_NOT_FOUND`; sem `group.edit` → `GROUP_PERMISSION_DENIED`. */
+  async function requireEditor(userId: UserId, publicId: PublicGroupId) {
     const id = await deps.groups.resolve(publicId);
     if (id === undefined) throw appError('GROUP_NOT_FOUND');
     const membership = await deps.groups.getMembership(id, userId);
     if (!membership) throw appError('GROUP_NOT_FOUND');
-    if (membership.role !== 'owner') throw appError('GROUP_NOT_OWNER');
+    requirePermission(membership, 'group.edit');
     return { id, membership };
   }
 
@@ -68,7 +69,7 @@ export function createGroupV2Images(deps: GroupV2ImagesDeps) {
       slot: GroupImageSlot,
       input: MediaUploadInput,
     ): Promise<MediaUpload> {
-      const { id } = await requireOwner(userId, publicId);
+      const { id } = await requireEditor(userId, publicId);
       const upload = await deps.media.requestUpload({
         purpose: PURPOSES[slot],
         ownerId: id,
@@ -84,7 +85,7 @@ export function createGroupV2Images(deps: GroupV2ImagesDeps) {
       slot: GroupImageSlot,
       input: AttachMediaInput,
     ): Promise<GroupV2> {
-      const { id, membership } = await requireOwner(userId, publicId);
+      const { id, membership } = await requireEditor(userId, publicId);
       await deps.media.attach({
         mediaId: input.mediaId,
         purpose: PURPOSES[slot],
@@ -96,7 +97,7 @@ export function createGroupV2Images(deps: GroupV2ImagesDeps) {
     },
 
     async detach(userId: UserId, publicId: PublicGroupId, slot: GroupImageSlot): Promise<GroupV2> {
-      const { id, membership } = await requireOwner(userId, publicId);
+      const { id, membership } = await requireEditor(userId, publicId);
       await deps.media.detach({ purpose: PURPOSES[slot], ownerId: id, target: target(id, slot) });
       const group = await fresh(id, membership);
       return group;

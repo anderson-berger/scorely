@@ -38,3 +38,26 @@ export function userGroupsV2LookupKey(userId: UserId, id: GroupId) {
 export function userGroupsV2LookupPk(userId: UserId) {
   return `LOOKUP#USER#${userId}#GROUP2`;
 }
+
+export const GROUP_V2_INVITE_ENTITY = 'GroupV2Invite';
+export const GROUP_V2_INVITE_USE_ENTITY = 'GroupV2InviteUse';
+
+/** Prefixos das Queries da partição do grupo (GRV-19, 29). */
+export const GROUP_V2_MEMBER_PREFIX = 'MEMBER#';
+export const GROUP_V2_INVITE_PREFIX = 'INVITE#';
+export const GROUP_V2_INVITE_USE_PREFIX = 'INVITEUSE#';
+
+/** Convite (GRV-18): `PK=GROUP2#<id>`, `SK=INVITE#<inviteId>`. Entidade (`newEntity`). Os do grupo: Query `INVITE#`. */
+export function groupV2InviteKey(id: GroupId, inviteId: string) {
+  return { PK: `GROUP2#${id}`, SK: `${GROUP_V2_INVITE_PREFIX}${inviteId}` };
+}
+
+/** Token → convite: `PK=LOOKUP#GROUP2#INVITE#<token>`, `SK=META`, `{ groupId, inviteId }` (a chave do convite). */
+export function groupV2InviteTokenLookupKey(token: string) {
+  return { PK: `LOOKUP#GROUP2#INVITE#${token}`, SK: 'META' };
+}
+
+/** Quem entrou pelo convite (GRV-19): `PK=GROUP2#<id>`, `SK=INVITEUSE#<inviteId>#<userId>`. Entidade de relação. */
+export function groupV2InviteUseKey(id: GroupId, inviteId: string, userId: UserId) {
+  return { PK: `GROUP2#${id}`, SK: `${GROUP_V2_INVITE_USE_PREFIX}${inviteId}#${userId}` };
+}

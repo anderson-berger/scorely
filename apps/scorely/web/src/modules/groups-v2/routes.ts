@@ -26,10 +26,26 @@ export const groupsV2Routes: RouteRecordRaw[] = [
         component: () => import('@scorely/web/src/modules/groups-v2/pages/GroupV2HomePage.vue'),
       },
       {
+        path: 'members',
+        name: 'group-v2-members',
+        component: () => import('@scorely/web/src/modules/groups-v2/pages/GroupV2MembersPage.vue'),
+      },
+      {
+        path: 'invites',
+        name: 'group-v2-invites',
+        component: () => import('@scorely/web/src/modules/groups-v2/pages/GroupV2InvitesPage.vue'),
+      },
+      {
         path: 'settings',
         name: 'group-v2-settings',
         component: () => import('@scorely/web/src/modules/groups-v2/pages/GroupV2SettingsPage.vue'),
       },
     ],
+  },
+  // GRV-35: a página do convite (sem login, a pessoa passa pelo login e volta).
+  {
+    path: 'v2/join/:token',
+    name: 'group-v2-join',
+    component: () => import('@scorely/web/src/modules/groups-v2/pages/GroupV2JoinPage.vue'),
   },
 ];

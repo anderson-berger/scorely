@@ -11,6 +11,7 @@ function setup(codes: string[] = []) {
   const queue = { rest: [...codes] };
   const service = createGroupV2Service({
     groups: mem.repo,
+    users: { getMany: async () => [], resolve: async () => new Map() },
     now: () => NOW,
     newPublicId: () => {
       const [next, ...rest] = queue.rest;
@@ -45,7 +46,34 @@ describe('groups-v2 service', () => {
     const group = await service.create(ANA, { name: 'Pelada' });
     expect(group.myRole).toBe('owner');
     expect([...members.values()]).toHaveLength(1);
-    expect([...members.values()][0]).toMatchObject({ userId: ANA, role: 'owner' });
+    expect([...members.values()][0]).toMatchObject({ userId: ANA, role: 'owner', tier: 'member' });
+    expect(group.myTier).toBe('member');
+  });
+
+  it('GRV-02: o grupo nasce no modo de convite', async () => {
+    const { service, groups } = setup(['K3X9PQ2A']);
+    await service.create(ANA, { name: 'Pelada' });
+    expect([...groups.values()][0]).toMatchObject({ joinMode: 'invite' });
+  });
+
+  it('GRV-04: o grupo vem com myTier e myPermissions de quem pede (GRV-16)', async () => {
+    const { service } = setup(['K3X9PQ2A']);
+    await service.create(ANA, { name: 'Pelada' });
+    expect(await service.get(ANA, pid('K3X9PQ2A'))).toMatchObject({
+      myTier: 'member',
+      myRole: 'owner',
+      myPermissions: ['group.edit', 'members.invite', 'members.remove'],
+    });
+  });
+
+  it('GRV-05: meus grupos trazem myTier, myRole e myPermissions', async () => {
+    const { service } = setup(['AAAAAAAA']);
+    await service.create(ANA, { name: 'Pelada' });
+    expect((await service.mine(ANA))[0]).toMatchObject({
+      myTier: 'member',
+      myRole: 'owner',
+      myPermissions: ['group.edit', 'members.invite', 'members.remove'],
+    });
   });
 
   it('GRV-03: o nome pode repetir, também entre os grupos da mesma pessoa', async () => {

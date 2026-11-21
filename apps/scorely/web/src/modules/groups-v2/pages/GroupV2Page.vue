@@ -29,7 +29,7 @@ export default defineComponent({
       return this.group ? groupV2NavItems(this.group) : [];
     },
 
-    /** GRV-13: com uma área só, a barra não aparece. */
+    /** GRV-13: com uma área só, a barra não aparece (hoje todos têm Início e Membros). */
     showNav(): boolean {
       return this.items.length >= 2;
     },

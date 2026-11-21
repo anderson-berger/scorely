@@ -16,7 +16,7 @@ export default defineComponent({
 
   methods: {
     isActive(item: GroupV2NavItem): boolean {
-      return this.$route.name === item.to.name;
+      return item.active.includes(String(this.$route.name));
     },
   },
 });

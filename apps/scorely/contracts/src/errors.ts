@@ -1,4 +1,5 @@
 import { PermissionSchema } from '@scorely/contracts/src/groups';
+import { GroupInviteInvalidReasonV2Schema, GroupPermissionV2Schema } from '@scorely/contracts/src/groups-v2';
 import {
   TeamPersonIdSchema,
   TeamRuleConflictSchema,
@@ -40,6 +41,8 @@ export const ErrorCodeSchema = z.enum([
   'GROUP_NOT_OWNER',
   'GROUP_PERMISSION_DENIED',
   'GROUP_INVITE_INVALID',
+  'GROUP_INVITE_NOT_FOR_YOU',
+  'GROUP_INVITE_LIMIT',
   'GROUP_MEMBER_NOT_FOUND',
   'GROUP_OWNER_NOT_REMOVABLE',
   'GROUP_LAYERS_INVALID',
@@ -107,7 +110,11 @@ export const ErrorDetailsSchemas = {
     height: z.number().int().positive(),
   }),
   /** A permissão que faltou (GRP-04, 52). */
-  GROUP_PERMISSION_DENIED: z.object({ permission: PermissionSchema }),
+  GROUP_PERMISSION_DENIED: z.object({ permission: z.union([PermissionSchema, GroupPermissionV2Schema]) }),
+  /** Por que o convite não vale (GRV-21). */
+  GROUP_INVITE_INVALID: z.object({ reason: GroupInviteInvalidReasonV2Schema }),
+  /** GRV-18: o máximo de convites ativos. */
+  GROUP_INVITE_LIMIT: z.object({ limit: z.number().int().positive() }),
   GAME_LIST_NOT_OPEN: z.object({ opensAt: z.iso.datetime() }),
   GROUP_LAYERS_INVALID: z.object({ field: z.enum(['reservesOpenHoursBefore', 'guestsOpenHoursBefore']) }),
   TEAM_POSITION_INVALID: z.object({ position: z.string() }),

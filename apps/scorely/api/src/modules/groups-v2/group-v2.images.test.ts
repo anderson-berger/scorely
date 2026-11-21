@@ -75,6 +75,7 @@ async function setup() {
   };
   const service = createGroupV2Service({
     groups: mem.repo,
+    users: { getMany: async () => [], resolve: async () => new Map() },
     now: () => clock.now,
     newPublicId: () => pid(CODE),
     media,
@@ -166,12 +167,13 @@ describe('groups-v2: logo e capa', () => {
     expect(t.mediaCalls()).toBe(0);
   });
 
-  it('GRV-09: participante que não é o dono → GROUP_NOT_OWNER (403) nos três passos, sem chamar a mídia', async () => {
+  it('GRV-09: participante que não é o dono → GROUP_PERMISSION_DENIED (403) nos três passos, sem chamar a mídia', async () => {
     const t = await setup();
     t.members.set(`${t.uuid}#${BIA}`, {
       groupId: t.uuid as never,
       userId: BIA,
-      role: 'member' as unknown as 'owner',
+      tier: 'member',
+      role: 'member',
       createdAt: NOW.toISOString(),
     });
     const errs = [
@@ -179,7 +181,7 @@ describe('groups-v2: logo e capa', () => {
       await errorOf(t.images.attach(BIA, pid(CODE), 'cover', { mediaId: randomUUID() })),
       await errorOf(t.images.detach(BIA, pid(CODE), 'logo')),
     ];
-    for (const err of errs) expect(err).toMatchObject({ code: 'GROUP_NOT_OWNER', status: 403 });
+    for (const err of errs) expect(err).toMatchObject({ code: 'GROUP_PERMISSION_DENIED', status: 403 });
     expect(t.mediaCalls()).toBe(0);
   });
 
@@ -189,11 +191,12 @@ describe('groups-v2: logo e capa', () => {
     t.members.set(`${t.uuid}#${ANA}`, {
       groupId: t.uuid as never,
       userId: ANA,
-      role: 'member' as unknown as 'owner',
+      tier: 'member',
+      role: 'member',
       createdAt: NOW.toISOString(),
     });
     const err = await errorOf(t.images.attach(ANA, pid(CODE), 'logo', { mediaId: upload.mediaId }));
-    expect(err).toMatchObject({ code: 'GROUP_NOT_OWNER', status: 403 });
+    expect(err).toMatchObject({ code: 'GROUP_PERMISSION_DENIED', status: 403 });
     expect(t.calls.attach).toEqual([]);
   });
 

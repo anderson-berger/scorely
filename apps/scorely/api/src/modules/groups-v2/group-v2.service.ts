@@ -1,14 +1,33 @@
+import { randomBytes } from 'node:crypto';
 import { newEntity } from '@scorely/api/src/lib/entity';
 import { appError } from '@scorely/api/src/lib/errors';
 import type { UserId } from '@scorely/api/src/lib/ids';
-import type {
-  GroupV2Repository,
-  StoredGroupV2,
-  StoredMembershipV2,
+import { permissionsOf, requirePermission } from '@scorely/api/src/modules/groups-v2/group-v2.permissions';
+import {
+  type GroupV2Repository,
+  graceTtl,
+  type JoinActionV2,
+  type StoredGroupV2,
+  type StoredInviteV2,
+  type StoredMembershipV2,
 } from '@scorely/api/src/modules/groups-v2/group-v2.repository';
 import { newPublicGroupId } from '@scorely/api/src/modules/groups-v2/public-id';
 import { type MediaService, mediaService } from '@scorely/api/src/modules/media/media.service';
-import type { CreateGroupV2Input, GroupV2, PublicGroupId } from '@scorely/contracts';
+import type { UserDirectory, UserRecord } from '@scorely/api/src/modules/users/user.repository';
+import {
+  type CreateGroupInviteV2Input,
+  type CreateGroupV2Input,
+  GROUP_INVITE_MAX_ACTIVE,
+  type GroupInviteInvalidReasonV2,
+  type GroupInvitePreviewV2,
+  type GroupInviteStatusV2,
+  type GroupInviteV2,
+  type GroupMemberV2,
+  type GroupV2,
+  type PublicGroupId,
+  type PublicUserId,
+  type User,
+} from '@scorely/contracts';
 
 /** MID-12: monta a URL pública pela finalidade e o id da mídia. */
 export type UrlOf = MediaService['urlOf'];
@@ -24,14 +43,45 @@ export interface GroupsV2Deps {
   groups: GroupV2Repository;
   /** MID-12: só o `urlOf` da mídia. Sem ele, a mídia de produção. */
   media?: Pick<MediaService, 'urlOf'>;
+  /** Perfis das pessoas (GRV-19, 29) e ids públicos → uuid (GRV-31). */
+  users: Pick<UserDirectory, 'getMany' | 'resolve'>;
   now?: () => Date;
   newPublicId?: () => PublicGroupId;
+  /** GRV-18: o token do link do convite. Padrão: 32 bytes aleatórios em base64url. */
+  newToken?: () => string;
 }
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const newInviteToken = () => randomBytes(32).toString('base64url');
+
+/** USR-16: o perfil da pessoa como sai na resposta (id público, sem email nem nome). */
+function toUser(record: UserRecord, urlOf: UrlOf): User {
+  return {
+    id: record.publicId,
+    createdAt: record.createdAt,
+    nickname: record.nickname,
+    ...(record.gender !== undefined && { gender: record.gender }),
+    ...(record.avatarMediaId !== undefined && { avatarUrl: urlOf('avatar', record.avatarMediaId) }),
+  };
+}
+
+/** GRV-19: a situação do convite, calculada ao ler. */
+function inviteStatus(invite: StoredInviteV2, now: Date): GroupInviteStatusV2 {
+  if (invite.revokedAt !== undefined) return 'revoked';
+  if (invite.declinedAt !== undefined) return 'declined';
+  if (invite.maxUses !== undefined && invite.uses >= invite.maxUses) return 'exhausted';
+  if (invite.expiresAt !== undefined && invite.expiresAt <= now.toISOString()) return 'expired';
+  return 'active';
+}
+
+/** GRV-19: o convite que deixou de valer há mais de 30 dias já não aparece (o `ttl` do banco atrasa até ~48 h). */
+const isGone = (invite: StoredInviteV2, now: Date) =>
+  invite.ttl !== undefined && invite.ttl * 1000 <= now.getTime();
 
 /** O grupo para quem pede: o id público no lugar do uuid (GRV-08), o papel (GRV-04) e as URLs das imagens (GRV-10). */
 export function forViewer(
   group: StoredGroupV2,
-  membership: Pick<StoredMembershipV2, 'role'>,
+  membership: Pick<StoredMembershipV2, 'role' | 'tier'>,
   urlOf: UrlOf = productionUrlOf,
 ): GroupV2 {
   return {
@@ -39,7 +89,9 @@ export function forViewer(
     createdAt: group.createdAt,
     version: group.version,
     name: group.name,
+    myTier: membership.tier,
     myRole: membership.role,
+    myPermissions: permissionsOf(membership),
     ...(group.logoMediaId !== undefined && { logoUrl: urlOf('group.logo', group.logoMediaId) }),
     ...(group.coverMediaId !== undefined && { coverUrl: urlOf('group.cover', group.coverMediaId) }),
   };
@@ -53,7 +105,7 @@ export function createGroupV2Service(deps: GroupsV2Deps) {
   async function create(userId: UserId, input: CreateGroupV2Input, attempt = 1): Promise<GroupV2> {
     // `newEntity` gera o id do sistema (uuid) e o `createdAt`; o `updatedAt` nasce igual (ADR 0013).
     const entity = newEntity<Omit<StoredGroupV2, 'updatedAt'>>(
-      { publicId: newPublicId(), name: input.name, version: 1 },
+      { publicId: newPublicId(), name: input.name, joinMode: 'invite', version: 1 },
       now(),
     );
     const group: StoredGroupV2 = { ...entity, updatedAt: entity.createdAt };
@@ -62,7 +114,7 @@ export function createGroupV2Service(deps: GroupsV2Deps) {
       if (attempt >= PUBLIC_ID_ATTEMPTS) throw new Error('Could not allocate a group public id');
       return create(userId, input, attempt + 1);
     }
-    return forViewer(group, { role: 'owner' }, deps.media?.urlOf);
+    return forViewer(group, { role: 'owner', tier: 'member' }, deps.media?.urlOf);
   }
 
   /** GRV-04: quem não participa, ou um código que não existe, recebe `GROUP_NOT_FOUND`. */
@@ -85,5 +137,231 @@ export function createGroupV2Service(deps: GroupsV2Deps) {
       .sort((a, b) => byName.compare(a.name, b.name));
   }
 
-  return { create, get, mine };
+  const urlOf: UrlOf = (purpose, mediaId) => (deps.media?.urlOf ?? productionUrlOf)(purpose, mediaId);
+  const newToken = deps.newToken ?? newInviteToken;
+
+  /** Quem participa e o grupo; senão `GROUP_NOT_FOUND` (GRV-04, 15). */
+  async function access(userId: UserId, publicId: PublicGroupId) {
+    const id = await deps.groups.resolve(publicId);
+    if (id === undefined) throw appError('GROUP_NOT_FOUND');
+    const [group, membership] = await Promise.all([
+      deps.groups.get(id),
+      deps.groups.getMembership(id, userId),
+    ]);
+    if (!group || !membership) throw appError('GROUP_NOT_FOUND');
+    return { id, group, membership };
+  }
+
+  /** Perfis de uma vez (`getMany`). */
+  async function profiles(ids: readonly UserId[]): Promise<Map<UserId, User>> {
+    const unique = [...new Set(ids)];
+    const records = unique.length > 0 ? await deps.users.getMany(unique) : [];
+    return new Map(records.map((r) => [r.id, toUser(r, urlOf)]));
+  }
+
+  function profileOf(map: Map<UserId, User>, id: UserId): User {
+    const user = map.get(id);
+    if (!user) throw new Error('Group participant without a user profile');
+    return user;
+  }
+
+  function inviteView(
+    invite: StoredInviteV2,
+    people: Map<UserId, User>,
+    usedBy: readonly UserId[],
+    at: Date,
+  ): GroupInviteV2 {
+    return {
+      id: invite.id,
+      token: invite.token,
+      tier: invite.tier,
+      status: inviteStatus(invite, at),
+      ...(invite.expiresAt !== undefined && { expiresAt: invite.expiresAt }),
+      ...(invite.maxUses !== undefined && { maxUses: invite.maxUses }),
+      uses: invite.uses,
+      createdBy: profileOf(people, invite.createdBy),
+      createdAt: invite.createdAt,
+      usedBy: usedBy.map((u) => profileOf(people, u)),
+    };
+  }
+
+  /** GRV-18: cria o convite do grupo. */
+  async function createInvite(
+    userId: UserId,
+    publicId: PublicGroupId,
+    input: CreateGroupInviteV2Input,
+  ): Promise<GroupInviteV2> {
+    const { id, membership } = await access(userId, publicId);
+    requirePermission(membership, 'members.invite');
+    const at = now();
+    const existing = await deps.groups.listInvites(id);
+    const active = existing.filter((i) => inviteStatus(i, at) === 'active').length;
+    if (active >= GROUP_INVITE_MAX_ACTIVE) {
+      throw appError('GROUP_INVITE_LIMIT', { limit: GROUP_INVITE_MAX_ACTIVE });
+    }
+    const expiresAt =
+      input.validityDays === null ? undefined : new Date(at.getTime() + input.validityDays * DAY_MS);
+    const entity = newEntity<Omit<StoredInviteV2, 'updatedAt'>>(
+      {
+        groupId: id,
+        token: newToken(),
+        createdBy: userId,
+        tier: input.tier,
+        ...(expiresAt && { expiresAt: expiresAt.toISOString(), ttl: graceTtl(expiresAt) }),
+        ...(input.maxUses !== null && { maxUses: input.maxUses }),
+        uses: 0,
+        version: 1,
+      },
+      at,
+    );
+    const invite: StoredInviteV2 = { ...entity, updatedAt: entity.createdAt };
+    await deps.groups.createInvite(invite);
+    const people = await profiles([userId]);
+    return inviteView(invite, people, [], at);
+  }
+
+  /** GRV-19: os convites do grupo, do mais novo para o mais antigo. */
+  async function listInvites(userId: UserId, publicId: PublicGroupId): Promise<GroupInviteV2[]> {
+    const { id, membership } = await access(userId, publicId);
+    requirePermission(membership, 'members.invite');
+    const at = now();
+    const [all, uses] = await Promise.all([deps.groups.listInvites(id), deps.groups.listInviteUses(id)]);
+    const invites = all.filter((i) => !isGone(i, at)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const usedBy = (inviteId: string) =>
+      uses
+        .filter((u) => u.inviteId === inviteId)
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+        .map((u) => u.userId);
+    const people = await profiles([...invites.map((i) => i.createdBy), ...uses.map((u) => u.userId)]);
+    return invites.map((i) => inviteView(i, people, usedBy(i.id), at));
+  }
+
+  /** GRV-20: cancela o convite; o que já não vale não muda. */
+  async function revokeInvite(userId: UserId, publicId: PublicGroupId, inviteId: string): Promise<void> {
+    const { id, membership } = await access(userId, publicId);
+    requirePermission(membership, 'members.invite');
+    const invite = await deps.groups.getInvite(id, inviteId);
+    if (!invite || isGone(invite, now())) throw appError('GROUP_INVITE_INVALID', { reason: 'not_found' });
+    if (inviteStatus(invite, now()) !== 'active') return;
+    await deps.groups.revokeInvite(id, inviteId, invite.token, now());
+  }
+
+  /** O convite do token e o grupo dele; se não vale, `GROUP_INVITE_INVALID` com o motivo (GRV-21). */
+  async function validInvite(token: string) {
+    const invalid = (reason: GroupInviteInvalidReasonV2) => appError('GROUP_INVITE_INVALID', { reason });
+    const pointer = await deps.groups.resolveToken(token);
+    if (!pointer) throw invalid('not_found');
+    const [invite, group] = await Promise.all([
+      deps.groups.getInvite(pointer.groupId, pointer.inviteId),
+      deps.groups.get(pointer.groupId),
+    ]);
+    if (!invite || !group || isGone(invite, now())) throw invalid('not_found');
+    const status = inviteStatus(invite, now());
+    if (status !== 'active') throw invalid(status);
+    return { invite, group };
+  }
+
+  /** GRV-21: a apresentação do grupo para quem abre o convite. */
+  async function previewInvite(userId: UserId, token: string): Promise<GroupInvitePreviewV2> {
+    const { invite, group } = await validInvite(token);
+    const [participants, membership] = await Promise.all([
+      deps.groups.countParticipants(group.id),
+      deps.groups.getMembership(group.id, userId),
+    ]);
+    return {
+      groupId: group.publicId,
+      name: group.name,
+      ...(group.logoMediaId !== undefined && { logoUrl: urlOf('group.logo', group.logoMediaId) }),
+      ...(group.coverMediaId !== undefined && { coverUrl: urlOf('group.cover', group.coverMediaId) }),
+      participants,
+      tier: invite.tier,
+      ...(membership && { myTier: membership.tier }),
+    };
+  }
+
+  const JOIN_ATTEMPTS = 3;
+
+  /** GRV-22: entra, sobe de reserva para membro, ou não muda nada. */
+  async function joinByInvite(userId: UserId, token: string, attempt = 1): Promise<GroupV2> {
+    const { invite, group } = await validInvite(token);
+    const current = await deps.groups.getMembership(group.id, userId);
+    // Só a reserva com convite de membro muda de situação; os outros casos de quem já participa não mudam nada.
+    if (current && !(current.tier === 'reserve' && invite.tier === 'member')) {
+      return forViewer(group, current, deps.media?.urlOf);
+    }
+    const action: JoinActionV2 = current ? 'promote' : 'join';
+    const result = await deps.groups.joinByInvite({ invite, userId, action, now: now() });
+    if (result === 'ok') {
+      const tier = action === 'join' ? invite.tier : 'member';
+      return forViewer(group, { role: current?.role ?? 'member', tier }, deps.media?.urlOf);
+    }
+    // O convite ou a participação mudaram desde a leitura: relê (o convite sem uso sobrando responde o motivo).
+    if (attempt >= JOIN_ATTEMPTS) throw new Error('Group join kept conflicting with other writes');
+    return joinByInvite(userId, token, attempt + 1);
+  }
+
+  /** GRV-29: os participantes, o dono primeiro, depois os membros e as reservas, por data de entrada. */
+  async function members(userId: UserId, publicId: PublicGroupId): Promise<GroupMemberV2[]> {
+    const { id } = await access(userId, publicId);
+    const [list, invites] = await Promise.all([deps.groups.listMembers(id), deps.groups.listInvites(id)]);
+    const creatorOf = new Map(invites.map((i) => [i.id, i.createdBy]));
+    const people = await profiles([
+      ...list.map((m) => m.userId),
+      ...list.flatMap((m) => (m.inviteId !== undefined ? (creatorOf.get(m.inviteId) ?? []) : [])),
+    ]);
+    const rank = (m: StoredMembershipV2) => (m.role === 'owner' ? 0 : m.tier === 'member' ? 1 : 2);
+    return [...list]
+      .sort((a, b) => rank(a) - rank(b) || a.createdAt.localeCompare(b.createdAt))
+      .map((m) => {
+        const inviter = m.inviteId !== undefined ? creatorOf.get(m.inviteId) : undefined;
+        return {
+          user: profileOf(people, m.userId),
+          tier: m.tier,
+          role: m.role,
+          joinedAt: m.createdAt,
+          ...(inviter !== undefined && people.has(inviter) && { invitedBy: profileOf(people, inviter) }),
+        };
+      });
+  }
+
+  /** GRV-30: a pessoa sai; o dono não. */
+  async function leave(userId: UserId, publicId: PublicGroupId): Promise<void> {
+    const { id, membership } = await access(userId, publicId);
+    if (membership.role === 'owner') throw appError('GROUP_OWNER_NOT_REMOVABLE');
+    await deps.groups.removeMembership(id, userId);
+  }
+
+  /** GRV-31: quem tem `members.remove` remove outra pessoa. */
+  async function removeMember(
+    userId: UserId,
+    publicId: PublicGroupId,
+    targetPublicId: PublicUserId,
+  ): Promise<void> {
+    const { id, membership } = await access(userId, publicId);
+    requirePermission(membership, 'members.remove');
+    const targetId = (await deps.users.resolve([targetPublicId])).get(targetPublicId);
+    const target = targetId && (await deps.groups.getMembership(id, targetId));
+    if (target && target.role === 'owner') throw appError('GROUP_OWNER_NOT_REMOVABLE');
+    if (targetId === userId) {
+      throw appError('VALIDATION_ERROR', {
+        issues: [{ code: 'custom', path: ['userId'], message: 'Use leave to remove yourself' }],
+      });
+    }
+    if (!targetId || !target) throw appError('GROUP_MEMBER_NOT_FOUND');
+    if (!(await deps.groups.removeMembership(id, targetId))) throw appError('GROUP_MEMBER_NOT_FOUND');
+  }
+
+  return {
+    create,
+    get,
+    mine,
+    createInvite,
+    listInvites,
+    revokeInvite,
+    previewInvite,
+    joinByInvite,
+    members,
+    leave,
+    removeMember,
+  };
 }

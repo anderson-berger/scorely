@@ -1,8 +1,11 @@
 import { asUserId } from '@scorely/api/src/lib/ids';
-import type {
-  GroupV2Repository,
-  StoredGroupV2,
-  StoredMembershipV2,
+import {
+  type GroupV2Repository,
+  graceTtl,
+  type StoredGroupV2,
+  type StoredInviteUseV2,
+  type StoredInviteV2,
+  type StoredMembershipV2,
 } from '@scorely/api/src/modules/groups-v2/group-v2.repository';
 import type { PublicGroupId } from '@scorely/contracts';
 
@@ -18,7 +21,11 @@ export function memoryGroupsV2() {
   const groups = new Map<string, StoredGroupV2>();
   const lookup = new Map<string, StoredGroupV2['id']>();
   const members = new Map<string, StoredMembershipV2>();
+  const invites = new Map<string, StoredInviteV2>();
+  const tokens = new Map<string, { groupId: StoredGroupV2['id']; inviteId: string }>();
+  const uses = new Map<string, StoredInviteUseV2>();
   const calls = { create: 0 };
+  const inviteKey = (groupId: string, inviteId: string) => `${groupId}#${inviteId}`;
   const repo: GroupV2Repository = {
     async create(group, ownerId) {
       calls.create += 1;
@@ -28,6 +35,7 @@ export function memoryGroupsV2() {
       members.set(`${group.id}#${ownerId}`, {
         groupId: group.id,
         userId: ownerId,
+        tier: 'member',
         role: 'owner',
         createdAt: group.createdAt,
       });
@@ -50,6 +58,84 @@ export function memoryGroupsV2() {
           return group ? [{ group, membership }] : [];
         });
     },
+    async createInvite(invite) {
+      invites.set(inviteKey(invite.groupId, invite.id), { ...invite });
+      tokens.set(invite.token, { groupId: invite.groupId, inviteId: invite.id });
+    },
+    async listInvites(groupId) {
+      return [...invites.values()].filter((i) => i.groupId === groupId).map((i) => ({ ...i }));
+    },
+    async getInvite(groupId, inviteId) {
+      const invite = invites.get(inviteKey(groupId, inviteId));
+      return invite && { ...invite };
+    },
+    async resolveToken(token) {
+      return tokens.get(token);
+    },
+    async revokeInvite(groupId, inviteId, _token, at) {
+      const invite = invites.get(inviteKey(groupId, inviteId));
+      if (!invite || invite.revokedAt !== undefined) return;
+      invites.set(inviteKey(groupId, inviteId), {
+        ...invite,
+        revokedAt: at.toISOString(),
+        ttl: graceTtl(at),
+        updatedAt: at.toISOString(),
+        version: invite.version + 1,
+      });
+    },
+    async listInviteUses(groupId) {
+      return [...uses.values()].filter((u) => u.groupId === groupId);
+    },
+    async joinByInvite({ invite, userId, action, now }) {
+      const stored = invites.get(inviteKey(invite.groupId, invite.id));
+      const valid =
+        stored !== undefined &&
+        stored.revokedAt === undefined &&
+        stored.declinedAt === undefined &&
+        (stored.expiresAt === undefined || stored.expiresAt > now.toISOString()) &&
+        (stored.maxUses === undefined || stored.uses < stored.maxUses);
+      if (!valid) return 'invite_stale';
+      const memberKey = `${invite.groupId}#${userId}`;
+      const current = members.get(memberKey);
+      if (action === 'join' ? current !== undefined : current?.tier !== 'reserve') return 'membership_stale';
+      const lastUse = stored.maxUses !== undefined && stored.uses + 1 >= stored.maxUses;
+      invites.set(inviteKey(invite.groupId, invite.id), {
+        ...stored,
+        uses: stored.uses + 1,
+        ...(lastUse && { ttl: graceTtl(now) }),
+        updatedAt: now.toISOString(),
+        version: stored.version + 1,
+      });
+      members.set(
+        memberKey,
+        action === 'join'
+          ? {
+              groupId: invite.groupId,
+              userId,
+              tier: invite.tier,
+              role: 'member',
+              createdAt: now.toISOString(),
+              inviteId: invite.id,
+            }
+          : { ...(current as StoredMembershipV2), tier: 'member', inviteId: invite.id },
+      );
+      uses.set(`${inviteKey(invite.groupId, invite.id)}#${userId}`, {
+        groupId: invite.groupId,
+        inviteId: invite.id,
+        userId,
+        createdAt: now.toISOString(),
+      });
+      return 'ok';
+    },
+    async listMembers(groupId) {
+      return [...members.values()].filter((m) => m.groupId === groupId);
+    },
+    async countParticipants(groupId) {
+      return [...members.values()].filter((m) => m.groupId === groupId).length;
+    },
+    async removeMembership(groupId, userId) {
+      return members.delete(`${groupId}#${userId}`);
+    },
   };
-  return { repo, groups, lookup, members, calls };
+  return { repo, groups, lookup, members, invites, tokens, uses, calls };
 }

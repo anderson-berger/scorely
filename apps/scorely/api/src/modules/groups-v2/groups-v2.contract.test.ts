@@ -29,9 +29,10 @@ describe('groups-v2 (contrato)', () => {
     expect(CreateGroupV2InputSchema.safeParse({}).success).toBe(false);
   });
 
-  it('GRV-02: o único papel é owner', () => {
+  it('GRV-15: os cargos são owner e member (o cargo base)', () => {
     expect(GroupRoleV2Schema.parse('owner')).toBe('owner');
-    expect(GroupRoleV2Schema.safeParse('member').success).toBe(false);
+    expect(GroupRoleV2Schema.parse('member')).toBe('member');
+    expect(GroupRoleV2Schema.safeParse('admin').success).toBe(false);
   });
 
   it('GRV-08: o id público tem 8 caracteres Crockford base32 (sem I, L, O, U)', () => {
@@ -42,16 +43,25 @@ describe('groups-v2 (contrato)', () => {
   });
 
   it('GRV-08: o id do grupo na resposta é o público, não o uuid', () => {
-    const base = { createdAt: '2026-11-20T10:00:00.000Z', version: 1, name: 'Pelada', myRole: 'owner' };
+    const base = {
+      createdAt: '2026-11-20T10:00:00.000Z',
+      version: 1,
+      name: 'Pelada',
+      myTier: 'member',
+      myRole: 'owner',
+      myPermissions: [],
+    };
     expect(GroupV2Schema.safeParse({ ...base, id: PUBLIC }).success).toBe(true);
     expect(GroupV2Schema.safeParse({ ...base, id: '11111111-1111-4111-8111-111111111111' }).success).toBe(
       false,
     );
   });
 
-  it('GRV-04: o grupo vem com o papel de quem pede (myRole)', () => {
+  it('GRV-04: o grupo vem com a participação, o cargo e as permissões de quem pede', () => {
     const base = { id: PUBLIC, createdAt: '2026-11-20T10:00:00.000Z', version: 1, name: 'Pelada' };
     expect(GroupV2Schema.safeParse(base).success).toBe(false);
-    expect(GroupV2Schema.parse({ ...base, myRole: 'owner' }).myRole).toBe('owner');
+    const full = { ...base, myTier: 'reserve', myRole: 'member', myPermissions: ['group.edit'] };
+    expect(GroupV2Schema.parse(full)).toMatchObject({ myTier: 'reserve', myRole: 'member' });
+    expect(GroupV2Schema.safeParse({ ...full, myPermissions: ['nope'] }).success).toBe(false);
   });
 });

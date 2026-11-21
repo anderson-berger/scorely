@@ -164,7 +164,7 @@ export function createGroupService(deps: GroupsDeps & SportsDep) {
     if (attempt >= JOIN_ATTEMPTS) throw new Error('Group join kept conflicting with other writes');
     const fresh = await deps.groups.get(group.id, { consistent: true });
     // Arquivado no meio: o link deixou de valer (GRP-31).
-    if (!fresh || fresh.archivedAt) throw appError('GROUP_INVITE_INVALID');
+    if (!fresh || fresh.archivedAt) throw appError('GROUP_INVITE_INVALID', { reason: 'not_found' });
     return attemptJoin(fresh, userId, tier, attempt + 1);
   }
 
@@ -394,7 +394,7 @@ export function createGroupService(deps: GroupsDeps & SportsDep) {
     /** Entra pelo link de membro ou de reserva (D5). Já participa → só sobe de reserva para membro. */
     async acceptInvite(userId: UserId, token: string): Promise<Group> {
       const found = await deps.groups.getByToken(token);
-      if (!found || found.kind === 'guest') throw appError('GROUP_INVITE_INVALID');
+      if (!found || found.kind === 'guest') throw appError('GROUP_INVITE_INVALID', { reason: 'not_found' });
       await attemptJoin(found.group, userId, found.kind, 1);
       const membership = await deps.groups.getMembership(found.group.id, userId);
       return viewFor(found.group, membership?.tier ?? found.kind, membership?.roleId);

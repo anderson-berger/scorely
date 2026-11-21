@@ -2,11 +2,12 @@
 import type { GroupV2 } from '@scorely/contracts';
 import SettingsRow from '@scorely/web/src/modules/groups/components/SettingsRow.vue';
 import GroupV2ImagesSheet from '@scorely/web/src/modules/groups-v2/components/GroupV2ImagesSheet.vue';
+import { can } from '@scorely/web/src/modules/groups-v2/nav';
 import { defineComponent, type PropType } from 'vue';
 
 /**
  * GRV-14: Configurações do grupo, uma lista agrupada. Por enquanto, Identidade › Logo e capa (GRV-12).
- * Só o dono: para quem não é, a rota leva ao Início (GRV-13).
+ * Só com `group.edit` (GRV-16): para quem não tem, a rota leva ao Início (GRV-13).
  */
 export default defineComponent({
   name: 'GroupV2SettingsPage',
@@ -29,19 +30,19 @@ export default defineComponent({
   },
 
   computed: {
-    isOwner(): boolean {
-      return this.group.myRole === 'owner';
+    canEdit(): boolean {
+      return can(this.group, 'group.edit');
     },
   },
 
   mounted() {
-    if (!this.isOwner) this.$router.replace({ name: 'group-v2', params: { id: this.group.id } });
+    if (!this.canEdit) this.$router.replace({ name: 'group-v2', params: { id: this.group.id } });
   },
 });
 </script>
 
 <template>
-  <div v-if="isOwner">
+  <div v-if="canEdit">
     <h2 class="sc-section">{{ $t('groupsV2.settings.identity') }}</h2>
     <div class="sc-card list">
       <SettingsRow icon="image" :title="$t('groupsV2.images')" @open="imagesOpen = true">
