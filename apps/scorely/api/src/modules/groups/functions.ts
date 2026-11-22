@@ -102,4 +102,8 @@ export const groupsFunctions: AWS['functions'] = {
     handler: handler('setMemberRole'),
     events: route('PUT', '/groups/{publicId}/members/{userPublicId}/role'),
   },
+  transferGroup: {
+    handler: handler('transferGroup'),
+    events: route('POST', '/groups/{publicId}/transfer'),
+  },
 };

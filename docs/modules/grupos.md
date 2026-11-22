@@ -112,7 +112,7 @@ Caso de referência: a Ana cria a "Pelada de sexta" e é a dona dela. Ela manda 
   - Mudar para o cargo que a pessoa já tem não muda nada. Mudar a si mesmo responde `GROUP_ROLE_TOO_HIGH`. Quem não participa responde `GROUP_MEMBER_NOT_FOUND`, e um cargo que não existe, `GROUP_ROLE_NOT_FOUND`.
   - Quem recebe um cargo criado é avisado (`group_role_granted`, com o nome do cargo e o link do grupo). Voltar para o Todos não avisa.
   - _Por quê:_ quem ganha um cargo precisa saber que agora pode mais; quem perde vê na tela, sem o constrangimento do aviso.
-- **GRV-49. Passar o grupo** _(planejada, etapa C: ainda não existe no código; hoje o dono não tem como passar o grupo)_ (`POST /groups/{publicId}/transfer` `{ userPublicId }`): só o Dono, para um membro (não uma reserva: o dono é sempre membro, GRV-17). Numa operação só, a pessoa vira o Dono, e o dono antigo fica com o cargo que ela tinha.
+- **GRV-49. Passar o grupo** (`POST /groups/{publicId}/transfer` `{ userPublicId }`): só o Dono, para um membro (não uma reserva: o dono é sempre membro, GRV-17). Numa operação só, a pessoa vira o Dono, e o dono antigo fica com o cargo que ela tinha.
   - Quem não é o Dono recebe `GROUP_OWNER_ONLY` (403). Uma reserva, ou passar para si mesmo, responde `VALIDATION_ERROR`; quem não participa, `GROUP_MEMBER_NOT_FOUND`.
   - O novo dono é avisado (`group_transferred`, com o link do grupo).
   - Depois de passar, o dono antigo pode sair (GRV-30).
@@ -207,7 +207,7 @@ Caso de referência: a Ana cria a "Pelada de sexta" e é a dona dela. Ela manda 
   - Para quem tem `members.invite`, cada pessoa vem também com o id do convite pelo qual entrou ou subiu (GRV-37).
   - O cargo de cada pessoa vem com o id e o nome (os fixos sem nome, GRV-42), e com `manageable`: se quem pede está acima dela (GRV-43). _(Alterada em 2026-11-22: entraram o cargo criado e o `manageable`.)_
   - _Por quê:_ quem joga junto precisa saber quem é do grupo e quem trouxe quem, e isso não vence com o convite. A data de entrada dá a ordem que não muda quando alguém troca de apelido.
-- **GRV-30. Quem participa sai do grupo sozinho** (`DELETE /groups/{publicId}/members/me`). A participação some na hora, e o grupo sai dos grupos da pessoa (GRV-05). O dono não sai (`GROUP_OWNER_NOT_REMOVABLE`, 409): antes, ele passará o grupo para outra pessoa (GRV-49, planejada para a etapa C; até lá o dono não sai). _(Alterada em 2026-11-22: entrou passar o grupo.)_
+- **GRV-30. Quem participa sai do grupo sozinho** (`DELETE /groups/{publicId}/members/me`). A participação some na hora, e o grupo sai dos grupos da pessoa (GRV-05). O dono não sai (`GROUP_OWNER_NOT_REMOVABLE`, 409): antes, ele passa o grupo para outra pessoa (GRV-49). _(Alterada em 2026-11-22: entrou passar o grupo.)_
   - Quem saiu pode voltar por um convite (GRV-22) ou por um pedido (GRV-27), como alguém novo.
   - _Por quê:_ ninguém fica preso num grupo. O grupo nunca fica sem alguém que responde por ele.
 - **GRV-31. Quem tem `members.remove` remove alguém do grupo** (`DELETE /groups/{publicId}/members/{userPublicId}`), membro ou reserva, com o mesmo efeito de sair (GRV-30). A pessoa removida não é avisada.
@@ -291,7 +291,7 @@ Caso de referência: a Ana cria a "Pelada de sexta" e é a dona dela. Ela manda 
 - **Criar o grupo** grava o grupo, os cargos, a participação do dono, o lookup do usuário e o lookup público na mesma transação.
 - **Conferir uma permissão** (GRV-15, 41, 43) lê a participação de quem pede e os cargos do grupo ao mesmo tempo. A ordem de uma pessoa é a posição do cargo dela na lista (Dono acima de todos, Todos abaixo de todos).
 - **Apagar um cargo** (GRV-47) só tira ele da lista: as participações com o id dele passam a contar como Todos ao ler, sem regravar uma por uma (o grupo não tem limite de participantes). Os ids dos cargos não se repetem.
-- **Passar o grupo** (GRV-49, planejada para a etapa C), numa transação: a participação do novo dono vira `owner`, com a condição de ainda ser membro com o cargo lido; a do antigo recebe esse cargo, com a condição de ainda ser `owner`. Um código público que já existe (chance desprezível) faz o service gerar outro e tentar de novo.
+- **Passar o grupo** (GRV-49), numa transação: a participação do novo dono vira `owner`, com a condição de ainda ser membro com o cargo lido; a do antigo recebe esse cargo, com a condição de ainda ser `owner`. Se alguma condição falha, o service relê e decide de novo.
 - **Criar o convite** grava o convite, o lookup do token e, quando é para uma pessoa, o lookup dela, numa transação.
 - **Entrar por convite** (GRV-22), numa transação: soma 1 em `uses` com a condição de valer (sem `revokedAt` nem `declinedAt`, `expiresAt` no futuro e, no convite com limite, `uses` igual ao que foi lido: se outro uso entrou antes, o service relê e decide de novo), grava ou sobe a participação (com o `inviteId` e o `invitedBy`), grava o lookup do usuário, o `INVITEUSE` e apaga o pedido, se houver. Ao atingir o limite, o `ttl` é gravado no convite e nos lookups dele.
 - **O `ttl` do convite** (30 dias depois de deixar de valer) vale também para os lookups dele e os `INVITEUSE`. Com prazo, ele é conhecido ao criar e vai em tudo o que é gravado. Sem prazo, ele entra ao cancelar, recusar ou esgotar: os lookups na mesma transação, e os `INVITEUSE` já gravados logo depois, fora da transação (um convite sem limite pode ter muitos usos). Se essa segunda escrita falhar, o uso que sobrar é ignorado na lista.
@@ -333,9 +333,9 @@ Caso de referência: a Ana cria a "Pelada de sexta" e é a dona dela. Ela manda 
 | `PUT /groups/{publicId}/roles/order`                      | `roles.manage`        | GRV-43, 46              |
 | `PUT /groups/{publicId}/roles/{roleId}`                   | `roles.manage`        | GRV-43, 45              |
 | `DELETE /groups/{publicId}/roles/{roleId}`                | `roles.manage`        | GRV-43, 47              |
-| `POST /groups/{publicId}/transfer` _(planejada, etapa C)_ | o Dono                | GRV-49                  |
+| `POST /groups/{publicId}/transfer`                        | o Dono                | GRV-49                  |
 
-Erros: `VALIDATION_ERROR`, `GROUP_NOT_FOUND`, `GROUP_PERMISSION_DENIED` (403), `GROUP_ROLE_TOO_HIGH` (403), `GROUP_OWNER_ONLY` (403), `GROUP_ROLE_NOT_FOUND` (404), `GROUP_ROLE_NAME_TAKEN` (409), `GROUP_ROLE_LIMIT` (409, `details.limit`), `GROUP_INVITE_INVALID` (404, `details.reason`), `GROUP_INVITE_NOT_FOR_YOU` (403), `GROUP_INVITE_LIMIT` (409, `details.limit`), `USER_NOT_FOUND` (404), `GROUP_REQUEST_NOT_FOUND` (404), `GROUP_MEMBER_NOT_FOUND` (404), `GROUP_OWNER_NOT_REMOVABLE` (409), `VERSION_CONFLICT`. Os do logo e da capa vêm da mídia (`MEDIA_NOT_FOUND`, `MEDIA_NOT_UPLOADED`, `MEDIA_INVALID`). Avisos: `group_invited`, `group_join_requested`, `group_join_approved`, `group_role_granted`, `group_transferred` (este, planejado para a etapa C).
+Erros: `VALIDATION_ERROR`, `GROUP_NOT_FOUND`, `GROUP_PERMISSION_DENIED` (403), `GROUP_ROLE_TOO_HIGH` (403), `GROUP_OWNER_ONLY` (403), `GROUP_ROLE_NOT_FOUND` (404), `GROUP_ROLE_NAME_TAKEN` (409), `GROUP_ROLE_LIMIT` (409, `details.limit`), `GROUP_INVITE_INVALID` (404, `details.reason`), `GROUP_INVITE_NOT_FOR_YOU` (403), `GROUP_INVITE_LIMIT` (409, `details.limit`), `USER_NOT_FOUND` (404), `GROUP_REQUEST_NOT_FOUND` (404), `GROUP_MEMBER_NOT_FOUND` (404), `GROUP_OWNER_NOT_REMOVABLE` (409), `VERSION_CONFLICT`. Os do logo e da capa vêm da mídia (`MEDIA_NOT_FOUND`, `MEDIA_NOT_UPLOADED`, `MEDIA_INVALID`). Avisos: `group_invited`, `group_join_requested`, `group_join_approved`, `group_role_granted`, `group_transferred`.
 
 ## 4. Limites conhecidos
 

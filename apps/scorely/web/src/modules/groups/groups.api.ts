@@ -17,6 +17,7 @@ import {
   type OrderGroupRolesInput,
   type SetGroupJoinModeInput,
   type SetMemberRoleInput,
+  type TransferGroupInput,
   type UpdateGroupRoleInput,
 } from '@scorely/contracts';
 import { request, send } from '@scorely/web/src/lib/http';
@@ -97,6 +98,9 @@ export const groupsApi = {
       method: 'PUT',
       data: input,
     }),
+
+  transfer: (id: string, input: TransferGroupInput) =>
+    send({ url: `/groups/${encodeURIComponent(id)}/transfer`, method: 'POST', data: input }),
 
   // Grupo aberto e pedidos (GRV-25–28)
   setJoinMode: (id: string, input: SetGroupJoinModeInput) =>

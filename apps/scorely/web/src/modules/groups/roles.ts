@@ -81,3 +81,16 @@ export function roleTemplate(
 ): GroupPermission[] {
   return template === 'admin' ? CATALOG.filter((p) => myPermissions.includes(p)) : [];
 }
+
+/** GRV-49, 32: "Passar o grupo" no menu de um membro, só para o Dono e só para quem é membro (não reserva) e não é o Dono. */
+export function canTransfer(
+  group: Pick<Group, 'myRole'>,
+  member: Pick<GroupMember, 'tier' | 'role'>,
+): boolean {
+  return group.myRole.id === 'owner' && member.tier === 'member' && member.role.id !== 'owner';
+}
+
+/** GRV-30, 32: o dono não sai: antes passa o grupo. */
+export function leaveMode(group: Pick<Group, 'myRole'>): 'leave' | 'transferFirst' {
+  return group.myRole.id === 'owner' ? 'transferFirst' : 'leave';
+}

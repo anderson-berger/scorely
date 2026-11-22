@@ -6,6 +6,8 @@ import type {
   GroupRoleRef,
 } from '@scorely/contracts/src/groups';
 import {
+  canTransfer,
+  leaveMode,
   memberActions,
   moveRole,
   roleChoices,
@@ -146,5 +148,36 @@ describe('roleTemplate', () => {
 
   it('GRV-51: Do zero não liga nenhuma', () => {
     expect(roleTemplate('scratch', CATALOG)).toEqual([]);
+  });
+});
+
+describe('canTransfer', () => {
+  const asGroup = (id: 'owner' | 'everyone') => ({ myRole: { id } }) as Pick<Group, 'myRole'>;
+  const target = (tier: 'member' | 'reserve', role: GroupRoleRef) =>
+    ({ tier, role }) as Pick<GroupMember, 'tier' | 'role'>;
+
+  it('GRV-49: o Dono passa o grupo para um membro que não é o Dono', () => {
+    expect(canTransfer(asGroup('owner'), target('member', { id: 'everyone' }))).toBe(true);
+    expect(canTransfer(asGroup('owner'), target('member', { id: ID_A, name: 'Admin' }))).toBe(true);
+  });
+
+  it('GRV-49: reserva não recebe o grupo', () => {
+    expect(canTransfer(asGroup('owner'), target('reserve', { id: 'everyone' }))).toBe(false);
+  });
+
+  it('GRV-49: o próprio Dono não é alvo', () => {
+    expect(canTransfer(asGroup('owner'), target('member', { id: 'owner' }))).toBe(false);
+  });
+
+  it('GRV-32: quem não é o Dono não vê Passar o grupo', () => {
+    expect(canTransfer(asGroup('everyone'), target('member', { id: 'everyone' }))).toBe(false);
+  });
+});
+
+describe('leaveMode', () => {
+  it('GRV-30: o dono precisa passar o grupo antes de sair; os outros saem', () => {
+    expect(leaveMode({ myRole: { id: 'owner' } } as Pick<Group, 'myRole'>)).toBe('transferFirst');
+    expect(leaveMode({ myRole: { id: 'everyone' } } as Pick<Group, 'myRole'>)).toBe('leave');
+    expect(leaveMode({ myRole: { id: ID_B, name: 'Admin' } } as Pick<Group, 'myRole'>)).toBe('leave');
   });
 });

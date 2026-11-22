@@ -147,6 +147,9 @@ export type JoinAction = 'join' | 'promote';
  */
 export type JoinByInviteResult = 'ok' | 'invite_stale' | 'membership_stale';
 
+/** Resultado de passar o grupo (GRV-49): `conflict` = alguma das duas participações mudou desde a leitura. */
+export type TransferGroupResult = 'ok' | 'conflict';
+
 /** Dias que o convite que deixou de valer continua na lista (GRV-19). */
 export const INVITE_GRACE_DAYS = 30;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -216,6 +219,17 @@ export interface GroupRepository {
   ): Promise<void>;
   /** Troca o cargo da participação (GRV-48). `false` = a pessoa já não participa. */
   setMemberRole(groupId: GroupId, userId: UserId, role: string): Promise<boolean>;
+  /**
+   * Passa o grupo (GRV-49), numa transação: `toUserId` vira `owner` (condição: ainda é membro com o cargo `toRole`) e
+   * `fromUserId` recebe `toRole` (condição: ainda é `owner`).
+   */
+  transferGroup(input: {
+    groupId: GroupId;
+    fromUserId: UserId;
+    toUserId: UserId;
+    toRole: string;
+    now: Date;
+  }): Promise<TransferGroupResult>;
   /** Todas as participações do grupo (GRV-29). */
   listMembers(groupId: GroupId): Promise<StoredMembership[]>;
   /** Número de participantes (GRV-21), por `Select: COUNT`. */
@@ -719,6 +733,31 @@ export const dynamoGroupRepository: GroupRepository = {
       if (isConditionFailed(err)) return false;
       throw err;
     }
+  },
+
+  async transferGroup({ groupId, fromUserId, toUserId, toRole, now }) {
+    const update = (userId: UserId, condition: string, values: Record<string, unknown>) => ({
+      Update: touch(
+        {
+          TableName: tableName(),
+          Key: groupMemberKey(groupId, userId),
+          UpdateExpression: 'SET #role = :role',
+          ConditionExpression: condition,
+          ExpressionAttributeNames: { '#role': 'role', '#tier': 'tier' },
+          ExpressionAttributeValues: values,
+        },
+        now,
+      ),
+    });
+    const result = await transactWrite([
+      update(toUserId, '#role = :was AND #tier = :member', {
+        ':role': 'owner',
+        ':was': toRole,
+        ':member': 'member',
+      }),
+      update(fromUserId, '#role = :was', { ':role': toRole, ':was': 'owner' }),
+    ]);
+    return result.ok ? 'ok' : 'conflict';
   },
 
   async listMembers(groupId) {

@@ -206,6 +206,15 @@ export function memoryGroups() {
       members.set(key, { ...current, role });
       return true;
     },
+    async transferGroup({ groupId, fromUserId, toUserId, toRole }) {
+      const from = members.get(`${groupId}#${fromUserId}`);
+      const to = members.get(`${groupId}#${toUserId}`);
+      if (!from || !to || from.role !== 'owner' || to.role !== toRole || to.tier !== 'member')
+        return 'conflict';
+      members.set(`${groupId}#${toUserId}`, { ...to, role: 'owner' });
+      members.set(`${groupId}#${fromUserId}`, { ...from, role: toRole });
+      return 'ok';
+    },
     async listMembers(groupId) {
       return [...members.values()].filter((m) => m.groupId === groupId);
     },

@@ -20,6 +20,7 @@ import {
   OrderGroupRolesInputSchema,
   SetGroupJoinModeInputSchema,
   SetMemberRoleInputSchema,
+  TransferGroupInputSchema,
   UpdateGroupRoleInputSchema,
 } from '@scorely/contracts';
 
@@ -289,5 +290,12 @@ export async function setMemberRole(event: HttpEvent) {
       asPublicUserId(pathParam(event, 'userPublicId')),
       input,
     );
+  });
+}
+
+export async function transferGroup(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
+    const input = parseBody(event, TransferGroupInputSchema);
+    await groups.transfer(auth.userId, asPublicGroupId(pathParam(event, 'publicId')), input);
   });
 }

@@ -52,6 +52,7 @@ import {
   type PublicUserId,
   type SetGroupJoinModeInput,
   type SetMemberRoleInput,
+  type TransferGroupInput,
   type UpdateGroupRoleInput,
   type User,
 } from '@scorely/contracts';
@@ -949,7 +950,45 @@ export function createGroupService(deps: GroupsDeps) {
     }
   }
 
+  /**
+   * GRV-49: o Dono passa o grupo para um membro; o dono antigo fica com o cargo que o novo tinha. Se uma participação
+   * mudou entre a leitura e a gravação, relê e decide de novo.
+   */
+  async function transfer(
+    userId: UserId,
+    publicId: PublicGroupId,
+    input: TransferGroupInput,
+    attempt = 0,
+  ): Promise<void> {
+    const { id, group, membership } = await access(userId, publicId);
+    if (membership.role !== 'owner') throw appError('GROUP_OWNER_ONLY');
+    const targetId = (await deps.users.resolve([input.userPublicId])).get(input.userPublicId);
+    if (targetId === userId) throw validation('userPublicId', 'The group cannot be passed to yourself');
+    const target = targetId && (await deps.groups.getMembership(id, targetId));
+    if (!targetId || !target) throw appError('GROUP_MEMBER_NOT_FOUND');
+    if (target.tier !== 'member')
+      throw validation('userPublicId', 'The group can only be passed to a member');
+    const result = await deps.groups.transferGroup({
+      groupId: id,
+      fromUserId: userId,
+      toUserId: targetId,
+      toRole: target.role,
+      now: now(),
+    });
+    if (result === 'conflict') {
+      if (attempt >= 2) throw new Error('Group transfer kept conflicting');
+      return transfer(userId, publicId, input, attempt + 1);
+    }
+    await deps.notifications.notify(targetId, {
+      type: 'group_transferred',
+      title: 'Você recebeu o grupo',
+      body: `Você agora é o dono de ${group.name}.`,
+      link: `/groups/${group.publicId}`,
+    });
+  }
+
   return {
+    transfer,
     roles: listRoles,
     createRole,
     updateRole,

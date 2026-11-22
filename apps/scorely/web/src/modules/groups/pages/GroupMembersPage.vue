@@ -7,7 +7,7 @@ import GroupInviteSheet from '@scorely/web/src/modules/groups/components/GroupIn
 import GroupMemberRoleSheet from '@scorely/web/src/modules/groups/components/GroupMemberRoleSheet.vue';
 import { groupsApi } from '@scorely/web/src/modules/groups/groups.api';
 import { can } from '@scorely/web/src/modules/groups/nav';
-import { memberActions, roleMark } from '@scorely/web/src/modules/groups/roles';
+import { canTransfer, leaveMode, memberActions, roleMark } from '@scorely/web/src/modules/groups/roles';
 import { defineComponent, type PropType } from 'vue';
 
 /**
@@ -21,6 +21,11 @@ export default defineComponent({
 
   props: {
     group: { type: Object as PropType<Group>, required: true },
+  },
+
+  emits: {
+    /** O grupo como ficou depois de passar o grupo (GRV-49). */
+    saved: (_group: Group) => true,
   },
 
   setup() {
@@ -58,8 +63,8 @@ export default defineComponent({
       return this.invites.filter((i) => i.status === 'active').length;
     },
 
-    isOwner(): boolean {
-      return this.group.myRole.id === 'owner';
+    mustTransferFirst(): boolean {
+      return leaveMode(this.group) === 'transferFirst';
     },
   },
 
@@ -104,6 +109,34 @@ export default defineComponent({
       const mark = roleMark(member.role);
       if (!mark) return '';
       return mark.kind === 'owner' ? this.$t('groups.members.owner') : mark.name;
+    },
+
+    /** GRV-49, 32: "Passar o grupo" no menu de um membro, só para o Dono. */
+    transferable(member: GroupMember): boolean {
+      return canTransfer(this.group, member);
+    },
+
+    confirmTransfer(member: GroupMember) {
+      this.$q
+        .dialog({
+          title: this.$t('groups.members.transferTitle', { name: member.user.nickname }),
+          message: this.$t('groups.members.transferConfirm', { name: member.user.nickname }),
+          cancel: { label: this.$t('groups.cancel'), flat: true },
+          ok: { label: this.$t('groups.members.transfer'), color: 'negative', flat: true },
+        })
+        .onOk(() => this.transfer(member));
+    },
+
+    /** GRV-49: passa o grupo e relê o grupo (o `myRole` e as permissões mudaram) e a lista. */
+    async transfer(member: GroupMember) {
+      try {
+        await groupsApi.transfer(this.group.id, { userPublicId: member.user.id });
+        this.$emit('saved', await groupsApi.get(this.group.id));
+        await this.load();
+        this.$q.notify({ type: 'positive', message: this.$t('groups.members.transferred') });
+      } catch (err) {
+        this.$q.notify({ type: 'negative', message: errorMessage(err) });
+      }
     },
 
     changeRole(member: GroupMember) {
@@ -316,7 +349,7 @@ export default defineComponent({
                 </span>
               </span>
               <q-btn
-                v-if="actions(m).length > 0 || promotable(m)"
+                v-if="actions(m).length > 0 || promotable(m) || transferable(m)"
                 flat
                 round
                 dense
@@ -327,6 +360,9 @@ export default defineComponent({
                   <q-list>
                     <q-item v-if="promotable(m)" v-close-popup clickable @click="invitePromote(m)">
                       <q-item-section>{{ $t('groups.members.inviteAsMember') }}</q-item-section>
+                    </q-item>
+                    <q-item v-if="transferable(m)" v-close-popup clickable @click="confirmTransfer(m)">
+                      <q-item-section>{{ $t('groups.members.transfer') }}</q-item-section>
                     </q-item>
                     <q-item v-if="actions(m).includes('changeRole')" v-close-popup clickable @click="changeRole(m)">
                       <q-item-section>{{ $t('groups.members.changeRole') }}</q-item-section>
@@ -342,8 +378,9 @@ export default defineComponent({
         </template>
       </section>
 
+      <p v-if="mustTransferFirst" class="leave-hint">{{ $t('groups.members.ownerCannotLeave') }}</p>
       <q-btn
-        v-if="!isOwner"
+        v-else
         flat
         no-caps
         color="negative"
@@ -428,6 +465,12 @@ export default defineComponent({
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.leave-hint {
+  margin: 16px 0 0;
+  text-align: center;
+  color: var(--sc-text-muted, inherit);
 }
 
 .leave {
