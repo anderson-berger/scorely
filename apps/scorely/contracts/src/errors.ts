@@ -38,6 +38,7 @@ export const ErrorCodeSchema = z.enum([
   'GROUP_INVITE_LIMIT',
   'GROUP_MEMBER_NOT_FOUND',
   'GROUP_OWNER_NOT_REMOVABLE',
+  'GROUP_REQUEST_NOT_FOUND',
 ]);
 export type ErrorCode = z.infer<typeof ErrorCodeSchema>;
 

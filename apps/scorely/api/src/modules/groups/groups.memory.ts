@@ -1,3 +1,4 @@
+import { appError } from '@scorely/api/src/lib/errors';
 import { asUserId } from '@scorely/api/src/lib/ids';
 import {
   type GroupRepository,
@@ -5,6 +6,7 @@ import {
   type StoredGroup,
   type StoredInvite,
   type StoredInviteUse,
+  type StoredJoinRequest,
   type StoredMembership,
 } from '@scorely/api/src/modules/groups/group.repository';
 import type { GroupsDeps } from '@scorely/api/src/modules/groups/group.service';
@@ -32,6 +34,7 @@ export function memoryGroups() {
   const invites = new Map<string, StoredInvite>();
   const tokens = new Map<string, { groupId: StoredGroup['id']; inviteId: string }>();
   const uses = new Map<string, StoredInviteUse>();
+  const requests = new Map<string, StoredJoinRequest>();
   const calls = { create: 0 };
   const inviteKey = (groupId: string, inviteId: string) => `${groupId}#${inviteId}`;
   const repo: GroupRepository = {
@@ -159,6 +162,7 @@ export function memoryGroups() {
               invitedBy: invite.createdBy,
             },
       );
+      requests.delete(memberKey); // GRV-22: o pedido some na mesma operação
       uses.set(`${inviteKey(invite.groupId, invite.id)}#${userId}`, {
         groupId: invite.groupId,
         inviteId: invite.id,
@@ -176,6 +180,42 @@ export function memoryGroups() {
     async removeMembership(groupId, userId) {
       return members.delete(`${groupId}#${userId}`);
     },
+    async setJoinMode(groupId, mode, expectedVersion, at) {
+      const group = groups.get(groupId);
+      if (!group || group.version !== expectedVersion) {
+        throw appError('VERSION_CONFLICT', { currentVersion: group?.version ?? 0 });
+      }
+      groups.set(groupId, {
+        ...group,
+        joinMode: mode,
+        version: group.version + 1,
+        updatedAt: at.toISOString(),
+      });
+    },
+    async getRequest(groupId, userId) {
+      return requests.get(`${groupId}#${userId}`);
+    },
+    async putRequest(request) {
+      const key = `${request.groupId}#${request.userId}`;
+      if (requests.has(key)) return false;
+      requests.set(key, { ...request });
+      return true;
+    },
+    async deleteRequest(groupId, userId, opts) {
+      const existed = requests.delete(`${groupId}#${userId}`);
+      return existed || !opts?.mustExist;
+    },
+    async listRequests(groupId) {
+      return [...requests.values()].filter((r) => r.groupId === groupId);
+    },
+    async approveRequest({ groupId, userId, tier, now }) {
+      const key = `${groupId}#${userId}`;
+      if (!requests.has(key)) return 'request_gone';
+      requests.delete(key);
+      if (members.has(key)) return 'already_member';
+      members.set(key, { groupId, userId, tier, role: 'member', createdAt: now.toISOString() });
+      return 'ok';
+    },
   };
-  return { repo, groups, lookup, members, invites, tokens, uses, calls };
+  return { repo, groups, lookup, members, invites, tokens, uses, requests, calls };
 }

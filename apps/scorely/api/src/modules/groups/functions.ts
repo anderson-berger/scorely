@@ -57,4 +57,33 @@ export const groupsFunctions: AWS['functions'] = {
     handler: handler('removeMember'),
     events: route('DELETE', '/groups/{publicId}/members/{userPublicId}'),
   },
+  // Grupo aberto e pedidos (GRV-25–28)
+  setGroupJoinMode: {
+    handler: handler('setJoinMode'),
+    events: route('PUT', '/groups/{publicId}/join-mode'),
+  },
+  previewGroup: {
+    handler: handler('previewGroup'),
+    events: route('GET', '/groups/{publicId}/preview'),
+  },
+  requestToJoinGroup: {
+    handler: handler('requestToJoin'),
+    events: route('POST', '/groups/{publicId}/requests'),
+  },
+  cancelGroupJoinRequest: {
+    handler: handler('cancelJoinRequest'),
+    events: route('DELETE', '/groups/{publicId}/requests/me'),
+  },
+  listGroupJoinRequests: {
+    handler: handler('listJoinRequests'),
+    events: route('GET', '/groups/{publicId}/requests'),
+  },
+  approveGroupJoinRequest: {
+    handler: handler('approveJoinRequest'),
+    events: route('POST', '/groups/{publicId}/requests/{userPublicId}/approve'),
+  },
+  declineGroupJoinRequest: {
+    handler: handler('declineJoinRequest'),
+    events: route('DELETE', '/groups/{publicId}/requests/{userPublicId}'),
+  },
 };

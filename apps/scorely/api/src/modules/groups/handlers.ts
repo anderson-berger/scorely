@@ -9,11 +9,13 @@ import { dynamoNotificationRepository } from '@scorely/api/src/modules/notificat
 import { createNotificationService } from '@scorely/api/src/modules/notifications/notification.service';
 import { dynamoUserDirectory, dynamoUserRepository } from '@scorely/api/src/modules/users/user.repository';
 import {
+  ApproveGroupRequestInputSchema,
   AttachMediaInputSchema,
   CreateGroupInputSchema,
   CreateGroupInviteInputSchema,
   GroupImageSlotSchema,
   MediaUploadInputSchema,
+  SetGroupJoinModeInputSchema,
 } from '@scorely/contracts';
 
 const groups = createGroupService({
@@ -162,5 +164,62 @@ export async function myGroupInvites(event: HttpEvent) {
 export async function declineGroupInvite(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     await groups.declineInvite(auth.userId, pathParam(event, 'inviteId'));
+  });
+}
+
+export async function setJoinMode(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
+    const input = parseBody(event, SetGroupJoinModeInputSchema);
+    const group = await groups.setJoinMode(auth.userId, asPublicGroupId(pathParam(event, 'publicId')), input);
+    return group;
+  });
+}
+
+export async function previewGroup(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
+    const preview = await groups.preview(auth.userId, asPublicGroupId(pathParam(event, 'publicId')));
+    return preview;
+  });
+}
+
+export async function requestToJoin(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
+    const preview = await groups.request(auth.userId, asPublicGroupId(pathParam(event, 'publicId')));
+    return preview;
+  });
+}
+
+export async function cancelJoinRequest(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
+    await groups.cancelRequest(auth.userId, asPublicGroupId(pathParam(event, 'publicId')));
+  });
+}
+
+export async function listJoinRequests(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
+    const list = await groups.listRequests(auth.userId, asPublicGroupId(pathParam(event, 'publicId')));
+    return list;
+  });
+}
+
+export async function approveJoinRequest(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
+    const input = parseBody(event, ApproveGroupRequestInputSchema);
+    await groups.approveRequest(
+      auth.userId,
+      asPublicGroupId(pathParam(event, 'publicId')),
+      asPublicUserId(pathParam(event, 'userPublicId')),
+      input,
+    );
+  });
+}
+
+export async function declineJoinRequest(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
+    await groups.declineRequest(
+      auth.userId,
+      asPublicGroupId(pathParam(event, 'publicId')),
+      asPublicUserId(pathParam(event, 'userPublicId')),
+    );
   });
 }

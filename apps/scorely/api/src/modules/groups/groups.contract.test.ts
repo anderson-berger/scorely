@@ -50,18 +50,36 @@ describe('groups (contrato)', () => {
       myTier: 'member',
       myRole: 'owner',
       myPermissions: [],
+      joinMode: 'invite',
     };
     expect(GroupSchema.safeParse({ ...base, id: PUBLIC }).success).toBe(true);
-    expect(GroupSchema.safeParse({ ...base, id: '11111111-1111-4111-8111-111111111111' }).success).toBe(
-      false,
-    );
+    expect(
+      GroupSchema.safeParse({
+        ...base,
+        id: '11111111-1111-4111-8111-111111111111',
+      }).success,
+    ).toBe(false);
   });
 
   it('GRV-04: o grupo vem com a participação, o cargo e as permissões de quem pede', () => {
-    const base = { id: PUBLIC, createdAt: '2026-11-20T10:00:00.000Z', version: 1, name: 'Pelada' };
+    const base = {
+      id: PUBLIC,
+      createdAt: '2026-11-20T10:00:00.000Z',
+      version: 1,
+      name: 'Pelada',
+    };
     expect(GroupSchema.safeParse(base).success).toBe(false);
-    const full = { ...base, myTier: 'reserve', myRole: 'member', myPermissions: ['group.edit'] };
-    expect(GroupSchema.parse(full)).toMatchObject({ myTier: 'reserve', myRole: 'member' });
+    const full = {
+      ...base,
+      myTier: 'reserve',
+      myRole: 'member',
+      myPermissions: ['group.edit'],
+      joinMode: 'open',
+    };
+    expect(GroupSchema.parse(full)).toMatchObject({
+      myTier: 'reserve',
+      myRole: 'member',
+    });
     expect(GroupSchema.safeParse({ ...full, myPermissions: ['nope'] }).success).toBe(false);
   });
 });

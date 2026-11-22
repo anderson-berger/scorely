@@ -1,7 +1,9 @@
 <script lang="ts">
-import type { Group } from '@scorely/contracts';
+import type { Group, GroupPreview } from '@scorely/contracts';
 import { errorMessage } from '@scorely/web/src/i18n/errors';
+import { ApiRequestError } from '@scorely/web/src/lib/http';
 import GroupNav from '@scorely/web/src/modules/groups/components/GroupNav.vue';
+import GroupRequestCard from '@scorely/web/src/modules/groups/components/GroupRequestCard.vue';
 import { groupColor, initials } from '@scorely/web/src/modules/groups/group-display';
 import { groupsApi } from '@scorely/web/src/modules/groups/groups.api';
 import { type GroupNavItem, groupNavItems } from '@scorely/web/src/modules/groups/nav';
@@ -9,16 +11,18 @@ import { defineComponent } from 'vue';
 
 /**
  * GRV-13: o casco do grupo, pelo id público (GRV-08). Carrega o grupo, passa para a área (rota filha) e mostra a barra
- * das áreas. Fora do Início, o topo é compacto: o logo pequeno e o nome.
+ * das áreas. Fora do Início, o topo é compacto: o logo pequeno e o nome. Quem é de fora de um grupo aberto vê a
+ * apresentação com o pedido (GRV-39).
  */
 export default defineComponent({
   name: 'GroupPage',
 
-  components: { GroupNav },
+  components: { GroupNav, GroupRequestCard },
 
   data() {
     return {
       group: undefined as Group | undefined,
+      preview: undefined as GroupPreview | undefined,
       error: '',
     };
   },
@@ -61,12 +65,28 @@ export default defineComponent({
       const id = this.$route.params.id;
       if (typeof id !== 'string') return;
       this.group = undefined;
+      this.preview = undefined;
       this.error = '';
       try {
         this.group = await groupsApi.get(id);
       } catch (err) {
-        // GRV-04: quem não participa vê o mesmo "grupo não encontrado" de um código que não existe.
+        if (err instanceof ApiRequestError && err.code === 'GROUP_NOT_FOUND') {
+          await this.loadPreview(id, err);
+          return;
+        }
         this.error = errorMessage(err);
+      }
+    },
+
+    /**
+     * GRV-39: quem não participa tenta a apresentação do grupo aberto (GRV-26). No grupo de convite, ou num código
+     * que não existe, fica o mesmo "grupo não encontrado" (GRV-04).
+     */
+    async loadPreview(id: string, notFound: unknown) {
+      try {
+        this.preview = await groupsApi.preview(id);
+      } catch {
+        this.error = errorMessage(notFound);
       }
     },
   },
@@ -89,6 +109,7 @@ export default defineComponent({
           <router-view :group="group" @saved="group = $event" />
         </div>
       </template>
+      <GroupRequestCard v-else-if="preview" :preview="preview" @changed="preview = $event" @open="load" />
       <div v-else-if="error" class="sc-caption error">{{ error }}</div>
       <div v-else class="loading"><q-spinner color="primary" size="md" /></div>
     </div>

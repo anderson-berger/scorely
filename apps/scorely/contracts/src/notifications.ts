@@ -2,7 +2,12 @@ import { EntitySchema } from '@scorely/contracts/src/entity';
 import { z } from 'zod';
 
 /** Cresce conforme os módulos passam a notificar (NTF-02). */
-export const NotificationTypeSchema = z.enum(['welcome', 'group_invited']);
+export const NotificationTypeSchema = z.enum([
+  'welcome',
+  'group_invited',
+  'group_join_requested',
+  'group_join_approved',
+]);
 export type NotificationType = z.infer<typeof NotificationTypeSchema>;
 
 export const NotificationSchema = EntitySchema.extend({

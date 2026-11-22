@@ -32,6 +32,10 @@ export type GroupTier = z.infer<typeof GroupTierSchema>;
 export const GroupPermissionSchema = z.enum(['group.edit', 'members.invite', 'members.remove']);
 export type GroupPermission = z.infer<typeof GroupPermissionSchema>;
 
+/** Modo de entrada (GRV-25): só por convite (o padrão) ou também por pedido aceito. */
+export const GroupJoinModeSchema = z.enum(['invite', 'open']);
+export type GroupJoinMode = z.infer<typeof GroupJoinModeSchema>;
+
 /** Corpo do `POST /groups` (GRV-01): só o nome. */
 export const CreateGroupInputSchema = z.object({ name: GroupNameSchema });
 export type CreateGroupInput = z.infer<typeof CreateGroupInputSchema>;
@@ -46,6 +50,8 @@ export const GroupSchema = z.object({
   myRole: GroupRoleSchema,
   /** O que quem pede pode administrar (GRV-16). A tela só mostra essas ações; a api confere de novo. */
   myPermissions: z.array(GroupPermissionSchema),
+  /** O modo de entrada (GRV-25), para a tela mostrar o atual (GRV-38). */
+  joinMode: GroupJoinModeSchema,
   /** Logo e capa (GRV-09, GRV-10): URLs públicas das mídias `group.logo` e `group.cover`, só quando existem. */
   logoUrl: z.url().optional(),
   coverUrl: z.url().optional(),
@@ -140,6 +146,40 @@ export const MyGroupInviteSchema = GroupInvitePreviewSchema.extend({
   createdAt: z.iso.datetime(),
 });
 export type MyGroupInvite = z.infer<typeof MyGroupInviteSchema>;
+
+// ---- Grupo aberto e pedidos (GRV-25–28) ----
+
+/** Corpo do `PUT /groups/{publicId}/join-mode` (GRV-25), com a `version` conferida (ADR 0016). */
+export const SetGroupJoinModeInputSchema = z.object({
+  mode: GroupJoinModeSchema,
+  expectedVersion: VersionSchema,
+});
+export type SetGroupJoinModeInput = z.infer<typeof SetGroupJoinModeInputSchema>;
+
+/** Apresentação do grupo aberto pelo código (GRV-26) e resposta do pedido (GRV-27). */
+export const GroupPreviewSchema = z.object({
+  groupId: PublicGroupIdSchema,
+  name: z.string(),
+  logoUrl: z.url().optional(),
+  coverUrl: z.url().optional(),
+  participants: z.number().int().nonnegative(),
+  /** Como a pessoa já participa, quando participa. */
+  myTier: GroupTierSchema.optional(),
+  /** A data do pedido esperando, quando há. */
+  requestedAt: z.iso.datetime().optional(),
+});
+export type GroupPreview = z.infer<typeof GroupPreviewSchema>;
+
+/** Um pedido esperando, como quem tem `members.invite` vê (GRV-28): o perfil e a data. */
+export const GroupJoinRequestSchema = z.object({
+  user: UserSchema,
+  createdAt: z.iso.datetime(),
+});
+export type GroupJoinRequest = z.infer<typeof GroupJoinRequestSchema>;
+
+/** Corpo do aceitar (GRV-28): quem aceita escolhe como a pessoa entra. */
+export const ApproveGroupRequestInputSchema = z.object({ tier: GroupTierSchema });
+export type ApproveGroupRequestInput = z.infer<typeof ApproveGroupRequestInputSchema>;
 
 // ---- Membros (GRV-29) ----
 

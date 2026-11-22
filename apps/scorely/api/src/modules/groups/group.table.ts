@@ -86,3 +86,14 @@ export function emailGroupInvitesLookupPk(email: string) {
 export function groupInviteIdLookupKey(inviteId: string) {
   return { PK: `LOOKUP#GROUPINVITEID#${inviteId}`, SK: 'META' };
 }
+
+export const GROUP_REQUEST_ENTITY = 'GroupJoinRequest';
+export const GROUP_REQUEST_PREFIX = 'REQUEST#';
+
+/**
+ * Pedido para entrar (GRV-27): `PK=GROUP#<id>`, `SK=REQUEST#<userId>`, `{ groupId, userId, createdAt }`. Entidade de
+ * relação (ADR 0009). Os do grupo: Query `REQUEST#`; o da pessoa: GetItem.
+ */
+export function groupRequestKey(id: GroupId, userId: UserId) {
+  return { PK: `GROUP#${id}`, SK: `${GROUP_REQUEST_PREFIX}${userId}` };
+}

@@ -1,14 +1,17 @@
-import { GetCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { DeleteCommand, GetCommand, PutCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import {
   batchGetOrdered,
   dbItem,
+  isConditionFailed,
   LOOKUP_ENTITY,
   queryLookupRows,
+  sendVersioned,
   stripKeys,
   type TransactItem,
   touch,
   transactWrite,
   ttlFrom,
+  withVersion,
 } from '@scorely/api/src/lib/db';
 import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
 import { asGroupId, type GroupId, type UserId } from '@scorely/api/src/lib/ids';
@@ -22,6 +25,8 @@ import {
   GROUP_INVITE_USE_PREFIX,
   GROUP_MEMBER_ENTITY,
   GROUP_MEMBER_PREFIX,
+  GROUP_REQUEST_ENTITY,
+  GROUP_REQUEST_PREFIX,
   groupInviteIdLookupKey,
   groupInviteKey,
   groupInviteTokenLookupKey,
@@ -29,12 +34,13 @@ import {
   groupKey,
   groupMemberKey,
   groupPublicIdLookupKey,
+  groupRequestKey,
   userGroupInvitesLookupKey,
   userGroupInvitesLookupPk,
   userGroupsLookupKey,
   userGroupsLookupPk,
 } from '@scorely/api/src/modules/groups/group.table';
-import type { GroupRole, GroupTier, PublicGroupId } from '@scorely/contracts';
+import type { GroupJoinMode, GroupRole, GroupTier, PublicGroupId } from '@scorely/contracts';
 
 /** O grupo como fica no banco (`META`): `id` é o uuid do sistema, `publicId` o código (GRV-08). Interno da api. */
 export interface StoredGroup {
@@ -42,7 +48,7 @@ export interface StoredGroup {
   publicId: PublicGroupId;
   name: string;
   /** Modo de entrada (GRV-25): nasce `invite`. */
-  joinMode: 'invite' | 'open';
+  joinMode: GroupJoinMode;
   createdAt: string;
   updatedAt: string;
   version: number;
@@ -66,6 +72,19 @@ export interface StoredMembership {
   /** Quem criou esse convite (GRV-29): guardado aqui para não sumir com o convite. */
   invitedBy?: UserId | undefined;
 }
+
+/** O pedido para entrar num grupo aberto (GRV-27), `GROUP#<groupId> / REQUEST#<userId>`. Entidade de relação. */
+export interface StoredJoinRequest {
+  groupId: GroupId;
+  userId: UserId;
+  createdAt: string;
+}
+
+/**
+ * Resultado de aceitar (GRV-28): `request_gone` = o pedido não existe mais (cancelado, recusado ou aceito por outra
+ * pessoa); `already_member` = a pessoa já participa (entrou por um convite antes): o pedido foi apagado e nada mais.
+ */
+export type ApproveRequestResult = 'ok' | 'request_gone' | 'already_member';
 
 /** Para quem é o convite pessoal (GRV-23). */
 export type InviteTarget = { userId: UserId } | { email: string };
@@ -171,6 +190,31 @@ export interface GroupRepository {
   countParticipants(groupId: GroupId): Promise<number>;
   /** Apaga a participação e o lookup do usuário (GRV-30, 31). `false` = a pessoa já não participava. */
   removeMembership(groupId: GroupId, userId: UserId): Promise<boolean>;
+
+  /** Muda o modo de entrada (GRV-25), com a `version` conferida (ADR 0016): versão velha → `VERSION_CONFLICT`. */
+  setJoinMode(groupId: GroupId, mode: GroupJoinMode, expectedVersion: number, at: Date): Promise<void>;
+  /** O pedido da pessoa, se há (GRV-26, 27). `consistent`: para reler depois de a gravação falhar. */
+  getRequest(
+    groupId: GroupId,
+    userId: UserId,
+    opts?: { consistent?: boolean },
+  ): Promise<StoredJoinRequest | undefined>;
+  /** Grava o pedido, se ainda não há (GRV-27). `false` = já havia um, que fica como estava. */
+  putRequest(request: StoredJoinRequest): Promise<boolean>;
+  /** Apaga o pedido (GRV-27, 28). Com `mustExist`, `false` = não havia pedido; sem, apagar o que não há não é erro. */
+  deleteRequest(groupId: GroupId, userId: UserId, opts?: { mustExist?: boolean }): Promise<boolean>;
+  /** Os pedidos do grupo, em ordem qualquer (o service ordena, GRV-28). */
+  listRequests(groupId: GroupId): Promise<StoredJoinRequest[]>;
+  /**
+   * Aceita o pedido (GRV-28), numa transação: apaga o pedido (que precisa existir), grava a participação (que não pode
+   * existir) e o lookup do usuário. Se a pessoa já participa, só apaga o pedido.
+   */
+  approveRequest(input: {
+    groupId: GroupId;
+    userId: UserId;
+    tier: GroupTier;
+    now: Date;
+  }): Promise<ApproveRequestResult>;
 }
 
 /** O convite pessoal grava os lookups do alvo e o do id, na mesma transação do convite (GRV-24). */
@@ -574,6 +618,8 @@ export const dynamoGroupRepository: GroupRepository = {
             },
           ]
         : []),
+      // GRV-22: o pedido esperando some na mesma operação (sem condição: quase sempre não há).
+      { Delete: { TableName: tableName(), Key: groupRequestKey(invite.groupId, userId) } },
     ];
     const result = await transactWrite(items);
     if (result.ok && lastUse) await expireInviteUses(invite, graceTtl(now));
@@ -604,5 +650,105 @@ export const dynamoGroupRepository: GroupRepository = {
       { Delete: { TableName: tableName(), Key: userGroupsLookupKey(userId, groupId) } },
     ]);
     return result.ok;
+  },
+
+  async setJoinMode(groupId, mode, expectedVersion, at) {
+    const key = groupKey(groupId);
+    await sendVersioned(key, () =>
+      dynamo().send(
+        new UpdateCommand({
+          TableName: tableName(),
+          ...withVersion(
+            touch(
+              {
+                Key: key,
+                UpdateExpression: 'SET joinMode = :mode',
+                ConditionExpression: 'attribute_exists(PK)',
+                ExpressionAttributeValues: { ':mode': mode },
+              },
+              at,
+            ),
+            expectedVersion,
+          ),
+        }),
+      ),
+    );
+  },
+
+  async getRequest(groupId, userId, opts) {
+    const item = await getItem(groupRequestKey(groupId, userId), opts?.consistent);
+    return item ? stripKeys<StoredJoinRequest>(item) : undefined;
+  },
+
+  async putRequest(request) {
+    try {
+      await dynamo().send(
+        new PutCommand({
+          TableName: tableName(),
+          Item: dbItem(groupRequestKey(request.groupId, request.userId), GROUP_REQUEST_ENTITY, request),
+          ConditionExpression: 'attribute_not_exists(PK)',
+        }),
+      );
+      return true;
+    } catch (err) {
+      if (isConditionFailed(err)) return false;
+      throw err;
+    }
+  },
+
+  async deleteRequest(groupId, userId, opts) {
+    try {
+      await dynamo().send(
+        new DeleteCommand({
+          TableName: tableName(),
+          Key: groupRequestKey(groupId, userId),
+          ...(opts?.mustExist && { ConditionExpression: 'attribute_exists(PK)' }),
+        }),
+      );
+      return true;
+    } catch (err) {
+      if (isConditionFailed(err)) return false;
+      throw err;
+    }
+  },
+
+  async listRequests(groupId) {
+    const rows = await queryByPrefix(groupId, GROUP_REQUEST_PREFIX);
+    return rows.map((row) => stripKeys<StoredJoinRequest>(row));
+  },
+
+  async approveRequest({ groupId, userId, tier, now }) {
+    const at = now.toISOString();
+    const membership: StoredMembership = { groupId, userId, tier, role: 'member', createdAt: at };
+    const result = await transactWrite([
+      {
+        Delete: {
+          TableName: tableName(),
+          Key: groupRequestKey(groupId, userId),
+          ConditionExpression: 'attribute_exists(PK)',
+        },
+      },
+      {
+        Put: {
+          TableName: tableName(),
+          Item: dbItem(groupMemberKey(groupId, userId), GROUP_MEMBER_ENTITY, membership, at),
+          ConditionExpression: 'attribute_not_exists(PK)',
+        },
+      },
+      {
+        Put: {
+          TableName: tableName(),
+          Item: dbItem(userGroupsLookupKey(userId, groupId), LOOKUP_ENTITY, { id: groupId }, at),
+        },
+      },
+    ]);
+    if (result.ok) return 'ok';
+    if (result.failed.includes(0)) return 'request_gone';
+    if (result.failed.includes(1)) {
+      // Corrida com entrar por convite (GRV-22): a pessoa já participa; só o pedido some, sem mudar a participação.
+      await dynamoGroupRepository.deleteRequest(groupId, userId);
+      return 'already_member';
+    }
+    throw new Error('Group request approve failed');
   },
 };

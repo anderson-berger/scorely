@@ -4,4 +4,6 @@ import type { NotificationType } from '@scorely/contracts';
 export const notificationIcon: Record<NotificationType, string> = {
   welcome: 'waving_hand',
   group_invited: 'mail',
+  group_join_requested: 'person_add',
+  group_join_approved: 'how_to_reg',
 };

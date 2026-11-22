@@ -1,13 +1,17 @@
 import {
+  type ApproveGroupRequestInput,
   type CreateGroupInput,
   type CreateGroupInviteBody,
   type GroupImageSlot,
   GroupInvitePreviewSchema,
   GroupInviteSchema,
+  GroupJoinRequestSchema,
   GroupMemberSchema,
+  GroupPreviewSchema,
   GroupSchema,
   MediaUploadSchema,
   MyGroupInviteSchema,
+  type SetGroupJoinModeInput,
 } from '@scorely/contracts';
 import { request, send } from '@scorely/web/src/lib/http';
 import { contentTypeOf, uploadMedia } from '@scorely/web/src/lib/media';
@@ -48,6 +52,28 @@ export const groupsApi = {
   removeMember: (id: string, userId: string) =>
     send({
       url: `/groups/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`,
+      method: 'DELETE',
+    }),
+
+  // Grupo aberto e pedidos (GRV-25–28)
+  setJoinMode: (id: string, input: SetGroupJoinModeInput) =>
+    request({ url: `/groups/${encodeURIComponent(id)}/join-mode`, method: 'PUT', data: input }, GroupSchema),
+  preview: (id: string) => request({ url: `/groups/${encodeURIComponent(id)}/preview` }, GroupPreviewSchema),
+  request: (id: string) =>
+    request({ url: `/groups/${encodeURIComponent(id)}/requests`, method: 'POST' }, GroupPreviewSchema),
+  cancelRequest: (id: string) =>
+    send({ url: `/groups/${encodeURIComponent(id)}/requests/me`, method: 'DELETE' }),
+  requests: (id: string) =>
+    request({ url: `/groups/${encodeURIComponent(id)}/requests` }, GroupJoinRequestSchema.array()),
+  approveRequest: (id: string, userId: string, input: ApproveGroupRequestInput) =>
+    send({
+      url: `/groups/${encodeURIComponent(id)}/requests/${encodeURIComponent(userId)}/approve`,
+      method: 'POST',
+      data: input,
+    }),
+  declineRequest: (id: string, userId: string) =>
+    send({
+      url: `/groups/${encodeURIComponent(id)}/requests/${encodeURIComponent(userId)}`,
       method: 'DELETE',
     }),
 };

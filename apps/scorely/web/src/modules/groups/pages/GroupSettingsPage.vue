@@ -2,17 +2,19 @@
 import type { Group } from '@scorely/contracts';
 import SettingsRow from '@scorely/web/src/components/SettingsRow.vue';
 import GroupImagesSheet from '@scorely/web/src/modules/groups/components/GroupImagesSheet.vue';
+import GroupJoinModeSheet from '@scorely/web/src/modules/groups/components/GroupJoinModeSheet.vue';
 import { can } from '@scorely/web/src/modules/groups/nav';
 import { defineComponent, type PropType } from 'vue';
 
 /**
- * GRV-14: Configurações do grupo, uma lista agrupada. Por enquanto, Identidade › Logo e capa (GRV-12).
+ * GRV-14: Configurações do grupo, uma lista agrupada: Identidade › Logo e capa (GRV-12) e Entrada › Quem pode entrar
+ * (GRV-38).
  * Só com `group.edit` (GRV-16): para quem não tem, a rota leva ao Início (GRV-13).
  */
 export default defineComponent({
   name: 'GroupSettingsPage',
 
-  components: { GroupImagesSheet, SettingsRow },
+  components: { GroupImagesSheet, GroupJoinModeSheet, SettingsRow },
 
   props: {
     group: { type: Object as PropType<Group>, required: true },
@@ -26,6 +28,7 @@ export default defineComponent({
   data() {
     return {
       imagesOpen: false,
+      joinModeOpen: false,
     };
   },
 
@@ -50,7 +53,17 @@ export default defineComponent({
         <img v-if="group.coverUrl" :src="group.coverUrl" alt="" class="thumb cover" />
       </SettingsRow>
     </div>
+    <h2 class="sc-section">{{ $t('groups.settings.entry') }}</h2>
+    <div class="sc-card list">
+      <SettingsRow
+        icon="door_front"
+        :title="$t('groups.joinMode.title')"
+        :summary="$t(`groups.joinMode.${group.joinMode}`)"
+        @open="joinModeOpen = true"
+      />
+    </div>
     <GroupImagesSheet v-model="imagesOpen" :group="group" @saved="$emit('saved', $event)" />
+    <GroupJoinModeSheet v-model="joinModeOpen" :group="group" @saved="$emit('saved', $event)" />
   </div>
 </template>
 

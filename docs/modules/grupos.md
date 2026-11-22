@@ -1,12 +1,10 @@
 # Módulo Grupos
 
-> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-21.
+> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-22.
 
 Código: `apps/scorely/api/src/modules/groups/`, `apps/scorely/web/src/modules/groups/`. Contrato: `apps/scorely/contracts/src/groups.ts`.
 
 Este grupo foi escrito do zero ao lado do primeiro ([ADR 0017](../decisions/0017-grupo-v2-lado-a-lado.md)). O primeiro saiu em 2026-11-21, junto com os times, a competição e os esportes ([ADR 0018](../decisions/0018-troca-do-grupo.md)); o doc dele está em [arquivo/grupos.md](arquivo/grupos.md). As regras continuam com o prefixo `GRV`.
-
-> **Grupo aberto e pedidos ainda não estão no ar.** As regras marcadas com _(etapa C)_ (GRV-25 a 28, 38, 39 e as partes de GRV-14 e 32) foram aprovadas em 2026-11-21 e entram na próxima etapa. Até lá, só se entra por convite.
 
 ## 1. Para que serve
 
@@ -135,20 +133,20 @@ Caso de referência: a Ana cria a "Pelada de sexta" e é a dona dela. Ela manda 
   - Entrar é a GRV-22. Recusar (`DELETE /me/group-invites/{inviteId}`) deixa o convite como `declined`, sem aviso para quem convidou: ele vê na lista de convites (GRV-19).
   - _Por quê:_ quem recebeu um convite pessoal acha ele no app, sem precisar do link, e pode dizer não sem constrangimento.
 
-### Grupo aberto _(etapa C)_
+### Grupo aberto
 
-- **GRV-25. O grupo tem um modo de entrada:** `invite` (o padrão, ao criar), em que só se entra por convite, ou `open`, em que também se entra por um pedido aceito (GRV-27). Quem tem `group.edit` muda o modo (`PUT /groups/{publicId}/join-mode` `{ mode, expectedVersion }`), com a `version` conferida ([ADR 0016](../decisions/0016-version-confere-nas-edicoes.md)). Os convites funcionam nos dois modos.
+- **GRV-25. O grupo tem um modo de entrada:** `invite` (o padrão, ao criar), em que só se entra por convite, ou `open`, em que também se entra por um pedido aceito (GRV-27). Quem tem `group.edit` muda o modo (`PUT /groups/{publicId}/join-mode` `{ mode, expectedVersion }`), com a `version` conferida ([ADR 0016](../decisions/0016-version-confere-nas-edicoes.md)). Os convites funcionam nos dois modos. O grupo vem com o modo (`joinMode`, GRV-04), para a tela mostrar o atual (GRV-38). _(Alterada em 2026-11-22: entrou o `joinMode` na resposta do grupo.)_
   - Voltar para `invite` com pedidos esperando não apaga os pedidos: eles continuam para aceitar ou recusar (GRV-28), mas ninguém pede de novo.
   - _Por quê:_ a maioria dos grupos é fechada (os amigos de sempre), por isso o convite é o padrão. O modo aberto prepara o grupo para ser achado (o marketplace) sem perder o controle de quem entra.
-- **GRV-26. No grupo aberto, quem é de fora vê a apresentação pelo código** (`GET /groups/{publicId}/preview`): o id público, o nome, o logo, a capa, o número de participantes e, se a pessoa tem um pedido esperando, a data dele. No grupo de convite, a resposta é `GROUP_NOT_FOUND`, como em GRV-04.
+- **GRV-26. No grupo aberto, quem é de fora vê a apresentação pelo código** (`GET /groups/{publicId}/preview`): o id público, o nome, o logo, a capa, o número de participantes e, se a pessoa tem um pedido esperando, a data dele. No grupo de convite, a resposta é `GROUP_NOT_FOUND`, como em GRV-04. Quem já participa recebe a mesma apresentação, com a participação dela (`myTier`). _(Alterada em 2026-11-22: entrou o caso de quem já participa.)_
   - _Por quê:_ o grupo aberto quer ser achado, e o código na URL é o jeito de compartilhar sem um convite de entrada direta.
 - **GRV-27. No grupo aberto, quem é de fora pede para entrar** (`POST /groups/{publicId}/requests`). No grupo de convite, a resposta é `GROUP_NOT_FOUND`.
-  - Pedir de novo com um pedido esperando não muda nada. Quem já participa recebe `VALIDATION_ERROR`.
+  - Pedir de novo com um pedido esperando não muda nada (nem avisa de novo). Quem já participa recebe `VALIDATION_ERROR`. A resposta é a apresentação (GRV-26), já com a data do pedido. _(Alterada em 2026-11-22: entraram o aviso que não se repete e a resposta.)_
   - Quem tem `members.invite` recebe o aviso `group_join_requested`, com o link para os Membros do grupo.
   - A pessoa cancela o próprio pedido (`DELETE /groups/{publicId}/requests/me`), em qualquer modo. Sem pedido, nada muda.
   - _Por quê:_ quem pede espera a resposta sem ficar mandando de novo, e pode desistir.
 - **GRV-28. Quem tem `members.invite` vê, aceita e recusa os pedidos** (`GET /groups/{publicId}/requests`, do mais antigo para o mais novo, com o perfil de cada pessoa).
-  - Aceitar (`POST /groups/{publicId}/requests/{userPublicId}/approve` `{ tier }`) faz a pessoa participar como membro ou como reserva, quem aceita escolhe, e apaga o pedido, numa operação só. Ela recebe o aviso `group_join_approved`, com o link do grupo. Se ela já tinha entrado por um convite, só o pedido some.
+  - Aceitar (`POST /groups/{publicId}/requests/{userPublicId}/approve` `{ tier }`) faz a pessoa participar como membro ou como reserva, quem aceita escolhe, e apaga o pedido, numa operação só. Ela recebe o aviso `group_join_approved`, com o link do grupo. Se ela já tinha entrado por um convite, só o pedido some, sem aviso e sem mudar a participação. _(Alterada em 2026-11-22: entrou o "sem aviso e sem mudar a participação".)_
   - Recusar (`DELETE /groups/{publicId}/requests/{userPublicId}`) apaga o pedido, sem aviso. A pessoa pode pedir de novo.
   - Um pedido que não existe mais (cancelado, recusado ou aceito por outra pessoa) responde `GROUP_REQUEST_NOT_FOUND` (404).
   - _Por quê:_ quem aceita conhece a pessoa e decide se ela é dos de sempre ou dos que completam. Recusar sem aviso evita o constrangimento num grupo de amigos.
@@ -192,10 +190,10 @@ Caso de referência: a Ana cria a "Pelada de sexta" e é a dona dela. Ela manda 
   - Trocar de área troca a tela sem empilhar no histórico: o voltar do navegador sai do grupo, e não volta para a área anterior. Fora do Início, o topo é compacto: o logo pequeno e o nome.
   - _Por quê:_ abas no topo, como no primeiro grupo, ficam apertadas no celular e somem ao rolar. A barra de baixo fica no alcance do polegar e sempre à vista, o padrão dos apps no celular (até 5 áreas); no PC, a coluna usa a largura que sobra. A área sem conteúdo fica fora para a tela não prometer o que ainda não existe. Sem empilhar, o voltar faz o que se espera de uma barra de app.
   - _(Alterada em 2026-11-21: saiu "com uma área só, a barra não aparece", que deixou de acontecer com os Membros para todos.)_
-- **GRV-14. Configurações é uma lista agrupada:** cada linha tem ícone, nome, o valor atual quando há (ex.: o nome do grupo) e a seta, e tocar abre o painel de baixo da configuração. Por enquanto há dois grupos: **Identidade**, com a linha "Logo e capa" (GRV-12), e **Entrada**, com a linha "Quem pode entrar" (GRV-38, _etapa C_). As próximas (nome, arquivar) entram na lista quando existirem. _(Alterada em 2026-11-21: entrou o grupo Entrada.)_
+- **GRV-14. Configurações é uma lista agrupada:** cada linha tem ícone, nome, o valor atual quando há (ex.: o nome do grupo) e a seta, e tocar abre o painel de baixo da configuração. Por enquanto há dois grupos: **Identidade**, com a linha "Logo e capa" (GRV-12), e **Entrada**, com a linha "Quem pode entrar" (GRV-38). As próximas (nome, arquivar) entram na lista quando existirem. _(Alterada em 2026-11-21: entrou o grupo Entrada.)_
   - _Por quê:_ a lista cresce sem mudar a tela, e cada edição segue o padrão de painel de baixo do app.
 - **GRV-32. A tela Membros** (GRV-29) tem duas seções, **Membros** e **Reservas** (esta só quando há reserva). Cada linha mostra a foto, o apelido, a marca "Dono" quando é o caso, a data de entrada e "convidado por" quem trouxe a pessoa.
-  - Para quem tem `members.invite`: no topo, o botão **Convidar** (GRV-33) e a linha **Convites**, com o número de ativos, que abre a lista (GRV-34); quando há pedidos, a seção **Pedidos** antes das outras, com Aceitar (escolhendo membro ou reserva) e Recusar (GRV-28, _etapa C_); e, no menu da linha de cada reserva, **Convidar para membro**, que cria um convite pessoal de membro para ela, com o padrão de validade (GRV-23).
+  - Para quem tem `members.invite`: no topo, o botão **Convidar** (GRV-33) e a linha **Convites**, com o número de ativos, que abre a lista (GRV-34); quando há pedidos, a seção **Pedidos** antes das outras, com Aceitar (escolhendo membro ou reserva) e Recusar (GRV-28); e, no menu da linha de cada reserva, **Convidar para membro**, que cria um convite pessoal de membro para ela, com o padrão de validade (GRV-23).
   - Para quem tem `members.remove`: o menu de cada linha (menos a do dono e a própria) tem **Remover**, com confirmação (GRV-31, 37).
   - No fim da tela, **Sair do grupo**, com confirmação (GRV-30). Não aparece para o dono. Ao sair, a pessoa vai para os seus grupos.
   - _Por quê:_ tudo o que é sobre as pessoas fica num lugar só, e quem só joga vê só a lista e o sair.
@@ -207,8 +205,8 @@ Caso de referência: a Ana cria a "Pelada de sexta" e é a dona dela. Ela manda 
 - **GRV-36. Convites para você** (GRV-24), na tela dos meus grupos: um cartão por convite, com o logo e o nome do grupo, quem convidou e como a pessoa entra, com **Entrar** e **Recusar**.
 - **GRV-37. Depois de remover alguém que entrou por um convite que ainda vale,** a tela avisa ("Fulano entrou pelo convite de Sicrano, que continua ativo") e oferece **Cancelar convite** no próprio aviso (GRV-20, 31), para quem tem `members.invite`. O convite é o da participação (GRV-29), o último pelo qual a pessoa entrou ou subiu, e não outro em que ela aparece. _(Alterada em 2026-11-21: antes, a tela escolhia qualquer convite ativo pelo qual a pessoa tinha passado.)_
   - _Por quê:_ a decisão de fechar a porta fica com quem remove, na hora em que ela importa, e só para o convite que a pessoa usou.
-- **GRV-38. _(Etapa C.)_ Em Configurações, "Quem pode entrar"** (GRV-25) mostra o modo atual ("Só com convite" ou "Aberto, com pedido") e abre um painel de baixo com as duas opções, cada uma com uma linha explicando o que muda.
-- **GRV-39. _(Etapa C.)_ No grupo aberto, quem é de fora e abre `/groups/{publicId}`** vê a apresentação (GRV-26) com **Pedir para entrar**. Com o pedido esperando, vê "Pedido enviado" e **Cancelar pedido** (GRV-27). No grupo de convite, a página mostra que o grupo não foi encontrado.
+- **GRV-38. Em Configurações, "Quem pode entrar"** (GRV-25) mostra o modo atual ("Só com convite" ou "Aberto, com pedido") e abre um painel de baixo com as duas opções, cada uma com uma linha explicando o que muda.
+- **GRV-39. No grupo aberto, quem é de fora e abre `/groups/{publicId}`** vê a apresentação (GRV-26) com **Pedir para entrar**. Com o pedido esperando, vê "Pedido enviado" e **Cancelar pedido** (GRV-27). No grupo de convite, a página mostra que o grupo não foi encontrado.
 
 ## 3. Como funciona
 
@@ -254,13 +252,13 @@ Caso de referência: a Ana cria a "Pelada de sexta" e é a dona dela. Ela manda 
 | `POST /invites/{token}/join`                              | logado                | GRV-22                  |
 | `GET /me/group-invites`                                   | logado                | GRV-24                  |
 | `DELETE /me/group-invites/{inviteId}`                     | para quem é           | GRV-24                  |
-| `PUT /groups/{publicId}/join-mode`                        | `group.edit`          | GRV-25 (etapa C)        |
-| `GET /groups/{publicId}/preview`                          | logado (grupo aberto) | GRV-26 (etapa C)        |
-| `POST /groups/{publicId}/requests`                        | logado (grupo aberto) | GRV-27 (etapa C)        |
-| `DELETE /groups/{publicId}/requests/me`                   | logado                | GRV-27 (etapa C)        |
-| `GET /groups/{publicId}/requests`                         | `members.invite`      | GRV-28 (etapa C)        |
-| `POST /groups/{publicId}/requests/{userPublicId}/approve` | `members.invite`      | GRV-28 (etapa C)        |
-| `DELETE /groups/{publicId}/requests/{userPublicId}`       | `members.invite`      | GRV-28 (etapa C)        |
+| `PUT /groups/{publicId}/join-mode`                        | `group.edit`          | GRV-25                  |
+| `GET /groups/{publicId}/preview`                          | logado (grupo aberto) | GRV-26                  |
+| `POST /groups/{publicId}/requests`                        | logado (grupo aberto) | GRV-27                  |
+| `DELETE /groups/{publicId}/requests/me`                   | logado                | GRV-27                  |
+| `GET /groups/{publicId}/requests`                         | `members.invite`      | GRV-28                  |
+| `POST /groups/{publicId}/requests/{userPublicId}/approve` | `members.invite`      | GRV-28                  |
+| `DELETE /groups/{publicId}/requests/{userPublicId}`       | `members.invite`      | GRV-28                  |
 | `GET /groups/{publicId}/members`                          | quem participa        | GRV-29                  |
 | `DELETE /groups/{publicId}/members/me`                    | quem participa        | GRV-30                  |
 | `DELETE /groups/{publicId}/members/{userPublicId}`        | `members.remove`      | GRV-31                  |

@@ -40,6 +40,7 @@ const CATALOG = {
   GROUP_INVITE_LIMIT: { status: 409, message: 'The group has too many active invites' },
   GROUP_MEMBER_NOT_FOUND: { status: 404, message: 'Member not found in this group' },
   GROUP_OWNER_NOT_REMOVABLE: { status: 409, message: 'The group owner cannot be removed' },
+  GROUP_REQUEST_NOT_FOUND: { status: 404, message: 'Join request not found' },
 } as const satisfies Record<ErrorCode, { status: number; message: string }>;
 
 /** Código com `details` obrigatório pede o objeto; os demais não aceitam nada. */

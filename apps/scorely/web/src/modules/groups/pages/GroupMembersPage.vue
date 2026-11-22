@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { Group, GroupInvite, GroupMember } from '@scorely/contracts';
+import type { Group, GroupInvite, GroupJoinRequest, GroupMember, GroupTier } from '@scorely/contracts';
 import { errorMessage } from '@scorely/web/src/i18n/errors';
 import { formatDateTime } from '@scorely/web/src/lib/datetime';
 import { useAuthStore } from '@scorely/web/src/modules/auth/auth.store';
@@ -9,7 +9,7 @@ import { can } from '@scorely/web/src/modules/groups/nav';
 import { defineComponent, type PropType } from 'vue';
 
 /**
- * GRV-32: a tela Membros. Duas seções (Membros e Reservas), Convidar e Convites para quem tem `members.invite`,
+ * GRV-32: a tela Membros. Duas seções (Membros e Reservas); Convidar, Convites e Pedidos para quem tem `members.invite`;
  * Remover para quem tem `members.remove` e Sair do grupo para quem não é o dono.
  */
 export default defineComponent({
@@ -29,6 +29,8 @@ export default defineComponent({
     return {
       members: [] as GroupMember[],
       invites: [] as GroupInvite[],
+      requests: [] as GroupJoinRequest[],
+      tiers: ['member', 'reserve'] as GroupTier[],
       loaded: false,
       error: '',
       inviteOpen: false,
@@ -100,17 +102,55 @@ export default defineComponent({
     async load() {
       this.error = '';
       try {
-        const [members, invites] = await Promise.all([
+        const [members, invites, requests] = await Promise.all([
           groupsApi.members(this.group.id),
           this.canInvite ? groupsApi.invites(this.group.id) : Promise.resolve([]),
+          this.canInvite ? groupsApi.requests(this.group.id) : Promise.resolve([]),
         ]);
         this.members = members;
         this.invites = invites;
+        this.requests = requests;
       } catch (err) {
         this.error = errorMessage(err);
       } finally {
         this.loaded = true;
       }
+    },
+
+    /** GRV-28: aceitar, escolhendo membro ou reserva. */
+    async approve(request: GroupJoinRequest, tier: GroupTier) {
+      try {
+        await groupsApi.approveRequest(this.group.id, request.user.id, { tier });
+        this.$q.notify({
+          type: 'positive',
+          message: this.$t('groups.requests.approved', { name: request.user.nickname }),
+        });
+      } catch (err) {
+        this.$q.notify({ type: 'negative', message: errorMessage(err) });
+      }
+      await this.load();
+    },
+
+    confirmDecline(request: GroupJoinRequest) {
+      this.$q
+        .dialog({
+          title: this.$t('groups.requests.declineTitle', { name: request.user.nickname }),
+          message: this.$t('groups.requests.declineConfirm', { name: request.user.nickname }),
+          cancel: { label: this.$t('groups.cancel'), flat: true },
+          ok: { label: this.$t('groups.requests.decline'), color: 'negative', flat: true },
+        })
+        .onOk(() => this.decline(request));
+    },
+
+    /** GRV-28: recusar, sem aviso para a pessoa. */
+    async decline(request: GroupJoinRequest) {
+      try {
+        await groupsApi.declineRequest(this.group.id, request.user.id);
+        this.$q.notify({ type: 'positive', message: this.$t('groups.requests.declined') });
+      } catch (err) {
+        this.$q.notify({ type: 'negative', message: errorMessage(err) });
+      }
+      await this.load();
     },
 
     openInvites() {
@@ -214,6 +254,36 @@ export default defineComponent({
     <div v-if="error" class="sc-caption error">{{ error }}</div>
     <div v-else-if="!loaded" class="loading"><q-spinner color="primary" size="md" /></div>
     <template v-else>
+      <section v-if="requests.length > 0">
+        <h2 class="sc-section">{{ $t('groups.requests.title') }}</h2>
+        <ul class="sc-card list">
+          <li v-for="r in requests" :key="r.user.id" class="member">
+            <img v-if="r.user.avatarUrl" :src="r.user.avatarUrl" alt="" class="avatar" />
+            <span v-else class="avatar sc-display" aria-hidden="true">{{ r.user.nickname.slice(0, 1).toUpperCase() }}</span>
+            <span class="info">
+              <span class="name">{{ r.user.nickname }}</span>
+              <span class="sc-caption">{{ $t('groups.requests.since', { date: date(r.createdAt) }) }}</span>
+            </span>
+            <q-btn-dropdown
+              color="primary"
+              unelevated
+              no-caps
+              dense
+              :label="$t('groups.requests.approve')"
+              :aria-label="$t('groups.requests.actions', { name: r.user.nickname })"
+            >
+              <q-list>
+                <q-item-label header>{{ $t('groups.requests.approveAs') }}</q-item-label>
+                <q-item v-for="t in tiers" :key="t" v-close-popup clickable @click="approve(r, t)">
+                  <q-item-section>{{ $t(`groups.tier.${t}`) }}</q-item-section>
+                </q-item>
+              </q-list>
+            </q-btn-dropdown>
+            <q-btn flat no-caps dense color="negative" :label="$t('groups.requests.decline')" @click="confirmDecline(r)" />
+          </li>
+        </ul>
+      </section>
+
       <section v-for="part in [{ key: 'members', list: full }, { key: 'reserves', list: reserves }]" :key="part.key">
         <template v-if="part.list.length > 0">
           <h2 class="sc-section">{{ $t(`groups.members.${part.key}`) }}</h2>
