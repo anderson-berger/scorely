@@ -53,7 +53,7 @@ describe('groups service', () => {
   it('GRV-02: quem cria é o dono e a única participação do grupo', async () => {
     const { service, members } = setup(['K3X9PQ2A']);
     const group = await service.create(ANA, { name: 'Pelada' });
-    expect(group.myRole).toBe('owner');
+    expect(group.myRole).toEqual({ id: 'owner' });
     expect([...members.values()]).toHaveLength(1);
     expect([...members.values()][0]).toMatchObject({ userId: ANA, role: 'owner', tier: 'member' });
     expect(group.myTier).toBe('member');
@@ -70,8 +70,8 @@ describe('groups service', () => {
     await service.create(ANA, { name: 'Pelada' });
     expect(await service.get(ANA, pid('K3X9PQ2A'))).toMatchObject({
       myTier: 'member',
-      myRole: 'owner',
-      myPermissions: ['group.edit', 'members.invite', 'members.remove'],
+      myRole: { id: 'owner' },
+      myPermissions: ['group.edit', 'members.invite', 'members.remove', 'roles.manage'],
     });
   });
 
@@ -80,8 +80,8 @@ describe('groups service', () => {
     await service.create(ANA, { name: 'Pelada' });
     expect((await service.mine(ANA))[0]).toMatchObject({
       myTier: 'member',
-      myRole: 'owner',
-      myPermissions: ['group.edit', 'members.invite', 'members.remove'],
+      myRole: { id: 'owner' },
+      myPermissions: ['group.edit', 'members.invite', 'members.remove', 'roles.manage'],
     });
   });
 
@@ -125,7 +125,7 @@ describe('groups service', () => {
     expect(await service.get(ANA, pid('K3X9PQ2A'))).toMatchObject({
       id: 'K3X9PQ2A',
       name: 'Pelada',
-      myRole: 'owner',
+      myRole: { id: 'owner' },
     });
   });
 
@@ -157,6 +157,6 @@ describe('groups service', () => {
     const { service } = setup(['AAAAAAAA']);
     await service.create(ANA, { name: 'Pelada' });
     expect(await service.mine(BIA)).toEqual([]);
-    expect((await service.mine(ANA)).map((g) => g.myRole)).toEqual(['owner']);
+    expect((await service.mine(ANA)).map((g) => g.myRole)).toEqual([{ id: 'owner' }]);
   });
 });

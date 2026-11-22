@@ -36,8 +36,9 @@ export function createGroupImages(deps: GroupImagesDeps) {
     if (id === undefined) throw appError('GROUP_NOT_FOUND');
     const membership = await deps.groups.getMembership(id, userId);
     if (!membership) throw appError('GROUP_NOT_FOUND');
-    requirePermission(membership, 'group.edit');
-    return { id, membership };
+    const roles = await deps.groups.getRoles(id);
+    requirePermission(membership, roles, 'group.edit');
+    return { id, membership, roles };
   }
 
   /** Onde a imagem fica ligada (MID-08): só o `<slot>MediaId` no META do grupo (MID-12). */
@@ -56,10 +57,11 @@ export function createGroupImages(deps: GroupImagesDeps) {
   async function fresh(
     id: Parameters<GroupRepository['get']>[0],
     membership: Parameters<typeof forViewer>[1],
+    roles: Parameters<typeof forViewer>[2],
   ): Promise<Group> {
     const group = await deps.groups.get(id, { consistent: true });
     if (!group) throw appError('GROUP_NOT_FOUND');
-    return forViewer(group, membership, deps.media.urlOf);
+    return forViewer(group, membership, roles, deps.media.urlOf);
   }
 
   return {
@@ -85,21 +87,21 @@ export function createGroupImages(deps: GroupImagesDeps) {
       slot: GroupImageSlot,
       input: AttachMediaInput,
     ): Promise<Group> {
-      const { id, membership } = await requireEditor(userId, publicId);
+      const { id, membership, roles } = await requireEditor(userId, publicId);
       await deps.media.attach({
         mediaId: input.mediaId,
         purpose: PURPOSES[slot],
         ownerId: id,
         target: target(id, slot),
       });
-      const group = await fresh(id, membership);
+      const group = await fresh(id, membership, roles);
       return group;
     },
 
     async detach(userId: UserId, publicId: PublicGroupId, slot: GroupImageSlot): Promise<Group> {
-      const { id, membership } = await requireEditor(userId, publicId);
+      const { id, membership, roles } = await requireEditor(userId, publicId);
       await deps.media.detach({ purpose: PURPOSES[slot], ownerId: id, target: target(id, slot) });
-      const group = await fresh(id, membership);
+      const group = await fresh(id, membership, roles);
       return group;
     },
   };

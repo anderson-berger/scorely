@@ -59,7 +59,7 @@ export default defineComponent({
     },
 
     isOwner(): boolean {
-      return this.group.myRole === 'owner';
+      return this.group.myRole.id === 'owner';
     },
   },
 
@@ -94,9 +94,9 @@ export default defineComponent({
       }
     },
 
-    /** GRV-32: Remover aparece em todas as linhas, menos a do dono e a própria. */
+    /** GRV-32, 43: Remover aparece nas linhas que a api marca como `manageable` (abaixo do meu cargo), menos a própria. */
     removable(member: GroupMember): boolean {
-      return this.canRemove && member.role !== 'owner' && member.user.id !== this.auth.user?.id;
+      return this.canRemove && member.manageable && member.user.id !== this.auth.user?.id;
     },
 
     async load() {
@@ -294,7 +294,7 @@ export default defineComponent({
               <span class="info">
                 <span class="name">
                   {{ m.user.nickname }}
-                  <q-badge v-if="m.role === 'owner'" color="primary" :label="$t('groups.members.owner')" />
+                  <q-badge v-if="m.role.id === 'owner'" color="primary" :label="$t('groups.members.owner')" />
                 </span>
                 <span class="sc-caption">
                   {{ $t('groups.members.since', { date: date(m.joinedAt) }) }}

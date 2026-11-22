@@ -9,7 +9,7 @@ const group = (myPermissions: GroupPermission[]): Group =>
     version: 1,
     name: 'Pelada de sexta',
     myTier: 'member',
-    myRole: 'member',
+    myRole: { id: 'everyone' },
     myPermissions,
   }) as Group;
 

@@ -20,16 +20,34 @@ export type PublicGroupId = z.infer<typeof PublicGroupIdSchema>;
 /** GRV-01: de 1 a 80 caracteres, sem os espaços das pontas. Pode repetir (GRV-03). */
 export const GroupNameSchema = z.string().trim().min(1, 'Name is required').max(80);
 
-/** O cargo de quem pede no grupo (GRV-02, 15). Por enquanto, dois fixos: o dono e o cargo base. */
-export const GroupRoleSchema = z.enum(['owner', 'member']);
-export type GroupRole = z.infer<typeof GroupRoleSchema>;
+/** Máximo de cargos criados por grupo (GRV-44). */
+export const GROUP_ROLE_MAX = 20;
+
+/** GRV-44: de 1 a 30 caracteres, sem os espaços das pontas. */
+export const GroupRoleNameSchema = z.string().trim().min(1, 'Name is required').max(30);
+
+/**
+ * Um cargo como a pessoa o vê (GRV-40): os fixos, Dono e Todos, vêm sem nome (a tela traduz); o criado traz o uuid
+ * e o nome.
+ */
+export const GroupRoleRefSchema = z.union([
+  z.object({ id: z.literal('owner') }),
+  z.object({ id: z.literal('everyone') }),
+  z.object({ id: z.uuid(), name: z.string() }),
+]);
+export type GroupRoleRef = z.infer<typeof GroupRoleRefSchema>;
 
 /** Como a pessoa participa (GRV-17): membro, com prioridade, ou reserva. */
 export const GroupTierSchema = z.enum(['member', 'reserve']);
 export type GroupTier = z.infer<typeof GroupTierSchema>;
 
 /** O catálogo de permissões de administração (GRV-15). */
-export const GroupPermissionSchema = z.enum(['group.edit', 'members.invite', 'members.remove']);
+export const GroupPermissionSchema = z.enum([
+  'group.edit',
+  'members.invite',
+  'members.remove',
+  'roles.manage',
+]);
 export type GroupPermission = z.infer<typeof GroupPermissionSchema>;
 
 /** Modo de entrada (GRV-25): só por convite (o padrão) ou também por pedido aceito. */
@@ -47,7 +65,7 @@ export const GroupSchema = z.object({
   version: VersionSchema,
   name: z.string(),
   myTier: GroupTierSchema,
-  myRole: GroupRoleSchema,
+  myRole: GroupRoleRefSchema,
   /** O que quem pede pode administrar (GRV-16). A tela só mostra essas ações; a api confere de novo. */
   myPermissions: z.array(GroupPermissionSchema),
   /** O modo de entrada (GRV-25), para a tela mostrar o atual (GRV-38). */
@@ -106,6 +124,8 @@ export const GroupInviteSchema = z.object({
   uses: z.number().int().nonnegative(),
   createdBy: UserSchema,
   createdAt: z.iso.datetime(),
+  /** Quem pede pode cancelar este convite (GRV-19, 43). */
+  manageable: z.boolean(),
   /** Quem entrou por ele (perfis). */
   usedBy: z.array(UserSchema),
   /** Para quem é, no convite pessoal (GRV-23): o perfil, se foi pelo id público; o email, se foi por ele. */
@@ -187,7 +207,9 @@ export type ApproveGroupRequestInput = z.infer<typeof ApproveGroupRequestInputSc
 export const GroupMemberSchema = z.object({
   user: UserSchema,
   tier: GroupTierSchema,
-  role: GroupRoleSchema,
+  role: GroupRoleRefSchema,
+  /** Quem pede pode mexer nesta pessoa: remover, mudar o cargo (GRV-43). */
+  manageable: z.boolean(),
   /** A data de entrada: não muda quando a reserva vira membro (GRV-22). */
   joinedAt: z.iso.datetime(),
   /** Quem criou o convite pelo qual entrou ou subiu, quando houve. Guardado na participação: não some com o convite. */
@@ -202,3 +224,59 @@ export type GroupMember = z.infer<typeof GroupMemberSchema>;
 /** Qual imagem do grupo (GRV-09): `logo` → mídia `group.logo`; `cover` → `group.cover`. */
 export const GroupImageSlotSchema = z.enum(['logo', 'cover']);
 export type GroupImageSlot = z.infer<typeof GroupImageSlotSchema>;
+
+// ---- Cargos (GRV-40–49) ----
+
+/** Um cargo na lista de cargos (GRV-42), na ordem: Dono, os criados, Todos. */
+export const GroupRoleItemSchema = z.object({
+  id: z.union([z.literal('owner'), z.literal('everyone'), z.uuid()]),
+  /** Só o cargo criado tem nome; os fixos a tela traduz. */
+  name: z.string().optional(),
+  permissions: z.array(GroupPermissionSchema),
+  /** Quantas pessoas têm o cargo. */
+  members: z.number().int().nonnegative(),
+  /** Quem pede pode editar, ordenar e apagar este cargo (GRV-43). */
+  manageable: z.boolean(),
+  fixed: z.enum(['owner', 'everyone']).optional(),
+});
+export type GroupRoleItem = z.infer<typeof GroupRoleItemSchema>;
+
+/** `GET /groups/{publicId}/roles` (GRV-42): a lista e a `version` que toda edição manda de volta. */
+export const GroupRolesSchema = z.object({
+  version: VersionSchema,
+  roles: z.array(GroupRoleItemSchema),
+});
+export type GroupRoles = z.infer<typeof GroupRolesSchema>;
+
+/** Corpo do `POST /groups/{publicId}/roles` (GRV-44). */
+export const CreateGroupRoleInputSchema = z.object({
+  name: GroupRoleNameSchema,
+  permissions: z.array(GroupPermissionSchema),
+  expectedVersion: VersionSchema,
+});
+export type CreateGroupRoleInput = z.infer<typeof CreateGroupRoleInputSchema>;
+
+/** Corpo do `PUT /groups/{publicId}/roles/{roleId}` (GRV-45). No Todos o nome é ignorado. */
+export const UpdateGroupRoleInputSchema = CreateGroupRoleInputSchema;
+export type UpdateGroupRoleInput = CreateGroupRoleInput;
+
+/** Corpo do `PUT /groups/{publicId}/roles/order` (GRV-46): os cargos criados, do mais alto para o mais baixo. */
+export const OrderGroupRolesInputSchema = z.object({
+  roleIds: z.array(z.uuid()),
+  expectedVersion: VersionSchema,
+});
+export type OrderGroupRolesInput = z.infer<typeof OrderGroupRolesInputSchema>;
+
+/** Corpo do `DELETE /groups/{publicId}/roles/{roleId}` (GRV-47). */
+export const DeleteGroupRoleInputSchema = z.object({ expectedVersion: VersionSchema });
+export type DeleteGroupRoleInput = z.infer<typeof DeleteGroupRoleInputSchema>;
+
+/** Corpo do `PUT /groups/{publicId}/members/{userPublicId}/role` (GRV-48): `everyone` ou o uuid de um cargo criado. */
+export const SetMemberRoleInputSchema = z.object({
+  roleId: z.union([z.literal('everyone'), z.uuid()]),
+});
+export type SetMemberRoleInput = z.infer<typeof SetMemberRoleInputSchema>;
+
+/** Corpo do `POST /groups/{publicId}/transfer` (GRV-49). */
+export const TransferGroupInputSchema = z.object({ userPublicId: PublicUserIdSchema });
+export type TransferGroupInput = z.infer<typeof TransferGroupInputSchema>;

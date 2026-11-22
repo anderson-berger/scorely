@@ -1,7 +1,8 @@
 import {
   CreateGroupInputSchema,
   GroupNameSchema,
-  GroupRoleSchema,
+  GroupRoleNameSchema,
+  GroupRoleRefSchema,
   GroupSchema,
   PublicGroupIdSchema,
 } from '@scorely/contracts';
@@ -29,10 +30,20 @@ describe('groups (contrato)', () => {
     expect(CreateGroupInputSchema.safeParse({}).success).toBe(false);
   });
 
-  it('GRV-15: os cargos são owner e member (o cargo base)', () => {
-    expect(GroupRoleSchema.parse('owner')).toBe('owner');
-    expect(GroupRoleSchema.parse('member')).toBe('member');
-    expect(GroupRoleSchema.safeParse('admin').success).toBe(false);
+  it('GRV-40: o cargo é o Dono, o Todos (sem nome) ou um criado (uuid e nome)', () => {
+    expect(GroupRoleRefSchema.parse({ id: 'owner' })).toEqual({ id: 'owner' });
+    expect(GroupRoleRefSchema.parse({ id: 'everyone' })).toEqual({ id: 'everyone' });
+    const created = { id: '11111111-1111-4111-8111-111111111111', name: 'Admin' };
+    expect(GroupRoleRefSchema.parse(created)).toEqual(created);
+    expect(GroupRoleRefSchema.safeParse({ id: 'admin' }).success).toBe(false);
+    expect(GroupRoleRefSchema.safeParse('owner').success).toBe(false);
+  });
+
+  it('GRV-44: o nome do cargo tem de 1 a 30 caracteres, sem os espaços das pontas', () => {
+    expect(GroupRoleNameSchema.parse('  Admin  ')).toBe('Admin');
+    expect(GroupRoleNameSchema.parse('a'.repeat(30))).toHaveLength(30);
+    expect(GroupRoleNameSchema.safeParse('   ').success).toBe(false);
+    expect(GroupRoleNameSchema.safeParse('a'.repeat(31)).success).toBe(false);
   });
 
   it('GRV-08: o id público tem 8 caracteres Crockford base32 (sem I, L, O, U)', () => {
@@ -48,7 +59,7 @@ describe('groups (contrato)', () => {
       version: 1,
       name: 'Pelada',
       myTier: 'member',
-      myRole: 'owner',
+      myRole: { id: 'owner' },
       myPermissions: [],
       joinMode: 'invite',
     };
@@ -72,13 +83,13 @@ describe('groups (contrato)', () => {
     const full = {
       ...base,
       myTier: 'reserve',
-      myRole: 'member',
+      myRole: { id: 'everyone' },
       myPermissions: ['group.edit'],
       joinMode: 'open',
     };
     expect(GroupSchema.parse(full)).toMatchObject({
       myTier: 'reserve',
-      myRole: 'member',
+      myRole: { id: 'everyone' },
     });
     expect(GroupSchema.safeParse({ ...full, myPermissions: ['nope'] }).success).toBe(false);
   });

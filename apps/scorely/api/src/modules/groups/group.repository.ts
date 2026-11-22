@@ -27,6 +27,7 @@ import {
   GROUP_MEMBER_PREFIX,
   GROUP_REQUEST_ENTITY,
   GROUP_REQUEST_PREFIX,
+  GROUP_ROLES_ENTITY,
   groupInviteIdLookupKey,
   groupInviteKey,
   groupInviteTokenLookupKey,
@@ -35,12 +36,13 @@ import {
   groupMemberKey,
   groupPublicIdLookupKey,
   groupRequestKey,
+  groupRolesKey,
   userGroupInvitesLookupKey,
   userGroupInvitesLookupPk,
   userGroupsLookupKey,
   userGroupsLookupPk,
 } from '@scorely/api/src/modules/groups/group.table';
-import type { GroupJoinMode, GroupRole, GroupTier, PublicGroupId } from '@scorely/contracts';
+import type { GroupJoinMode, GroupPermission, GroupTier, PublicGroupId } from '@scorely/contracts';
 
 /** O grupo como fica no banco (`META`): `id` é o uuid do sistema, `publicId` o código (GRV-08). Interno da api. */
 export interface StoredGroup {
@@ -63,14 +65,30 @@ export interface StoredMembership {
   userId: UserId;
   /** Como participa (GRV-17). */
   tier: GroupTier;
-  /** O cargo (GRV-15). */
-  role: GroupRole;
+  /** O cargo (GRV-40): `owner`, `everyone` ou o id de um cargo criado. Um id que já não está nos cargos vale `everyone` (GRV-47). */
+  role: string;
   /** A data de entrada (GRV-22, 29). */
   createdAt: string;
   /** O convite pelo qual entrou ou subiu, quando houve (GRV-29). */
   inviteId?: string | undefined;
   /** Quem criou esse convite (GRV-29): guardado aqui para não sumir com o convite. */
   invitedBy?: UserId | undefined;
+}
+
+/** Um cargo criado (GRV-44), dentro do item `ROLES`. */
+export interface StoredRole {
+  id: string;
+  name: string;
+  permissions: GroupPermission[];
+}
+
+/** Os cargos do grupo (GRV-40), `GROUP#<id> / ROLES`: os criados, do mais alto ao mais baixo, e as permissões do Todos. */
+export interface StoredRoles {
+  roles: StoredRole[];
+  everyonePermissions: GroupPermission[];
+  createdAt: string;
+  updatedAt: string;
+  version: number;
 }
 
 /** O pedido para entrar num grupo aberto (GRV-27), `GROUP#<groupId> / REQUEST#<userId>`. Entidade de relação. */
@@ -184,6 +202,20 @@ export interface GroupRepository {
     action: JoinAction;
     now: Date;
   }): Promise<JoinByInviteResult>;
+  /** Os cargos do grupo (GRV-40, 42), com a `version` deles. */
+  getRoles(groupId: GroupId, opts?: { consistent?: boolean }): Promise<StoredRoles>;
+  /**
+   * Grava os cargos (GRV-44–47) com a `version` conferida (ADR 0016): versão velha → `VERSION_CONFLICT`. O item vale
+   * inteiro; quem tinha um cargo apagado fica com o id velho, que vale o Todos (GRV-47).
+   */
+  saveRoles(
+    groupId: GroupId,
+    data: Pick<StoredRoles, 'roles' | 'everyonePermissions'>,
+    expectedVersion: number,
+    at: Date,
+  ): Promise<void>;
+  /** Troca o cargo da participação (GRV-48). `false` = a pessoa já não participa. */
+  setMemberRole(groupId: GroupId, userId: UserId, role: string): Promise<boolean>;
   /** Todas as participações do grupo (GRV-29). */
   listMembers(groupId: GroupId): Promise<StoredMembership[]>;
   /** Número de participantes (GRV-21), por `Select: COUNT`. */
@@ -363,6 +395,15 @@ export const dynamoGroupRepository: GroupRepository = {
       put(
         dbItem(groupPublicIdLookupKey(group.publicId), LOOKUP_ENTITY, { id: group.id }, group.createdAt),
         true,
+      ),
+      // GRV-02: os cargos nascem vazios, só com os dois fixos (que não são gravados).
+      put(
+        dbItem(
+          groupRolesKey(group.id),
+          GROUP_ROLES_ENTITY,
+          { roles: [], everyonePermissions: [] },
+          group.createdAt,
+        ),
       ),
     ]);
     if (result.ok) return 'created';
@@ -555,7 +596,7 @@ export const dynamoGroupRepository: GroupRepository = {
                   groupId: invite.groupId,
                   userId,
                   tier: invite.tier,
-                  role: 'member',
+                  role: 'everyone',
                   createdAt: at,
                   inviteId: invite.id,
                   invitedBy: invite.createdBy,
@@ -627,6 +668,57 @@ export const dynamoGroupRepository: GroupRepository = {
     if (result.failed.includes(0)) return 'invite_stale';
     if (result.failed.includes(1)) return 'membership_stale';
     throw new Error('Group join failed');
+  },
+
+  async getRoles(groupId, opts) {
+    const item = await getItem(groupRolesKey(groupId), opts?.consistent);
+    if (item) return stripKeys<StoredRoles>(item);
+    // Grupo sem o item (não nasce assim): só os fixos, na versão 0.
+    return { roles: [], everyonePermissions: [], createdAt: '', updatedAt: '', version: 0 };
+  },
+
+  async saveRoles(groupId, data, expectedVersion, at) {
+    const key = groupRolesKey(groupId);
+    await sendVersioned(key, () =>
+      dynamo().send(
+        new UpdateCommand({
+          TableName: tableName(),
+          ...withVersion(
+            touch(
+              {
+                Key: key,
+                UpdateExpression: 'SET #roles = :roles, everyonePermissions = :everyone',
+                ExpressionAttributeNames: { '#roles': 'roles' },
+                ExpressionAttributeValues: { ':roles': data.roles, ':everyone': data.everyonePermissions },
+              },
+              at,
+            ),
+            expectedVersion,
+          ),
+        }),
+      ),
+    );
+  },
+
+  async setMemberRole(groupId, userId, role) {
+    try {
+      await dynamo().send(
+        new UpdateCommand({
+          TableName: tableName(),
+          ...touch({
+            Key: groupMemberKey(groupId, userId),
+            UpdateExpression: 'SET #role = :role',
+            ConditionExpression: 'attribute_exists(PK)',
+            ExpressionAttributeNames: { '#role': 'role' },
+            ExpressionAttributeValues: { ':role': role },
+          }),
+        }),
+      );
+      return true;
+    } catch (err) {
+      if (isConditionFailed(err)) return false;
+      throw err;
+    }
   },
 
   async listMembers(groupId) {
@@ -719,7 +811,7 @@ export const dynamoGroupRepository: GroupRepository = {
 
   async approveRequest({ groupId, userId, tier, now }) {
     const at = now.toISOString();
-    const membership: StoredMembership = { groupId, userId, tier, role: 'member', createdAt: at };
+    const membership: StoredMembership = { groupId, userId, tier, role: 'everyone', createdAt: at };
     const result = await transactWrite([
       {
         Delete: {

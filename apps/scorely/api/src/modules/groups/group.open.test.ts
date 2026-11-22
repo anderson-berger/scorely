@@ -298,7 +298,7 @@ describe('groups grupo aberto e pedidos', () => {
     });
     expect(await service.get(CAIO, gid)).toMatchObject({
       myTier: 'member',
-      myRole: 'member',
+      myRole: { id: 'everyone' },
     });
   });
 

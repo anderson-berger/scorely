@@ -39,6 +39,11 @@ export const ErrorCodeSchema = z.enum([
   'GROUP_MEMBER_NOT_FOUND',
   'GROUP_OWNER_NOT_REMOVABLE',
   'GROUP_REQUEST_NOT_FOUND',
+  'GROUP_ROLE_TOO_HIGH',
+  'GROUP_OWNER_ONLY',
+  'GROUP_ROLE_NOT_FOUND',
+  'GROUP_ROLE_NAME_TAKEN',
+  'GROUP_ROLE_LIMIT',
 ]);
 export type ErrorCode = z.infer<typeof ErrorCodeSchema>;
 
@@ -66,6 +71,8 @@ export const ErrorDetailsSchemas = {
   GROUP_INVITE_INVALID: z.object({ reason: GroupInviteInvalidReasonSchema }),
   /** GRV-18: o máximo de convites ativos. */
   GROUP_INVITE_LIMIT: z.object({ limit: z.number().int().positive() }),
+  /** GRV-44: o máximo de cargos criados. */
+  GROUP_ROLE_LIMIT: z.object({ limit: z.number().int().positive() }),
   /** ADR 0016: a versão atual do item (`0` = ele não existe mais), para a tela reler. */
   VERSION_CONFLICT: z.object({ currentVersion: z.number().int().nonnegative() }),
 } satisfies Partial<Record<ErrorCode, z.ZodType>>;

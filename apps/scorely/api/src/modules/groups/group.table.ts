@@ -97,3 +97,14 @@ export const GROUP_REQUEST_PREFIX = 'REQUEST#';
 export function groupRequestKey(id: GroupId, userId: UserId) {
   return { PK: `GROUP#${id}`, SK: `${GROUP_REQUEST_PREFIX}${userId}` };
 }
+
+export const GROUP_ROLES_ENTITY = 'GroupRoles';
+
+/**
+ * Cargos do grupo (GRV-40): `PK=GROUP#<id>`, `SK=ROLES`, `{ roles: [{ id, name, permissions }], everyonePermissions }`.
+ * Item do grupo (ADR 0014), entidade com `version` (ADR 0013): toda edição dos cargos confere a dele (GRV-42).
+ * Nasce na transação de criar o grupo. Leitura: GetItem.
+ */
+export function groupRolesKey(id: GroupId) {
+  return { PK: `GROUP#${id}`, SK: 'ROLES' };
+}

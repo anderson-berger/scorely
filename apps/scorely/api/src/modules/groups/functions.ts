@@ -86,4 +86,20 @@ export const groupsFunctions: AWS['functions'] = {
     handler: handler('declineJoinRequest'),
     events: route('DELETE', '/groups/{publicId}/requests/{userPublicId}'),
   },
+  // Cargos (GRV-42–48)
+  listGroupRoles: { handler: handler('listRoles'), events: route('GET', '/groups/{publicId}/roles') },
+  createGroupRole: { handler: handler('createRole'), events: route('POST', '/groups/{publicId}/roles') },
+  orderGroupRoles: { handler: handler('orderRoles'), events: route('PUT', '/groups/{publicId}/roles/order') },
+  updateGroupRole: {
+    handler: handler('updateRole'),
+    events: route('PUT', '/groups/{publicId}/roles/{roleId}'),
+  },
+  deleteGroupRole: {
+    handler: handler('deleteRole'),
+    events: route('DELETE', '/groups/{publicId}/roles/{roleId}'),
+  },
+  setGroupMemberRole: {
+    handler: handler('setMemberRole'),
+    events: route('PUT', '/groups/{publicId}/members/{userPublicId}/role'),
+  },
 };

@@ -15,9 +15,9 @@ A confirmar. Hoje: qualquer pessoa com email (login por código), sem papéis de
 
 ## MVP (scorely)
 
-| Já existe                                                                                                   | Próximo                                        |
-| ----------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
-| login por código, perfil com foto, notificações (sino), grupo com logo e capa, convites, membros e reservas | grupo aberto com pedidos (GRV etapa C), cargos |
+| Já existe                                                                                                                             | Próximo                             |
+| ------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
+| login por código, perfil com foto, notificações (sino), grupo com logo e capa, convites, membros e reservas, grupo aberto com pedidos | cargos e passar o grupo (GRV-40–51) |
 
 O que cada módulo faz hoje, com as regras e o porquê, está em [`docs/modules/`](../modules/README.md). Este arquivo guarda só a visão e a ordem das entregas.
 
@@ -38,7 +38,6 @@ Resultado esperado: **"O jogo da semana acontece sem confusão de lista e com ti
 
 ## Depois
 
-- **Cargos criados pelo grupo:** aprovados em 2026-11-21 ("Em discussão" de [grupos.md](../modules/grupos.md)), vêm depois do grupo aberto.
 - Resultado com placar e scout por fundamento (saque, bloqueio, ataque, erro), configurável por grupo, dentro da competição.
 - Cobrança no app para o plano da competição (quando a competição voltar).
 - Página de notificações (hoje só o sino).

@@ -101,7 +101,7 @@ describe('groups convites', () => {
     const group = await service.joinByInvite(BIA, invite.token);
     expect(group).toMatchObject({
       myTier: 'reserve',
-      myRole: 'member',
+      myRole: { id: 'everyone' },
       myPermissions: [],
     });
     expect((await service.members(BIA, gid)).map((m) => m.tier)).toEqual(['member', 'reserve']);
@@ -335,7 +335,7 @@ describe('groups entrar por convite (GRV-22)', () => {
       id: gid,
       name: 'Pelada',
       myTier: 'member',
-      myRole: 'member',
+      myRole: { id: 'everyone' },
     });
     expect((await service.mine(BIA)).map((g) => g.id)).toEqual([gid]);
   });
@@ -386,11 +386,11 @@ describe('groups entrar por convite (GRV-22)', () => {
     });
     expect(await service.joinByInvite(ANA, member.token)).toMatchObject({
       myTier: 'member',
-      myRole: 'owner',
+      myRole: { id: 'owner' },
     });
     expect(await service.joinByInvite(ANA, reserve.token)).toMatchObject({
       myTier: 'member',
-      myRole: 'owner',
+      myRole: { id: 'owner' },
     });
     await service.joinByInvite(BIA, member.token);
     expect((await service.joinByInvite(BIA, reserve.token)).myTier).toBe('member');
@@ -451,7 +451,12 @@ describe('groups membros, sair e remover (GRV-29–31)', () => {
     await service.joinByInvite(BIA, member.token);
     const list = await service.members(BIA, gid);
     expect(list.map((m) => m.user.nickname)).toEqual(['ana', 'caio', 'bia', 'duda']);
-    expect(list.map((m) => m.role)).toEqual(['owner', 'member', 'member', 'member']);
+    expect(list.map((m) => m.role)).toEqual([
+      { id: 'owner' },
+      { id: 'everyone' },
+      { id: 'everyone' },
+      { id: 'everyone' },
+    ]);
     expect(list[1]?.joinedAt).toBe(new Date(T0.getTime() + 2 * DAY).toISOString());
   });
 

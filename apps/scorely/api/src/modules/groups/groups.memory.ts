@@ -8,6 +8,7 @@ import {
   type StoredInviteUse,
   type StoredJoinRequest,
   type StoredMembership,
+  type StoredRoles,
 } from '@scorely/api/src/modules/groups/group.repository';
 import type { GroupsDeps } from '@scorely/api/src/modules/groups/group.service';
 import type { PublicGroupId } from '@scorely/contracts';
@@ -35,6 +36,7 @@ export function memoryGroups() {
   const tokens = new Map<string, { groupId: StoredGroup['id']; inviteId: string }>();
   const uses = new Map<string, StoredInviteUse>();
   const requests = new Map<string, StoredJoinRequest>();
+  const rolesByGroup = new Map<string, StoredRoles>();
   const calls = { create: 0 };
   const inviteKey = (groupId: string, inviteId: string) => `${groupId}#${inviteId}`;
   const repo: GroupRepository = {
@@ -42,6 +44,13 @@ export function memoryGroups() {
       calls.create += 1;
       if (lookup.has(group.publicId)) return 'public_id_taken';
       groups.set(group.id, { ...group });
+      rolesByGroup.set(group.id, {
+        roles: [],
+        everyonePermissions: [],
+        createdAt: group.createdAt,
+        updatedAt: group.createdAt,
+        version: 1,
+      });
       lookup.set(group.publicId, group.id);
       members.set(`${group.id}#${ownerId}`, {
         groupId: group.id,
@@ -150,7 +159,7 @@ export function memoryGroups() {
               groupId: invite.groupId,
               userId,
               tier: invite.tier,
-              role: 'member',
+              role: 'everyone',
               createdAt: now.toISOString(),
               inviteId: invite.id,
               invitedBy: invite.createdBy,
@@ -170,6 +179,32 @@ export function memoryGroups() {
         createdAt: now.toISOString(),
       });
       return 'ok';
+    },
+    async getRoles(groupId) {
+      const stored = rolesByGroup.get(groupId);
+      return stored
+        ? { ...stored, roles: stored.roles.map((r) => ({ ...r })) }
+        : { roles: [], everyonePermissions: [], createdAt: '', updatedAt: '', version: 0 };
+    },
+    async saveRoles(groupId, data, expectedVersion, at) {
+      const stored = rolesByGroup.get(groupId);
+      if (!stored || stored.version !== expectedVersion) {
+        throw appError('VERSION_CONFLICT', { currentVersion: stored?.version ?? 0 });
+      }
+      rolesByGroup.set(groupId, {
+        ...stored,
+        roles: data.roles.map((r) => ({ ...r })),
+        everyonePermissions: [...data.everyonePermissions],
+        updatedAt: at.toISOString(),
+        version: stored.version + 1,
+      });
+    },
+    async setMemberRole(groupId, userId, role) {
+      const key = `${groupId}#${userId}`;
+      const current = members.get(key);
+      if (!current) return false;
+      members.set(key, { ...current, role });
+      return true;
     },
     async listMembers(groupId) {
       return [...members.values()].filter((m) => m.groupId === groupId);
@@ -213,9 +248,9 @@ export function memoryGroups() {
       if (!requests.has(key)) return 'request_gone';
       requests.delete(key);
       if (members.has(key)) return 'already_member';
-      members.set(key, { groupId, userId, tier, role: 'member', createdAt: now.toISOString() });
+      members.set(key, { groupId, userId, tier, role: 'everyone', createdAt: now.toISOString() });
       return 'ok';
     },
   };
-  return { repo, groups, lookup, members, invites, tokens, uses, requests, calls };
+  return { repo, groups, lookup, rolesByGroup, members, invites, tokens, uses, requests, calls };
 }

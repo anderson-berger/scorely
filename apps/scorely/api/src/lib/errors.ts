@@ -41,6 +41,11 @@ const CATALOG = {
   GROUP_MEMBER_NOT_FOUND: { status: 404, message: 'Member not found in this group' },
   GROUP_OWNER_NOT_REMOVABLE: { status: 409, message: 'The group owner cannot be removed' },
   GROUP_REQUEST_NOT_FOUND: { status: 404, message: 'Join request not found' },
+  GROUP_ROLE_TOO_HIGH: { status: 403, message: 'You can only act below your own role' },
+  GROUP_OWNER_ONLY: { status: 403, message: 'Only the group owner can do this' },
+  GROUP_ROLE_NOT_FOUND: { status: 404, message: 'Role not found in this group' },
+  GROUP_ROLE_NAME_TAKEN: { status: 409, message: 'A role with this name already exists' },
+  GROUP_ROLE_LIMIT: { status: 409, message: 'The group has too many roles' },
 } as const satisfies Record<ErrorCode, { status: number; message: string }>;
 
 /** Código com `details` obrigatório pede o objeto; os demais não aceitam nada. */

@@ -13,9 +13,14 @@ import {
   AttachMediaInputSchema,
   CreateGroupInputSchema,
   CreateGroupInviteInputSchema,
+  CreateGroupRoleInputSchema,
+  DeleteGroupRoleInputSchema,
   GroupImageSlotSchema,
   MediaUploadInputSchema,
+  OrderGroupRolesInputSchema,
   SetGroupJoinModeInputSchema,
+  SetMemberRoleInputSchema,
+  UpdateGroupRoleInputSchema,
 } from '@scorely/contracts';
 
 const groups = createGroupService({
@@ -220,6 +225,69 @@ export async function declineJoinRequest(event: HttpEvent) {
       auth.userId,
       asPublicGroupId(pathParam(event, 'publicId')),
       asPublicUserId(pathParam(event, 'userPublicId')),
+    );
+  });
+}
+
+// Cargos (GRV-42–48)
+export async function listRoles(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
+    const list = await groups.roles(auth.userId, asPublicGroupId(pathParam(event, 'publicId')));
+    return list;
+  });
+}
+
+export async function createRole(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
+    const input = parseBody(event, CreateGroupRoleInputSchema);
+    return created(
+      await groups.createRole(auth.userId, asPublicGroupId(pathParam(event, 'publicId')), input),
+    );
+  });
+}
+
+export async function updateRole(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
+    const input = parseBody(event, UpdateGroupRoleInputSchema);
+    const list = await groups.updateRole(
+      auth.userId,
+      asPublicGroupId(pathParam(event, 'publicId')),
+      pathParam(event, 'roleId'),
+      input,
+    );
+    return list;
+  });
+}
+
+export async function orderRoles(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
+    const input = parseBody(event, OrderGroupRolesInputSchema);
+    const list = await groups.orderRoles(auth.userId, asPublicGroupId(pathParam(event, 'publicId')), input);
+    return list;
+  });
+}
+
+export async function deleteRole(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
+    const input = parseBody(event, DeleteGroupRoleInputSchema);
+    const list = await groups.deleteRole(
+      auth.userId,
+      asPublicGroupId(pathParam(event, 'publicId')),
+      pathParam(event, 'roleId'),
+      input,
+    );
+    return list;
+  });
+}
+
+export async function setMemberRole(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
+    const input = parseBody(event, SetMemberRoleInputSchema);
+    await groups.setMemberRole(
+      auth.userId,
+      asPublicGroupId(pathParam(event, 'publicId')),
+      asPublicUserId(pathParam(event, 'userPublicId')),
+      input,
     );
   });
 }
