@@ -160,6 +160,7 @@ export default defineComponent({
             @click="share(invite)"
           />
           <q-btn
+            v-if="invite.manageable"
             flat
             no-caps
             dense

@@ -2,16 +2,22 @@ import {
   type ApproveGroupRequestInput,
   type CreateGroupInput,
   type CreateGroupInviteBody,
+  type CreateGroupRoleInput,
+  type DeleteGroupRoleInput,
   type GroupImageSlot,
   GroupInvitePreviewSchema,
   GroupInviteSchema,
   GroupJoinRequestSchema,
   GroupMemberSchema,
   GroupPreviewSchema,
+  GroupRolesSchema,
   GroupSchema,
   MediaUploadSchema,
   MyGroupInviteSchema,
+  type OrderGroupRolesInput,
   type SetGroupJoinModeInput,
+  type SetMemberRoleInput,
+  type UpdateGroupRoleInput,
 } from '@scorely/contracts';
 import { request, send } from '@scorely/web/src/lib/http';
 import { contentTypeOf, uploadMedia } from '@scorely/web/src/lib/media';
@@ -53,6 +59,43 @@ export const groupsApi = {
     send({
       url: `/groups/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`,
       method: 'DELETE',
+    }),
+
+  // Cargos (GRV-42–48)
+  roles: (id: string) => request({ url: `/groups/${encodeURIComponent(id)}/roles` }, GroupRolesSchema),
+  createRole: (id: string, input: CreateGroupRoleInput) =>
+    request(
+      { url: `/groups/${encodeURIComponent(id)}/roles`, method: 'POST', data: input },
+      GroupRolesSchema,
+    ),
+  updateRole: (id: string, roleId: string, input: UpdateGroupRoleInput) =>
+    request(
+      {
+        url: `/groups/${encodeURIComponent(id)}/roles/${encodeURIComponent(roleId)}`,
+        method: 'PUT',
+        data: input,
+      },
+      GroupRolesSchema,
+    ),
+  orderRoles: (id: string, input: OrderGroupRolesInput) =>
+    request(
+      { url: `/groups/${encodeURIComponent(id)}/roles/order`, method: 'PUT', data: input },
+      GroupRolesSchema,
+    ),
+  deleteRole: (id: string, roleId: string, input: DeleteGroupRoleInput) =>
+    request(
+      {
+        url: `/groups/${encodeURIComponent(id)}/roles/${encodeURIComponent(roleId)}`,
+        method: 'DELETE',
+        data: input,
+      },
+      GroupRolesSchema,
+    ),
+  setMemberRole: (id: string, userId: string, input: SetMemberRoleInput) =>
+    send({
+      url: `/groups/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}/role`,
+      method: 'PUT',
+      data: input,
     }),
 
   // Grupo aberto e pedidos (GRV-25–28)

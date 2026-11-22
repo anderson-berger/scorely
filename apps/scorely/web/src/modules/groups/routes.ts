@@ -36,6 +36,11 @@ export const groupsRoutes: RouteRecordRaw[] = [
         component: () => import('@scorely/web/src/modules/groups/pages/GroupInvitesPage.vue'),
       },
       {
+        path: 'roles',
+        name: 'group-roles',
+        component: () => import('@scorely/web/src/modules/groups/pages/GroupRolesPage.vue'),
+      },
+      {
         path: 'settings',
         name: 'group-settings',
         component: () => import('@scorely/web/src/modules/groups/pages/GroupSettingsPage.vue'),

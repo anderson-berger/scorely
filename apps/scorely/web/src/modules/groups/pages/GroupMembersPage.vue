@@ -4,18 +4,20 @@ import { errorMessage } from '@scorely/web/src/i18n/errors';
 import { formatDateTime } from '@scorely/web/src/lib/datetime';
 import { useAuthStore } from '@scorely/web/src/modules/auth/auth.store';
 import GroupInviteSheet from '@scorely/web/src/modules/groups/components/GroupInviteSheet.vue';
+import GroupMemberRoleSheet from '@scorely/web/src/modules/groups/components/GroupMemberRoleSheet.vue';
 import { groupsApi } from '@scorely/web/src/modules/groups/groups.api';
 import { can } from '@scorely/web/src/modules/groups/nav';
+import { memberActions, roleMark } from '@scorely/web/src/modules/groups/roles';
 import { defineComponent, type PropType } from 'vue';
 
 /**
  * GRV-32: a tela Membros. Duas seções (Membros e Reservas); Convidar, Convites e Pedidos para quem tem `members.invite`;
- * Remover para quem tem `members.remove` e Sair do grupo para quem não é o dono.
+ * Remover (`members.remove`) e Mudar cargo (`roles.manage`) nas linhas `manageable`, e Sair do grupo para quem não é o dono.
  */
 export default defineComponent({
   name: 'GroupMembersPage',
 
-  components: { GroupInviteSheet },
+  components: { GroupInviteSheet, GroupMemberRoleSheet },
 
   props: {
     group: { type: Object as PropType<Group>, required: true },
@@ -34,16 +36,14 @@ export default defineComponent({
       loaded: false,
       error: '',
       inviteOpen: false,
+      roleOpen: false,
+      roleMember: null as GroupMember | null,
     };
   },
 
   computed: {
     canInvite(): boolean {
       return can(this.group, 'members.invite');
-    },
-
-    canRemove(): boolean {
-      return can(this.group, 'members.remove');
     },
 
     full(): GroupMember[] {
@@ -94,9 +94,21 @@ export default defineComponent({
       }
     },
 
-    /** GRV-32, 43: Remover aparece nas linhas que a api marca como `manageable` (abaixo do meu cargo), menos a própria. */
-    removable(member: GroupMember): boolean {
-      return this.canRemove && member.manageable && member.user.id !== this.auth.user?.id;
+    /** GRV-32, 43: Remover e Mudar cargo aparecem nas linhas que a api marca como `manageable` (abaixo do meu cargo), menos a própria. */
+    actions(member: GroupMember): ('remove' | 'changeRole')[] {
+      return member.user.id === this.auth.user?.id ? [] : memberActions(this.group, member);
+    },
+
+    /** GRV-32: a marca do cargo na linha ("Dono" ou o nome do cargo criado). */
+    mark(member: GroupMember): string {
+      const mark = roleMark(member.role);
+      if (!mark) return '';
+      return mark.kind === 'owner' ? this.$t('groups.members.owner') : mark.name;
+    },
+
+    changeRole(member: GroupMember) {
+      this.roleMember = member;
+      this.roleOpen = true;
     },
 
     async load() {
@@ -294,7 +306,7 @@ export default defineComponent({
               <span class="info">
                 <span class="name">
                   {{ m.user.nickname }}
-                  <q-badge v-if="m.role.id === 'owner'" color="primary" :label="$t('groups.members.owner')" />
+                  <q-badge v-if="mark(m)" :color="m.role.id === 'owner' ? 'primary' : 'grey'" :label="mark(m)" />
                 </span>
                 <span class="sc-caption">
                   {{ $t('groups.members.since', { date: date(m.joinedAt) }) }}
@@ -304,7 +316,7 @@ export default defineComponent({
                 </span>
               </span>
               <q-btn
-                v-if="removable(m) || promotable(m)"
+                v-if="actions(m).length > 0 || promotable(m)"
                 flat
                 round
                 dense
@@ -316,7 +328,10 @@ export default defineComponent({
                     <q-item v-if="promotable(m)" v-close-popup clickable @click="invitePromote(m)">
                       <q-item-section>{{ $t('groups.members.inviteAsMember') }}</q-item-section>
                     </q-item>
-                    <q-item v-if="removable(m)" v-close-popup clickable @click="confirmRemove(m)">
+                    <q-item v-if="actions(m).includes('changeRole')" v-close-popup clickable @click="changeRole(m)">
+                      <q-item-section>{{ $t('groups.members.changeRole') }}</q-item-section>
+                    </q-item>
+                    <q-item v-if="actions(m).includes('remove')" v-close-popup clickable @click="confirmRemove(m)">
                       <q-item-section class="text-negative">{{ $t('groups.members.remove') }}</q-item-section>
                     </q-item>
                   </q-list>
@@ -339,6 +354,7 @@ export default defineComponent({
     </template>
 
     <GroupInviteSheet v-model="inviteOpen" :group-id="group.id" @created="load" />
+    <GroupMemberRoleSheet v-model="roleOpen" :group="group" :member="roleMember" @changed="load" />
   </div>
 </template>
 

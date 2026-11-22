@@ -1,5 +1,5 @@
 import type { Group, GroupPermission } from '@scorely/contracts/src/groups';
-import { can, groupNavItems } from '@scorely/web/src/modules/groups/nav';
+import { can, groupNavItems, settingsSections } from '@scorely/web/src/modules/groups/nav';
 import { describe, expect, it } from 'vitest';
 
 const group = (myPermissions: GroupPermission[]): Group =>
@@ -38,5 +38,40 @@ describe('groupNavItems', () => {
   it('GRV-16: can confere a permissão pelo myPermissions', () => {
     expect(can(group(['members.invite']), 'members.invite')).toBe(true);
     expect(can(group(['members.invite']), 'members.remove')).toBe(false);
+  });
+});
+
+describe('groupNavItems com roles.manage', () => {
+  it('GRV-13: quem só tem roles.manage também vê Configurações', () => {
+    expect(groupNavItems(group(['roles.manage'])).map((i) => i.key)).toEqual(['home', 'members', 'settings']);
+  });
+
+  it('GRV-13: quem só tem members.invite não vê Configurações', () => {
+    expect(groupNavItems(group(['members.invite'])).map((i) => i.key)).toEqual(['home', 'members']);
+  });
+});
+
+describe('settingsSections', () => {
+  it('GRV-14: group.edit mostra Identidade (imagens) e Entrada (quem pode entrar), sem Pessoas', () => {
+    expect(settingsSections(group(['group.edit']))).toEqual([
+      { key: 'identity', rows: ['images'] },
+      { key: 'entry', rows: ['joinMode'] },
+    ]);
+  });
+
+  it('GRV-14: roles.manage mostra só Pessoas (cargos)', () => {
+    expect(settingsSections(group(['roles.manage']))).toEqual([{ key: 'people', rows: ['roles'] }]);
+  });
+
+  it('GRV-14: com as duas, as seções vêm na ordem Identidade, Entrada, Pessoas', () => {
+    expect(settingsSections(group(['roles.manage', 'group.edit'])).map((s) => s.key)).toEqual([
+      'identity',
+      'entry',
+      'people',
+    ]);
+  });
+
+  it('GRV-14: sem linha possível, nenhuma seção aparece', () => {
+    expect(settingsSections(group(['members.invite']))).toEqual([]);
   });
 });
