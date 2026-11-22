@@ -4,18 +4,16 @@
 
 | Módulo (pasta em `apps/<projeto>/api/src/modules/`) | Doc                                | Prefixo das regras |
 | --------------------------------------------------- | ---------------------------------- | ------------------ |
-| `scorely/groups`                                    | [grupos.md](grupos.md)             | `GRP`              |
-| `scorely/groups-v2`                                 | [grupos-v2.md](grupos-v2.md)       | `GRV`              |
+| `scorely/groups`                                    | [grupos.md](grupos.md)             | `GRV`              |
 | `scorely/auth`                                      | [auth.md](auth.md)                 | `AUTH`             |
 | `scorely/users`                                     | [usuarios.md](usuarios.md)         | `USR`              |
 | `scorely/notifications`                             | [notificacoes.md](notificacoes.md) | `NTF`              |
 | `scorely/media`                                     | [midia.md](midia.md)               | `MID`              |
-| `scorely/teams`                                     | [times.md](times.md)               | `TIM`              |
-| `scorely/competition`                               | [competicao.md](competicao.md)     | `CMP`              |
-| `scorely/sports`                                    | [esportes.md](esportes.md)         | `ESP`              |
 | `scorely/health`                                    | —                                  | —                  |
 
 O `base` é template e não tem doc de módulo. Um módulo sem regra de negócio, como o `health`, fica na tabela com "—".
+
+Os módulos que saíram do ar ficam em [`arquivo/`](arquivo/), só para consulta quando forem refeitos: o primeiro grupo (`GRP`), times (`TIM`), competição (`CMP`) e esportes (`ESP`), que saíram em 2026-11-21 ([ADR 0018](../decisions/0018-troca-do-grupo.md)). Eles não são fonte de verdade, e os prefixos não voltam a ser usados.
 
 ## Como usar
 

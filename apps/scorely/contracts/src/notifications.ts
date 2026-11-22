@@ -1,23 +1,8 @@
 import { EntitySchema } from '@scorely/contracts/src/entity';
 import { z } from 'zod';
 
-/** Cresce conforme os módulos passam a notificar (ex.: `list_opened` na E2). */
-export const NotificationTypeSchema = z.enum([
-  'welcome',
-  'waitlist_promoted',
-  'game_cancelled',
-  'game_reopened',
-  'game_rescheduled',
-  'member_invite',
-  'teams_published',
-  'game_confirmed',
-  'staff_role_granted',
-  'group_transferred',
-  'season_closed',
-  'trophy_awarded',
-  'podium_entered',
-  'group_invited',
-]);
+/** Cresce conforme os módulos passam a notificar (NTF-02). */
+export const NotificationTypeSchema = z.enum(['welcome', 'group_invited']);
 export type NotificationType = z.infer<typeof NotificationTypeSchema>;
 
 export const NotificationSchema = EntitySchema.extend({

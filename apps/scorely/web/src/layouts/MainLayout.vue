@@ -8,7 +8,15 @@ import { displayName } from '@scorely/web/src/modules/users/user.display';
 import { defineComponent } from 'vue';
 
 /** Rotas em que o item Grupos fica destacado: a tela de Grupos e tudo que é de um grupo (plano 013, D2). */
-const GROUP_ROUTES = ['groups', 'group', 'group-members', 'group-settings', 'group-create'];
+const GROUP_ROUTES = [
+  'groups',
+  'group-create',
+  'group',
+  'group-members',
+  'group-invites',
+  'group-settings',
+  'group-join',
+];
 
 /**
  * Cabeçalho de largura total e menu lateral (plano 013, D9–D11): no celular o drawer abre sobre a tela;

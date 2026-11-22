@@ -1,7 +1,7 @@
 # 0017: Grupo v2, escrito do zero ao lado do antigo
 
 - Data: 2026-11-20
-- Estado: aceita
+- Estado: concluída por [0018](0018-troca-do-grupo.md) em 2026-11-21
 
 ## Contexto
 

@@ -3,17 +3,5 @@ import type { NotificationType } from '@scorely/contracts';
 /** Ícone (Material Icons) de cada tipo. */
 export const notificationIcon: Record<NotificationType, string> = {
   welcome: 'waving_hand',
-  waitlist_promoted: 'arrow_upward',
-  game_cancelled: 'event_busy',
-  game_reopened: 'event_available',
-  game_rescheduled: 'update',
-  member_invite: 'how_to_reg',
-  teams_published: 'groups',
-  game_confirmed: 'check_circle',
-  staff_role_granted: 'add_moderator',
-  group_transferred: 'key',
-  season_closed: 'emoji_events',
-  trophy_awarded: 'workspace_premium',
-  podium_entered: 'trending_up',
   group_invited: 'mail',
 };

@@ -66,7 +66,7 @@ Os dados da pessoa ficam em três partes, cada uma com quem pode ler:
   3. o primeiro idioma do navegador: `pt*` vira `pt-BR`, e qualquer outro, `en`.
 - **USR-07. Fuso efetivo:** o das preferências da pessoa. Sem ele, o do navegador.
   - Todos os horários aparecem nesse fuso ([ADR 0006](../decisions/0006-datas-utc-fuso-do-perfil.md)).
-  - Esse fuso também vira o padrão dos grupos que a pessoa cria (GRP-13 em [grupos.md](grupos.md)).
+  - _(Alterada em 2026-11-21: saiu "esse fuso também vira o padrão dos grupos que a pessoa cria", porque o grupo não tem mais fuso, GRV-01.)_
 - **USR-14. O navegador guarda as preferências e só troca quando chegam outras.**
   - O app já abre no idioma e no fuso guardados, sem esperar o servidor.
   - As preferências vêm do servidor em três momentos: no login, ao salvar o perfil e a cada renovação da sessão (no máximo a cada 1 h, AUTH-07). Se vierem iguais às guardadas, nada muda na tela.
@@ -76,8 +76,6 @@ Os dados da pessoa ficam em três partes, cada uma com quem pode ler:
 
 - **USR-18. Salvar o perfil manda a versão que a tela mostrou.** O `GET /me` traz a `version` do perfil, e o `PATCH /me` exige a mesma. Toda mudança pelo `PATCH /me` (apelido, nome, gênero, idioma ou fuso) soma 1 nela. Se o perfil mudou antes (em outro aparelho, por exemplo), a resposta é `VERSION_CONFLICT` (409, `details.currentVersion`), e nada é gravado. A tela relê o perfil e avisa: "Seu perfil mudou em outro lugar. Atualizamos; faça a mudança de novo." Trocar a foto não manda versão: ela segue as regras da mídia (USR-08). _(Nova em 2026-11-15.)_
   - _Por quê:_ com dois aparelhos abertos, salvar no segundo apagaria o que foi mudado no primeiro ([ADR 0016](../decisions/0016-version-confere-nas-edicoes.md)).
-
-- A tela do perfil também mostra a **sala de troféus** da competição, que é do módulo de competição e só lê `GET /me/trophies` ([CMP-41](competicao.md)). Ela não muda nenhuma regra deste módulo.
 
 ### Foto de perfil
 

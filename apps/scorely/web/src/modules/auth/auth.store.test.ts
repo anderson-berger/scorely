@@ -11,9 +11,6 @@ vi.mock('@scorely/web/src/modules/auth/auth.api', () => ({
 vi.mock('@scorely/web/src/modules/users/users.api', () => ({
   usersApi: { me: vi.fn(), updateMe: vi.fn(), uploadAvatar: vi.fn(), removeAvatar: vi.fn() },
 }));
-vi.mock('@scorely/web/src/modules/groups/groups.store', () => ({
-  useGroupsStore: () => ({ reset: () => undefined }),
-}));
 
 const PREFS_KEY = 'scorely.preferences';
 

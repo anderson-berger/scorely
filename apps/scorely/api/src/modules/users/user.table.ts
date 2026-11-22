@@ -52,7 +52,7 @@ export function userPrivateKey(id: UserId) {
  * Preferências (USR-06, 07, 14): `PK=USER#<id>`, `SK=PREFERENCES`, `{ locale?, timeZone?, createdAt }` (não é
  * entidade: sem `updatedAt` nem `version`). Escrita: nasce vazia na criação; o `PATCH /me` só altera
  * (`attribute_exists(PK)`), na mesma transação do perfil. Leitura: GetItem
- * (refresh, GRP-13) ou junto com o perfil e o email no `GET /me`.
+ * (refresh, USR-14) ou junto com o perfil e o email no `GET /me`.
  */
 export function userPreferencesKey(id: UserId) {
   return { PK: `USER#${id}`, SK: 'PREFERENCES' };

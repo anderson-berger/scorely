@@ -8,7 +8,7 @@ Código: `apps/scorely/api/src/modules/media/`, `apps/scorely/api/src/lib/storag
 
 Guardar os arquivos enviados pelas pessoas (por enquanto, só imagens) do mesmo jeito em qualquer área: perfil, grupo e, depois, time e campeonato. O módulo cuida **do arquivo**: o envio, a conferência, os dados no banco, a troca e a remoção.
 
-**Quem pode** enviar ou trocar é decisão da área. A foto de perfil é da própria pessoa (USR-08 em [usuarios.md](usuarios.md)), e o logo e a capa são do dono do grupo (GRP-35 em [grupos.md](grupos.md) e GRV-09 em [grupos-v2.md](grupos-v2.md)).
+**Quem pode** enviar ou trocar é decisão da área. A foto de perfil é da própria pessoa (USR-08 em [usuarios.md](usuarios.md)), e o logo e a capa, de quem tem `group.edit` no grupo (GRV-09 em [grupos.md](grupos.md)).
 
 | Termo      | Significado                                                                          |
 | ---------- | ------------------------------------------------------------------------------------ |

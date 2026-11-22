@@ -7,7 +7,7 @@ const optional = z
   .optional()
   .transform((v) => (v ? v : undefined));
 
-/** Só o que o acesso ao banco precisa: também serve a comandos fora da lambda (ex.: `sports:sync`, ESP-01). */
+/** Só o que o acesso ao banco precisa: também serve a comandos fora da lambda. */
 const DbEnvSchema = z.object({
   TABLE_NAME: z.string().min(1),
   AWS_REGION: z.string().default('sa-east-1'),

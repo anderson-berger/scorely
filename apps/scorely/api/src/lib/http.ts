@@ -83,7 +83,7 @@ export class HttpResponse {
   constructor(
     readonly status: number,
     readonly body?: unknown,
-    /** Somam ao `content-type` (ex.: `Cache-Control` do `GET /sports`, ESP-07). */
+    /** Somam ao `content-type` (ex.: `Cache-Control`). */
     readonly headers: Record<string, string> = {},
   ) {}
 }

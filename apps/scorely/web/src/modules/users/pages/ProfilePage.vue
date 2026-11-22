@@ -10,12 +10,11 @@ import { safeRedirect } from '@scorely/web/src/app/guard';
 import BottomSheet from '@scorely/web/src/components/BottomSheet.vue';
 import { errorMessage, issueMessage } from '@scorely/web/src/i18n/errors';
 import { detectTimeZone } from '@scorely/web/src/lib/datetime';
+import { isVersionConflict } from '@scorely/web/src/lib/http';
 import { prepareImage } from '@scorely/web/src/lib/media';
 import { effectiveTimeZone } from '@scorely/web/src/lib/preferences';
 import { useAuthStore } from '@scorely/web/src/modules/auth/auth.store';
-import TrophyRoom from '@scorely/web/src/modules/competition/components/TrophyRoom.vue';
-import { isVersionConflict } from '@scorely/web/src/modules/groups/permissions';
-import { initials } from '@scorely/web/src/modules/groups/scoreboard';
+import { initials } from '@scorely/web/src/modules/groups/group-display';
 import { displayName } from '@scorely/web/src/modules/users/user.display';
 import { copyToClipboard } from 'quasar';
 import { defineComponent } from 'vue';
@@ -38,7 +37,7 @@ type Editor = '' | 'you' | 'prefs';
 export default defineComponent({
   name: 'ProfilePage',
 
-  components: { BottomSheet, TrophyRoom },
+  components: { BottomSheet },
 
   setup() {
     return { auth: useAuthStore() };
@@ -313,8 +312,6 @@ export default defineComponent({
             </q-btn>
           </div>
         </section>
-
-        <TrophyRoom />
 
         <section class="sc-card card" :aria-label="$t('profile.preferences')">
           <div class="card-head">

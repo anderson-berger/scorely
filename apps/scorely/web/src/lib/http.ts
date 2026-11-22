@@ -108,3 +108,8 @@ export async function request<S extends z.ZodType>(
 export async function send(config: AxiosRequestConfig): Promise<void> {
   await http.request(config);
 }
+
+/** A api recusou a edição porque o item mudou desde a leitura (ADR 0016). */
+export function isVersionConflict(err: unknown): boolean {
+  return err instanceof ApiRequestError && err.code === 'VERSION_CONFLICT';
+}

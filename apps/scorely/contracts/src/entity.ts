@@ -17,10 +17,6 @@ export type Entity = z.infer<typeof EntitySchema>;
 export const VersionSchema = z.number().int().min(0);
 export type Version = z.infer<typeof VersionSchema>;
 
-/** Corpo das ações e dos DELETEs que só mandam a versão (TIM-25, CMP-42). */
-export const VersionInputSchema = z.object({ version: VersionSchema });
-export type VersionInput = z.infer<typeof VersionInputSchema>;
-
 /** `Nothing to update` de um PATCH parcial: a `version` sozinha não conta como mudança. */
 export function hasChanges(patch: Record<string, unknown>): boolean {
   return Object.keys(patch).some((key) => key !== 'version');

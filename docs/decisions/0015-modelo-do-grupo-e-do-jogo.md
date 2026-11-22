@@ -1,7 +1,7 @@
 # 0015: Modelo do grupo, do esporte e do jogo
 
 - Data: 2026-11-15
-- Estado: aceita
+- Estado: substituída em parte por [0018](0018-troca-do-grupo.md): o grupo e o esporte deste modelo saíram; o jogo volta com a agenda
 
 ## Contexto
 

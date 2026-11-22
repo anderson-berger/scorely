@@ -67,12 +67,6 @@ Os recursos com estado (tabela, bucket) ficam no stack `<projeto>-infra`, e a ap
     --name /scorely/<stage>/auth-secret --value "$(openssl rand -base64 48)"
   ```
 
-- **Catálogo de esportes do scorely** (ESP-01): depois do deploy, e sempre que `apps/scorely/api/src/modules/sports/catalog.ts` mudar, aplique o catálogo no banco do stage, com as credenciais da AWS. O comando nunca apaga: o que saiu do arquivo fica desativado. No dev local, o `db:setup` já roda o sync.
-
-  ```sh
-  STAGE=<stage> npm run sports:sync -w @scorely/api
-  ```
-
 - O email do login sai no log por padrão (`EMAIL_MODE=console`). Para enviar de verdade, use `EMAIL_MODE=ses EMAIL_FROM=no-reply@<domínio>`, com o domínio verificado no SES em `sa-east-1`.
 
 ## Access key do Serverless

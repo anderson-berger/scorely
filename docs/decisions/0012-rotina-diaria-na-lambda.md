@@ -1,7 +1,7 @@
 # 0012: rotina diária como gatilho de lambda, sem recurso de infra
 
 - Data: 2026-11-14
-- Estado: aceita
+- Estado: aceita; sem uso desde [0018](0018-troca-do-grupo.md) (a competição saiu do ar)
 
 ## Contexto
 

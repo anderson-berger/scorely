@@ -21,12 +21,6 @@ export default defineComponent({
       return notificationIcon[n.type];
     },
 
-    tone(n: Notification): string {
-      if (n.type === 'waitlist_promoted') return 'icon--accent';
-      if (n.type === 'game_cancelled') return 'icon--danger';
-      return '';
-    },
-
     when(iso: string): string {
       return formatDateTime(iso);
     },
@@ -57,7 +51,7 @@ export default defineComponent({
       :class="{ 'item--unread': !n.readAt }"
     >
       <button type="button" class="main" @click="open(n)">
-        <span class="icon" :class="tone(n)"><q-icon :name="icon(n)" size="18px" /></span>
+        <span class="icon"><q-icon :name="icon(n)" size="18px" /></span>
         <span class="text">
           <span class="title" :class="{ 'title--unread': !n.readAt }">{{ n.title }}</span>
           <span v-if="n.body" class="body">{{ n.body }}</span>
@@ -118,16 +112,6 @@ export default defineComponent({
   display: flex;
   align-items: center;
   justify-content: center;
-}
-
-.icon--accent {
-  background: var(--sc-accent);
-  color: var(--sc-on-accent);
-}
-
-.icon--danger {
-  background: var(--sc-danger);
-  color: var(--sc-on-accent);
 }
 
 .text {

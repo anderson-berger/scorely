@@ -2,7 +2,6 @@ import { guardDecision } from '@scorely/web/src/app/guard';
 import { useAuthStore } from '@scorely/web/src/modules/auth/auth.store';
 import { authRoutes } from '@scorely/web/src/modules/auth/routes';
 import { groupsRoutes } from '@scorely/web/src/modules/groups/routes';
-import { groupsV2Routes } from '@scorely/web/src/modules/groups-v2/routes';
 import { usersRoutes } from '@scorely/web/src/modules/users/routes';
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router';
 
@@ -18,7 +17,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/',
     component: () => import('@scorely/web/src/layouts/MainLayout.vue'),
-    children: [...usersRoutes, ...groupsRoutes, ...groupsV2Routes],
+    children: [...usersRoutes, ...groupsRoutes],
   },
   { path: '/:pathMatch(.*)*', redirect: '/' },
 ];

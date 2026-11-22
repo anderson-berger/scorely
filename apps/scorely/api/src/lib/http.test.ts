@@ -27,7 +27,7 @@ describe('route', () => {
     });
   });
 
-  it('ESP-07: HttpResponse com headers → os headers somam ao content-type (o cache do GET /sports)', async () => {
+  it('HttpResponse com headers → os headers somam ao content-type (ex.: o cache)', async () => {
     const res = await run(
       async () => new HttpResponse(200, { sports: [] }, { 'Cache-Control': 'public, max-age=3600' }),
     );

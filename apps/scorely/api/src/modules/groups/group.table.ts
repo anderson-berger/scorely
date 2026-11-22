@@ -1,103 +1,88 @@
-// Como o grupo é salvo e buscado (single-table, sem GSI, ADR 0014 e 0015). Tudo o que é do grupo mora na partição
-// `GROUP#<id>`: a identidade (`META`), o padrão do jogo (`SETTINGS`), os links (`INVITES`), a contagem (`COUNTERS`) e
-// as participações (`MEMBER#<userId>`, em `membership.table.ts`). O service enxerga o `StoredGroup`, que junta os três
-// primeiros (o repositório monta e separa).
-import type { Group } from '@scorely/contracts';
+// Como o grupo é salvo e buscado (single-table, sem GSI; docs/modules/grupos.md).
+import type { GroupId, UserId } from '@scorely/api/src/lib/ids';
+import type { PublicGroupId } from '@scorely/contracts';
 
 export const GROUP_ENTITY = 'Group';
-export const GROUP_SETTINGS_ENTITY = 'GroupSettings';
-export const GROUP_INVITES_ENTITY = 'GroupInvites';
+export const GROUP_MEMBER_ENTITY = 'GroupMember';
 
-/** Prefixo da partição do grupo: os itens de outros módulos que são do grupo usam o mesmo (ADR 0014). */
-export function groupPk(id: Group['id']) {
-  return `GROUP#${id}`;
+/** Grupo: `PK=GROUP#<id>`, `SK=META`, `{ id, publicId, name, createdAt, updatedAt, version }`. Leitura: GetItem. */
+export function groupKey(id: GroupId) {
+  return { PK: `GROUP#${id}`, SK: 'META' };
 }
 
 /**
- * A identidade: `PK=GROUP#<id>`, `SK=META`, `{ id, name, sportId, timeZone, archivedAt?, logoMediaId?, coverMediaId? }`.
- * Sem segredo, sem dono e sem padrão do jogo: todo módulo lê por GetItem (ou confere `archivedAt` num ConditionCheck).
+ * Participação (GRV-02): `PK=GROUP#<id>`, `SK=MEMBER#<userId>`, `{ groupId, userId, role, createdAt }`. Entidade de
+ * relação (ADR 0009): chave natural, sem `id`. Os participantes são uma Query `begins_with(SK, "MEMBER#")`.
  */
-export function groupKey(id: Group['id']) {
-  return { PK: groupPk(id), SK: 'META' };
+export function groupMemberKey(id: GroupId, userId: UserId) {
+  return { PK: `GROUP#${id}`, SK: `MEMBER#${userId}` };
 }
 
 /**
- * O padrão do jogo (GRP-14, 16, 38, 45, 46): `PK=GROUP#<id>`, `SK=SETTINGS`, `{ weekday, time, defaultPlaceId?, slots,
- * minPlayers?, listOpensHoursBefore, reservesOpenHoursBefore, guestsOpenHoursBefore?, maxMembers, maxReserves }`.
- * Escrita: o `PATCH /groups/{id}`. A condição do limite (GRP-39) confere o `maxMembers`/`maxReserves` daqui.
+ * Id público → grupo (GRV-08): `PK=LOOKUP#GROUP#PUBLIC#<publicId>`, `SK=META`, `{ id }`. Escrita: na transação da
+ * criação, com `attribute_not_exists(PK)` (código em uso → sorteia outro). Leitura: GetItem antes de toda rota.
  */
-export function groupSettingsKey(id: Group['id']) {
-  return { PK: groupPk(id), SK: 'SETTINGS' };
+export function groupPublicIdLookupKey(publicId: PublicGroupId) {
+  return { PK: `LOOKUP#GROUP#PUBLIC#${publicId}`, SK: 'META' };
 }
 
 /**
- * Os links (GRP-07): `PK=GROUP#<id>`, `SK=INVITES`, `{ inviteToken, reserveInviteToken, guestToken }`. Fora do `META`
- * por ser segredo (ADR 0014). Apagado ao arquivar e recriado com tokens novos ao desarquivar (GRP-31, 33).
+ * Grupos da pessoa (GRV-05): `PK=LOOKUP#USER#<userId>#GROUP`, `SK=<groupId>`, `{ id }`. Leitura: Query → BatchGet
+ * do `META` e da `MEMBER#<userId>` de cada grupo.
  */
-export function groupInvitesKey(id: Group['id']) {
-  return { PK: groupPk(id), SK: 'INVITES' };
+export function userGroupsLookupKey(userId: UserId, id: GroupId) {
+  return { PK: userGroupsLookupPk(userId), SK: id };
 }
 
-/**
- * Contagem do grupo (GRP-39): `PK=GROUP#<id>`, `SK=COUNTERS`, `{ memberCount, reserveCount }`.
- * Nasce na criação do grupo; muda com `ADD` na mesma transação da entrada, da promoção, da remoção e da saída.
- * A condição do limite fica neste item (`memberCount < :max`), com um `ConditionCheck` no `SETTINGS` de que o limite
- * lido não mudou.
- */
-export function groupCountersKey(id: Group['id']) {
-  return { PK: groupPk(id), SK: 'COUNTERS' };
+export function userGroupsLookupPk(userId: UserId) {
+  return `LOOKUP#USER#${userId}#GROUP`;
 }
 
-/**
- * Lookup único do convite: `PK=LOOKUP#GROUP#INVITE#<token>`, `SK=META`, `{ id }` (D9).
- * Escrita: na criação do grupo e na troca do convite (Delete do antigo + Put do novo + Update do `INVITES`).
- * Leitura: GetItem no lookup → o grupo pelo id.
- */
-export function groupInviteLookupKey(token: string) {
+export const GROUP_INVITE_ENTITY = 'GroupInvite';
+export const GROUP_INVITE_USE_ENTITY = 'GroupInviteUse';
+
+/** Prefixos das Queries da partição do grupo (GRV-19, 29). */
+export const GROUP_MEMBER_PREFIX = 'MEMBER#';
+export const GROUP_INVITE_PREFIX = 'INVITE#';
+export const GROUP_INVITE_USE_PREFIX = 'INVITEUSE#';
+
+/** Convite (GRV-18): `PK=GROUP#<id>`, `SK=INVITE#<inviteId>`. Entidade (`newEntity`). Os do grupo: Query `INVITE#`. */
+export function groupInviteKey(id: GroupId, inviteId: string) {
+  return { PK: `GROUP#${id}`, SK: `${GROUP_INVITE_PREFIX}${inviteId}` };
+}
+
+/** Token → convite: `PK=LOOKUP#GROUP#INVITE#<token>`, `SK=META`, `{ groupId, inviteId }` (a chave do convite). */
+export function groupInviteTokenLookupKey(token: string) {
   return { PK: `LOOKUP#GROUP#INVITE#${token}`, SK: 'META' };
 }
 
-/** Lookup único do link de reserva: `PK=LOOKUP#GROUP#RESERVE_INVITE#<token>`, `SK=META`, `{ id }` (D5). */
-export function groupReserveInviteLookupKey(token: string) {
-  return { PK: `LOOKUP#GROUP#RESERVE_INVITE#${token}`, SK: 'META' };
-}
-
-/** Lookup único do link do jogo (convidados): `PK=LOOKUP#GROUP#GUEST#<token>`, `SK=META`, `{ id }` (D5, D7). */
-export function groupGuestLookupKey(token: string) {
-  return { PK: `LOOKUP#GROUP#GUEST#${token}`, SK: 'META' };
+/** Quem entrou pelo convite (GRV-19): `PK=GROUP#<id>`, `SK=INVITEUSE#<inviteId>#<userId>`. Entidade de relação. */
+export function groupInviteUseKey(id: GroupId, inviteId: string, userId: UserId) {
+  return { PK: `GROUP#${id}`, SK: `${GROUP_INVITE_USE_PREFIX}${inviteId}#${userId}` };
 }
 
 /**
- * Grupos de um esporte (GRP-58): `PK=LOOKUP#SPORT#<sportId>#GROUP`, `SK=<groupId>`, `{ id }`. Gravado na transação
- * que cria o grupo (o esporte não muda). Leitura futura: o filtro por esporte (Query → BatchGet).
+ * Convites para a pessoa (GRV-24): `PK=LOOKUP#USER#<userId>#GROUPINVITE`, `SK=<inviteId>`, `{ groupId, inviteId }`.
+ * Do convite pessoal pelo id público. Leitura: Query.
  */
-export function sportGroupLookupKey(sportId: string, groupId: Group['id']) {
-  return { PK: `LOOKUP#SPORT#${sportId}#GROUP`, SK: groupId };
+export function userGroupInvitesLookupKey(userId: UserId, inviteId: string) {
+  return { PK: userGroupInvitesLookupPk(userId), SK: inviteId };
 }
 
-export const PLACE_ENTITY = 'Place';
-
-/** Prefixo dos lugares na partição do grupo: a lista é uma Query `begins_with`. */
-export const PLACE_SK_PREFIX = 'PLACE#';
-
-/**
- * Lugar do grupo (GRP-60, 61): `PK=GROUP#<id>`, `SK=PLACE#<placeId>`, `{ id, groupId, name, address, lat, lng,
- * archivedAt? }`. Nunca apagado, só arquivado. O limite de ativos é o `placeCount` do `COUNTERS`.
- */
-export function placeKey(groupId: Group['id'], placeId: string) {
-  return { PK: groupPk(groupId), SK: `${PLACE_SK_PREFIX}${placeId}` };
+export function userGroupInvitesLookupPk(userId: UserId) {
+  return `LOOKUP#USER#${userId}#GROUPINVITE`;
 }
 
-export const SCHEDULE_ENTITY = 'Schedule';
+/** Convites para o email (GRV-24): `PK=LOOKUP#EMAIL#<email>#GROUPINVITE`, `SK=<inviteId>`. O email já vem normalizado. */
+export function emailGroupInvitesLookupKey(email: string, inviteId: string) {
+  return { PK: emailGroupInvitesLookupPk(email), SK: inviteId };
+}
 
-/** Prefixo dos horários na partição do grupo: a lista é uma Query `begins_with`. */
-export const SCHEDULE_SK_PREFIX = 'SCHEDULE#';
+export function emailGroupInvitesLookupPk(email: string) {
+  return `LOOKUP#EMAIL#${email}#GROUPINVITE`;
+}
 
-/**
- * Horário do grupo (GRP-64–67): `PK=GROUP#<id>`, `SK=SCHEDULE#<scheduleId>`, `{ id, groupId, weekday, start, end,
- * placeId?, slots?, minPlayers?, archivedAt? }`. Nunca apagado, só arquivado. O limite de ativos é o `scheduleCount`
- * do `COUNTERS`, e toda escrita confere e soma o `scheduleRevision` (sem dois horários sobrepostos numa corrida).
- */
-export function scheduleKey(groupId: Group['id'], scheduleId: string) {
-  return { PK: groupPk(groupId), SK: `${SCHEDULE_SK_PREFIX}${scheduleId}` };
+/** Id → convite pessoal (GRV-24, recusar): `PK=LOOKUP#GROUPINVITEID#<inviteId>`, `SK=META`, `{ groupId, inviteId }`. */
+export function groupInviteIdLookupKey(inviteId: string) {
+  return { PK: `LOOKUP#GROUPINVITEID#${inviteId}`, SK: 'META' };
 }

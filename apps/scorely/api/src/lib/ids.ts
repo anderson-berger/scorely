@@ -20,7 +20,7 @@ export function asPublicUserId(raw: string): PublicUserId {
 }
 
 /**
- * Id do sistema do grupo v2 (uuid). É a chave do banco e nunca sai numa resposta (GRV-08): fora da api, só o
+ * Id do sistema do grupo (uuid). É a chave do banco e nunca sai numa resposta (GRV-08): fora da api, só o
  * `PublicGroupId` (de @scorely/contracts).
  */
 export type GroupId = string & { readonly __brand: 'GroupId' };

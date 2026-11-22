@@ -57,7 +57,7 @@ export interface UserRepository {
   getMe(id: UserId, opts?: ReadOptions): Promise<MeRecord | undefined>;
   /** Pelo email (login): a pessoa inteira, como o `getMe`. */
   getByEmail(email: string, opts?: ReadOptions): Promise<MeRecord | undefined>;
-  /** Só as preferências (refresh, GRP-13). Sem item → `{}`. */
+  /** Só as preferências (refresh, USR-14). Sem item → `{}`. */
   getPreferences(id: UserId): Promise<Preferences>;
   /** Perfil + parte privada + preferências vazias + lookups do email e do id público, numa transação (USR-15). */
   create(user: UserRecord, email: string): Promise<CreateUserResult>;
@@ -217,11 +217,9 @@ export const dynamoUserRepository: UserRepository = {
   },
 };
 
-/** O que outros módulos leem dos usuários (ex.: nomes na lista do jogo). Só o perfil: nunca o email (USR-13). */
+/** O que outros módulos leem dos usuários (ex.: os perfis dos membros do grupo). Só o perfil: nunca o email (USR-13). */
 export interface UserDirectory {
   get(id: UserId): Promise<UserRecord | undefined>;
-  /** Preferências da pessoa (GRP-13: o fuso padrão do grupo novo). */
-  getPreferences(id: UserId): Promise<Preferences>;
   /** Vários de uma vez (BatchGet), na ordem dos ids; os que não existem somem. */
   getMany(ids: readonly UserId[]): Promise<UserRecord[]>;
   /** USR-17: ids públicos da entrada → ids do sistema; os desconhecidos ficam de fora. */
@@ -230,7 +228,6 @@ export interface UserDirectory {
 
 export const dynamoUserDirectory: UserDirectory = {
   get: (id) => dynamoUserRepository.get(id),
-  getPreferences: (id) => dynamoUserRepository.getPreferences(id),
   async getMany(ids) {
     const rows = await batchGetOrdered([...new Set(ids)].map(userKey));
     return rows.map((row) => stripKeys<UserRecord>(row));

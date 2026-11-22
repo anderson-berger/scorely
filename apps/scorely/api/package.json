@@ -7,9 +7,7 @@
     "dev": "serverless offline start",
     "build": "serverless package",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run",
-    "sports:sync": "tsx src/modules/sports/sync.cli.ts",
-    "sports:sync:local": "DYNAMODB_ENDPOINT=${DYNAMODB_ENDPOINT:-http://localhost:8000} tsx src/modules/sports/sync.cli.ts"
+    "test": "vitest run"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.1161.0",
