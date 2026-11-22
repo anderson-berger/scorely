@@ -324,6 +324,27 @@ describe('groups grupo aberto e pedidos', () => {
     expect(unknown?.code).toBe('GROUP_REQUEST_NOT_FOUND');
   });
 
+  it('GRV-28: aceitar quem entrou por convite ao mesmo tempo só apaga o pedido, sem aviso e sem mudar a participação', async () => {
+    const { service, gid, notified, requests } = await withOpenGroup();
+    await service.request(CAIO, gid);
+    const invite = await service.createInvite(ANA, gid, {
+      tier: 'member',
+      validityDays: 7,
+      maxUses: null,
+    });
+    // Corrida: a entrada pelo convite grava a participação, e o aceitar ainda acha o pedido.
+    const pending = new Map(requests);
+    await service.joinByInvite(CAIO, invite.token);
+    for (const [key, request] of pending) requests.set(key, request);
+    notified.length = 0;
+    await service.approveRequest(ANA, gid, PUBLIC[CAIO] as ReturnType<typeof asPublicUserId>, {
+      tier: 'reserve',
+    });
+    expect(notified).toHaveLength(0);
+    expect(await service.listRequests(ANA, gid)).toHaveLength(0);
+    expect(await service.get(CAIO, gid)).toMatchObject({ myTier: 'member' });
+  });
+
   it('GRV-22: entrar por convite apaga o pedido que a pessoa tinha, na mesma operação', async () => {
     const { service, gid } = await withOpenGroup();
     await service.request(CAIO, gid);
