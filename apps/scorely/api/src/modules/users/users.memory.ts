@@ -91,12 +91,16 @@ export function memoryUsers(opts: { takenPublicIds?: readonly string[] } = {}) {
   };
   /** USR-18: a versão do perfil que a tela mostrou (`0` sem conta). */
   const v = (id: UserId) => ({ version: profiles.get(id)?.version ?? 0 });
-  /** O que a transação da mídia grava no item do usuário (`key` = `userKey(id)`): só o id (MID-12). */
+  /**
+   * O que a transação da mídia grava no item do usuário (`key` = `userKey(id)`): só o id (MID-12).
+   * Soma 1 na `version`, como o `touch` do `attach`/`detach` no Dynamo (USR-18, ADR 0013).
+   */
   const link = (key: { PK: string; SK: string }, mediaId: string | null) => {
     const user = [...profiles.values()].find((u) => userKey(u.id).PK === key.PK && key.SK === 'META');
     if (!user) throw new Error('user not found in memory store');
     if (mediaId) user.avatarMediaId = mediaId;
     else delete user.avatarMediaId;
+    user.version += 1;
   };
   /** O id do sistema de um email: é ele que vai no JWT (USR-16), e o `user` do login só tem o público. */
   const systemIdOf = (email: string): UserId => {

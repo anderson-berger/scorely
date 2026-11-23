@@ -4,7 +4,12 @@ import type { UserId } from '@scorely/api/src/lib/ids';
 import { type MediaService, mediaService } from '@scorely/api/src/modules/media/media.service';
 import type { MediaTarget } from '@scorely/api/src/modules/media/media.table';
 import { newPublicId } from '@scorely/api/src/modules/users/public-id';
-import type { MeRecord, UserRecord, UserRepository } from '@scorely/api/src/modules/users/user.repository';
+import type {
+  MeRecord,
+  ReadOptions,
+  UserRecord,
+  UserRepository,
+} from '@scorely/api/src/modules/users/user.repository';
 import { userKey } from '@scorely/api/src/modules/users/user.table';
 import type {
   AttachMediaInput,
@@ -48,14 +53,14 @@ export function createUserService(
   newId: () => PublicUserId = newPublicId,
 ) {
   /** A própria pessoa: perfil, email e preferências (USR-13, 14). Conta sumida com token válido → 401 (AUTH-16). */
-  async function getRecord(id: UserId): Promise<MeRecord> {
-    const me = await repo.getMe(id);
+  async function getRecord(id: UserId, opts?: ReadOptions): Promise<MeRecord> {
+    const me = await repo.getMe(id, opts);
     if (!me) throw appError('SESSION_INVALID');
     return me;
   }
 
   const show = (record: MeRecord): Me => toMe(record, media.urlOf);
-  const get = async (id: UserId): Promise<Me> => show(await getRecord(id));
+  const get = async (id: UserId, opts?: ReadOptions): Promise<Me> => show(await getRecord(id, opts));
 
   /** Cria a conta; código de amigo em uso → sorteia outro (até `PUBLIC_ID_ATTEMPTS` no total). */
   async function create(email: string, attempt = 1): Promise<{ userId: UserId; me: Me; created: boolean }> {
@@ -140,14 +145,16 @@ export function createUserService(
         ownerId: userId,
         target: avatarTarget(userId),
       });
-      return get(userId);
+      // USR-18: a ligação somou a `version`; leitura consistente, senão pode voltar a de antes da transação.
+      return get(userId, { consistent: true });
     },
 
     /** USR-08: remove a foto (MID-10). Sem foto, devolve o usuário como está. */
     async clearAvatar(userId: UserId): Promise<Me> {
       await get(userId);
       await media.detach({ purpose: 'avatar', ownerId: userId, target: avatarTarget(userId) });
-      return get(userId);
+      // USR-18: como no `setAvatar`, relê consistente para trazer a `version` somada.
+      return get(userId, { consistent: true });
     },
   };
 }

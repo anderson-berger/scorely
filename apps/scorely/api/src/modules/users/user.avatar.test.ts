@@ -52,7 +52,8 @@ function fakeMedia(link: ReturnType<typeof memoryUsers>['link']) {
         delete failNext.attach;
         throw err;
       }
-      link(input.target.key, input.mediaId);
+      // MID-07: a mesma foto já ligada não grava nada (o service real sai antes da transação).
+      if (current !== input.mediaId) link(input.target.key, input.mediaId);
       return { url: urlOf(input.purpose, input.mediaId) };
     },
     async detach(input) {
@@ -68,8 +69,16 @@ async function withUser() {
   const clock = { now: new Date('2026-11-10T12:00:00.000Z') };
   const memory = memoryUsers();
   const fake = fakeMedia(memory.link);
+  const getMeOpts: unknown[] = [];
+  const repo = {
+    ...memory.repo,
+    getMe: async (...args: Parameters<typeof memory.repo.getMe>) => {
+      getMeOpts.push(args[1]);
+      return memory.repo.getMe(...args);
+    },
+  };
   const service = createUserService(
-    memory.repo,
+    repo,
     () => clock.now,
     fake.media,
     () => PUBLIC_ID,
@@ -84,6 +93,7 @@ async function withUser() {
     calls: fake.calls,
     failNext: fake.failNext,
     users: memory.profiles,
+    getMeOpts,
   };
 }
 
@@ -198,6 +208,80 @@ describe('foto de perfil pela mídia (USR-08)', () => {
     expect(user.avatarUrl).not.toContain(PUBLIC_ID);
     expect(t.users.get(t.userId)).not.toHaveProperty('avatarUrl');
     expect(t.users.get(t.userId)).toMatchObject({ avatarMediaId: mediaId });
+  });
+});
+
+describe('foto de perfil soma a version (USR-08, USR-18)', () => {
+  const rename = (version: number) => ({ version, private: { name: 'Ana' } });
+
+  it('USR-18: confirmar a foto → a resposta traz a version anterior + 1, igual ao GET /me seguinte', async () => {
+    const t = await withUser();
+    const user = await t.service.setAvatar(t.userId, { mediaId: randomUUID() });
+    expect(user.version).toBe(t.me.version + 1);
+    expect((await t.service.get(t.userId)).version).toBe(user.version);
+  });
+
+  it('USR-18: trocar a foto (já tinha uma) → a version soma 1 de novo', async () => {
+    const t = await withUser();
+    const first = await t.service.setAvatar(t.userId, { mediaId: randomUUID() });
+    const second = await t.service.setAvatar(t.userId, { mediaId: randomUUID() });
+    expect(second.version).toBe(first.version + 1);
+  });
+
+  it('USR-18: remover a foto → a resposta traz a version + 1', async () => {
+    const t = await withUser();
+    const first = await t.service.setAvatar(t.userId, { mediaId: randomUUID() });
+    const cleared = await t.service.clearAvatar(t.userId);
+    expect(cleared.version).toBe(first.version + 1);
+    expect((await t.service.get(t.userId)).version).toBe(cleared.version);
+  });
+
+  it('USR-08: remover sem foto → a version não muda', async () => {
+    const t = await withUser();
+    const user = await t.service.clearAvatar(t.userId);
+    expect(user.version).toBe(t.me.version);
+  });
+
+  it('USR-08: reconfirmar a foto já ligada (MID-07) → a version não muda', async () => {
+    const t = await withUser();
+    const mediaId = randomUUID();
+    const first = await t.service.setAvatar(t.userId, { mediaId });
+    const again = await t.service.setAvatar(t.userId, { mediaId });
+    expect(again.version).toBe(first.version);
+  });
+
+  it('USR-18: depois de confirmar a foto, PATCH /me com a version da resposta grava; com a de antes dá VERSION_CONFLICT', async () => {
+    const t = await withUser();
+    const user = await t.service.setAvatar(t.userId, { mediaId: randomUUID() });
+    const stale = await errorOf(t.service.update(t.userId, rename(t.me.version)));
+    expect(stale).toMatchObject({
+      code: 'VERSION_CONFLICT',
+      status: 409,
+      details: { currentVersion: user.version },
+    });
+    const patched = await t.service.update(t.userId, rename(user.version));
+    expect(patched.version).toBe(user.version + 1);
+  });
+
+  it('USR-18: depois de remover a foto, PATCH /me com a version da resposta grava; com a de antes dá VERSION_CONFLICT', async () => {
+    const t = await withUser();
+    const withPhoto = await t.service.setAvatar(t.userId, { mediaId: randomUUID() });
+    const cleared = await t.service.clearAvatar(t.userId);
+    const stale = await errorOf(t.service.update(t.userId, rename(withPhoto.version)));
+    expect(stale).toMatchObject({
+      code: 'VERSION_CONFLICT',
+      details: { currentVersion: cleared.version },
+    });
+    const patched = await t.service.update(t.userId, rename(cleared.version));
+    expect(patched.version).toBe(cleared.version + 1);
+  });
+
+  it('USR-18: setAvatar e clearAvatar terminam relendo o perfil com consistent: true', async () => {
+    const t = await withUser();
+    await t.service.setAvatar(t.userId, { mediaId: randomUUID() });
+    expect(t.getMeOpts.at(-1)).toEqual({ consistent: true });
+    await t.service.clearAvatar(t.userId);
+    expect(t.getMeOpts.at(-1)).toEqual({ consistent: true });
   });
 });
 
