@@ -43,4 +43,11 @@ Motivo: [docs/decisions/0002-single-table-sem-gsi.md](../../docs/decisions/0002-
 - Contadores (ex.: não lidas) ficam em item próprio (`PK=INBOX#<userId>`) e mudam com `ADD` na mesma transação da entidade.
 - Operação nova do DynamoDB: adicione a permissão no IAM em `apps/<projeto>/api/serverless.ts`. Check: `checks/dynamodb.test.ts` (Command × IAM).
 
+## Testes de repositório
+
+Motivo: [docs/decisions/0019-testes-de-repositorio-no-dynamodb-local.md](../../docs/decisions/0019-testes-de-repositorio-no-dynamodb-local.md).
+
+- No scorely, cada repositório com transação ou condição ganha uma suíte `<mod>.repository.contract.test.ts`: os mesmos cenários contra a memória e contra o `dynamo<Mod>Repository`, chamando o repositório direto. Divergiu: corrija a memória ou o repositório, nunca o cenário.
+- O Dynamo roda no DynamoDB Local, na tabela da execução (`inject('dynamoTableName')`, criada pelo `vitest.global-setup.ts`). Sem o Local, o `check` falha: nunca `skipIf`. Ids sempre novos (uuid), sem limpar entre testes.
+
 Implementação de referência: `apps/base/api/src/modules/items/item.repository.ts`.

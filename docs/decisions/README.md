@@ -22,3 +22,4 @@ Uma linha por decisão. Abra só a que importa. Nova decisão: copie [`_template
 | 0016 | [Edição manda a `version`; disputa por lugar usa contador](0016-version-confere-nas-edicoes.md)                         | aceita                      |
 | 0017 | [Grupo v2, escrito do zero ao lado do antigo](0017-grupo-v2-lado-a-lado.md)                                             | concluída (0018)            |
 | 0018 | [Troca do grupo, com times, competição e esportes fora do ar](0018-troca-do-grupo.md)                                   | aceita                      |
+| 0019 | [Testes de repositório rodam também contra o DynamoDB Local](0019-testes-de-repositorio-no-dynamodb-local.md)           | aceita                      |

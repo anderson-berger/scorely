@@ -736,26 +736,32 @@ export const dynamoGroupRepository: GroupRepository = {
   },
 
   async transferGroup({ groupId, fromUserId, toUserId, toRole, now }) {
-    const update = (userId: UserId, condition: string, values: Record<string, unknown>) => ({
+    const update = (
+      userId: UserId,
+      condition: string,
+      names: Record<string, string>,
+      values: Record<string, unknown>,
+    ) => ({
       Update: touch(
         {
           TableName: tableName(),
           Key: groupMemberKey(groupId, userId),
           UpdateExpression: 'SET #role = :role',
           ConditionExpression: condition,
-          ExpressionAttributeNames: { '#role': 'role', '#tier': 'tier' },
+          ExpressionAttributeNames: { '#role': 'role', ...names },
           ExpressionAttributeValues: values,
         },
         now,
       ),
     });
     const result = await transactWrite([
-      update(toUserId, '#role = :was AND #tier = :member', {
-        ':role': 'owner',
-        ':was': toRole,
-        ':member': 'member',
-      }),
-      update(fromUserId, '#role = :was', { ':role': toRole, ':was': 'owner' }),
+      update(
+        toUserId,
+        '#role = :was AND #tier = :member',
+        { '#tier': 'tier' },
+        { ':role': 'owner', ':was': toRole, ':member': 'member' },
+      ),
+      update(fromUserId, '#role = :was', {}, { ':role': toRole, ':was': 'owner' }),
     ]);
     return result.ok ? 'ok' : 'conflict';
   },
