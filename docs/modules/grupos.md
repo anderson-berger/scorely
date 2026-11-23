@@ -1,6 +1,6 @@
 # Módulo Grupos
 
-> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-22.
+> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-23.
 
 Código: `apps/scorely/api/src/modules/groups/`, `apps/scorely/web/src/modules/groups/`. Contrato: `apps/scorely/contracts/src/groups.ts`.
 

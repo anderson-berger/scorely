@@ -433,4 +433,237 @@ describe.each([
       expect(await repo.getMembership(group.id, userId, { consistent: true })).toEqual(before);
     });
   });
+
+  describe('etapa 3: leituras, convites, cargos, participações, modo e pedidos', () => {
+    const DAY = 24 * 60 * 60;
+    const ttlOf = (now: Date) => Math.floor(now.getTime() / 1000) + 30 * DAY;
+    const setup = async () => {
+      const group = newGroup();
+      const ownerId = newUser();
+      await repo.create(group, ownerId);
+      return { group, ownerId };
+    };
+    const issue = async (groupId: GroupId, ownerId: UserId, overrides: Partial<StoredInvite> = {}) => {
+      const invite = newInvite(groupId, ownerId, overrides);
+      await repo.createInvite(invite);
+      return invite;
+    };
+    const stored = (groupId: GroupId, inviteId: string) =>
+      repo.getInvite(groupId, inviteId, { consistent: true });
+    const conflictOf = (p: Promise<unknown>) =>
+      p.then(
+        () => undefined,
+        (e: unknown) => e as { code?: string; details?: unknown },
+      );
+
+    it('GRV-08: grupo, participação e código que não existem → undefined', async () => {
+      const id = asGroupId(randomUUID());
+      expect(await repo.get(id, { consistent: true })).toBeUndefined();
+      expect(await repo.getMembership(id, newUser(), { consistent: true })).toBeUndefined();
+      expect(await repo.resolve(pid(randomUUID().slice(0, 8).toUpperCase()))).toBeUndefined();
+    });
+
+    it('GRV-18: createInvite grava o convite, o token leva a ele e só o grupo dele o lista', async () => {
+      const { group, ownerId } = await setup();
+      const other = await setup();
+      const invite = await issue(group.id, ownerId);
+      expect(await stored(group.id, invite.id)).toEqual(invite);
+      expect((await stored(group.id, invite.id))?.version).toBe(1);
+      expect(await repo.resolveToken(invite.token)).toEqual({ groupId: group.id, inviteId: invite.id });
+      expect((await repo.listInvites(group.id)).map((i) => i.id)).toEqual([invite.id]);
+      expect(await repo.listInvites(other.group.id)).toEqual([]);
+    });
+
+    it('GRV-18: createInvite com o token de outro convite → erro, e o segundo não existe', async () => {
+      const { group, ownerId } = await setup();
+      const first = await issue(group.id, ownerId);
+      const second = newInvite(group.id, ownerId, { token: first.token });
+      await expect(repo.createInvite(second)).rejects.toBeDefined();
+      expect(await stored(group.id, second.id)).toBeUndefined();
+      expect(await repo.resolveToken(first.token)).toEqual({ groupId: group.id, inviteId: first.id });
+    });
+
+    it('GRV-23/24: convite pessoal pelo id e pelo email: cada alvo acha o seu, e resolveInviteId leva a ele', async () => {
+      const { group, ownerId } = await setup();
+      const targetId = newUser();
+      const email = `${randomUUID()}@example.com`;
+      const byId = await issue(group.id, ownerId, { target: { userId: targetId }, maxUses: 1 });
+      const byEmail = await issue(group.id, ownerId, { target: { email }, maxUses: 1 });
+      const common = await issue(group.id, ownerId);
+      expect(await repo.listInvitesFor({ userId: targetId })).toEqual([
+        { groupId: group.id, inviteId: byId.id },
+      ]);
+      expect(await repo.listInvitesFor({ email })).toEqual([{ groupId: group.id, inviteId: byEmail.id }]);
+      expect(await repo.resolveInviteId(byId.id)).toEqual({ groupId: group.id, inviteId: byId.id });
+      expect(await repo.resolveInviteId(byEmail.id)).toEqual({ groupId: group.id, inviteId: byEmail.id });
+      expect(await repo.resolveInviteId(common.id)).toBeUndefined();
+    });
+
+    it('GRV-20: revokeInvite grava revokedAt, ttl e soma 1 na version; cancelar de novo não muda nada', async () => {
+      const { group, ownerId } = await setup();
+      const invite = await issue(group.id, ownerId);
+      const at = new Date('2026-11-24T09:00:00.000Z');
+      await repo.revokeInvite({ ...invite }, at);
+      const first = await stored(group.id, invite.id);
+      expect(first?.revokedAt).toBe(at.toISOString());
+      expect(first?.ttl).toBe(ttlOf(at));
+      expect(first?.version).toBe(2);
+      await repo.revokeInvite({ ...invite }, new Date('2026-11-25T09:00:00.000Z'));
+      const second = await stored(group.id, invite.id);
+      expect(second?.revokedAt).toBe(first?.revokedAt);
+      expect(second?.version).toBe(2);
+    });
+
+    it('GRV-20: revokeInvite de convite pessoal não falha, e ele continua achável por listInvitesFor', async () => {
+      const { group, ownerId } = await setup();
+      const targetId = newUser();
+      const invite = await issue(group.id, ownerId, { target: { userId: targetId }, maxUses: 1 });
+      await repo.revokeInvite({ ...invite }, T0);
+      expect((await stored(group.id, invite.id))?.revokedAt).toBe(T0.toISOString());
+      expect(await repo.listInvitesFor({ userId: targetId })).toEqual([
+        { groupId: group.id, inviteId: invite.id },
+      ]);
+    });
+
+    it('GRV-24: declineInvite grava declinedAt, ttl e soma 1 na version; recusar de novo não muda nada', async () => {
+      const { group, ownerId } = await setup();
+      const invite = await issue(group.id, ownerId, { target: { userId: newUser() }, maxUses: 1 });
+      const at = new Date('2026-11-24T09:00:00.000Z');
+      await repo.declineInvite({ ...invite }, at);
+      const first = await stored(group.id, invite.id);
+      expect(first?.declinedAt).toBe(at.toISOString());
+      expect(first?.ttl).toBe(ttlOf(at));
+      expect(first?.version).toBe(2);
+      await repo.declineInvite({ ...invite }, new Date('2026-11-25T09:00:00.000Z'));
+      const second = await stored(group.id, invite.id);
+      expect(second?.declinedAt).toBe(first?.declinedAt);
+      expect(second?.version).toBe(2);
+    });
+
+    it('GRV-24: declineInvite de convite cancelado não muda nada', async () => {
+      const { group, ownerId } = await setup();
+      const invite = await issue(group.id, ownerId, { target: { userId: newUser() }, maxUses: 1 });
+      await repo.revokeInvite({ ...invite }, T0);
+      const before = await stored(group.id, invite.id);
+      await repo.declineInvite({ ...invite }, new Date('2026-11-25T09:00:00.000Z'));
+      const after = await stored(group.id, invite.id);
+      expect(after?.declinedAt).toBeUndefined();
+      expect(after).toEqual(before);
+    });
+
+    it('GRV-19: listInviteUses traz os usos do grupo e não os de outro', async () => {
+      const { group, ownerId } = await setup();
+      const other = await setup();
+      const a = await addMember(repo, group.id, ownerId, 'member');
+      const b = await addMember(repo, group.id, ownerId, 'reserve');
+      await addMember(repo, other.group.id, other.ownerId, 'member');
+      const uses = await repo.listInviteUses(group.id);
+      expect(uses.map((u) => u.userId).sort()).toEqual([a, b].sort());
+      expect(uses.every((u) => u.groupId === group.id)).toBe(true);
+    });
+
+    it('GRV-44: saveRoles com a version atual grava os cargos e as permissões do Todos', async () => {
+      const { group } = await setup();
+      const roles = [{ id: randomUUID(), name: 'Mesário', permissions: ['members.invite' as const] }];
+      await repo.saveRoles(group.id, { roles, everyonePermissions: ['group.edit'] }, 1, T0);
+      expect(await repo.getRoles(group.id, { consistent: true })).toMatchObject({
+        roles,
+        everyonePermissions: ['group.edit'],
+        version: 2,
+      });
+    });
+
+    it('GRV-44: saveRoles com version velha → VERSION_CONFLICT com a version atual, e nada muda', async () => {
+      const { group } = await setup();
+      await repo.saveRoles(group.id, { roles: [], everyonePermissions: ['group.edit'] }, 1, T0);
+      const err = await conflictOf(
+        repo.saveRoles(group.id, { roles: [], everyonePermissions: ['roles.manage'] }, 1, T0),
+      );
+      expect(err?.code).toBe('VERSION_CONFLICT');
+      expect(err?.details).toEqual({ currentVersion: 2 });
+      expect(await repo.getRoles(group.id, { consistent: true })).toMatchObject({
+        everyonePermissions: ['group.edit'],
+        version: 2,
+      });
+    });
+
+    it('GRV-48: setMemberRole troca o cargo de quem participa; de quem não participa → false', async () => {
+      const { group, userId } = await groupWith(repo, 'member');
+      expect(await repo.setMemberRole(group.id, userId, 'r9')).toBe(true);
+      expect((await repo.getMembership(group.id, userId, { consistent: true }))?.role).toBe('r9');
+      const stranger = newUser();
+      expect(await repo.setMemberRole(group.id, stranger, 'r9')).toBe(false);
+      expect(await repo.getMembership(group.id, stranger, { consistent: true })).toBeUndefined();
+    });
+
+    it('GRV-29/21: listMembers traz as participações do grupo e countParticipants dá o mesmo número', async () => {
+      const { group, ownerId } = await setup();
+      const other = await setup();
+      const member = await addMember(repo, group.id, ownerId, 'member');
+      const reserve = await addMember(repo, group.id, ownerId, 'reserve');
+      await addMember(repo, other.group.id, other.ownerId, 'member');
+      const list = await repo.listMembers(group.id);
+      expect(list.map((m) => m.userId).sort()).toEqual([ownerId, member, reserve].sort());
+      expect(await repo.countParticipants(group.id)).toBe(3);
+    });
+
+    it('GRV-30/31: removeMembership apaga a participação, baixa a contagem e tira o grupo de listMine; de novo → false', async () => {
+      const { group, ownerId } = await setup();
+      const userId = await addMember(repo, group.id, ownerId, 'member');
+      expect(await repo.countParticipants(group.id)).toBe(2);
+      expect(await repo.removeMembership(group.id, userId)).toBe(true);
+      expect(await repo.getMembership(group.id, userId, { consistent: true })).toBeUndefined();
+      expect(await repo.countParticipants(group.id)).toBe(1);
+      expect(await repo.listMine(userId)).toEqual([]);
+      expect(await repo.removeMembership(group.id, userId)).toBe(false);
+    });
+
+    it('GRV-25: setJoinMode com a version atual troca o modo e soma 1 na version do grupo', async () => {
+      const { group } = await setup();
+      await repo.setJoinMode(group.id, 'open', 1, T0);
+      expect(await repo.get(group.id, { consistent: true })).toMatchObject({ joinMode: 'open', version: 2 });
+    });
+
+    it('GRV-25: setJoinMode com version velha → VERSION_CONFLICT com a version atual, e o modo não muda', async () => {
+      const { group } = await setup();
+      await repo.setJoinMode(group.id, 'open', 1, T0);
+      const err = await conflictOf(repo.setJoinMode(group.id, 'invite', 1, T0));
+      expect(err?.code).toBe('VERSION_CONFLICT');
+      expect(err?.details).toEqual({ currentVersion: 2 });
+      expect(await repo.get(group.id, { consistent: true })).toMatchObject({ joinMode: 'open', version: 2 });
+    });
+
+    it('GRV-27: putRequest grava o pedido; o segundo da mesma pessoa → false e fica o primeiro', async () => {
+      const { group } = await setup();
+      const userId = newUser();
+      const first = { groupId: group.id, userId, createdAt: T0.toISOString() };
+      expect(await repo.putRequest(first)).toBe(true);
+      expect(await repo.getRequest(group.id, userId, { consistent: true })).toMatchObject(first);
+      expect(await repo.putRequest({ ...first, createdAt: '2026-11-25T00:00:00.000Z' })).toBe(false);
+      expect((await repo.getRequest(group.id, userId, { consistent: true }))?.createdAt).toBe(
+        first.createdAt,
+      );
+    });
+
+    it('GRV-28: listRequests traz os pedidos do grupo e não os de outro', async () => {
+      const { group } = await setup();
+      const other = await setup();
+      const a = newUser();
+      const b = newUser();
+      await repo.putRequest({ groupId: group.id, userId: a, createdAt: T0.toISOString() });
+      await repo.putRequest({ groupId: group.id, userId: b, createdAt: T0.toISOString() });
+      await repo.putRequest({ groupId: other.group.id, userId: newUser(), createdAt: T0.toISOString() });
+      expect((await repo.listRequests(group.id)).map((r) => r.userId).sort()).toEqual([a, b].sort());
+    });
+
+    it('GRV-27: deleteRequest apaga o pedido; sem pedido, com mustExist → false e sem mustExist → true', async () => {
+      const { group } = await setup();
+      const userId = newUser();
+      await repo.putRequest({ groupId: group.id, userId, createdAt: T0.toISOString() });
+      expect(await repo.deleteRequest(group.id, userId, { mustExist: true })).toBe(true);
+      expect(await repo.getRequest(group.id, userId, { consistent: true })).toBeUndefined();
+      expect(await repo.deleteRequest(group.id, userId, { mustExist: true })).toBe(false);
+      expect(await repo.deleteRequest(group.id, userId)).toBe(true);
+    });
+  });
 });

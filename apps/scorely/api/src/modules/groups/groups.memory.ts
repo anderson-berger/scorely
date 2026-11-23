@@ -79,6 +79,8 @@ export function memoryGroups() {
         });
     },
     async createInvite(invite) {
+      // Igual ao Dynamo: o lookup do token tem `attribute_not_exists`, e nada é gravado.
+      if (tokens.has(invite.token)) throw new Error('Invite create failed');
       invites.set(inviteKey(invite.groupId, invite.id), { ...invite });
       tokens.set(invite.token, { groupId: invite.groupId, inviteId: invite.id });
     },
@@ -120,7 +122,7 @@ export function memoryGroups() {
     },
     async declineInvite({ groupId, id: inviteId }, at) {
       const invite = invites.get(inviteKey(groupId, inviteId));
-      if (!invite || invite.declinedAt !== undefined) return;
+      if (!invite || invite.declinedAt !== undefined || invite.revokedAt !== undefined) return;
       invites.set(inviteKey(groupId, inviteId), {
         ...invite,
         declinedAt: at.toISOString(),
