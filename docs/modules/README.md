@@ -4,23 +4,24 @@
 
 | Módulo (pasta em `apps/<projeto>/api/src/modules/`) | Doc                                | Prefixo das regras |
 | --------------------------------------------------- | ---------------------------------- | ------------------ |
-| `scorely/groups`                                    | [grupos.md](grupos.md)             | `GRP`              |
+| `scorely/groups`                                    | [grupos.md](grupos.md)             | `GRV`              |
 | `scorely/auth`                                      | [auth.md](auth.md)                 | `AUTH`             |
 | `scorely/users`                                     | [usuarios.md](usuarios.md)         | `USR`              |
 | `scorely/notifications`                             | [notificacoes.md](notificacoes.md) | `NTF`              |
 | `scorely/media`                                     | [midia.md](midia.md)               | `MID`              |
-| `scorely/teams`                                     | [times.md](times.md)               | `TIM`              |
-| `scorely/competition`                               | [competicao.md](competicao.md)     | `CMP`              |
+| `scorely/matches`                                   | [partidas.md](partidas.md)         | `PAR`              |
 | `scorely/health`                                    | —                                  | —                  |
 
 O `base` é template e não tem doc de módulo. Um módulo sem regra de negócio, como o `health`, fica na tabela com "—".
+
+Os módulos que saíram do ar ficam em [`arquivo/`](arquivo/), só para consulta quando forem refeitos: o primeiro grupo (`GRP`), times (`TIM`), competição (`CMP`) e esportes (`ESP`), que saíram em 2026-11-21 ([ADR 0018](../decisions/0018-troca-do-grupo.md)). Eles não são fonte de verdade, e os prefixos não voltam a ser usados.
 
 ## Como usar
 
 - **Antes de mudar um módulo, leia o doc dele.** A regra `.claude/rules/modulos.md` lembra a IA disso sempre que um arquivo do módulo é tocado.
 - **Toda mudança de comportamento começa no doc.** A regra nova, alterada ou removida, com o porquê, é o que o dono aprova no `/task`. Só depois disso vêm o contrato, os testes e o código.
-- **Os ids das regras são fixos.** Regra nova recebe o próximo número. Regra que sai fica riscada com a data (`~~GRP-12. ...~~ removida em 2026-12-01: <motivo>`), e o número não volta a ser usado.
-- **Os testes citam o id** no nome (`it('GRP-18: membro que confirma com a lista cheia vai para a fila', ...)`). O check `checks/modules.test.ts` confere que todo id citado existe.
+- **Os ids das regras são fixos.** Regra nova recebe o próximo número. Regra que sai fica riscada com a data (`~~GRV-12. ...~~ removida em 2026-12-01: <motivo>`), e o número não volta a ser usado.
+- **Os testes citam o id** no nome (`it('GRV-22: reserva que entra por um convite de membro vira membro', ...)`). O check `checks/modules.test.ts` confere que todo id citado existe.
 - **Código e doc discordando é bug,** em um dos dois. Corrija o que estiver errado, e nunca deixe os dois diferentes.
 
 ## Formato

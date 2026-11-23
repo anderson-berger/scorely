@@ -1,80 +1,109 @@
 import { AUTHORIZER } from '@scorely/api/src/lib/auth';
 import type { AWS } from '@serverless/typescript';
 
+// Grupo (docs/modules/grupos.md). Toda rota pede login.
 const handler = (name: string) => `src/modules/groups/handlers.${name}`;
 const route = (method: string, path: string) => [
   { httpApi: { method, path, authorizer: { name: AUTHORIZER } } },
 ];
 
 export const groupsFunctions: AWS['functions'] = {
-  groupsCreate: { handler: handler('create'), events: route('POST', '/groups') },
-  groupsMine: { handler: handler('myGroups'), events: route('GET', '/me/groups') },
-  groupsArchivedMine: { handler: handler('archivedGroups'), events: route('GET', '/me/groups/archived') },
-  groupsArchive: { handler: handler('archive'), events: route('POST', '/groups/{id}/archive') },
-  groupsUnarchive: { handler: handler('unarchive'), events: route('POST', '/groups/{id}/unarchive') },
-  groupsGet: { handler: handler('get'), events: route('GET', '/groups/{id}') },
-  groupsUpdate: { handler: handler('update'), events: route('PATCH', '/groups/{id}') },
-  groupsRotateInvite: { handler: handler('rotateInvite'), events: route('POST', '/groups/{id}/invite') },
-  // Logo e capa (GRP-35): `slot` = logo | cover
+  createGroup: { handler: handler('createGroup'), events: route('POST', '/groups') },
+  getGroup: { handler: handler('getGroup'), events: route('GET', '/groups/{publicId}') },
+  myGroups: { handler: handler('myGroups'), events: route('GET', '/me/groups') },
+  // Logo e capa (GRV-09): `slot` = logo | cover
   groupsImageUpload: {
     handler: handler('requestImageUpload'),
-    events: route('POST', '/groups/{id}/images/{slot}/upload'),
+    events: route('POST', '/groups/{publicId}/images/{slot}/upload'),
   },
-  groupsImageAttach: { handler: handler('attachImage'), events: route('PUT', '/groups/{id}/images/{slot}') },
+  groupsImageAttach: {
+    handler: handler('attachImage'),
+    events: route('PUT', '/groups/{publicId}/images/{slot}'),
+  },
   groupsImageDetach: {
     handler: handler('detachImage'),
-    events: route('DELETE', '/groups/{id}/images/{slot}'),
+    events: route('DELETE', '/groups/{publicId}/images/{slot}'),
   },
-  groupsAcceptInvite: { handler: handler('acceptInvite'), events: route('POST', '/invites/{token}/accept') },
-  groupsMembers: { handler: handler('members'), events: route('GET', '/groups/{id}/members') },
-  groupsRemoveMember: {
+  // Convites e membros (GRV-18–22, 29–31)
+  createGroupInvite: {
+    handler: handler('createInvite'),
+    events: route('POST', '/groups/{publicId}/invites'),
+  },
+  listGroupInvites: {
+    handler: handler('listInvites'),
+    events: route('GET', '/groups/{publicId}/invites'),
+  },
+  revokeGroupInvite: {
+    handler: handler('revokeInvite'),
+    events: route('DELETE', '/groups/{publicId}/invites/{inviteId}'),
+  },
+  previewGroupInvite: { handler: handler('previewInvite'), events: route('GET', '/invites/{token}') },
+  joinGroupInvite: { handler: handler('joinInvite'), events: route('POST', '/invites/{token}/join') },
+  // Convite pessoal (GRV-23, 24)
+  myGroupInvites: { handler: handler('myGroupInvites'), events: route('GET', '/me/group-invites') },
+  declineGroupInvite: {
+    handler: handler('declineGroupInvite'),
+    events: route('DELETE', '/me/group-invites/{inviteId}'),
+  },
+  listGroupMembers: {
+    handler: handler('listMembers'),
+    events: route('GET', '/groups/{publicId}/members'),
+  },
+  leaveGroup: {
+    handler: handler('leaveGroup'),
+    events: route('DELETE', '/groups/{publicId}/members/me'),
+  },
+  removeGroupMember: {
     handler: handler('removeMember'),
-    events: route('DELETE', '/groups/{id}/members/{userId}'),
+    events: route('DELETE', '/groups/{publicId}/members/{userPublicId}'),
   },
-  // Cargos (GRP-51) e passar o grupo (GRP-54)
-  groupsSetStaffRole: {
-    handler: handler('setStaffRole'),
-    events: route('PUT', '/groups/{id}/members/{userId}/staff-role'),
+  // Grupo aberto e pedidos (GRV-25–28)
+  setGroupJoinMode: {
+    handler: handler('setJoinMode'),
+    events: route('PUT', '/groups/{publicId}/join-mode'),
   },
-  groupsClearStaffRole: {
-    handler: handler('clearStaffRole'),
-    events: route('DELETE', '/groups/{id}/members/{userId}/staff-role'),
+  previewGroup: {
+    handler: handler('previewGroup'),
+    events: route('GET', '/groups/{publicId}/preview'),
   },
-  groupsTransfer: { handler: handler('transferGroup'), events: route('POST', '/groups/{id}/transfer') },
-  // Convite para membro (GRP-40, 41) e sair do grupo (GRP-42)
-  groupsInviteToMember: {
-    handler: handler('inviteToMember'),
-    events: route('POST', '/groups/{id}/members/{userId}/member-invite'),
+  requestToJoinGroup: {
+    handler: handler('requestToJoin'),
+    events: route('POST', '/groups/{publicId}/requests'),
   },
-  groupsCancelMemberInvite: {
-    handler: handler('cancelMemberInvite'),
-    events: route('DELETE', '/groups/{id}/members/{userId}/member-invite'),
+  cancelGroupJoinRequest: {
+    handler: handler('cancelJoinRequest'),
+    events: route('DELETE', '/groups/{publicId}/requests/me'),
   },
-  groupsAcceptMemberInvite: {
-    handler: handler('acceptMemberInvite'),
-    events: route('POST', '/groups/{id}/member-invite/accept'),
+  listGroupJoinRequests: {
+    handler: handler('listJoinRequests'),
+    events: route('GET', '/groups/{publicId}/requests'),
   },
-  groupsDeclineMemberInvite: {
-    handler: handler('declineMemberInvite'),
-    events: route('POST', '/groups/{id}/member-invite/decline'),
+  approveGroupJoinRequest: {
+    handler: handler('approveJoinRequest'),
+    events: route('POST', '/groups/{publicId}/requests/{userPublicId}/approve'),
   },
-  groupsLeave: { handler: handler('leaveGroup'), events: route('POST', '/groups/{id}/leave') },
-  gamesCurrent: { handler: handler('currentGame'), events: route('GET', '/groups/{id}/games/current') },
-  gamesConfirm: {
-    handler: handler('confirm'),
-    events: route('POST', '/groups/{id}/games/{date}/attendance'),
+  declineGroupJoinRequest: {
+    handler: handler('declineJoinRequest'),
+    events: route('DELETE', '/groups/{publicId}/requests/{userPublicId}'),
   },
-  gamesLeave: { handler: handler('leave'), events: route('DELETE', '/groups/{id}/games/{date}/attendance') },
-  gamesCancel: { handler: handler('cancel'), events: route('POST', '/groups/{id}/games/{date}/cancel') },
-  gamesUpdate: { handler: handler('updateGame'), events: route('PATCH', '/groups/{id}/games/{date}') },
-  gamesReopen: { handler: handler('reopen'), events: route('POST', '/groups/{id}/games/{date}/reopen') },
-  playView: { handler: handler('playView'), events: route('GET', '/play/{token}') },
-  playConfirm: {
-    handler: handler('playConfirm'),
-    events: route('POST', '/play/{token}/games/{date}/attendance'),
+  // Cargos (GRV-42–48)
+  listGroupRoles: { handler: handler('listRoles'), events: route('GET', '/groups/{publicId}/roles') },
+  createGroupRole: { handler: handler('createRole'), events: route('POST', '/groups/{publicId}/roles') },
+  orderGroupRoles: { handler: handler('orderRoles'), events: route('PUT', '/groups/{publicId}/roles/order') },
+  updateGroupRole: {
+    handler: handler('updateRole'),
+    events: route('PUT', '/groups/{publicId}/roles/{roleId}'),
   },
-  playLeave: {
-    handler: handler('playLeave'),
-    events: route('DELETE', '/play/{token}/games/{date}/attendance'),
+  deleteGroupRole: {
+    handler: handler('deleteRole'),
+    events: route('DELETE', '/groups/{publicId}/roles/{roleId}'),
+  },
+  setGroupMemberRole: {
+    handler: handler('setMemberRole'),
+    events: route('PUT', '/groups/{publicId}/members/{userPublicId}/role'),
+  },
+  transferGroup: {
+    handler: handler('transferGroup'),
+    events: route('POST', '/groups/{publicId}/transfer'),
   },
 };

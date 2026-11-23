@@ -15,9 +15,9 @@ A confirmar. Hoje: qualquer pessoa com email (login por código), sem papéis de
 
 ## MVP (scorely)
 
-| Já existe                                                                                               | Próximo                                      |
-| ------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
-| login por código, perfil com foto, notificações (sino), Grupos E1 e E2, Times (E3), cargos e permissões | Competição, etapa 1 (ativação e regulamento) |
+| Já existe                                                                                                                                                      | Próximo                                                 |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| login por código, perfil com foto, notificações (sino), grupo com logo e capa, convites, membros e reservas, grupo aberto com pedidos, cargos e passar o grupo | partida com confirmação pelo link, em ondas (PAR-01–19) |
 
 O que cada módulo faz hoje, com as regras e o porquê, está em [`docs/modules/`](../modules/README.md). Este arquivo guarda só a visão e a ordem das entregas.
 
@@ -25,20 +25,21 @@ O que cada módulo faz hoje, com as regras e o porquê, está em [`docs/modules/
 
 Resultado esperado: **"O jogo da semana acontece sem confusão de lista e com times equilibrados."** Vocabulário, regras e limites: [grupos.md](../modules/grupos.md).
 
-| #   | Entrega                                                                                                                                                                                                                                                                                                                               | Estado       |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
-| E1  | Grupo + link de membro + jogo da semana + confirmação + fila + cancelar jogo + remover membro                                                                                                                                                                                                                                         | concluída    |
-| E2  | Reservas + abertura da lista em camadas (membros → reservas → aberto), configurável                                                                                                                                                                                                                                                   | concluída    |
-| E3  | Times ([times.md](../modules/times.md)): manual e sorteio num motor com regras obrigatórias do grupo (posição por time, times opostos) e preferência de gênero; avulsos; em 6 etapas (nível técnico fora por enquanto)                                                                                                                | concluída    |
-| E4  | **Competição** ([competicao.md](../modules/competicao.md)), módulo à parte e **pago** (teste de 30 dias): regulamento do grupo (pontos de cada acontecimento, por partida ou pelo dia, desempate), fechar o jogo (chamada e resultado), partidas, ranking do grupo, temporadas e prêmios; em 6 etapas. Substitui as antigas E4a e E4b | em andamento |
-| E5  | MVP configurável (desligado / votação / escolha do dono), dentro da competição                                                                                                                                                                                                                                                        | —            |
-| E6  | Ajuste automático de nível com rating de equipe (OpenSkill/Weng-Lin), só por resultados; MVP não entra no nível; o dono pode corrigir e congelar                                                                                                                                                                                      | —            |
+> **Recomeço em 2026-11-21** ([ADR 0018](../decisions/0018-troca-do-grupo.md)): o primeiro grupo, os times e a competição saíram do ar. O grupo foi refeito sem jogo, e as entregas abaixo voltam sobre a agenda, na ordem de "Próximas etapas" em [grupos.md](../modules/grupos.md). Os docs de antes estão em [arquivo/](../modules/arquivo/).
+
+| #   | Entrega                                                                                                                                                                                                                                                                                                                                               | Estado     |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| E1  | Grupo + link de membro + jogo da semana + confirmação + fila + cancelar jogo + remover membro                                                                                                                                                                                                                                                         | fora do ar |
+| E2  | Reservas + abertura da lista em camadas (membros → reservas → aberto), configurável                                                                                                                                                                                                                                                                   | fora do ar |
+| E3  | Times ([arquivo/times.md](../modules/arquivo/times.md)): manual e sorteio num motor com regras obrigatórias do grupo (posição por time, times opostos) e preferência de gênero; avulsos; em 6 etapas (nível técnico fora por enquanto)                                                                                                                | fora do ar |
+| E4  | **Competição** ([arquivo/competicao.md](../modules/arquivo/competicao.md)), módulo à parte e **pago** (teste de 30 dias): regulamento do grupo (pontos de cada acontecimento, por partida ou pelo dia, desempate), fechar o jogo (chamada e resultado), partidas, ranking do grupo, temporadas e prêmios; em 6 etapas. Substitui as antigas E4a e E4b | fora do ar |
+| E5  | MVP configurável (desligado / votação / escolha do dono), dentro da competição                                                                                                                                                                                                                                                                        | —          |
+| E6  | Ajuste automático de nível com rating de equipe (OpenSkill/Weng-Lin), só por resultados; MVP não entra no nível; o dono pode corrigir e congelar                                                                                                                                                                                                      | —          |
 
 ## Depois
 
-- **Cargos criados pelo grupo:** além do Admin (GRP-50 em [grupos.md](../modules/grupos.md)), o dono cria cargos próprios (ex.: "Organizador", só times), se fizer falta.
 - Resultado com placar e scout por fundamento (saque, bloqueio, ataque, erro), configurável por grupo, dentro da competição.
-- Cobrança no app para o plano da competição (hoje liberado pela equipe, CMP-03).
+- Cobrança no app para o plano da competição (quando a competição voltar).
 - Página de notificações (hoje só o sino).
 - Hospedagem do front, domínio, CI/CD, stages além de `dev`, SES com domínio verificado.
 

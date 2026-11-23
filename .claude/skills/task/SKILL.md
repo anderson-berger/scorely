@@ -28,6 +28,7 @@ O andamento fica em `.claude/work/<slug>.md` (fora do git): o pedido, os docs e 
    - o roteiro manual, se houver tela;
    - a `## Status`.
 5. **Pare.** Mostre o diff do doc (`git diff docs/modules` ou o arquivo novo), as decisões técnicas que não estão no doc e as perguntas. Só siga quando o dono disser que aprovou. Se ele pedir ajustes, mude o doc e pare de novo.
+6. **Aprovado:** marque o passo 1 como aprovado (com a data) na `## Status` do arquivo de trabalho e pare de novo, com a linha: **"Aprovado e registrado. Para implementar mais barato: `/clear`, `/model sonnet` e `/task <slug>`."** O planejamento roda no Opus; os passos 2 a 6 seguem o arquivo de trabalho e podem rodar no Sonnet. Se o dono preferir seguir na mesma sessão, siga.
 
 ## 2. Contrato
 
@@ -59,7 +60,7 @@ Marque no Status.
 
 - Chame o subagente `reviewer` passando só o caminho do arquivo de trabalho.
 - Grave a resposta dele na seção `## Revisão` desse arquivo.
-- Com ❌: corrija e chame o reviewer de novo.
+- Com ❌: corrija e chame o reviewer de novo **em modo re-revisão**. Passe o caminho do arquivo de trabalho, a palavra "re-revisão", a lista dos ❌ anteriores e os arquivos que você mexeu. Ele confere só isso.
 - Os ⚠️ ficam para o dono.
 
 ## 6. Entrega
@@ -71,4 +72,9 @@ Termine com:
 - o veredito e os ⚠️ do reviewer;
 - o resultado do `npm run check`;
 - a mensagem de commit sugerida, em Conventional Commits e pt-BR, citando os ids das regras;
-- o que o dono precisa testar à mão.
+- o que o dono precisa testar à mão;
+- a linha final: **"Tarefa entregue. Rode `/clear` antes da próxima: o andamento fica em `.claude/work/<slug>.md`."**
+
+## Uma tarefa por sessão
+
+Cada turno relê a conversa inteira, então tarefas empilhadas na mesma sessão multiplicam o custo. Se, ao começar um `/task`, esta conversa já tiver entregado outra tarefa, avise o dono e sugira `/clear` antes de seguir. O arquivo de trabalho guarda tudo o que é preciso para retomar.

@@ -1,32 +1,29 @@
 # Módulo Notificações
 
-> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-14.
+> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-23.
 
 Código: `apps/scorely/api/src/modules/notifications/`, `apps/scorely/web/src/modules/notifications/`. Contrato: `apps/scorely/contracts/src/notifications.ts`.
 
 ## 1. Para que serve
 
-Avisar a pessoa, dentro do app, do que aconteceu sem ela estar olhando: entrou na lista, o jogo foi cancelado. Hoje os avisos aparecem só no sino do cabeçalho. Não há email nem push.
+Avisar a pessoa, dentro do app, do que aconteceu sem ela estar olhando: por exemplo, um convite para um grupo. Hoje os avisos aparecem só no sino do cabeçalho. Não há email nem push.
 
 ## 2. Regras de negócio
 
 - **NTF-01. Os outros módulos avisam por `notify(userId, { type, title, body?, link? })`.** Nenhum outro módulo grava notificação direto no banco.
-- **NTF-02. Tipos que existem hoje:** _(Alterada em 2026-11-14: entraram os 3 da competição.)_
+- **NTF-02. Tipos que existem hoje:** _(Alterada em 2026-11-14: entraram os 3 da competição. Alterada em 2026-11-19: entrou o `game_rescheduled`. Alterada em 2026-11-21: entrou o `group_invited`, e saíram os do primeiro grupo, dos times e da competição, que saíram do ar, [ADR 0018](../decisions/0018-troca-do-grupo.md). Alterada em 2026-11-22: entraram o `group_join_requested`, o `group_join_approved`, o `group_role_granted` e o `group_transferred`. Alterada em 2026-11-23: entraram os 3 das partidas.)_
 
-  | Tipo                 | Quem dispara                                                            | Link           |
-  | -------------------- | ----------------------------------------------------------------------- | -------------- |
-  | `welcome`            | primeiro login (AUTH-05)                                                | `/profile`     |
-  | `waitlist_promoted`  | saiu alguém de dentro e a pessoa subiu da fila (GRP-22)                 | grupo ou jogo  |
-  | `game_cancelled`     | quem tem `game.manage` cancelou o jogo (GRP-24)                         | grupo          |
-  | `game_reopened`      | quem tem `game.manage` reabriu o jogo (GRP-44)                          | grupo          |
-  | `member_invite`      | a reserva foi convidada para virar membro (GRP-40)                      | grupo          |
-  | `teams_published`    | os times do jogo foram publicados pela 1ª vez (TIM-10)                  | grupo ou jogo  |
-  | `game_confirmed`     | o jogo chegou ao mínimo pela 1ª vez (GRP-47)                            | grupo ou jogo  |
-  | `staff_role_granted` | a pessoa recebeu um cargo no grupo (GRP-51)                             | grupo          |
-  | `group_transferred`  | a pessoa virou a dona do grupo (GRP-54)                                 | grupo          |
-  | `season_closed`      | a temporada travou: a posição final da pessoa ([CMP-38](competicao.md)) | aba Competição |
-  | `trophy_awarded`     | a pessoa recebeu um destaque da temporada (CMP-38)                      | `/profile`     |
-  | `podium_entered`     | a pessoa entrou no pódio da temporada aberta (CMP-38)                   | aba Competição |
+  | Tipo                    | Quem dispara                                    | Link                                             |
+  | ----------------------- | ----------------------------------------------- | ------------------------------------------------ |
+  | `welcome`               | primeiro login (AUTH-05)                        | `/profile`                                       |
+  | `group_invited`         | um convite pessoal do grupo (GRV-23)            | o convite (`/join/…`)                            |
+  | `group_join_requested`  | um pedido para entrar num grupo aberto (GRV-27) | os Membros do grupo (`/groups/<código>/members`) |
+  | `group_join_approved`   | o pedido aceito (GRV-28)                        | o grupo (`/groups/<código>`)                     |
+  | `group_role_granted`    | a pessoa recebeu um cargo criado (GRV-48)       | o grupo (`/groups/<código>`)                     |
+  | `group_transferred`     | a pessoa recebeu o grupo (GRV-49)               | o grupo (`/groups/<código>`)                     |
+  | `match_promoted`        | a pessoa subiu da fila para dentro (PAR-09)     | a partida (`/groups/<código>/matches/<id>`)      |
+  | `match_cancelled`       | a partida foi cancelada (PAR-07)                | a partida                                        |
+  | `match_guest_requested` | um pedido de convidado (PAR-12)                 | a partida                                        |
   - Um tipo novo entra no contrato e ganha um ícone no web (`notification.icons.ts`).
 
 - **NTF-03. O título e o corpo são gravados em pt-BR** já no momento do aviso. O web mostra o texto como está.

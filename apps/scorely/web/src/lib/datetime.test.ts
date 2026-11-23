@@ -1,5 +1,11 @@
 import { i18n } from '@scorely/web/src/i18n';
-import { detectTimeZone, formatDateTime, setDisplayTimeZone } from '@scorely/web/src/lib/datetime';
+import {
+  detectTimeZone,
+  formatDateTime,
+  setDisplayTimeZone,
+  zonedInputToIso,
+  zonedInputValue,
+} from '@scorely/web/src/lib/datetime';
 import { describe, expect, it } from 'vitest';
 
 const ISO = '2026-11-06T22:00:00.000Z';
@@ -110,5 +116,17 @@ describe("formatDateTime com o estilo 'weekday'", () => {
 
   it('caso 8: en → "Friday"', () => {
     expect(formatDateTime(FRIDAY, 'weekday', { timeZone: 'America/Sao_Paulo', locale: 'en' })).toBe('Friday');
+  });
+});
+
+describe('zonedInputValue / zonedInputToIso', () => {
+  it('ADR 0006: a hora local do campo vira UTC pelo fuso, e volta igual', () => {
+    expect(zonedInputToIso('2026-11-27T19:00', 'America/Sao_Paulo')).toBe('2026-11-27T22:00:00.000Z');
+    expect(zonedInputValue('2026-11-27T22:00:00.000Z', 'America/Sao_Paulo')).toBe('2026-11-27T19:00');
+    expect(zonedInputToIso('2026-07-01T10:30', 'Europe/Lisbon')).toBe('2026-07-01T09:30:00.000Z');
+  });
+
+  it('ADR 0006: valor fora do formato não vira data', () => {
+    expect(zonedInputToIso('', 'America/Sao_Paulo')).toBeUndefined();
   });
 });

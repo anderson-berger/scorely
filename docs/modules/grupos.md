@@ -1,429 +1,362 @@
 # Módulo Grupos
 
-> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Se o código e este doc discordarem, um dos dois está errado. Conferido com o código em 2026-11-14.
+> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-23.
 
-Código: `apps/scorely/api/src/modules/groups/`, `apps/scorely/web/src/modules/groups/`, contrato em `apps/scorely/contracts/src/groups.ts`.
+Código: `apps/scorely/api/src/modules/groups/`, `apps/scorely/web/src/modules/groups/`. Contrato: `apps/scorely/contracts/src/groups.ts`.
+
+Este grupo foi escrito do zero ao lado do primeiro ([ADR 0017](../decisions/0017-grupo-v2-lado-a-lado.md)). O primeiro saiu em 2026-11-21, junto com os times, a competição e os esportes ([ADR 0018](../decisions/0018-troca-do-grupo.md)); o doc dele está em [arquivo/grupos.md](arquivo/grupos.md). As regras continuam com o prefixo `GRV`.
 
 ## 1. Para que serve
 
-Grupo esportivo recorrente (a "pelada" da semana). Resultado esperado: **o jogo da semana acontece sem confusão de lista**. Mais tarde, também com times equilibrados (E3 em diante, ver [PRODUCT.md](../product/PRODUCT.md)).
+Juntar as pessoas que jogam juntas, de qualquer atividade, do mesmo jeito. O grupo é quem participa (membros e reservas), o nome, o logo e a capa: a agenda das partidas e os campeonatos entram depois, cada um no seu módulo. **O grupo não tem times:** ele tem membros, e quem tem times é a partida.
 
-Caso de referência: vôlei misto de sexta, com 12 vagas. Os membros fixos têm prioridade. Se sobra vaga, entram as reservas e depois qualquer pessoa com o link do jogo.
+Caso de referência: a Ana cria a "Pelada de sexta" e é a dona dela. Ela manda um convite no WhatsApp para os amigos de sempre, que entram como membros, e um convite de reserva, com 5 usos, para quem joga quando falta gente.
 
-### Vocabulário
-
-| Termo               | Significado                                                                                 |
-| ------------------- | ------------------------------------------------------------------------------------------- |
-| Dono                | quem criou o grupo, ou quem o recebeu numa transferência (GRP-54). Há um só, e ele é membro |
-| Cargo               | o que a pessoa pode administrar no grupo, como "Admin". Não muda o papel (GRP-48)           |
-| Permissão           | uma ação de administração liberada por um cargo, como `game.manage` (GRP-49)                |
-| Membro              | participa do grupo e tem a janela de confirmação mais cedo                                  |
-| Reserva             | participa do grupo e confirma depois dos membros                                            |
-| Convidado           | não participa do grupo; confirma pelo link do jogo, depois das reservas                     |
-| Jogo                | a ocorrência semanal do grupo. Só existe o **jogo atual**                                   |
-| Camada              | janela de quando cada papel pode confirmar: membros → reservas → convidados                 |
-| Lista               | quem confirmou, na ordem de chegada. As primeiras `vagas` pessoas estão **dentro**          |
-| Fila                | quem confirmou com as vagas já ocupadas (o "Banco" na tela). Sobe sozinho quando alguém sai |
-| Limite              | quantos membros e quantas reservas o grupo aceita. Não confundir com as vagas do jogo       |
-| Convite para membro | pedido do dono, feito dentro do app, para uma reserva virar membro (GRP-40)                 |
+| Termo           | Significado                                                                                                     |
+| --------------- | --------------------------------------------------------------------------------------------------------------- |
+| Grupo           | um nome e as pessoas que participam dele                                                                        |
+| Participação    | como a pessoa está no grupo (`myTier`): `member` (membro) ou `reserve` (reserva) (GRV-17)                       |
+| Membro          | quem participa com prioridade. O dono é sempre membro                                                           |
+| Reserva         | quem participa, vê o mesmo que o membro, e vem depois dele nas partidas (PAR-03)                                |
+| Cargo           | o que a pessoa administra (`myRole`). Cada pessoa tem um só (GRV-40)                                            |
+| Dono            | o cargo de quem responde pelo grupo: há um só, com todas as permissões, e ele participa como membro             |
+| Todos           | o cargo base: o de quem não tem outro. As permissões dele valem para todo mundo (GRV-41)                        |
+| Cargo criado    | um cargo com nome livre e as permissões que o grupo escolheu, como "Admin" ou "Tesoureiro" (GRV-44)             |
+| Ordem           | a fila dos cargos, do Dono, no topo, ao Todos, embaixo. Quem administra só age abaixo do próprio cargo (GRV-43) |
+| Permissão       | uma ação de administração, como `members.invite` (GRV-15)                                                       |
+| Convite         | um link `/join/<token>` com regras: validade, limite de usos, para quem e como entra (GRV-18)                   |
+| Modo de entrada | `invite` (só por convite, o padrão) ou `open` (também por pedido) (GRV-25)                                      |
+| Pedido          | o pedido de alguém de fora para entrar num grupo aberto (GRV-27)                                                |
+| Id público      | o código curto do grupo (ex.: `K3X9PQ2A`), o único que vai na URL e na api (GRV-08)                             |
+| Logo            | a imagem quadrada que identifica o grupo (512×512, GRV-09)                                                      |
+| Capa            | a imagem larga do topo do grupo (1600×600, GRV-09)                                                              |
 
 ## 2. Regras de negócio
 
-Cada regra tem um id fixo (`GRP-NN`). O id não é reaproveitado: se uma regra sair, ela fica riscada com a data. Testes e código citam o id.
+### Criar
+
+- **GRV-01. Criar o grupo pede só o nome** (`POST /groups` `{ name }`): de 1 a 80 caracteres, sem os espaços das pontas. Vazio ou maior que 80 responde `VALIDATION_ERROR` (422). O grupo não tem esporte, horário, lugar nem fuso. Ele nasce sem logo e sem capa, que entram depois, pelas Configurações do grupo (GRV-09, 12). _(Alterada em 2026-11-20: antes, o grupo não tinha logo nem capa.)_
+  - _Por quê:_ o grupo serve para qualquer atividade do mesmo jeito. O esporte vai ser só um filtro, quando houver um marketplace, e o que é do jogo (dia, hora, lugar, vagas) fica na agenda. A imagem fica fora da criação para criar continuar sendo um campo só: o envio tem dois passos (MID-04, 05) e pode falhar sem impedir o grupo de existir.
+- **GRV-02. Quem cria é o dono e participa do grupo.** O grupo nasce com uma participação só, a de quem criou, como membro e com o cargo Dono. Ele nasce com os dois cargos fixos, Dono e Todos (este sem nenhuma permissão), sem cargo criado, e no modo de convite (GRV-25). _(Alterada em 2026-11-21: entraram a participação de membro e o modo de entrada. Alterada em 2026-11-22: entraram os cargos fixos.)_
+  - _Por quê:_ alguém responde pelo grupo desde o primeiro instante, e é a partir da participação que vêm os membros e o gerenciamento deles.
+- **GRV-03. O nome pode repetir,** inclusive entre os grupos da mesma pessoa. Quem identifica o grupo é o `id`.
+  - _Por quê:_ "Pelada de sexta" é comum, e barrar o nome repetido não protege nada.
+
+### Identificação
+
+- **GRV-08. O grupo tem um id público curto, e é o único que sai do sistema.** São 8 caracteres em Crockford base32 (ex.: `K3X9PQ2A`), gerados ao criar, únicos. A URL (`/groups/K3X9PQ2A`), as rotas e as respostas usam só ele (o `id` do grupo na resposta é o público). O id do sistema (uuid) fica no banco: é a chave do grupo e de tudo o que é dele.
+  - O id público não é convite: saber o código não dá acesso ao grupo (GRV-04). Cada convite tem um token próprio (GRV-18).
+  - _Por quê:_ a URL fica curta e fácil de compartilhar. Como as chaves do banco não dependem do código, ele pode mudar depois (por exemplo, um endereço escolhido no marketplace) trocando só o lookup, como o id público do usuário ([ADR 0011](../decisions/0011-id-publico-do-usuario.md)). Separar o convite evita que um print da URL deixe alguém entrar, e que cancelar um convite quebre os links salvos.
+
+### Ver
+
+- **GRV-04. Só quem participa vê o grupo** (`GET /groups/{publicId}`). Para quem não participa, ou para um código que não existe, a resposta é `GROUP_NOT_FOUND` (404). O grupo vem com a participação (`myTier`), o cargo (`myRole`) e as permissões (`myPermissions`, GRV-16) de quem pede. Quem é de fora vê só a apresentação: pelo convite (GRV-21) ou, num grupo aberto, pelo código (GRV-26). _(Alterada em 2026-11-21: entraram a participação, as permissões e a apresentação.)_
+  - _Por quê:_ quem não participa não fica sabendo que o grupo existe, a não ser que o grupo queira (o convite, o modo aberto).
+- **GRV-05. Meus grupos** (`GET /me/groups`): os grupos de que a pessoa participa, como membro ou reserva, em ordem de nome (sem diferenciar maiúsculas e acentos), cada um com o `myTier`, o `myRole` e o `myPermissions`. Sem nenhum grupo, a lista vem vazia. _(Alterada em 2026-11-21: entraram a participação e as permissões.)_
+  - _Por quê:_ sem a agenda, não há "próximo jogo" para ordenar. Pelo nome, o grupo é fácil de achar.
+
+### Permissões
+
+- **GRV-15. Toda ação de administração é conferida por uma permissão, numa função só** ("pode X neste grupo?"). O catálogo de hoje:
+
+  | Permissão        | Libera                                                                                                                           |
+  | ---------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+  | `group.edit`     | logo e capa (GRV-09) e o modo de entrada (GRV-25)                                                                                |
+  | `members.invite` | criar, ver e cancelar os convites do grupo (GRV-18–20, 23) e aceitar ou recusar pedidos (GRV-28)                                 |
+  | `members.remove` | remover alguém do grupo (GRV-31)                                                                                                 |
+  | `roles.manage`   | criar, editar, ordenar e apagar cargos e mudar o cargo das pessoas (GRV-42–48)                                                   |
+  | `matches.manage` | criar, editar e cancelar partidas, abrir a próxima onda e liberar convidados ([partidas.md](partidas.md), PAR-01, 05–07, 13, 14) |
+  - A resposta da função vem do cargo da pessoa (GRV-41). _(Alterada em 2026-11-22: antes, o Dono tinha todas e o cargo base, nenhuma, fixo. Entrou o `roles.manage`. Alterada em 2026-11-23: entrou o `matches.manage`.)_
+  - A reserva pode ter qualquer cargo, como o membro: participação e cargo são coisas diferentes.
+  - Quem participa e não tem a permissão recebe `GROUP_PERMISSION_DENIED` (403 com corpo, `details.permission`). Quem não participa recebe `GROUP_NOT_FOUND` antes, como em GRV-04.
+  - O que não é administração não é permissão: ver o grupo e os membros, entrar e sair. Ninguém tira isso de quem participa.
+  - _Por quê:_ com uma função só, os cargos entram sem mexer em cada ação. Separar convidar de remover permite, depois, que todo membro convide sem poder tirar ninguém.
+
+- **GRV-16. O grupo diz o que cada pessoa pode fazer:** `myPermissions` vem no grupo (GRV-04, 05) com as permissões de quem pede. A tela só mostra as ações que a pessoa pode fazer, e a api confere de novo a cada ação (GRV-15).
+  - _Por quê:_ a tela não precisa saber quem é dono para decidir o que mostrar; quando vierem os cargos, ela não muda.
+
+### Cargos
+
+- **GRV-40. Cada pessoa tem um cargo só, e os cargos têm uma ordem:** o **Dono** no topo, os **cargos criados** no meio, na ordem que o grupo escolheu (GRV-46), e o **Todos** embaixo. Quem entra (por convite ou pedido) entra no Todos.
+  - O Dono é fixo: não muda de nome nem de permissões, e não se apaga. Só se chega a ele ao receber o grupo (GRV-49).
+  - O Todos é fixo no nome e no lugar, e as permissões dele se editam (GRV-45). Não se apaga.
+  - _Por quê:_ um cargo por pessoa deixa claro o que cada uma pode, sem somar grupos de permissão. A ordem é o que impede um admin de tirar outro admin, ou de dar a si mesmo mais do que tem. "Todos", e não "Membro", para não confundir com o membro da participação (GRV-17).
+- **GRV-41. O que a pessoa pode é a soma do cargo dela com o Todos.** O Dono tem todas as permissões, inclusive as que entrarem no catálogo depois. Uma permissão nova no catálogo nasce desmarcada em todos os outros cargos, o Todos incluído.
+  - _Por quê:_ o Todos é o piso: liberar "convidar" para todos não pode deixar um Tesoureiro sem convidar. A permissão nova desmarcada evita que uma atualização do app dê poder a alguém sem o dono decidir.
+- **GRV-42. Quem tem `roles.manage` vê os cargos** (`GET /groups/{publicId}/roles`), na ordem (GRV-40): o id, o nome (os fixos vêm sem nome, e a tela traduz), as permissões, o número de pessoas e se quem pede pode mexer nele (GRV-43). A lista vem com a `version` dos cargos, que toda edição (GRV-44–47) manda de volta ([ADR 0016](../decisions/0016-version-confere-nas-edicoes.md)).
+- **GRV-43. Quem administra só age abaixo do próprio cargo.** "Abaixo" é mais embaixo na ordem (GRV-40); o mesmo cargo não é abaixo. Vale para:
+  - criar, editar, ordenar e apagar cargos (GRV-44–47);
+  - mudar o cargo de alguém (GRV-48): a pessoa e o cargo novo precisam estar abaixo;
+  - remover alguém (GRV-31);
+  - cancelar convites (GRV-20): os próprios e os de quem está abaixo.
+  - O Dono está acima de todos. Ninguém mexe no próprio cargo, nem o Dono (o dele só muda ao passar o grupo, GRV-49).
+  - Quem tenta agir no próprio nível ou acima recebe `GROUP_ROLE_TOO_HIGH` (403).
+  - A api diz o que quem pede pode mexer: `manageable` em cada cargo (GRV-42), em cada pessoa (GRV-29) e em cada convite (GRV-19). A tela não calcula a ordem.
+  - _Por quê:_ sem a ordem, quem pode gerenciar cargos pode se promover ou rebaixar quem o promoveu. É o mesmo desenho do Discord, que os grupos já conhecem.
+- **GRV-44. Criar um cargo** (`POST /groups/{publicId}/roles` `{ name, permissions, expectedVersion }`):
+  - o nome tem de 1 a 30 caracteres, sem os espaços das pontas, e não repete no grupo (sem diferenciar maiúsculas e acentos), nem com "Dono" e "Todos". Repetido responde `GROUP_ROLE_NAME_TAKEN` (409);
+  - as permissões são só as que quem cria tem (GRV-41); outra responde `GROUP_PERMISSION_DENIED` com a permissão;
+  - o cargo novo entra logo acima do Todos;
+  - o grupo tem no máximo **20 cargos criados**. O 21º responde `GROUP_ROLE_LIMIT` (409, `details.limit`).
+  - _Por quê:_ quem cria só pode dar o que tem, senão `roles.manage` valeria por todas. Logo acima do Todos, o cargo novo já nasce abaixo de quem criou. Nome único porque é ele que aparece na marca de cada pessoa.
+- **GRV-45. Editar um cargo abaixo do seu** (`PUT /groups/{publicId}/roles/{roleId}` `{ name, permissions, expectedVersion }`), com as regras de criar (GRV-44).
+  - Quem edita só marca ou desmarca as permissões que tem. As outras ficam como estão; mudar uma delas responde `GROUP_PERMISSION_DENIED`.
+  - No Todos, só as permissões mudam (o nome vem fixo e é ignorado), e ele não recebe `members.remove` nem `roles.manage` (`VALIDATION_ERROR`): não há ninguém abaixo dele para remover ou gerenciar.
+  - A mudança vale na próxima ação de cada pessoa do cargo: a api confere a cada ação (GRV-15), e a tela aberta relê ao receber `GROUP_PERMISSION_DENIED` (GRV-16).
+- **GRV-46. Ordenar os cargos** (`PUT /groups/{publicId}/roles/order` `{ roleIds, expectedVersion }`): a lista dos cargos criados, na ordem nova, do mais alto para o mais baixo. Só os que estão abaixo de quem ordena mudam de lugar, e só entre eles: o próprio cargo e os de cima ficam onde estavam. Uma lista que não tem exatamente os cargos criados (faltando, repetindo ou com um id que não existe) responde `VALIDATION_ERROR` (422). Uma lista que muda de lugar o próprio cargo de quem ordena, ou um de cima dele, responde `GROUP_ROLE_TOO_HIGH` (403). Quem não tem `roles.manage` responde `GROUP_PERMISSION_DENIED`, e a `version` velha, `VERSION_CONFLICT`.
+  - _Por quê:_ subir um cargo acima do próprio seria a mesma coisa que se promover.
+- **GRV-47. Apagar um cargo abaixo do seu** (`DELETE /groups/{publicId}/roles/{roleId}` `{ expectedVersion }`): as pessoas dele voltam para o Todos, sem aviso. Um cargo que não existe responde `GROUP_ROLE_NOT_FOUND` (404).
+  - _Por quê:_ apagar com pessoas dentro não pode deixar ninguém sem cargo, e o Todos é o de quem não tem outro.
+- **GRV-48. Mudar o cargo de alguém** (`PUT /groups/{publicId}/members/{userPublicId}/role` `{ roleId }`): quem tem `roles.manage` põe uma pessoa que está abaixo do seu cargo num cargo também abaixo, ou no Todos (GRV-43).
+  - Sem `version`: é uma escolha, e não um texto que se perde, como trocar o logo (GRV-09). A última escolha vale.
+  - O `roleId` é `everyone` (o Todos) ou o id de um cargo criado. Tentar dar o cargo de Dono (`roleId: owner`) é recusado pelo contrato com `VALIDATION_ERROR` (422): o Dono só se muda ao passar o grupo (GRV-49).
+  - Mudar para o cargo que a pessoa já tem não muda nada. Mudar a si mesmo responde `GROUP_ROLE_TOO_HIGH`. Quem não participa responde `GROUP_MEMBER_NOT_FOUND`, e um cargo que não existe, `GROUP_ROLE_NOT_FOUND`.
+  - Quem recebe um cargo criado é avisado (`group_role_granted`, com o nome do cargo e o link do grupo). Voltar para o Todos não avisa.
+  - _Por quê:_ quem ganha um cargo precisa saber que agora pode mais; quem perde vê na tela, sem o constrangimento do aviso.
+- **GRV-49. Passar o grupo** (`POST /groups/{publicId}/transfer` `{ userPublicId }`): só o Dono, para um membro (não uma reserva: o dono é sempre membro, GRV-17). Numa operação só, a pessoa vira o Dono, e o dono antigo fica com o cargo que ela tinha.
+  - Quem não é o Dono recebe `GROUP_OWNER_ONLY` (403). Uma reserva, ou passar para si mesmo, responde `VALIDATION_ERROR`; quem não participa, `GROUP_MEMBER_NOT_FOUND`.
+  - O novo dono é avisado (`group_transferred`, com o link do grupo).
+  - Depois de passar, o dono antigo pode sair (GRV-30).
+  - _Por quê:_ o grupo nunca fica sem dono, e quem passa decide para quem. A troca de cargos é o que menos surpreende: se a Ana passa para o Bruno, que era Admin, a Ana vira Admin; se ele estava no Todos, ela vai para o Todos, e o Bruno, agora dono, dá a ela o cargo que quiser. Passar o grupo não é permissão porque não se divide: há um dono só.
 
 ### Participação
 
-- **GRP-01. Quem cria é dono e membro.** O grupo nasce com o criador como membro. O dono não pode ser removido.
-- **GRP-02. Entrar pelo link define o papel.** O link de membro faz a pessoa entrar como membro, e o de reserva, como reserva.
-  - Se uma reserva aceita o link de membro, ela **vira membro**.
-  - Se um membro aceita o link de reserva, **nada muda**.
-  - Entrar de novo também não muda nada.
-  - Com os membros no limite, o link de membro responde `GROUP_MEMBERS_FULL`, e uma reserva que o abre continua reserva. Com as reservas no limite, o link de reserva responde `GROUP_RESERVES_FULL` (vale a GRP-39).
-  - _Por quê:_ ninguém é rebaixado por engano ao clicar no link errado. _(Alterada em 2026-11-10: antes, os links não tinham limite.)_
-- **GRP-03. A data de entrada nunca muda,** nem quando a reserva vira membro. A promoção fica registrada à parte (`roleChangedAt`).
-- **GRP-04. Quem não participa não sabe que o grupo existe.** Qualquer rota do grupo responde `GROUP_NOT_FOUND` (404) para quem não é membro nem reserva.
-  - Quem participa e tenta uma ação sem ter a permissão dela recebe `GROUP_PERMISSION_DENIED` (403 com corpo, `details.permission`). Numa ação só do dono (GRP-49), recebe `GROUP_NOT_OWNER` (403 com corpo).
-  - _Por quê:_ não vaza a existência do grupo, e o 403 com corpo não dispara a renovação de sessão do web.
-  - _Alterada em 2026-11-13:_ antes, toda ação restrita era só do dono.
-- **GRP-05. A reserva vê o que o membro vê** (grupo, jogo, lista, membros). Os três links só vão na resposta para quem tem `members.manage` (GRP-49). _(Alterada em 2026-11-13: antes, só para o dono.)_
-- **GRP-06. Ordem da lista de membros:** primeiro o dono, depois os membros e por último as reservas. Dentro de cada papel, ordena pela data de entrada, da mais antiga para a mais nova.
+- **GRV-17. Quem participa é membro ou reserva.** Os dois veem o mesmo: o grupo, os membros, as reservas e as partidas. A diferença é a prioridade nas partidas: a lista abre para os membros antes de abrir para as reservas (PAR-03 em [partidas.md](partidas.md)). _(Alterada em 2026-11-23: antes, a prioridade entrava com a agenda.)_
+  - A reserva vira membro por um convite de membro feito para ela (GRV-22, 23), e não sozinha.
+  - Ninguém é rebaixado por entrar: um membro que usa um convite de reserva continua membro (GRV-22).
+  - _Por quê:_ todo grupo tem os de sempre e os que completam quando falta gente. Subir para membro pelo convite deixa a pessoa aceitar, em vez de ser mudada sem saber.
 
-### Links
+### Convites
 
-- **GRP-07. São três links, um por papel:** membro e reserva (`/join/<token>`) e jogo, para convidados (`/play/<token>`).
-  - Gerar outro link **invalida o anterior na hora**. O link antigo responde `GROUP_INVITE_INVALID` ou `GAME_LINK_INVALID`.
-  - _Por quê:_ é assim que o dono bloqueia alguém sem precisar de lista de bloqueio. O token não é segredo de login, então o dono pode rever o link atual quando quiser.
-- **GRP-08. O link do jogo só funciona com os convidados ligados.** Com eles desligados, abrir, confirmar ou gerar o link responde `GAME_LINK_INVALID`.
-- **GRP-09. O link do jogo leva sempre ao jogo atual.** Qualquer pessoa logada vê o nome do grupo, o horário, o local, a lista com nomes e os times publicados ([TIM-09](times.md)), e pode confirmar quando a camada dos convidados abre. _(Alterada em 2026-11-11: entraram os times publicados.)_
-  - O convidado não vira membro e não vê os membros nem os links.
-  - Um membro ou reserva que abre o link é tratado pelo seu papel no grupo.
-  - _Por quê:_ o dono manda um link só no WhatsApp toda semana, sem encher a lista de membros.
+- **GRV-18. Quem tem `members.invite` cria convites** (`POST /groups/{publicId}/invites`). O grupo pode ter vários ao mesmo tempo, cada um com um link próprio (`/join/<token>`, com um token aleatório) e as suas regras:
 
-### Jogo
+  | Regra          | Valores                                                                              | Padrão          |
+  | -------------- | ------------------------------------------------------------------------------------ | --------------- |
+  | Entra como     | `member` ou `reserve`                                                                | `member`        |
+  | Validade       | 1, 7 ou 30 dias, ou sem prazo                                                        | 7 dias          |
+  | Limite de usos | de 1 a 100, ou sem limite                                                            | sem limite      |
+  | Para quem      | qualquer pessoa com o link, ou uma pessoa só, pelo id público ou pelo email (GRV-23) | qualquer pessoa |
+  - O convite guarda quem criou e quando.
+  - O grupo tem no máximo **50 convites ativos**. O 51º responde `GROUP_INVITE_LIMIT` (409, `details.limit`).
+  - _Por quê:_ o convite aberto no grupo do WhatsApp, o convite de reserva com poucos usos e o convite para uma pessoa só são situações diferentes, e cada uma pede a sua regra. O padrão de 7 dias faz o link esquecido parar de valer sozinho. O limite de ativos evita que o grupo acumule portas abertas sem ninguém saber.
 
-- **GRP-10. O jogo é calculado, não agendado.** Ele sai de `weekday` + `time` no fuso do grupo.
-  - O **jogo atual** é a primeira ocorrência com `início + 3 h > agora`.
-  - O jogo só vira item no banco na primeira confirmação ou no cancelamento. Antes disso a api devolve o jogo "virtual", com a lista vazia.
-  - _Por quê:_ não precisa de cron nem de recurso de infra, e jogo sem ninguém não gera item.
-- **GRP-11. Não há histórico.** Só o jogo atual existe. Uma rota com outra data responde `GAME_NOT_FOUND`.
-- **GRP-12. Estados do jogo:**
-  - `scheduled`: antes de a lista dos membros abrir;
-  - `open`: até o início;
-  - `in_progress`: do início até 3 h depois. A lista fica visível, mas ninguém confirma, desiste ou cancela;
-  - depois disso, o jogo atual passa a ser o da semana seguinte;
-  - `cancelled`: vale até o fim da mesma janela.
-  - _Por quê do máximo de 144 h:_ a lista do jogo seguinte abre no mínimo 24 h depois do início do atual, então nunca há dois jogos atuais.
-- **GRP-13. Fuso do grupo:** é o que vem no pedido. Se não vier, é o das preferências do dono (USR-07 em [usuarios.md](usuarios.md)), e se ele não tiver, `America/Sao_Paulo`.
-  - A api devolve os instantes em UTC, e o web mostra no fuso de quem lê ([ADR 0006](../decisions/0006-datas-utc-fuso-do-perfil.md)).
-  - O fuso do grupo só aparece na tela quando é diferente do fuso de quem lê.
+- **GRV-19. Quem tem `members.invite` vê os convites do grupo** (`GET /groups/{publicId}/invites`), do mais novo para o mais antigo. Cada um vem com o link, as regras, quem criou (perfil: id público, apelido e foto), os usos ("3 de 10"), quem entrou por ele (perfis) e a situação:
 
-### Camadas da lista
+  | Situação    | Quando                                                                  |
+  | ----------- | ----------------------------------------------------------------------- |
+  | `active`    | vale: dentro da validade, com usos sobrando, não cancelado nem recusado |
+  | `expired`   | passou da validade                                                      |
+  | `exhausted` | chegou ao limite de usos                                                |
+  | `revoked`   | alguém cancelou (GRV-20)                                                |
+  | `declined`  | a pessoa para quem era recusou (GRV-24)                                 |
+  - O convite que deixou de valer continua na lista por 30 dias e depois some.
+  - Todos com `members.invite` veem todos os convites, com o nome de quem criou. Cada um vem com `manageable`: se quem pede pode cancelar (GRV-20). _(Alterada em 2026-11-22: antes, todos cancelavam todos.)_
+  - _Por quê:_ quem administra precisa saber quais portas estão abertas, quem abriu e quem passou por elas. Os 30 dias deixam ver o que acabou de vencer sem a lista crescer para sempre.
 
-- **GRP-14. São três camadas, em horas antes do início:**
-  - membros: de 1 a 144;
-  - reservas: de 0 a 144;
-  - convidados: de 0 a 144, ou desligado.
-  - Elas precisam respeitar a ordem **membros ≥ reservas ≥ convidados**. Fora de ordem, a resposta é `GROUP_LAYERS_INVALID` (422, `details.field`).
-  - _Por quê:_ a única prioridade dos membros é poder confirmar mais cedo (ver GRP-17).
-- **GRP-15. Valores padrão, decididos pela api:**
-  - Na criação, sem nenhuma camada no pedido: **membros 48h**, **reservas 24h** e **convidados desligados**.
-  - Na criação, sem os membros e com outras camadas: membros 48h e as camadas que vieram (reservas acima de 48h respondem `GROUP_LAYERS_INVALID`, pela GRP-14).
-  - Na criação, com os membros e sem as reservas: reservas na metade das horas dos membros (arredondando para baixo).
-  - Grupo antigo sem o campo das reservas: elas abrem junto com os membros.
-  - _Por quê:_ quem cria o grupo não precisa decidir as camadas na hora (ver GRP-34), e o padrão é uma regra de negócio, então fica na api. O web não conhece esses números: ele só mostra o que a api gravou.
-- **GRP-16. Só quem tem `settings.edit` muda as camadas, os limites, as vagas e o mínimo** (GRP-49). O `PATCH /groups/{id}` só aceita as três camadas (e `null` desliga os convidados), os dois limites (GRP-38), as vagas (GRP-45) e o mínimo (GRP-46, `null` desliga). Nome e horário ainda não podem ser mudados. _(Alterada em 2026-11-10: antes, só as camadas. Alterada em 2026-11-11: entraram as vagas e o mínimo. Alterada em 2026-11-13: antes, só o dono.)_
-- **GRP-17. Cada um confirma a partir da sua camada.** Quem tenta confirmar antes recebe `GAME_LIST_NOT_OPEN`, com `details.opensAt` (o horário da camada de quem pede).
-  - O `status` do jogo é sempre o da camada dos membros.
-  - O `myOpensAt` diz quando quem pede pode confirmar.
+- **GRV-20. Cancelar um convite** (`DELETE /groups/{publicId}/invites/{inviteId}`) faz o link parar de valer na hora. Ele fica na lista como `revoked`. Cancelar um convite que já não vale não muda nada.
+  - Cada um cancela os próprios convites e os de quem está abaixo do seu cargo (GRV-43); o de outro responde `GROUP_ROLE_TOO_HIGH`. O convite de quem não participa mais conta como de alguém do Todos: quem tem `members.invite` num cargo acima dele cancela (o Dono, sempre). _(Alterada em 2026-11-22: entrou a ordem dos cargos.)_
+  - _Por quê:_ fechar uma porta não pode quebrar as outras: cada convite cancela sozinho. Pela ordem, um admin não fecha a porta que o dono abriu. O convite de quem saiu não pode ficar sem ninguém que o cancele.
+- **GRV-21. Qualquer pessoa logada que abre um convite que vale vê a apresentação do grupo** (`GET /invites/{token}`): o id público, o nome, o logo, a capa, o número de participantes, como ela vai entrar (membro ou reserva) e como ela já participa, se participa.
+  - Um convite que não vale responde `GROUP_INVITE_INVALID` (404), com o motivo em `details.reason`: `not_found`, `expired`, `exhausted`, `revoked` ou `declined`.
+  - Um convite para outra pessoa responde `GROUP_INVITE_NOT_FOR_YOU` (403), sem mostrar o grupo nem para quem é.
+  - _Por quê:_ a pessoa sabe onde está entrando antes de entrar, e o motivo deixa a tela dizer "este convite venceu, peça outro" em vez de um erro genérico. Os membros, com nome e foto, ficam só para quem entrou.
+- **GRV-22. Entrar por um convite** (`POST /invites/{token}/join`) responde o grupo (GRV-04) e depende de como a pessoa está:
 
-### Lista e fila
+  | Hoje a pessoa | Convite de membro | Convite de reserva |
+  | ------------- | ----------------- | ------------------ |
+  | não participa | entra como membro | entra como reserva |
+  | é reserva     | vira membro       | nada muda          |
+  | é membro      | nada muda         | nada muda          |
+  - Só o que muda alguma coisa gasta um uso. A data de entrada é a do primeiro dia e não muda quando a reserva vira membro.
+  - A participação guarda por qual convite a pessoa entrou ou subiu (GRV-29).
+  - Se a pessoa tinha um pedido esperando (GRV-27), ele some na mesma operação.
+  - O uso é contado dentro da própria gravação: duas pessoas entrando no último uso ao mesmo tempo nunca passam do limite. A segunda recebe `GROUP_INVITE_INVALID` com `exhausted`.
+  - _Por quê:_ abrir o convite duas vezes, ou o dono abrir o próprio convite, não pode dar erro, gastar uso nem rebaixar ninguém.
 
-- **GRP-18. A ordem é de chegada, sem furar fila.** Quem confirma primeiro fica com a vaga, seja membro, reserva ou convidado. Um membro que confirma com a lista cheia vai para a fila.
-  - _Por quê:_ é previsível ("confirmei, estou dentro"), e ninguém é tirado da lista depois.
-- **GRP-19. A fila é implícita.** Quem está numa posição menor que o número de vagas está dentro, e o resto está na fila. Não existe campo de status.
-  - Quando alguém de dentro sai, o primeiro da fila sobe sozinho.
-- **GRP-20. Confirmar de novo mantém a posição.** Quem desiste e confirma de novo vai para o fim. O dono só está na lista se confirmar.
-- **GRP-21. Confirmar e desistir só valem com a sua camada aberta e antes do início.**
-  - Com o jogo em andamento, a resposta é `GAME_CLOSED`.
-  - Com o jogo cancelado, é `GAME_CANCELLED`.
-  - Desistir sem estar na lista não faz nada.
-- **GRP-22. Aviso de promoção.** Quando alguém de dentro sai (porque desistiu ou foi removido), quem passou a ocupar a última vaga vindo da fila recebe a notificação `waitlist_promoted`. Quando as vagas aumentam (GRP-45), cada pessoa que subiu da fila recebe o mesmo aviso.
-  - O convidado recebe o link do jogo, e o membro ou a reserva, o link do grupo.
-  - _Alterada em 2026-11-11:_ entrou o aviso quando as vagas aumentam.
-- **GRP-23. O papel mostrado na lista é o papel atual,** calculado na leitura. Se uma reserva virar membro, a lista já mostra o novo papel.
+- **GRV-23. O convite para uma pessoa só** vale para ela e para mais ninguém, e tem sempre 1 uso.
+  - **Pelo id público:** a pessoa precisa existir (senão, `USER_NOT_FOUND`, 404). Ela recebe o aviso `group_invited`, com o link do convite.
+  - **Pelo email:** a pessoa entra estando logada com aquele email (o login é por código no email, então o email está confirmado). O email é guardado normalizado (minúsculas, sem espaços). Se já existe uma conta com ele, ela recebe o mesmo aviso; senão, o convite aparece quando ela criar a conta (GRV-24). O app ainda não manda email: quem cria copia o link e manda como quiser.
+  - Convidar quem já participa e não subiria com o convite (um membro, ou uma reserva para reserva) responde `VALIDATION_ERROR`.
+  - O email só aparece na lista de convites (GRV-19), para quem tem `members.invite`. A apresentação e os erros nunca mostram para quem é o convite.
+  - _Por quê:_ o convite pessoal é o jeito de chamar alguém específico, inclusive uma reserva para virar membro, sem que o link repassado sirva para outra pessoa. O aviso no app evita depender do WhatsApp para quem já tem conta.
+- **GRV-24. Convites para mim** (`GET /me/group-invites`): os convites que valem feitos para a pessoa, pelo id público ou pelo email dela, do mais novo para o mais antigo, com a apresentação de cada grupo (GRV-21) e quem convidou.
+  - Entrar é a GRV-22. Recusar (`DELETE /me/group-invites/{inviteId}`) deixa o convite como `declined`, sem aviso para quem convidou: ele vê na lista de convites (GRV-19).
+  - _Por quê:_ quem recebeu um convite pessoal acha ele no app, sem precisar do link, e pode dizer não sem constrangimento.
 
-### Vagas e mínimo
+### Grupo aberto
 
-- **GRP-45. As vagas têm um padrão do grupo e podem mudar em cada jogo.**
-  - As **vagas** são quantos ficam dentro da lista (GRP-19), de 2 a 50. Com as vagas cheias, quem confirma vai para o Banco, como sempre (GRP-18).
-  - O padrão vem da criação do grupo, e quem tem `settings.edit` muda nos Ajustes. Quem tem `game.manage` muda as vagas **só do jogo atual** (`PATCH /groups/{id}/games/{date}`), e o padrão do grupo não muda. _(Alterada em 2026-11-13: antes, só o dono.)_ Sem valor próprio, o jogo usa o padrão, inclusive se ele mudar depois.
-  - **Aumentar** as vagas faz quem está no Banco subir na ordem da fila, com o aviso de promoção (GRP-22).
-  - **Diminuir** não pode deixar menos vagas do que quem já está dentro: a resposta é `GAME_SLOTS_BELOW_CONFIRMED` (409, `details.confirmed` = quantos estão dentro). Vale também para o padrão do grupo, quando o jogo atual não tem valor próprio.
-  - O jogo pode voltar a usar o padrão do grupo ("Usar o padrão do grupo"), com as mesmas regras de aumentar e diminuir.
-  - Mudar o jogo segue o prazo de confirmar (GRP-21): em andamento, `GAME_CLOSED`; cancelado, `GAME_CANCELLED`. Outra data, `GAME_NOT_FOUND` (GRP-11).
-  - _Por quê:_ tem semana em que o grupo chama 14 em vez de 12. Não diminuir abaixo de quem está dentro mantém a GRP-18: quem confirmou dentro não é tirado da lista depois.
-- **GRP-46. O mínimo para o jogo acontecer é opcional,** de 2 até as vagas. Também tem o padrão do grupo (nos Ajustes, desligado em grupo novo e nos antigos) e um valor só do jogo atual, como as vagas (GRP-45).
-  - Com o mínimo, o jogo está **confirmado** quando o número de quem está dentro chega ao mínimo. Se alguém desiste e o número cai, ele volta a não estar confirmado.
-  - Mínimo acima das vagas responde `GROUP_MIN_PLAYERS_INVALID` (422, `details.max` = as vagas). Isso vale ao mudar qualquer um dos dois.
-  - O jogo não é cancelado sozinho por não chegar ao mínimo: quem decide cancelar é quem tem `game.manage` (GRP-24).
-  - _Por quê:_ com 10 de 12 já dá jogo. A lista precisa saber se o jogo vai acontecer, sem esperar fechar as 12. Cancelar sozinho precisaria de um horário de corte e de um agendador, que o jogo calculado não tem (GRP-10).
-- **GRP-47. Aviso de jogo confirmado:** na **primeira** vez que o jogo atinge o mínimo (por uma confirmação, por mais vagas ou por um mínimo menor), o aviso `game_confirmed` vai para todos da lista (dentro e fila), menos quem fez a mudança (quem confirmou, ou quem mudou as vagas ou o mínimo). Se o número cair e voltar ao mínimo, não avisa de novo. _(Alterada em 2026-11-13: antes, menos o dono.)_
-  - O link é o grupo; para o convidado, o link do jogo (como o GRP-22).
-  - _Por quê:_ é a notícia que todos esperam ("vai ter jogo"). Repetir a cada sobe e desce seria barulho.
+- **GRV-25. O grupo tem um modo de entrada:** `invite` (o padrão, ao criar), em que só se entra por convite, ou `open`, em que também se entra por um pedido aceito (GRV-27). Quem tem `group.edit` muda o modo (`PUT /groups/{publicId}/join-mode` `{ mode, expectedVersion }`), com a `version` conferida ([ADR 0016](../decisions/0016-version-confere-nas-edicoes.md)). Os convites funcionam nos dois modos. O grupo vem com o modo (`joinMode`, GRV-04), para a tela mostrar o atual (GRV-38). _(Alterada em 2026-11-22: entrou o `joinMode` na resposta do grupo.)_
+  - Voltar para `invite` com pedidos esperando não apaga os pedidos: eles continuam para aceitar ou recusar (GRV-28), mas ninguém pede de novo.
+  - _Por quê:_ a maioria dos grupos é fechada (os amigos de sempre), por isso o convite é o padrão. O modo aberto prepara o grupo para ser achado (o marketplace) sem perder o controle de quem entra.
+- **GRV-26. No grupo aberto, quem é de fora vê a apresentação pelo código** (`GET /groups/{publicId}/preview`): o id público, o nome, o logo, a capa, o número de participantes e, se a pessoa tem um pedido esperando, a data dele. No grupo de convite, a resposta é `GROUP_NOT_FOUND`, como em GRV-04. Quem já participa recebe a mesma apresentação, com a participação dela (`myTier`). _(Alterada em 2026-11-22: entrou o caso de quem já participa.)_
+  - _Por quê:_ o grupo aberto quer ser achado, e o código na URL é o jeito de compartilhar sem um convite de entrada direta.
+- **GRV-27. No grupo aberto, quem é de fora pede para entrar** (`POST /groups/{publicId}/requests`). No grupo de convite, a resposta é `GROUP_NOT_FOUND`.
+  - Pedir de novo com um pedido esperando não muda nada (nem avisa de novo). Quem já participa recebe `VALIDATION_ERROR`. A resposta é a apresentação (GRV-26), já com a data do pedido. _(Alterada em 2026-11-22: entraram o aviso que não se repete e a resposta.)_
+  - Quem tem `members.invite` recebe o aviso `group_join_requested`, com o link para os Membros do grupo.
+  - A pessoa cancela o próprio pedido (`DELETE /groups/{publicId}/requests/me`), em qualquer modo. Sem pedido, nada muda.
+  - _Por quê:_ quem pede espera a resposta sem ficar mandando de novo, e pode desistir.
+- **GRV-28. Quem tem `members.invite` vê, aceita e recusa os pedidos** (`GET /groups/{publicId}/requests`, do mais antigo para o mais novo, com o perfil de cada pessoa).
+  - Aceitar (`POST /groups/{publicId}/requests/{userPublicId}/approve` `{ tier }`) faz a pessoa participar como membro ou como reserva, quem aceita escolhe, e apaga o pedido, numa operação só. Ela recebe o aviso `group_join_approved`, com o link do grupo. Se ela já tinha entrado por um convite, só o pedido some, sem aviso e sem mudar a participação. _(Alterada em 2026-11-22: entrou o "sem aviso e sem mudar a participação".)_
+  - Recusar (`DELETE /groups/{publicId}/requests/{userPublicId}`) apaga o pedido, sem aviso. A pessoa pode pedir de novo.
+  - Um pedido que não existe mais (cancelado, recusado ou aceito por outra pessoa) responde `GROUP_REQUEST_NOT_FOUND` (404).
+  - _Por quê:_ quem aceita conhece a pessoa e decide se ela é dos de sempre ou dos que completam. Recusar sem aviso evita o constrangimento num grupo de amigos.
 
-### Cancelar e remover
+### Membros
 
-- **GRP-24. Só quem tem `game.manage` cancela o jogo atual, e só antes do início.** O aviso `game_cancelled` vai para todos da lista (dentro e fila), menos quem cancelou. _(Alterada em 2026-11-13: antes, só o dono, e o aviso ia para todos menos o dono.)_
-  - Cancelar de novo devolve o jogo como está, sem avisar outra vez.
-  - Quem confirma no mesmo instante do cancelamento **ou** recebe `GAME_CANCELLED` sem ser gravado, **ou** entra na lista e recebe o aviso. Nunca fica confirmado num jogo cancelado sem ser avisado.
-  - _Por quê:_ a confirmação confere o jogo dentro da própria gravação, e não só antes dela. Assim, uma das duas operações sempre vem antes da outra.
-- **GRP-44. Só quem tem `game.manage` reabre o jogo cancelado, e só antes do início** (`POST /groups/{id}/games/{date}/reopen`). _(Alterada em 2026-11-13: antes, só o dono.)_
-  - a lista volta como estava: quem estava dentro continua dentro, e a fila, na mesma ordem;
-  - o aviso `game_reopened` vai para todos da lista (dentro e fila), menos quem reabriu;
-  - reabrir um jogo que não está cancelado devolve o jogo como está, sem avisar ninguém;
-  - com o jogo já no horário de início, a resposta é `GAME_CLOSED`, e com o grupo arquivado, `GROUP_ARCHIVED` (GRP-32). Um arquivamento no mesmo instante é barrado dentro da gravação: ou o jogo reabre antes e o arquivamento cancela de novo (GRP-31), ou a reabertura recebe `GROUP_ARCHIVED`;
-  - cancelar de novo depois de reabrir avisa outra vez (GRP-24), com a data do novo cancelamento.
-  - _Por quê:_ o dono cancela por engano, ou o motivo do cancelamento some (por exemplo, desarquivou o grupo, GRP-33). Manter a lista não tira a vaga de ninguém, e o aviso conta para quem já tinha feito outros planos.
-- **GRP-25. Quem tem `members.manage` remove um membro ou uma reserva.** O dono nunca é removido, nem por ele mesmo (`GROUP_OWNER_NOT_REMOVABLE`), e quem tem cargo só o dono remove (GRP-53). Quem não é dono e remove a si mesmo recebe `VALIDATION_ERROR`: para isso existe sair do grupo (GRP-42). _(Alterada em 2026-11-13: antes, só o dono removia.)_ Numa operação só, a pessoa:
-  - perde o acesso;
-  - tem o link do seu papel trocado;
-  - perde a vaga, se o jogo está `scheduled`, `open` ou `cancelled` e ela estava na lista. Com o jogo em andamento, a vaga fica. Com o jogo cancelado, ninguém é avisado de promoção (GRP-22); _(alterada em 2026-11-10: antes, com o jogo cancelado a vaga ficava, e voltaria com a reabertura, GRP-44)_
-  - perde o convite para membro pendente, se tinha (GRP-40);
-  - perde o cargo, se tinha (GRP-48);
-  - libera um lugar no limite do seu papel (GRP-39).
-  - Depois vale a GRP-22. O removido não é notificado.
-  - _Por quê:_ ela perde o acesso e a vaga de uma vez, e a troca do link impede que volte pelo link antigo.
-- **GRP-26. Remoção ao mesmo tempo que outra mudança:** se a pessoa saiu antes, a resposta é `GROUP_MEMBER_NOT_FOUND`.
-  - Se o papel ou o link mudaram no meio, a operação relê e tenta de novo, até 3 vezes.
-
-### Limites, convite para membro e sair
-
-- **GRP-38. O grupo tem um limite de membros e um de reservas.** Quem tem `settings.edit` muda os dois, nos Ajustes (GRP-16).
-  - Membros: de 2 a 30, contando o dono. Reservas: de 0 a 30. Com 0, o grupo não aceita reservas.
-  - Grupo novo nasce com **30 membros e 30 reservas**. Quem decide o padrão é a api, como nas camadas (GRP-15), e o form de criar não pede os limites (GRP-34).
-  - Abaixar um limite para menos do que o grupo já tem **não tira ninguém**. Só impede novas entradas naquele papel até sobrar lugar.
-  - _Por quê:_ o dono controla o tamanho do grupo (ex.: 14 membros fixos), e o teto de 30 mantém a lista de membros e os avisos pequenos para o sistema.
-- **GRP-39. O limite vale para toda entrada num papel:** pelo link (GRP-02) e pelo convite para membro (GRP-41). Duas entradas ao mesmo tempo nunca passam do limite: a segunda recebe `GROUP_MEMBERS_FULL` ou `GROUP_RESERVES_FULL`.
-  - Uma reserva que vira membro ocupa um lugar de membro e libera um de reserva.
-  - Remover (GRP-25) e sair (GRP-42) liberam o lugar na hora.
-  - _Por quê:_ o limite é conferido dentro da própria gravação, e não só antes dela (como na GRP-24).
-- **GRP-40. Quem tem `members.manage` convida uma reserva para virar membro, dentro do app.** Na lista de membros, a pessoa escolhe a reserva, e ela recebe o aviso `member_invite`, com o link do grupo. _(Alterada em 2026-11-13: antes, só o dono.)_
-  - Só com lugar de membro livre. Com os membros no limite, convidar responde `GROUP_MEMBERS_FULL`.
-  - Cada reserva tem no máximo um convite pendente. Convidar de novo devolve o pendente, sem avisar outra vez.
-  - O convite vence em **7 dias**. Vencido, conta como inexistente, e dá para convidar de novo.
-  - Quem tem `members.manage` pode cancelar o convite pendente, inclusive o que outra pessoa mandou. Cancelar um que não existe não faz nada.
-  - Convidar quem não é reserva responde `GROUP_MEMBER_NOT_FOUND`.
-  - Ninguém convida a si mesmo: a resposta é `VALIDATION_ERROR`, e a tela não oferece o convite na linha da própria pessoa. _(Nova em 2026-11-13.)_ _Por quê:_ o cargo não muda a participação (GRP-48). Sem isso, a reserva com `members.manage` subiria sozinha para membro com um toque.
-  - **O convite não segura o lugar.** Quem entrar primeiro (pelo convite ou pelo link de membro) fica com ele.
-  - _Por quê:_ o dono escolhe quem sobe sem espalhar o link de membro, que serve para qualquer pessoa. Segurar o lugar exigiria liberá-lo quando o convite vence, sem que ninguém precise fazer nada.
-- **GRP-41. A reserva aceita ou recusa o convite** na página do grupo.
-  - Aceitar faz dela membro, com o `roleChangedAt` (GRP-03), e só se ainda houver lugar. Sem lugar, a resposta é `GROUP_MEMBERS_FULL`, ela continua reserva e o convite continua valendo até vencer.
-  - Recusar apaga o convite. O dono não é avisado: ele vê na lista que o convite sumiu.
-  - Aceitar ou recusar sem convite pendente (vencido, cancelado ou já usado) responde `GROUP_MEMBER_INVITE_INVALID`.
-  - Se a reserva vira membro pelo link de membro, o convite pendente é apagado.
-- **GRP-42. Membros e reservas podem sair do grupo sozinhos.** O dono não pode (`GROUP_OWNER_NOT_REMOVABLE`): para sair, ele passa o grupo para outro membro antes (GRP-54). Numa operação só, quem sai:
-  - perde o acesso;
-  - perde a vaga no jogo, se ele está `scheduled`, `open` ou `cancelled` e ela estava na lista (como na GRP-25). Com o jogo em andamento, a vaga fica;
-  - perde o convite para membro pendente, se tinha;
-  - perde o cargo, se tinha (GRP-48). Se voltar pelo link, volta sem cargo;
-  - libera um lugar no limite do seu papel.
-  - Depois vale a GRP-22. **O link do papel não muda,** e ninguém é avisado.
-  - Se a pessoa já tinha saído (ou foi removida no meio), a resposta é `GROUP_MEMBER_NOT_FOUND`. Se o papel mudou no meio, a operação relê e tenta de novo, como na GRP-26.
-  - _Por quê:_ é o caminho mais comum para abrir um lugar de membro. O link não muda porque quem sai não está sendo bloqueado: pode voltar pelo link, se houver lugar.
-
-### Arquivar
-
-- **GRP-31. Só o dono arquiva o grupo.** Ao arquivar:
-  - o grupo sai de "meus grupos" e passa a aparecer só na lista de arquivados;
-  - os três links param de funcionar na hora (`GROUP_INVITE_INVALID` ou `GAME_LINK_INVALID`);
-  - o jogo atual é cancelado, com o aviso da GRP-24, se estiver `scheduled` ou `open`. Um jogo `in_progress` fica como está. Um jogo ainda virtual (ninguém confirmou, GRP-10) não vira item: não há quem avisar;
-  - membros e reservas continuam no grupo, com os mesmos papéis e datas.
-  - Arquivar de novo não muda a data de arquivamento, mas cancela o jogo que tenha ficado sem cancelar.
-  - _Por quê:_ apagar um grupo envolve milhares de itens, o que não cabe numa operação só, e apagaria o histórico de que a E4 e a E6 dependem. Arquivar custa o mesmo para qualquer tamanho de grupo e pode ser desfeito.
-- **GRP-32. Grupo arquivado é só leitura.** Membros e reservas ainda leem o grupo (com `archivedAt`) e a lista de membros.
-  - Pedir o jogo atual, confirmar, desistir, mudar as camadas ou os limites, trocar um link, remover alguém, cancelar o jogo, convidar para membro, aceitar ou recusar o convite e sair do grupo responde `GROUP_ARCHIVED` (409). _(Alterada em 2026-11-10: entraram os limites, o convite para membro e sair do grupo.)_
-  - Quem confirma no mesmo instante do arquivamento recebe `GROUP_ARCHIVED` e não é gravado (como na GRP-24).
-  - _Por quê do jogo atual:_ sem histórico (GRP-11), um grupo arquivado não tem jogo para mostrar.
-- **GRP-33. Só o dono desarquiva.** O grupo volta para "meus grupos" de todos, com **três links novos**. Os links antigos não voltam a valer. Desarquivar um grupo ativo não muda nada.
+- **GRV-29. Quem participa vê os membros e as reservas** (`GET /groups/{publicId}/members`): o perfil de cada pessoa (id público, apelido e foto, sem email nem nome, USR-13), a participação, o cargo, a data de entrada e quem a convidou (o perfil de quem criou o convite pelo qual ela entrou ou subiu, quando houver). Primeiro o dono, depois os membros e por último as reservas; dentro de cada um, pela data de entrada, do mais antigo para o mais novo.
+  - Quem convidou fica guardado na participação, ao entrar ou subir: continua aparecendo depois que o convite some da lista (GRV-19). _(Alterada em 2026-11-21: antes, vinha do convite e sumia 30 dias depois de ele deixar de valer.)_
+  - Para quem tem `members.invite`, cada pessoa vem também com o id do convite pelo qual entrou ou subiu (GRV-37).
+  - O cargo de cada pessoa vem com o id e o nome (os fixos sem nome, GRV-42), e com `manageable`: se quem pede está acima dela (GRV-43). _(Alterada em 2026-11-22: entraram o cargo criado e o `manageable`.)_
+  - _Por quê:_ quem joga junto precisa saber quem é do grupo e quem trouxe quem, e isso não vence com o convite. A data de entrada dá a ordem que não muda quando alguém troca de apelido.
+- **GRV-30. Quem participa sai do grupo sozinho** (`DELETE /groups/{publicId}/members/me`). A participação some na hora, e o grupo sai dos grupos da pessoa (GRV-05). O dono não sai (`GROUP_OWNER_NOT_REMOVABLE`, 409): antes, ele passa o grupo para outra pessoa (GRV-49). _(Alterada em 2026-11-22: entrou passar o grupo.)_
+  - Quem saiu pode voltar por um convite (GRV-22) ou por um pedido (GRV-27), como alguém novo.
+  - _Por quê:_ ninguém fica preso num grupo. O grupo nunca fica sem alguém que responde por ele.
+- **GRV-31. Quem tem `members.remove` remove alguém do grupo** (`DELETE /groups/{publicId}/members/{userPublicId}`), membro ou reserva, com o mesmo efeito de sair (GRV-30). A pessoa removida não é avisada.
+  - Ninguém remove o dono, e o erro depende de quem pede: o próprio dono tentando se remover recebe `GROUP_OWNER_NOT_REMOVABLE` (409); quem tem outro cargo (um Admin, por exemplo) recebe `GROUP_ROLE_TOO_HIGH` (403), porque o dono está acima de todos (GRV-43). Remover a si mesmo (sem ser o dono) responde `VALIDATION_ERROR`: para isso existe sair. Quem não participa responde `GROUP_MEMBER_NOT_FOUND` (404).
+  - Só se remove quem está abaixo do próprio cargo (GRV-43); os outros respondem `GROUP_ROLE_TOO_HIGH`. _(Alterada em 2026-11-22: entrou a ordem dos cargos.)_
+  - Os convites não mudam sozinhos: a tela oferece cancelar o convite pelo qual a pessoa entrou, se ele ainda vale (GRV-37).
+  - _Por quê:_ cancelar sozinho fecharia a porta para todos os outros que usam o mesmo convite. Quem remove decide. Pela ordem, um admin não remove outro admin nem quem o promoveu.
 
 ### Logo e capa
 
-- **GRP-35. Só quem tem `settings.edit` troca e remove o logo e a capa do grupo.** São as mídias de finalidade `group.logo` (512×512) e `group.cover` (1600×600), as duas até 2 MB e públicas (MID-02 em [midia.md](midia.md)). O envio, a conferência, a troca e a remoção seguem as regras da mídia.
-  - Quem não tem a permissão recebe `GROUP_PERMISSION_DENIED`, tanto ao pedir o envio quanto ao confirmar (MID-01). Quem perdeu o cargo no meio do envio é barrado ao confirmar.
-  - Com o grupo arquivado, pedir o envio, trocar ou remover responde `GROUP_ARCHIVED` (vale a GRP-32).
-  - _Por quê:_ o logo e a capa identificam o grupo para todos, então quem decide é quem cuida dos ajustes do grupo.
-  - _Alterada em 2026-11-13:_ antes, só o dono.
-
-### Cargos e permissões
-
-- **GRP-48. Papel e cargo são coisas diferentes.** O papel (membro ou reserva) diz como a pessoa **participa**: a camada em que confirma (GRP-17), o limite em que conta (GRP-38) e o link por onde entra (GRP-02). O cargo diz o que ela **administra** (GRP-49).
-  - Membros e reservas podem ter cargo. O convidado não, porque não participa do grupo (GRP-09).
-  - Cada pessoa tem **no máximo um cargo**. O dono não tem cargo: ele pode tudo.
-  - Virar membro (GRP-02, 41) não muda o cargo. Sair (GRP-42) e ser removido (GRP-25) tiram o cargo.
-  - _Por quê:_ ajudar a organizar não tem relação com a prioridade na lista. A reserva que monta os times continua confirmando depois dos membros, e dar um cargo não ocupa lugar de membro. Um cargo só por pessoa deixa claro o que cada um pode, sem somar listas.
-- **GRP-49. As permissões são um catálogo fixo,** por assunto:
-
-  | Permissão        | O que libera                                                                                                                                                                              |
-  | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-  | `game.manage`    | as vagas e o mínimo só do jogo atual (GRP-45, 46), cancelar (GRP-24) e reabrir o jogo (GRP-44)                                                                                            |
-  | `teams.manage`   | as posições (TIM-03, 04), os times do jogo, o sorteio e os avulsos (TIM-07, 15, 16, 24) e a configuração de times do grupo (TIM-17)                                                       |
-  | `members.manage` | ver e gerar os links (GRP-05, 07), remover alguém (GRP-25) e o convite para membro (GRP-40)                                                                                               |
-  | `settings.edit`  | as camadas, os limites, as vagas e o mínimo padrão (GRP-16, 38, 45, 46) e o logo e a capa (GRP-35)                                                                                        |
-  | `seasons.manage` | o regulamento da competição ([CMP-07](competicao.md)) e as temporadas (abrir, programar e encerrar, CMP-30, 32). Só vale com a competição ativa no grupo (CMP-04)                         |
-  | `results.record` | fechar os jogos na competição: a chamada, o resultado do dia e o amistoso ([CMP-11](competicao.md)), e corrigir os já fechados (CMP-15). Só vale com a competição ativa no grupo (CMP-04) |
-  - **Só do dono, sempre:** arquivar e desarquivar (GRP-31, 33), dar e tirar cargo (GRP-51), remover quem tem cargo (GRP-53), passar o grupo (GRP-54) e começar o teste da competição ([CMP-02](competicao.md)). Nenhum cargo libera isso. Quem não é dono recebe `GROUP_NOT_OWNER`.
-  - _(Alterada em 2026-11-14: entraram `seasons.manage` e `results.record`, com a competição.)_
-  - O dono tem todas as permissões. Quem não tem cargo não tem nenhuma.
-  - _Por quê:_ por assunto, o dono entende o cargo de uma vez ("cuida dos times"), sem uma caixinha por botão. O que fica só com o dono é o que muda quem manda no grupo: se um cargo pudesse dar cargos, alguém daria a si mesmo o que não tem.
-
-- **GRP-50. Todo grupo tem o cargo "Admin",** com todas as permissões do catálogo (GRP-49). Por enquanto é o único cargo, e ninguém muda o nome nem as permissões dele. Criar outros cargos fica para depois (seção 5).
-- **GRP-51. Só o dono dá e tira o cargo** de um membro ou reserva (`PUT`/`DELETE /groups/{id}/members/{userId}/staff-role`).
-  - Dar o cargo que a pessoa já tem, ou tirar de quem não tem, não muda nada.
-  - Para quem não participa do grupo, a resposta é `GROUP_MEMBER_NOT_FOUND`. Para o próprio dono, `VALIDATION_ERROR` (ele não tem cargo, GRP-48).
-  - Quem recebe um cargo recebe o aviso `staff_role_granted`, com o link do grupo. Quem perde não é avisado, como na remoção (GRP-25).
-  - Com o grupo arquivado, a resposta é `GROUP_ARCHIVED` (GRP-32).
-- **GRP-52. A permissão é conferida a cada ação, na api.** Quem perde o cargo com a tela aberta é barrado na próxima ação (`GROUP_PERMISSION_DENIED`), e a tela se ajusta (GRP-57). _(Alterada em 2026-11-13: antes, a tela só mudava ao recarregar.)_
-  - Um cargo que não existe mais conta como "sem cargo".
-  - A ordem dos erros é sempre: quem não participa recebe `GROUP_NOT_FOUND` (GRP-04), depois vem a permissão (`GROUP_PERMISSION_DENIED` ou `GROUP_NOT_OWNER`) e só então o grupo arquivado (`GROUP_ARCHIVED`, GRP-32).
-  - _Por quê:_ a tela só esconde o que a pessoa não pode fazer (GRP-55). Quem decide é sempre a api.
-- **GRP-53. Quem tem cargo só o dono remove.** Com `members.manage`, remover quem tem cargo responde `GROUP_NOT_OWNER`. Mudar as posições (TIM-04) e o convite para membro (GRP-40) de quem tem cargo seguem as regras normais.
-  - _Por quê:_ um admin não tira outro admin do grupo. Quem responde pelo grupo decide quem ajuda a organizar.
-- **GRP-54. O dono passa o grupo para um membro** (`POST /groups/{id}/transfer` `{ userId }`). Numa operação só:
-  - a pessoa vira a dona e perde o cargo que tinha (o dono não tem cargo, GRP-48);
-  - o dono antigo continua membro, agora com o cargo **Admin** (GRP-50). O novo dono pode tirar o cargo depois;
-  - os links, o jogo, a lista e os times não mudam;
-  - o novo dono recebe o aviso `group_transferred`, com o link do grupo.
-  - Só para um **membro** (a reserva não, porque o dono é membro, GRP-01). Para uma reserva, para quem não participa ou para quem saiu no meio, a resposta é `GROUP_MEMBER_NOT_FOUND`. Para o próprio dono, `VALIDATION_ERROR`.
-  - Com o grupo arquivado, a resposta é `GROUP_ARCHIVED` (GRP-32).
-  - _Por quê:_ é o único jeito de o dono sair do grupo (GRP-42) sem largar o grupo sem ninguém. Ficar como Admin evita que quem organizava perca tudo de uma vez por engano.
-- **GRP-55. A api diz o que cada pessoa pode fazer:** o grupo (`GET /groups/{id}`) vem com `myPermissions`, a lista das permissões de quem pede (GRP-49), e a lista de membros traz o cargo de cada pessoa (`staffRole`, com o nome).
-  - _Por quê:_ o web não calcula permissão. Ele só mostra ou esconde pelo que a api devolveu, e as regras de quem pode o quê ficam num lugar só.
-- **GRP-36. Todos que veem o grupo veem o logo e a capa:** membros, reservas e convidados pelo link do jogo (`logoUrl` e `coverUrl` no grupo).
+- **GRV-09. Só quem tem `group.edit` (GRV-15) troca e remove o logo e a capa do grupo.** São as mídias de finalidade `group.logo` (512×512) e `group.cover` (1600×600), as duas até 2 MB e públicas (MID-02 em [midia.md](midia.md)). O envio, a conferência, a troca e a remoção seguem as regras da mídia (MID-03 a MID-11), pelas rotas `/groups/{publicId}/images/{slot}`, com `slot` = `logo` ou `cover`. _(Alterada em 2026-11-21: antes, só o dono, com `GROUP_NOT_OWNER`.)_
+  - Quem não participa, ou um código que não existe, recebe `GROUP_NOT_FOUND` (404), como em GRV-04. Quem participa e não tem a permissão recebe `GROUP_PERMISSION_DENIED` (403).
+  - A permissão é conferida nos dois passos, ao pedir o envio e ao confirmar (MID-01).
+  - Trocar e remover não mandam a `version`: somam 1 nela e gravam o `updatedAt` ([ADR 0013](../decisions/0013-version-e-updatedat.md)), sem conferir. Confirmar de novo a mesma imagem não muda nada (MID-07).
+  - _Por quê:_ o logo e a capa identificam o grupo para todos, então quem decide é quem responde por ele (GRV-02) ou quem ele liberar (GRV-15). Sem versão, duas trocas ao mesmo tempo não dão erro: a mídia já garante que só uma vale (MID-08), e não há nada digitado na tela para perder.
+- **GRV-10. Todos que veem o grupo veem o logo e a capa:** o grupo vem com `logoUrl` e `coverUrl` (cada um só quando existe) em todas as respostas (GRV-04, 05, a apresentação e as rotas de imagem). A URL é montada na resposta a partir do id da mídia (MID-12) e não leva o id do sistema do grupo.
 
 ### Telas (web)
 
-- **GRP-27. A tela `/groups` tem três abas, e uma quarta quando há grupo arquivado** (na query `?tab=`):
-  - **Próximos jogos**: todos os grupos ativos, do jogo mais próximo para o mais distante, com os cancelados no fim;
-  - **Meus grupos**: os grupos ativos de que a pessoa é dona;
-  - **Participo**: os demais grupos ativos;
-  - **Arquivados**: só aparece se a pessoa participa de algum grupo arquivado (GRP-31). Do arquivado mais recente para o mais antigo, com a contagem na aba ("Arquivados · 2"). `?tab=archived` sem nenhum arquivado cai em Próximos jogos.
-  - A tela vazia, com o botão "Criar grupo", só aparece quando não há grupo nenhum, nem arquivado.
-  - _Por quê:_ quem arquivou precisa de um caminho de volta para desarquivar (GRP-33), sem misturar grupos parados com as listas do dia a dia. _(Alterada em 2026-11-10: antes, eram só as três abas.)_
-- **GRP-28. A frase do card segue esta prioridade:**
-  0. arquivado: "Arquivado em {data}", sem placar (o grupo arquivado não tem jogo, GRP-32);
-  1. cancelado;
-  2. em andamento;
-  3. "você joga · Nº";
-  4. "na fila · Nº";
-  5. "abre {data}" (a camada de quem lê ainda não abriu);
-  6. vagas que faltam, ou lotado. Com o mínimo (GRP-46), "faltam N para fechar" até chegar nele, e "jogo confirmado" depois. _(Alterada em 2026-11-11.)_
-- **GRP-29. A página do grupo tem quatro abas, e uma quinta com a competição, cada uma com um assunto só:** Jogo, Times, Membros, **Competição** (só quando a competição do grupo não está desativada, [CMP-09](competicao.md)) e Ajustes (este, só para quem tem `settings.edit`, `teams.manage`, `game.manage` ou `seasons.manage`, ou é o dono). _(Alterada em 2026-11-14: entrou a aba Competição.)_ O nome da aba não leva contagem: as contagens ficam nas seções de dentro.
-  - Cada ação de administração aparece só para quem tem a permissão dela (GRP-49, 56). Abaixo, "o dono" quer dizer quem tem a permissão daquela ação, e "só o dono" é o que GRP-49 deixa só para ele. _(Alterada em 2026-11-13: antes, todas as ações eram do dono.)_
-  - **Jogo** ("eu jogo?"): placar confirmados:vagas, com o mínimo embaixo ("faltam 2 para fechar · mínimo 10" ou "Jogo confirmado ✓", GRP-46). Para quem tem `game.manage`, antes do início e com o jogo valendo, o botão "Vagas deste jogo" embaixo do placar abre o painel (vagas, mínimo e "Usar o padrão do grupo", GRP-45), e um valor só do jogo aparece marcado ("só neste jogo"). Depois, ação conforme o estado, abertura das camadas, a **linha Times**, Escalação (uma linha por vaga) e Banco (só com fila). Cada pessoa da lista mostra as suas posições, convidados inclusive, e o dono as muda ali ([TIM-05](times.md));
-    - a **linha Times** é um atalho de uma linha para a aba Times. Para quem está num time publicado: "Você está no Time 2". Com times publicados e a pessoa fora deles: "Times publicados". Para o dono, o estado: "Times: ainda não montados", "Times: rascunho" ou "Times: publicados". Sem times publicados, quem não é dono não vê a linha. Com o jogo cancelado, a linha some;
-    - a **linha Competição**, para quem tem `results.record`, com o jogo já começado (em andamento, ou cancelado com o horário passado) e a competição ativa: "Fechar o jogo" ou "Jogo fechado · corrigir", que abre o painel de fechar ([CMP-17](competicao.md)). _(Alterada em 2026-11-14.)_
-  - **Times**: os times do jogo da semana ([TIM-14](times.md));
-  - **Membros**: membros e reservas separados, cada parte com a contagem e o limite ("Membros · 13/14"). Cada pessoa mostra as suas posições, e o dono as muda ali ([TIM-05](times.md)). As ações do dono sobre a pessoa ficam no menu "⋮" da linha: "Remover" e, na reserva, "Convidar para membro" (só com lugar livre) ou, com o convite pendente, a marca "convite enviado" e "Cancelar convite". No fim da aba, quem não é dono tem "Sair do grupo" (GRP-43);
-    - **os links moram aqui:** o "Convidar" do dono abre o painel com o link de membro e o de reserva (e o do jogo, com os convidados ligados), cada um com Copiar e "Gerar outro link" (GRP-07, 08);
-  - **Ajustes**: é **uma lista**: cada linha tem o nome, o resumo do valor de agora e abre o lugar de mudar. Nada é editado direto na lista. Cada um vê só as linhas que pode mudar: 1–3 e 7 com `settings.edit`, 4–6 com `teams.manage`, 8 conforme a [CMP-10](competicao.md), cancelar e reabrir com `game.manage`, e arquivar só o dono:
-    1. **Abertura da lista**: "Membros 07/11, 19:00 · Reservas 09/11, 19:00 · Convidados desligado" → o editor de camadas;
-    2. **Vagas e mínimo**: "14 vagas · sem mínimo" → o painel das vagas padrão (GRP-45, 46);
-    3. **Limites**: "30 membros · 30 reservas" → o painel dos limites (GRP-38);
-    4. **Times**: "2 times · espalha homens e mulheres" → o painel da quantidade padrão e dos interruptores ([TIM-21](times.md));
-    5. **Regras dos times**: "3 regras" → o painel das regras ([TIM-21](times.md));
-    6. **Times opostos**: "2 regras" → o painel dos times opostos ([TIM-21](times.md));
-    7. **Logo e capa**: as miniaturas → o painel com Trocar e Remover de cada um (GRP-35);
-    8. **Competição**: o estado e o resumo dos pontos → o painel de começar o teste (dono) ou o do regulamento ([CMP-10](competicao.md));
-    9. no fim, separada, a **zona de perigo**, com cancelar o jogo (ou **reabrir o jogo**, quando ele está cancelado, GRP-44) e **arquivar o grupo**.
-  - _Por quê:_ cada aba responde a uma pergunta só. Montar os times é trabalho do dono que empurrava a Escalação para baixo e mostrava as mesmas pessoas duas vezes na aba Jogo. Nos Ajustes, o resumo mostra como o grupo está sem abrir nada, e os campos só aparecem quando o dono vai mudar. Os links servem para convidar, então ficam onde se convida. Toda linha dos Ajustes abre um painel de baixo, e nenhuma leva para outra página.
-  - A reserva com convite pendente vê, no topo da página, a faixa "Você foi convidado para ser membro", com Aceitar e Recusar (GRP-41). Ao aceitar, a página recarrega com o papel novo.
-  - Arquivar pede confirmação: "O grupo sai da lista de todos, os links param de funcionar e o jogo desta semana é cancelado. Dá para desarquivar depois." Depois de arquivar, a pessoa continua na página, que passa a ser a do grupo arquivado (GRP-37).
-  - Reabrir pede confirmação: "Reabrir o jogo de {data}? Quem estava na lista volta na mesma posição e é avisado." Só aparece antes do início. _(Alterada em 2026-11-10: entrou reabrir o jogo.)_
-  - Quem não tem nenhuma das permissões dos Ajustes e abre a aba é levado para a aba Jogo. Mesmo assim, a api continua barrando as ações (GRP-52), e a tela se ajusta (GRP-57).
-  - _(Alterada em 2026-11-10: antes, a zona de perigo só tinha cancelar o jogo. Depois, entraram os limites, o convite para membro e sair do grupo. Em 2026-11-11, as posições nas abas Jogo e Membros, o menu "⋮" na aba Membros e o card Times. Em 2026-11-12, as abas viraram quatro, com os times numa aba própria; os Ajustes viraram uma lista com resumo; os links saíram dos Ajustes e ficaram só no "Convidar"; e a contagem saiu do nome da aba Membros. Em 2026-11-13, a página Ajustes › Times virou as linhas Times, Regras dos times e Times opostos, cada uma com o seu painel.)_
-- **GRP-56. Cargos na tela:**
-  - Na aba **Membros**, quem tem cargo mostra a marca com o nome dele ("Admin") ao lado do nome, como a marca "Dono". Todos veem.
-  - No menu "⋮" de cada membro e reserva, **só o dono** tem "Tornar admin" ou, para quem já é, "Tirar de admin" (GRP-51). Sem confirmação: dá para desfazer na hora.
-  - No menu "⋮" de um **membro**, só o dono tem "Passar o grupo para {nome}" (GRP-54). Pede confirmação: "{nome} vira dono do grupo, e você continua como admin. Só {nome} pode desfazer." Depois, a página recarrega com as permissões novas.
-  - Com `members.manage` e sem ser dono, o "⋮" de quem tem cargo não tem "Remover" (GRP-53).
-  - Com o grupo arquivado, nenhuma dessas ações aparece (GRP-37).
-  - _Por quê:_ dar e tirar o cargo fica junto das outras ações sobre a pessoa. Passar o grupo pede confirmação porque o dono antigo não consegue desfazer sozinho.
-- **GRP-57. A página do grupo acompanha as permissões de quem vê** (GRP-55):
-  - **Ação barrada:** qualquer ação na página do grupo (abas, painéis dos Ajustes, aba Times, posições) que recebe `GROUP_PERMISSION_DENIED` ou `GROUP_NOT_OWNER` mostra "Suas permissões neste grupo mudaram", no lugar da mensagem do erro, e recarrega o grupo. A tela passa a mostrar só o que a pessoa pode (GRP-29, 56): o painel de uma ação que ela não pode mais fazer fecha, e quem estava nos Ajustes sem poder mudar nada neles vai para a aba Jogo.
-  - **Volta para a aba do navegador:** com a página do grupo aberta, voltar para a aba relê o grupo, o jogo e os membros, se a última leitura tem 1 min ou mais. Nunca há duas leituras ao mesmo tempo. Um painel aberto que a pessoa ainda pode usar continua aberto, com o que ela estava digitando.
-  - Sem tempo real e sem consulta periódica: com a tela parada e visível, a mudança aparece na próxima ação ou na próxima volta para a aba.
-  - _Por quê:_ a tela nunca fica mostrando botões que a api já recusou. O caso comum é o dono tirar o cargo e a pessoa abrir o app depois, e a volta para a aba cobre isso sem gastar chamadas. Tempo real exigiria infra nova para um caso raro. O mínimo de 1 min evita uma leitura a cada troca de aba, como no sino (NTF-09).
-- **GRP-43. Sair do grupo pede confirmação:** "Você perde o acesso ao grupo e a sua vaga no jogo desta semana. Para voltar, vai precisar de um link." Depois de sair, a pessoa vai para `/groups`.
-- **GRP-30. O card e o topo da página do grupo mostram o logo e a capa** (GRP-35). Se o grupo não tiver um deles, aquele lugar usa uma cor fixa calculada do id do grupo, e o logo mostra as iniciais do nome. _(Alterada em 2026-11-10: antes, logo e capa não existiam e todos os grupos usavam a cor.)_
-- **GRP-37. A página de um grupo arquivado é só leitura** (vale a GRP-32):
-  - no topo, a faixa "Grupo arquivado em {data}";
-  - **Jogo** e **Times**: só o aviso "Grupo arquivado, sem jogo", sem placar, lista nem times;
-  - **Membros**: a lista, sem remover, convidar para membro (nem o "Convidar") nem sair;
-  - **Ajustes**: só aparece para o dono (desarquivar é só dele, GRP-49), com só o botão "Desarquivar grupo", sem confirmação. A lista dos Ajustes fica escondida. Ao desarquivar, a página volta a ser a de um grupo ativo, com os 3 links novos (GRP-33).
-  - Se uma ação na página ativa recebe `GROUP_ARCHIVED` (o dono arquivou enquanto a tela estava aberta), a mensagem traduzida aparece e a página recarrega como arquivada.
-  - _Por quê:_ mostrar só o que a api aceita evita botões que sempre dariam erro. Desarquivar não pede confirmação porque não perde nada.
-- **GRP-34. Criar grupo é um painel, não uma tela.** `/groups/new` abre o painel de baixo por cima da tela de Grupos (o voltar do navegador fecha). O form pede só nome, esporte, dia da semana, horário e vagas, e não manda nenhuma camada (vale a GRP-15). Ao criar, o painel fecha e a pessoa vai para a página do grupo novo, com o aviso de que a abertura da lista pode ser ajustada nos Ajustes.
-  - _Por quê:_ criar o grupo fica rápido, sem sair da lista. As camadas têm padrão e são ajustadas depois, num lugar só.
+- **GRV-06. A tela `/groups` lista os meus grupos** (GRV-05) em cards de capa: a capa em cima, o logo sobreposto na borda de baixo dela e o nome embaixo. Um card por linha no celular e em grade no desktop. Acima dos grupos, quando há, vem a seção **Convites para você** (GRV-36). Sem grupo e sem convite, mostra só o botão "Criar grupo". _(Alterada em 2026-11-20: antes, o card tinha só o nome. Alterada em 2026-11-21: entraram os convites para você.)_
+- **GRV-07. Criar grupo é um painel de baixo, por cima da lista,** só com o campo do nome. Ao criar, o painel fecha e a pessoa vai para a página do grupo (`/groups/{publicId}`), que mostra a capa, o logo e o nome no topo. _(Alterada em 2026-11-20: antes, a página mostrava só o nome.)_
+- **GRV-11. Sem logo ou sem capa, o lugar da imagem usa uma cor fixa calculada do id público do grupo,** e o logo mostra as iniciais do nome (a primeira letra da primeira e da última palavra).
+  - _Por quê:_ o grupo recém-criado não tem imagem, e a tela não pode parecer quebrada. A cor do id é a mesma em todo lugar e diferencia grupos de nome parecido.
+- **GRV-12. Quem tem `group.edit` troca as imagens em Configurações** (GRV-14). A linha "Logo e capa" abre um painel de baixo com a miniatura de cada uma e os botões Trocar e Remover (Remover só quando há imagem). Escolhido o arquivo, o navegador prepara a imagem (MID-03) e envia; ao confirmar, a miniatura e o topo do grupo já mostram a imagem nova. Uma imagem reprovada mostra a mensagem do `MEDIA_INVALID`. _(Alterada em 2026-11-20: antes, o botão "Logo e capa" ficava no topo da página do grupo. Alterada em 2026-11-21: antes, só o dono.)_
+  - _Por quê:_ trocar a imagem é configurar o grupo, coisa rara. No topo, o botão disputava espaço com o nome e aparecia para quem só quer ver o grupo.
+- **GRV-13. Dentro do grupo, as áreas ficam numa barra de navegação:** embaixo da tela no celular e numa coluna à esquerda do conteúdo no PC (a partir de 1024 px, o mesmo ponto em que o menu do app fica fixo). Cada área tem ícone e nome e a sua rota:
+  - **Início** (`/groups/{publicId}`): a capa, o logo e o nome em destaque (GRV-07). É a área que abre ao entrar no grupo.
+  - **Membros** (`/groups/{publicId}/members`): para todos que participam (GRV-32). _(Nova em 2026-11-21.)_
+  - **Configurações** (`/groups/{publicId}/settings`): só para quem tem `group.edit` ou `roles.manage` (GRV-14, 16). Para os outros, a área não aparece, e a rota leva ao Início. _(Alterada em 2026-11-21: antes, só para o dono. Alterada em 2026-11-22: entrou o `roles.manage`.)_
+  - **Partidas** (`/groups/{publicId}/matches`): para todos que participam (PAR-17 em [partidas.md](partidas.md)), entre o Início e os Membros. _(Nova em 2026-11-23.)_
+  - Trocar de área troca a tela sem empilhar no histórico: o voltar do navegador sai do grupo, e não volta para a área anterior. Fora do Início, o topo é compacto: o logo pequeno e o nome.
+  - _Por quê:_ abas no topo, como no primeiro grupo, ficam apertadas no celular e somem ao rolar. A barra de baixo fica no alcance do polegar e sempre à vista, o padrão dos apps no celular (até 5 áreas); no PC, a coluna usa a largura que sobra. A área sem conteúdo fica fora para a tela não prometer o que ainda não existe. Sem empilhar, o voltar faz o que se espera de uma barra de app.
+  - _(Alterada em 2026-11-21: saiu "com uma área só, a barra não aparece", que deixou de acontecer com os Membros para todos.)_
+- **GRV-14. Configurações é uma lista agrupada:** cada linha tem ícone, nome, o valor atual quando há (ex.: o nome do grupo) e a seta, e tocar abre o painel de baixo da configuração. Por enquanto há três grupos: **Identidade**, com a linha "Logo e capa" (GRV-12), **Entrada**, com a linha "Quem pode entrar" (GRV-38), os dois para quem tem `group.edit`, e **Pessoas**, com a linha "Cargos" e o número de cargos criados (GRV-50), para quem tem `roles.manage`. Um grupo sem nenhuma linha que a pessoa possa usar não aparece. As próximas (nome, arquivar) entram na lista quando existirem. _(Alterada em 2026-11-21: entrou o grupo Entrada. Alterada em 2026-11-22: entrou o grupo Pessoas.)_
+  - _Por quê:_ a lista cresce sem mudar a tela, e cada edição segue o padrão de painel de baixo do app.
+- **GRV-32. A tela Membros** (GRV-29) tem duas seções, **Membros** e **Reservas** (esta só quando há reserva). Cada linha mostra a foto, o apelido, a marca do cargo ("Dono" ou o nome do cargo criado; o Todos não tem marca), a data de entrada e "convidado por" quem trouxe a pessoa. _(Alterada em 2026-11-22: antes, só a marca "Dono".)_
+  - Para quem tem `members.invite`: no topo, o botão **Convidar** (GRV-33) e a linha **Convites**, com o número de ativos, que abre a lista (GRV-34); quando há pedidos, a seção **Pedidos** antes das outras, com Aceitar (escolhendo membro ou reserva) e Recusar (GRV-28); e, no menu da linha de cada reserva, **Convidar para membro**, que cria um convite pessoal de membro para ela, com o padrão de validade (GRV-23).
+  - Para quem tem `members.remove`: o menu de cada linha com `manageable` (GRV-29) tem **Remover**, com confirmação (GRV-31, 37).
+  - Para quem tem `roles.manage`: o menu de cada linha com `manageable` tem **Mudar cargo**, que abre um painel de baixo com os cargos abaixo do seu e o Todos, o atual marcado (GRV-48).
+  - Para o Dono: o menu de cada membro (não de reserva) tem **Passar o grupo**, com uma confirmação que diz o que muda ("Fulano vira o dono, e você fica com o cargo dele"). Ao passar, a tela relê o grupo (GRV-49).
+  - No fim da tela, **Sair do grupo**, com confirmação (GRV-30). Para o dono, no lugar, uma linha explica que é preciso passar o grupo antes. Ao sair, a pessoa vai para os seus grupos. _(Alterada em 2026-11-22: entraram Mudar cargo, Passar o grupo e a explicação para o dono.)_
+  - _Por quê:_ tudo o que é sobre as pessoas fica num lugar só, e quem só joga vê só a lista e o sair.
+- **GRV-33. Convidar abre um painel de baixo para criar o convite** (GRV-18): **Para quem** (qualquer pessoa com o link, ou uma pessoa, pelo id público ou pelo email), **Entra como** (membro ou reserva), **Validade** (1, 7 ou 30 dias, ou sem prazo) e **Limite de usos** (1, 5, 10, 25 ou sem limite; some quando é para uma pessoa). Os valores já vêm no padrão: criar um convite comum é um toque. Criado, o painel mostra o link com **Copiar** e **Compartilhar** (o compartilhar do celular, quando o navegador tem).
+  - _Por quê:_ o caso comum (um link para o WhatsApp) não pode pedir quatro decisões; as regras ficam à mão para quando importam.
+- **GRV-34. A lista de convites** (`/groups/{publicId}/invites`) mostra um cartão por convite (GRV-19): a situação, as regras em uma linha ("Membro · 7 dias · 3 de 10 usos", ou "Reserva · para @apelido"), quem criou e quando, e quem entrou por ele. Os ativos vêm primeiro. Cada ativo tem **Copiar** e **Compartilhar** e, quando tem `manageable` (GRV-19), **Cancelar**, com confirmação (GRV-20). _(Alterada em 2026-11-22: o Cancelar passou a seguir a ordem dos cargos.)_
+- **GRV-35. A página do convite** (`/join/{token}`) mostra a apresentação do grupo (GRV-21): a capa, o logo, o nome, o número de participantes e "Você vai entrar como membro" (ou reserva), com o botão **Entrar**. Quem já participa e não subiria vê **Abrir o grupo**; a reserva com um convite de membro vê **Virar membro**. Sem login, a pessoa passa pelo login e volta para a página. Um convite que não vale mostra uma mensagem pelo motivo (venceu, esgotou, foi cancelado, não existe, é para outra pessoa).
+  - Ao entrar, a pessoa vai para a página do grupo (GRV-07).
+- **GRV-36. Convites para você** (GRV-24), na tela dos meus grupos: um cartão por convite, com o logo e o nome do grupo, quem convidou e como a pessoa entra, com **Entrar** e **Recusar**.
+- **GRV-37. Depois de remover alguém que entrou por um convite que ainda vale,** a tela avisa ("Fulano entrou pelo convite de Sicrano, que continua ativo") e oferece **Cancelar convite** no próprio aviso (GRV-20, 31), para quem tem `members.invite`. O convite é o da participação (GRV-29), o último pelo qual a pessoa entrou ou subiu, e não outro em que ela aparece. _(Alterada em 2026-11-21: antes, a tela escolhia qualquer convite ativo pelo qual a pessoa tinha passado.)_
+  - _Por quê:_ a decisão de fechar a porta fica com quem remove, na hora em que ela importa, e só para o convite que a pessoa usou.
+- **GRV-38. Em Configurações, "Quem pode entrar"** (GRV-25) mostra o modo atual ("Só com convite" ou "Aberto, com pedido") e abre um painel de baixo com as duas opções, cada uma com uma linha explicando o que muda.
+- **GRV-39. No grupo aberto, quem é de fora e abre `/groups/{publicId}`** vê a apresentação (GRV-26) com **Pedir para entrar**. Com o pedido esperando, vê "Pedido enviado" e **Cancelar pedido** (GRV-27). No grupo de convite, a página mostra que o grupo não foi encontrado.
+- **GRV-50. A tela Cargos** (`/groups/{publicId}/roles`, aberta pela linha "Cargos" das Configurações) mostra os cargos na ordem (GRV-42): o Dono, com um cadeado; os criados; e o Todos, com a explicação "o que todo mundo do grupo pode". Cada linha tem o nome, o número de pessoas e quantas permissões tem.
+  - No topo, **Criar cargo** (GRV-51).
+  - Tocar num cargo com `manageable` abre o painel dele (GRV-51); num cargo sem, o painel abre só para ver.
+  - No menu de cada cargo criado com `manageable`: **Subir** e **Descer** (só dentro dos que estão abaixo do seu, GRV-46) e **Apagar**, com uma confirmação que diz quantas pessoas voltam para o Todos (GRV-47).
+  - _Por quê:_ a ordem é o que vale, então a tela mostra os cargos como uma fila. Subir e descer pelo menu funcionam no celular sem arrastar.
+- **GRV-51. O painel do cargo** tem o nome e a lista das permissões, uma por linha, com o nome, uma frase do que libera e um botão de ligar. As que quem edita não tem aparecem travadas, do jeito que estão (GRV-45). No Todos, o nome não se edita, e `members.remove` e `roles.manage` não aparecem.
+  - Ao criar, o painel começa pela escolha de um **modelo**: **Admin** (todas as permissões que quem cria tem) ou **Do zero** (nenhuma). O modelo só preenche o painel: o cargo criado é um cargo como outro qualquer, e o nome vem sugerido e se edita.
+  - _Por quê:_ quase todo grupo quer um Admin, e o modelo resolve isso em um toque sem ter um Admin pronto que ninguém pediu. Tesoureiro e Organizador entram como modelos quando houver o financeiro e a agenda, que é o que eles administram.
 
 ## 3. Como funciona
 
-### Dados (single-table, sem GSI, ver [`dynamodb.md`](../../.claude/rules/dynamodb.md))
+### Dados (single-table, sem GSI)
 
-| Item                   | Chave                                                         | Para quê                                                                                                                                                                                                                                                                                                            |
-| ---------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Grupo                  | `GROUP#<id>` / `META`                                         | dados, camadas, limites `maxMembers`/`maxReserves` (GRP-38), os 3 tokens (ausentes quando arquivado), `ownerId` (id do sistema) e `ownerPublicId` (o que sai como `ownerId` na resposta, USR-16 em [usuarios.md](usuarios.md)), `archivedAt` (GRP-31), `logoMediaId`/`logoUrl` e `coverMediaId`/`coverUrl` (GRP-35) |
-| Link → grupo (3)       | `LOOKUP#GROUP#{INVITE,RESERVE_INVITE,GUEST}#<token>` / `META` | abrir o link (GRP-07)                                                                                                                                                                                                                                                                                               |
-| Contagem do grupo      | `GROUP#<id>` / `COUNTERS`                                     | `memberCount` e `reserveCount`, que mudam com `ADD` na mesma transação da entrada, da promoção, da remoção e da saída (GRP-39). Os limites ficam no `META`                                                                                                                                                          |
-| Participação           | `MEMBERSHIP#<groupId>#<userId>` / `META`                      | papel, data de entrada, `memberInviteExpiresAt`, o prazo do convite para membro pendente, conferido na leitura (GRP-40), e `staffRoleId`, o cargo (GRP-48, ausente sem cargo) ([ADR 0009](../decisions/0009-entidade-de-relacao-chave-natural.md))                                                                  |
-| Participantes do grupo | `LOOKUP#GROUP#<groupId>#MEMBERSHIP` / `<userId>`              | lista de membros                                                                                                                                                                                                                                                                                                    |
-| Grupos da pessoa       | `LOOKUP#USER#<userId>#GROUP` / `<groupId>`                    | "meus grupos"                                                                                                                                                                                                                                                                                                       |
-| Jogo                   | `GAME#<id>` / `META`                                          | existe só depois da 1ª escrita (GRP-10); `cancelledAt`; `slots` e `minPlayers` só do jogo (GRP-45, 46); `minReachedAt` (o 1º aviso, GRP-47)                                                                                                                                                                         |
-| Jogo pela data         | `LOOKUP#GAME#<groupId>#<data>` / `META`                       | duas confirmações simultâneas não criam 2 jogos                                                                                                                                                                                                                                                                     |
-| Presença               | `ATTENDANCE#<id>` / `META`                                    | `{ gameId, userId, confirmedAt }`                                                                                                                                                                                                                                                                                   |
-| Ordem da lista         | `LOOKUP#GAME#<gameId>#ATTENDANCE` / `<confirmedAt>#<userId>`  | a posição na Query é a posição na lista (GRP-19)                                                                                                                                                                                                                                                                    |
-| Presença da pessoa     | `LOOKUP#GAME#<gameId>#ATTENDANCE#USER#<userId>` / `META`      | uma presença por pessoa (GRP-20)                                                                                                                                                                                                                                                                                    |
+| Item                     | Chave                                             | Para quê                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------------ | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Grupo                    | `GROUP#<id>` / `META`                             | `id` (uuid, o do sistema), `publicId` (GRV-08), `name`, `joinMode` (GRV-25), `logoMediaId` e `coverMediaId` (GRV-09, só quando há imagem; as URLs são montadas na resposta, MID-12), `createdAt`, `updatedAt`, `version` (ADR 0013)                                                                                                                                                                                                  |
+| Id público → grupo       | `LOOKUP#GROUP#PUBLIC#<publicId>` / `META`         | `{ id }`, com `attribute_not_exists` ao criar (GRV-08). Toda rota com o grupo na URL lê este lookup primeiro                                                                                                                                                                                                                                                                                                                         |
+| Cargos                   | `GROUP#<id>` / `ROLES`                            | a lista dos cargos criados, na ordem (`{ id, name, permissions }`), e as permissões do Todos (GRV-40–47). Um item só, com `version`: a ordem e as permissões mudam juntas, e conferir uma permissão é um GetItem a mais. Nasce com o grupo                                                                                                                                                                                           |
+| Participação             | `GROUP#<id>` / `MEMBER#<userId>`                  | `tier` (`member` ou `reserve`), `role` (`owner`, `everyone` ou o id de um cargo criado; um id que não está mais nos cargos conta como `everyone`, GRV-47), `createdAt` (a data de entrada), `inviteId` e `invitedBy` (o convite pelo qual entrou ou subiu e quem o criou, quando houver, GRV-29). Os participantes são uma Query `begins_with(SK, "MEMBER#")`; o número de participantes (GRV-21), a mesma Query com `Select: COUNT` |
+| Grupos da pessoa         | `LOOKUP#USER#<userId>#GROUP` / `<groupId>`        | "meus grupos": Query → BatchGet do `META` e da `MEMBER#<userId>` de cada grupo, e um GetItem do `ROLES` de cada grupo (para o `myRole` e o `myPermissions`)                                                                                                                                                                                                                                                                          |
+| Convite                  | `GROUP#<id>` / `INVITE#<inviteId>`                | entidade (`newEntity`): `token`, `createdBy`, `tier`, `expiresAt` e `maxUses` (quando há), `uses`, `target` (`{ userId }` ou `{ email }`, quando é para uma pessoa), `revokedAt` ou `declinedAt`, `ttl` (30 dias depois de deixar de valer, ADR 0004). Os convites do grupo são uma Query `begins_with(SK, "INVITE#")`                                                                                                               |
+| Token → convite          | `LOOKUP#GROUP#INVITE#<token>` / `META`            | `{ groupId, inviteId }` (a chave do convite), gravado com o convite                                                                                                                                                                                                                                                                                                                                                                  |
+| Convites para a pessoa   | `LOOKUP#USER#<userId>#GROUPINVITE` / `<inviteId>` | `{ groupId, inviteId }`, do convite pelo id público (GRV-24)                                                                                                                                                                                                                                                                                                                                                                         |
+| Convites para o email    | `LOOKUP#EMAIL#<email>#GROUPINVITE` / `<inviteId>` | `{ groupId, inviteId }`, do convite pelo email (GRV-24)                                                                                                                                                                                                                                                                                                                                                                              |
+| Id → convite pessoal     | `LOOKUP#GROUPINVITEID#<inviteId>` / `META`        | `{ groupId, inviteId }`, só no convite para uma pessoa: recusar (GRV-24) recebe só o id do convite                                                                                                                                                                                                                                                                                                                                   |
+| Quem entrou pelo convite | `GROUP#<id>` / `INVITEUSE#<inviteId>#<userId>`    | `createdAt` (GRV-19). Entidade de relação (ADR 0009). Some junto com o convite: tem o mesmo `ttl` dele                                                                                                                                                                                                                                                                                                                               |
+| Pedido                   | `GROUP#<id>` / `REQUEST#<userId>`                 | `groupId`, `userId`, `createdAt` (GRV-27). Entidade de relação. Os pedidos do grupo são uma Query `begins_with(SK, "REQUEST#")`; o pedido da própria pessoa, um GetItem                                                                                                                                                                                                                                                              |
 
-Os detalhes de cada chave e transação estão nos comentários de `group.table.ts`, `membership.table.ts` e `game.table.ts`.
-
-**Cargos (GRP-48–55):** o catálogo de permissões e o cargo Admin (GRP-50) ficam no código (`@scorely/contracts`), e não no banco. A participação guarda só o `staffRoleId`. Conferir a permissão não custa leitura a mais: a participação já é lida para saber se a pessoa participa (GRP-04). Quando vierem os cargos criados pelo grupo (seção 5), eles entram no `META` do grupo, que também já é lido. Um `staffRoleId` sem cargo conta como sem cargo (GRP-52), então apagar um cargo não mexe nas participações.
-
-### Onde está cada regra
-
-| Arquivo                                                                           | O que tem                                                                                                                                                                                |
-| --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `api/.../group.service.ts`                                                        | criar, camadas, links, entrar, membros, remover, arquivar (GRP-01–09, 14–16, 25–26, 31–33), limites, convite para membro e sair (GRP-38–42), cargos e passar o grupo (GRP-48, 51, 53–55) |
-| `api/.../game.service.ts`                                                         | jogo atual, lista, fila, promoção, cancelar, link do jogo (GRP-10–12, 17–24)                                                                                                             |
-| `api/.../group.images.ts`                                                         | logo e capa: permissão do dono e chamada à mídia (GRP-35)                                                                                                                                |
-| `api/.../groups.deps.ts`                                                          | acesso e permissões (GRP-04, 05, 49, 52), grupo arquivado (GRP-32) e padrão das reservas (GRP-15)                                                                                        |
-| `contracts/src/groups.ts`                                                         | catálogo de permissões e o cargo Admin (GRP-49, 50)                                                                                                                                      |
-| `api/src/lib/zoned.ts`                                                            | ocorrência, estados e fuso (GRP-10, 12, 13)                                                                                                                                              |
-| `web/.../groups.ts`, `tabs.ts`, `layers.ts`, `scoreboard.ts`, `links.ts`          | regras das telas em funções puras (GRP-27–30, 37)                                                                                                                                        |
-| `web/.../groups/permissions.ts`                                                   | o que quem vê pode fazer, pelo `myPermissions`, quando a aba Ajustes aparece, quando a tela relê e o `onPermissionError` dos painéis (GRP-29, 55–57)                                     |
-| `web/.../groups/settings.ts`                                                      | resumos das linhas dos Ajustes: vagas e mínimo, limites (GRP-29)                                                                                                                         |
-| `web/.../pages/GroupPage.vue`, `GroupTeamsPage.vue`, `components/SettingsRow.vue` | as 4 abas, a aba Times, a linha da lista dos Ajustes e a releitura das permissões (GRP-29, 37, 57)                                                                                       |
-| `web/.../components/LimitsCard.vue`                                               | limites nos Ajustes (GRP-38)                                                                                                                                                             |
-| `web/.../components/GroupCreateForm.vue`                                          | criar grupo no painel, sem camadas (GRP-34)                                                                                                                                              |
+- **Criar o grupo** grava o grupo, os cargos, a participação do dono, o lookup do usuário e o lookup público na mesma transação.
+- **Conferir uma permissão** (GRV-15, 41, 43) lê a participação de quem pede e os cargos do grupo ao mesmo tempo. A ordem de uma pessoa é a posição do cargo dela na lista (Dono acima de todos, Todos abaixo de todos).
+- **Apagar um cargo** (GRV-47) só tira ele da lista: as participações com o id dele passam a contar como Todos ao ler, sem regravar uma por uma (o grupo não tem limite de participantes). Os ids dos cargos não se repetem.
+- **Passar o grupo** (GRV-49), numa transação: a participação do novo dono vira `owner`, com a condição de ainda ser membro com o cargo lido; a do antigo recebe esse cargo, com a condição de ainda ser `owner`. Se alguma condição falha, o service relê e decide de novo.
+- **Criar o convite** grava o convite, o lookup do token e, quando é para uma pessoa, o lookup dela, numa transação.
+- **Entrar por convite** (GRV-22), numa transação: soma 1 em `uses` com a condição de valer (sem `revokedAt` nem `declinedAt`, `expiresAt` no futuro e, no convite com limite, `uses` igual ao que foi lido: se outro uso entrou antes, o service relê e decide de novo), grava ou sobe a participação (com o `inviteId` e o `invitedBy`), grava o lookup do usuário, o `INVITEUSE` e apaga o pedido, se houver. Ao atingir o limite, o `ttl` é gravado no convite e nos lookups dele.
+- **O `ttl` do convite** (30 dias depois de deixar de valer) vale também para os lookups dele e os `INVITEUSE`. Com prazo, ele é conhecido ao criar e vai em tudo o que é gravado. Sem prazo, ele entra ao cancelar, recusar ou esgotar: os lookups na mesma transação, e os `INVITEUSE` já gravados logo depois, fora da transação (um convite sem limite pode ter muitos usos). Se essa segunda escrita falhar, o uso que sobrar é ignorado na lista.
+- **Sair e remover** apagam a participação (com `attribute_exists`) e o lookup numa transação.
+- A situação do convite (GRV-19) é calculada ao ler, a partir dos campos e da hora: não há campo `status`.
+- O perfil das pessoas vem do módulo de usuários, de uma vez (`getMany`). O email da pessoa logada (GRV-23) vem da parte privada dela (USR-13).
+- A api traduz o público para o uuid na entrada do service; as chaves só conhecem o uuid. A mídia do logo e da capa é do grupo pelo uuid (`ownerType = group`, `ownerId = <id>`), que fica só no banco: o endereço público é só a finalidade e o id da mídia (MID-12).
 
 ### Rotas
 
-| Rota                                                                                                             | Quem             | Regras             |
-| ---------------------------------------------------------------------------------------------------------------- | ---------------- | ------------------ |
-| `POST /groups`                                                                                                   | logado           | GRP-01, 13–15      |
-| `GET /me/groups`                                                                                                 | logado           | GRP-27, 28, 31     |
-| `GET /me/groups/archived`                                                                                        | logado           | GRP-27, 31         |
-| `POST /groups/{id}/archive`                                                                                      | dono             | GRP-31             |
-| `POST /groups/{id}/unarchive`                                                                                    | dono             | GRP-33             |
-| `GET /groups/{id}`                                                                                               | membro/reserva   | GRP-04, 05, 55     |
-| `PATCH /groups/{id}`                                                                                             | `settings.edit`  | GRP-14, 16, 45–47  |
-| `POST /groups/{id}/invite` `{ kind }`                                                                            | `members.manage` | GRP-07, 08         |
-| `POST /groups/{id}/images/{slot}/upload`, `PUT`/`DELETE /groups/{id}/images/{slot}` (`slot` = `logo` ou `cover`) | `settings.edit`  | GRP-35 (MID-03–11) |
-| `POST /invites/{token}/accept`                                                                                   | logado           | GRP-02             |
-| `GET /groups/{id}/members`                                                                                       | membro/reserva   | GRP-06, 55         |
-| `DELETE /groups/{id}/members/{userId}`                                                                           | `members.manage` | GRP-25, 26, 53     |
-| `POST`/`DELETE /groups/{id}/members/{userId}/member-invite`                                                      | `members.manage` | GRP-40             |
-| `PUT /groups/{id}/members/{userId}/staff-role` `{ staffRoleId }`, `DELETE`                                       | dono             | GRP-51             |
-| `POST /groups/{id}/transfer` `{ userId }`                                                                        | dono             | GRP-54             |
-| `POST /groups/{id}/member-invite/accept`, `POST /groups/{id}/member-invite/decline`                              | reserva          | GRP-41             |
-| `POST /groups/{id}/leave`                                                                                        | membro/reserva   | GRP-42             |
-| `GET /groups/{id}/games/current`                                                                                 | membro/reserva   | GRP-10–12, 17      |
-| `POST`/`DELETE /groups/{id}/games/{date}/attendance`                                                             | membro/reserva   | GRP-17–22          |
-| `POST /groups/{id}/games/{date}/cancel`                                                                          | `game.manage`    | GRP-24             |
-| `POST /groups/{id}/games/{date}/reopen`                                                                          | `game.manage`    | GRP-44             |
-| `PATCH /groups/{id}/games/{date}`                                                                                | `game.manage`    | GRP-45–47          |
-| `GET /play/{token}`, `POST`/`DELETE /play/{token}/games/{date}/attendance`                                       | logado           | GRP-08, 09, 17–22  |
+| Rota                                                      | Quem                  | Regras                  |
+| --------------------------------------------------------- | --------------------- | ----------------------- |
+| `POST /groups`                                            | logado                | GRV-01, 02, 03, 08      |
+| `GET /groups/{publicId}`                                  | quem participa        | GRV-04, 08              |
+| `GET /me/groups`                                          | logado                | GRV-05                  |
+| `POST /groups/{publicId}/images/{slot}/upload`            | `group.edit`          | GRV-09 (MID-03, 04)     |
+| `PUT /groups/{publicId}/images/{slot}`                    | `group.edit`          | GRV-09, 10 (MID-05–09)  |
+| `DELETE /groups/{publicId}/images/{slot}`                 | `group.edit`          | GRV-09, 10 (MID-10, 11) |
+| `POST /groups/{publicId}/invites`                         | `members.invite`      | GRV-18, 23              |
+| `GET /groups/{publicId}/invites`                          | `members.invite`      | GRV-19                  |
+| `DELETE /groups/{publicId}/invites/{inviteId}`            | `members.invite`      | GRV-20                  |
+| `GET /invites/{token}`                                    | logado                | GRV-21                  |
+| `POST /invites/{token}/join`                              | logado                | GRV-22                  |
+| `GET /me/group-invites`                                   | logado                | GRV-24                  |
+| `DELETE /me/group-invites/{inviteId}`                     | para quem é           | GRV-24                  |
+| `PUT /groups/{publicId}/join-mode`                        | `group.edit`          | GRV-25                  |
+| `GET /groups/{publicId}/preview`                          | logado (grupo aberto) | GRV-26                  |
+| `POST /groups/{publicId}/requests`                        | logado (grupo aberto) | GRV-27                  |
+| `DELETE /groups/{publicId}/requests/me`                   | logado                | GRV-27                  |
+| `GET /groups/{publicId}/requests`                         | `members.invite`      | GRV-28                  |
+| `POST /groups/{publicId}/requests/{userPublicId}/approve` | `members.invite`      | GRV-28                  |
+| `DELETE /groups/{publicId}/requests/{userPublicId}`       | `members.invite`      | GRV-28                  |
+| `GET /groups/{publicId}/members`                          | quem participa        | GRV-29                  |
+| `DELETE /groups/{publicId}/members/me`                    | quem participa        | GRV-30                  |
+| `DELETE /groups/{publicId}/members/{userPublicId}`        | `members.remove`      | GRV-31, 43              |
+| `PUT /groups/{publicId}/members/{userPublicId}/role`      | `roles.manage`        | GRV-43, 48              |
+| `GET /groups/{publicId}/roles`                            | `roles.manage`        | GRV-42                  |
+| `POST /groups/{publicId}/roles`                           | `roles.manage`        | GRV-43, 44              |
+| `PUT /groups/{publicId}/roles/order`                      | `roles.manage`        | GRV-43, 46              |
+| `PUT /groups/{publicId}/roles/{roleId}`                   | `roles.manage`        | GRV-43, 45              |
+| `DELETE /groups/{publicId}/roles/{roleId}`                | `roles.manage`        | GRV-43, 47              |
+| `POST /groups/{publicId}/transfer`                        | o Dono                | GRV-49                  |
 
-Na coluna "Quem", uma permissão quer dizer o dono ou quem tem um cargo com ela (GRP-49).
-
-Erros: `GROUP_NOT_FOUND`, `GROUP_NOT_OWNER`, `GROUP_PERMISSION_DENIED`, `GROUP_INVITE_INVALID`, `GROUP_MEMBER_NOT_FOUND`, `GROUP_OWNER_NOT_REMOVABLE`, `GROUP_LAYERS_INVALID`, `GAME_NOT_FOUND`, `GAME_LIST_NOT_OPEN`, `GAME_CLOSED`, `GAME_CANCELLED`, `GAME_LINK_INVALID`, `GROUP_ARCHIVED`, `GROUP_MEMBERS_FULL`, `GROUP_RESERVES_FULL`, `GROUP_MEMBER_INVITE_INVALID`, `GAME_SLOTS_BELOW_CONFIRMED`, `GROUP_MIN_PLAYERS_INVALID` (catálogo em `api/src/lib/errors.ts`). Os erros do logo e da capa vêm da mídia (`MEDIA_*`).
+Erros: `VALIDATION_ERROR`, `GROUP_NOT_FOUND`, `GROUP_PERMISSION_DENIED` (403), `GROUP_ROLE_TOO_HIGH` (403), `GROUP_OWNER_ONLY` (403), `GROUP_ROLE_NOT_FOUND` (404), `GROUP_ROLE_NAME_TAKEN` (409), `GROUP_ROLE_LIMIT` (409, `details.limit`), `GROUP_INVITE_INVALID` (404, `details.reason`), `GROUP_INVITE_NOT_FOR_YOU` (403), `GROUP_INVITE_LIMIT` (409, `details.limit`), `USER_NOT_FOUND` (404), `GROUP_REQUEST_NOT_FOUND` (404), `GROUP_MEMBER_NOT_FOUND` (404), `GROUP_OWNER_NOT_REMOVABLE` (409), `VERSION_CONFLICT`. Os do logo e da capa vêm da mídia (`MEDIA_NOT_FOUND`, `MEDIA_NOT_UPLOADED`, `MEDIA_INVALID`). Avisos: `group_invited`, `group_join_requested`, `group_join_approved`, `group_role_granted`, `group_transferred`.
 
 ## 4. Limites conhecidos
 
-- Se duas pessoas de dentro saem ao mesmo tempo, o aviso de promoção pode ir duas vezes para a mesma pessoa da fila e pular outra. A lista fica certa; só o aviso falha.
-- Não há histórico de jogos (GRP-11) nem como editar nome e horário (GRP-16).
-- Um jogo não fica sem mínimo se o grupo tem um: dá para mudar o mínimo do jogo, não desligar só nele (GRP-46).
-- O aviso de jogo confirmado vem de quem gravou a mudança. Duas confirmações ao mesmo tempo que chegam juntas ao mínimo podem avisar duas vezes (como o aviso de promoção).
-- O dono não é avisado quando alguém sai, aceita ou recusa o convite para membro (GRP-41, 42). Ele vê a mudança na lista de membros.
-- Não dá para rebaixar um membro a reserva. O dono teria que remover e mandar o link de reserva.
-- A tela só percebe que as permissões mudaram numa ação barrada ou ao voltar para a aba (GRP-57). Com a tela parada e visível, a pessoa ainda vê os botões antigos.
-- A permissão é conferida ao começar a ação (GRP-52), e não dentro da gravação. Se o dono tira o cargo de alguém no mesmo instante em que essa pessoa age, a ação ainda pode ser gravada.
-- A reserva com `members.manage` vê o link de membro (GRP-05) e, se abrir esse link, vira membro (GRP-02), como qualquer pessoa com o link. O convite para si mesma é barrado (GRP-40), mas esse caminho não.
-- Só existe o cargo Admin (GRP-50). Quem precisa de alguém que só monte os times precisa esperar os cargos criados pelo grupo (seção 5).
-- Arquivar faz duas escritas: primeiro arquiva o grupo, depois cancela o jogo. Se a segunda falhar, o grupo fica arquivado com o jogo aberto, mas ninguém consegue confirmar (GRP-32), e arquivar de novo completa o cancelamento (GRP-31).
-- No mesmo instante do arquivamento, só confirmar, remover e trocar link são barrados dentro da gravação (GRP-24, GRP-32). Desistir e mudar as camadas que chegam nesse instante ainda podem ser gravados. Trocar um link nesse instante dá erro 500, e nenhum link volta a valer.
+- Não há limite de grupos por pessoa, de participantes por grupo nem de pedidos esperando. Convites ativos: até 50 por grupo (GRV-18).
+- O app não manda email: o convite por email é copiado e mandado por quem criou (GRV-23).
+- Não há bloqueio: quem foi removido volta por um convite que ainda vale, e pode pedir de novo num grupo aberto.
+- Membro e reserva só se diferenciam na onda das partidas (PAR-03). Não há como passar um membro para reserva.
+- Até 20 cargos criados por grupo (GRV-44).
+- Um cargo de baixo pode ter uma permissão que um de cima não tem (o Dono desmarcou depois): a ordem não obriga os de cima a terem tudo o que os de baixo têm.
+- Quem está no Todos não remove ninguém nem gerencia cargos, mesmo que quisessem liberar: não há ninguém abaixo dele (GRV-45).
+- O dono que passou o grupo não tem como desfazer: quem recebeu precisa passar de volta.
+- O grupo não muda de nome, não é arquivado nem apagado. Por isso, as mídias de um grupo nunca ficam sem dono.
+- A cor sem imagem (GRV-11) vem do id público: se um dia o código mudar (GRV-08), a cor muda junto.
 
 ## 5. Em discussão (ainda não é regra)
 
-- Remover o local do grupo: [plano 012-remover-local](../plans/012-remover-local-do-grupo.md), aguardando aprovação.
-- Próximas entregas: a competição (pontos, ranking, temporadas e prêmios) é o módulo [Competição](competicao.md), que substitui as antigas E4a e E4b. O roteiro está na seção 5 dele.
-- **Resultado com placar e scout** (depois das temporadas, no módulo [Competição](competicao.md)): o grupo escolhe como conta: só vitória, placar por partida (ex.: 25×21) ou scout, com quem fez cada ponto e como (saque, bloqueio, ataque, erro do adversário). O placar entra na partida; cada ponto do scout vira um item ligado à partida.
-- **Cargos criados pelo grupo** (decidido em 2026-11-13, depois dos GRP-48–56, se fizer falta): o dono cria, renomeia e apaga cargos (ex.: "Organizador", só com `teams.manage`), até 10 por grupo, guardados no `META` do grupo. O Admin continua existindo. As permissões continuam por assunto (GRP-49), e as próximas entram com as entregas (ex.: as temporadas na [Competição](competicao.md)).
-- **Agenda** (decidido em 2026-11-10, vira tarefa própria depois do GRP-44): horários fixos mais exceções, como num calendário.
-  - O grupo passa a ter 1 ou mais horários semanais, e os jogos desses horários continuam calculados (GRP-10).
-  - O dono cria **jogo avulso**, que é um jogo a mais (não substitui o da semana), com vagas próprias; e **remarca** um jogo específico.
-  - Vagas e camadas são as do grupo para todos os horários, e cada jogo pode ter as suas vagas e o seu mínimo (GRP-45, 46).
-  - Com mais de um jogo aberto, o "jogo atual" vira "Próximos jogos", e o jogo ganha id estável em vez da data. Mudam GRP-10, 11, 12 e 16.
-  - Fases: (1) vários horários e "Próximos jogos"; (2) avulso; (3) remarcar; (4) editar horários e nome.
-
-## Histórico
-
-Esta é a primeira versão, montada a partir dos planos 003, 006, 007 e 012–015 e conferida com o código. Daqui em diante, o histórico é o `git log` deste arquivo.
+- **Próximas etapas:** as partidas vêm primeiro, no módulo delas ([partidas.md](partidas.md), seção 5: repetir toda semana → times → resultado e histórico → ranking). Depois, arquivar, regras e aviso fixado, e financeiro (mensalidade e rateio). _(Alterada em 2026-11-23, pela conversa de produto de 2026-11-23: antes, arquivar vinha primeiro.)_
+- **Arquivar** vai ser só do Dono, como passar o grupo (decidido em 2026-11-21), e não uma permissão.
+- **Modelos Tesoureiro e Organizador** (GRV-51): entram com o financeiro e a agenda, junto com as permissões deles.
+- **Passar membro para reserva:** quem e como, se fizer falta.
+- **Mandar o convite por email**, quando o SES tiver domínio verificado.
+- **Bloqueio:** impedir que uma pessoa removida volte, se cancelar o convite não bastar.
+- **Esporte:** só como filtro do marketplace, fora do grupo.

@@ -35,6 +35,7 @@ export const dynamoAuthRepository: AuthRepository = {
   },
 
   async putCode(code, expireAt) {
+    // Não é entidade (ADR 0013): o código novo substitui o anterior, sem `version`.
     await dynamo().send(
       new PutCommand({
         TableName: tableName(),

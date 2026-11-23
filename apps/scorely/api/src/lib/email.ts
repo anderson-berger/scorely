@@ -2,6 +2,11 @@ import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2';
 import { env } from '@scorely/api/src/lib/env';
 import { lazy } from '@scorely/api/src/lib/fn';
 
+/** Email como chave: sem espaços nas pontas e em minúsculas (AUTH-01, USR-01). Quem monta a chave normaliza. */
+export function normalizeEmail(email: string) {
+  return email.trim().toLowerCase();
+}
+
 export interface EmailMessage {
   to: string;
   subject: string;

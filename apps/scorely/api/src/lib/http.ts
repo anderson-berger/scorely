@@ -10,10 +10,14 @@ export function pathParam(event: APIGatewayProxyEventV2, name: string): string {
   return value;
 }
 
-function json(status: number, body: unknown): APIGatewayProxyStructuredResultV2 {
+function json(
+  status: number,
+  body: unknown,
+  headers: Record<string, string> = {},
+): APIGatewayProxyStructuredResultV2 {
   return {
     statusCode: status,
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...headers },
     body: JSON.stringify(body),
   };
 }
@@ -79,6 +83,8 @@ export class HttpResponse {
   constructor(
     readonly status: number,
     readonly body?: unknown,
+    /** Somam ao `content-type` (ex.: `Cache-Control`). */
+    readonly headers: Record<string, string> = {},
   ) {}
 }
 
@@ -92,7 +98,9 @@ export type HttpResult = APIGatewayProxyStructuredResultV2;
 
 function toResult(value: unknown): HttpResult {
   if (value instanceof HttpResponse) {
-    return value.body === undefined ? { statusCode: value.status } : json(value.status, value.body);
+    return value.body === undefined
+      ? { statusCode: value.status }
+      : json(value.status, value.body, value.headers);
   }
   return value === undefined ? { statusCode: 204 } : json(200, value);
 }

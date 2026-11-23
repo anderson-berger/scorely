@@ -11,9 +11,6 @@ vi.mock('@scorely/web/src/modules/auth/auth.api', () => ({
 vi.mock('@scorely/web/src/modules/users/users.api', () => ({
   usersApi: { me: vi.fn(), updateMe: vi.fn(), uploadAvatar: vi.fn(), removeAvatar: vi.fn() },
 }));
-vi.mock('@scorely/web/src/modules/groups/groups.store', () => ({
-  useGroupsStore: () => ({ reset: () => undefined }),
-}));
 
 const PREFS_KEY = 'scorely.preferences';
 
@@ -40,8 +37,9 @@ const LOGIN: LoginResult = {
   user: {
     id: PublicUserIdSchema.parse('7K3QX9TA'),
     createdAt: '2026-01-01T00:00:00.000Z',
-    email: 'ana@example.com',
-    name: 'Ana',
+    version: 1,
+    private: { email: 'ana@example.com', name: 'Ana' },
+    nickname: 'Aninha',
     preferences: { locale: 'en', timeZone: 'Asia/Tokyo' },
   },
 };
@@ -90,5 +88,41 @@ describe('auth store: preferências no navegador (USR-14)', () => {
     expect(t.storage.items.has(PREFS_KEY)).toBe(false);
     expect(t.locale()).toBe('en');
     expect(t.timeZone()).toBe(t.detected);
+  });
+});
+
+describe('auth store: conta nova vai para o perfil (AUTH-13)', () => {
+  it('AUTH-13: apelido ainda igual ao código de amigo → precisa do perfil', async () => {
+    const t = await boot();
+    const { authApi } = await import('@scorely/web/src/modules/auth/auth.api');
+    vi.mocked(authApi.verifyCode).mockResolvedValue({
+      ...LOGIN,
+      isNewUser: true,
+      user: { ...LOGIN.user, nickname: LOGIN.user.id },
+    });
+    await t.auth.login('ana@example.com', '123456');
+    expect(t.auth.needsProfile).toBe(true);
+  });
+
+  it('AUTH-13: apelido trocado → não precisa do perfil, mesmo sem nome', async () => {
+    const t = await boot();
+    const { authApi } = await import('@scorely/web/src/modules/auth/auth.api');
+    vi.mocked(authApi.verifyCode).mockResolvedValue({
+      ...LOGIN,
+      user: { ...LOGIN.user, private: { email: 'ana@example.com' } },
+    });
+    await t.auth.login('ana@example.com', '123456');
+    expect(t.auth.needsProfile).toBe(false);
+  });
+
+  it('AUTH-13: com nome mas apelido igual ao código → ainda precisa do perfil', async () => {
+    const t = await boot();
+    const { authApi } = await import('@scorely/web/src/modules/auth/auth.api');
+    vi.mocked(authApi.verifyCode).mockResolvedValue({
+      ...LOGIN,
+      user: { ...LOGIN.user, nickname: LOGIN.user.id },
+    });
+    await t.auth.login('ana@example.com', '123456');
+    expect(t.auth.needsProfile).toBe(true);
   });
 });

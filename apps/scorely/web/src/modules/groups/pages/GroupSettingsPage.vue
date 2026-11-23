@@ -1,212 +1,122 @@
 <script lang="ts">
-import type { Competition, Game, Group } from '@scorely/contracts';
-import { formatDateTime } from '@scorely/web/src/lib/datetime';
-import { showsCompetitionRow } from '@scorely/web/src/modules/competition/competition';
-import CompetitionSettingsRow from '@scorely/web/src/modules/competition/components/CompetitionSettingsRow.vue';
-import SeasonSettingsRow from '@scorely/web/src/modules/competition/components/SeasonSettingsRow.vue';
-import CapacityCard from '@scorely/web/src/modules/groups/components/CapacityCard.vue';
-import GroupImagesCard from '@scorely/web/src/modules/groups/components/GroupImagesCard.vue';
-import LayersCard from '@scorely/web/src/modules/groups/components/LayersCard.vue';
-import LimitsCard from '@scorely/web/src/modules/groups/components/LimitsCard.vue';
-import { type GroupAccess, NO_ACCESS } from '@scorely/web/src/modules/groups/permissions';
-import TeamSettingsRows from '@scorely/web/src/modules/teams/components/TeamSettingsRows.vue';
+import type { Group } from '@scorely/contracts';
+import SettingsRow from '@scorely/web/src/components/SettingsRow.vue';
+import GroupImagesSheet from '@scorely/web/src/modules/groups/components/GroupImagesSheet.vue';
+import GroupJoinModeSheet from '@scorely/web/src/modules/groups/components/GroupJoinModeSheet.vue';
+import { groupsApi } from '@scorely/web/src/modules/groups/groups.api';
+import { type SettingsSection, settingsSections } from '@scorely/web/src/modules/groups/nav';
 import { defineComponent, type PropType } from 'vue';
 
 /**
- * Aba Ajustes (GRP-29): uma lista, cada linha com o resumo e o lugar de mudar, e a zona de perigo no fim. Cada um vê só
- * o que pode mudar (GRP-49): Abertura, Vagas e mínimo, Limites e Logo e capa com `settings.edit`; as linhas de times
- * com `teams.manage`; a Competição com a CMP-10 (o dono sempre; `seasons.manage` com ela já ativada); cancelar ou reabrir (GRP-44) com `game.manage`; arquivar só o dono.
- * Grupo arquivado (GRP-37): só o dono, com "Desarquivar grupo".
+ * GRV-14: Configurações do grupo, uma lista agrupada: Identidade › Logo e capa (GRV-12), Entrada › Quem pode entrar
+ * (GRV-38) e Pessoas › Cargos (GRV-50). Cada seção só aparece para quem pode usar uma linha dela (GRV-16): sem nenhuma,
+ * a rota leva ao Início (GRV-13).
  */
 export default defineComponent({
   name: 'GroupSettingsPage',
 
-  components: {
-    CapacityCard,
-    CompetitionSettingsRow,
-    SeasonSettingsRow,
-    GroupImagesCard,
-    LayersCard,
-    LimitsCard,
-    TeamSettingsRows,
-  },
-
-  inheritAttrs: false,
+  components: { GroupImagesSheet, GroupJoinModeSheet, SettingsRow },
 
   props: {
     group: { type: Object as PropType<Group>, required: true },
-    game: { type: Object as PropType<Game | null>, default: null },
-    busy: { type: Boolean, default: false },
-    isOwner: { type: Boolean, default: false },
-    access: { type: Object as PropType<GroupAccess>, default: () => NO_ACCESS },
-    canCancel: { type: Boolean, default: false },
-    canReopen: { type: Boolean, default: false },
-    competition: { type: Object as PropType<Competition | undefined>, default: undefined },
   },
 
   emits: {
-    saved: () => true,
-    cancel: () => true,
-    reopen: () => true,
-    archive: () => true,
-    unarchive: () => true,
-    'competition-changed': (_c: Competition) => true,
-    'competition-reload': () => true,
+    /** O grupo como ficou depois da troca (GRV-10). */
+    saved: (_group: Group) => true,
+  },
+
+  data() {
+    return {
+      imagesOpen: false,
+      joinModeOpen: false,
+      roleCount: null as number | null,
+    };
   },
 
   computed: {
-    /** A zona de perigo só aparece com alguma ação dentro. */
-    hasDanger(): boolean {
-      return this.canCancel || this.canReopen || this.isOwner;
+    sections(): SettingsSection[] {
+      return settingsSections(this.group);
+    },
+  },
+
+  mounted() {
+    if (this.sections.length === 0) {
+      this.$router.replace({ name: 'group', params: { id: this.group.id } });
+      return;
+    }
+    if (this.sections.some((s) => s.rows.includes('roles'))) this.loadRoleCount();
+  },
+
+  methods: {
+    /** GRV-14: o número de cargos criados na linha Cargos. */
+    async loadRoleCount() {
+      try {
+        this.roleCount = (await groupsApi.roles(this.group.id)).roles.filter((r) => !r.fixed).length;
+      } catch {
+        // sem o número a linha continua abrindo a tela, que mostra o erro
+      }
     },
 
-    /** CMP-35: a linha Temporadas: quem tem `seasons.manage`, com a competição ativa. */
-    showsSeasons(): boolean {
-      return this.access.seasons && this.competition?.status === 'active';
-    },
-
-    /** CMP-10: a linha Competição. */
-    showsCompetition(): boolean {
-      return showsCompetitionRow(this.competition, this.access);
-    },
-
-    gameDate(): string {
-      return this.game ? formatDateTime(this.game.startsAt) : '';
+    openRoles() {
+      this.$router.push({ name: 'group-roles', params: { id: this.group.id } });
     },
   },
 });
 </script>
 
 <template>
-  <div v-if="isOwner && group.archivedAt" class="sections">
-    <section>
-      <h2 class="sc-section">{{ $t('groups.settings.danger') }}</h2>
-      <div class="sc-card danger danger--calm">
-        <div class="danger-text">{{ $t('groups.settings.unarchiveHint') }}</div>
-        <q-btn
-          flat
-          no-caps
-          class="sc-btn-outline"
-          :label="$t('groups.settings.unarchive')"
-          :disable="busy"
-          @click="$emit('unarchive')"
-        />
+  <div v-if="sections.length > 0">
+    <template v-for="section in sections" :key="section.key">
+      <h2 class="sc-section">{{ $t(`groups.settings.${section.key}`) }}</h2>
+      <div class="sc-card list">
+        <template v-for="row in section.rows" :key="row">
+          <SettingsRow v-if="row === 'images'" icon="image" :title="$t('groups.images')" @open="imagesOpen = true">
+            <img v-if="group.logoUrl" :src="group.logoUrl" alt="" class="thumb logo" />
+            <img v-if="group.coverUrl" :src="group.coverUrl" alt="" class="thumb cover" />
+          </SettingsRow>
+          <SettingsRow
+            v-else-if="row === 'joinMode'"
+            icon="door_front"
+            :title="$t('groups.joinMode.title')"
+            :summary="$t(`groups.joinMode.${group.joinMode}`)"
+            @open="joinModeOpen = true"
+          />
+          <SettingsRow
+            v-else
+            icon="shield_person"
+            :title="$t('groups.roles.title')"
+            :summary="roleCount === null ? '' : $t('groups.roles.count', { count: roleCount })"
+            @open="openRoles"
+          />
+        </template>
       </div>
-    </section>
-  </div>
-
-  <div v-else-if="game && !group.archivedAt" class="sections">
-    <div v-if="access.settings || access.teams || showsCompetition" class="sc-card settings-list">
-      <template v-if="access.settings">
-        <LayersCard :group="group" :game="game" :is-owner="access.settings" @saved="$emit('saved')" />
-        <CapacityCard :group="group" @saved="$emit('saved')" />
-        <LimitsCard :group="group" @saved="$emit('saved')" />
-      </template>
-      <TeamSettingsRows v-if="access.teams" :group="group" />
-      <CompetitionSettingsRow
-        v-if="showsCompetition && competition"
-        :group="group"
-        :competition="competition"
-        :access="access"
-        @changed="$emit('competition-changed', $event)"
-        @reload="$emit('competition-reload')"
-      />
-      <SeasonSettingsRow v-if="showsSeasons" :group="group" />
-      <GroupImagesCard v-if="access.settings" :group="group" @saved="$emit('saved')" />
-    </div>
-
-    <section v-if="hasDanger">
-      <h2 class="sc-section danger-title">{{ $t('groups.settings.danger') }}</h2>
-      <div class="sc-card danger-list">
-        <div v-if="canCancel" class="danger">
-          <div class="danger-text">{{ $t('groups.settings.dangerHint', { date: gameDate }) }}</div>
-          <q-btn
-            flat
-            no-caps
-            class="sc-btn-outline cancel"
-            :label="$t('groups.cancelGame')"
-            :disable="busy"
-            @click="$emit('cancel')"
-          />
-        </div>
-        <div v-else-if="canReopen" class="danger">
-          <div class="danger-text">{{ $t('groups.settings.reopenHint', { date: gameDate }) }}</div>
-          <q-btn
-            flat
-            no-caps
-            class="sc-btn-outline"
-            :label="$t('groups.reopenGame')"
-            :disable="busy"
-            @click="$emit('reopen')"
-          />
-        </div>
-        <div v-if="isOwner" class="danger">
-          <div class="danger-text">{{ $t('groups.settings.archiveHint') }}</div>
-          <q-btn
-            flat
-            no-caps
-            class="sc-btn-outline cancel"
-            :label="$t('groups.settings.archive')"
-            :disable="busy"
-            @click="$emit('archive')"
-          />
-        </div>
-      </div>
-    </section>
+    </template>
+    <GroupImagesSheet v-model="imagesOpen" :group="group" @saved="$emit('saved', $event)" />
+    <GroupJoinModeSheet v-model="joinModeOpen" :group="group" @saved="$emit('saved', $event)" />
   </div>
 </template>
 
 <style scoped>
-/* GRP-29: uma coluna só, com largura máxima, para a lista não esticar na tela larga. */
-.sections {
-  display: flex;
-  flex-direction: column;
-  gap: 26px;
-  max-width: 720px;
-}
-
-.settings-list {
+.list {
   overflow: hidden;
 }
 
-/* O fio entre as linhas: a última não tem. */
-.settings-list > :last-child :deep(.settings-row) {
+.list :deep(.settings-row:last-child) {
   border-bottom: 0;
 }
 
-.danger-title {
-  color: var(--sc-danger);
+.thumb {
+  height: 24px;
+  border-radius: 6px;
+  object-fit: cover;
 }
 
-.danger-list {
-  border-color: var(--sc-danger-line);
+.thumb.logo {
+  width: 24px;
 }
 
-/* Uma linha por ação, separadas por um fio. */
-.danger + .danger {
-  border-top: 1px solid var(--sc-danger-line);
-}
-
-.danger {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 14px;
-}
-
-.danger--calm {
-  border-color: var(--sc-line);
-}
-
-.danger-text {
-  font-size: 13px;
-  color: var(--sc-text-2);
-}
-
-.cancel {
-  flex-shrink: 0;
-  border: 1px solid var(--sc-danger);
-  color: var(--sc-danger);
+.thumb.cover {
+  width: 64px;
 }
 </style>

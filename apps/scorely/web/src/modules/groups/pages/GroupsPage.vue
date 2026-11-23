@@ -1,115 +1,81 @@
 <script lang="ts">
-import type { Group, MyGroup } from '@scorely/contracts';
+import type { MyGroupInvite } from '@scorely/contracts';
 import { errorMessage } from '@scorely/web/src/i18n/errors';
-import { useAuthStore } from '@scorely/web/src/modules/auth/auth.store';
-import GroupCard from '@scorely/web/src/modules/groups/components/GroupCard.vue';
-import {
-  type GroupsTab,
-  groupsTab,
-  sortByNextGame,
-  splitGroups,
-} from '@scorely/web/src/modules/groups/groups';
+import GroupCover from '@scorely/web/src/modules/groups/components/GroupCover.vue';
+import { groupColor, initials } from '@scorely/web/src/modules/groups/group-display';
+import { groupsApi } from '@scorely/web/src/modules/groups/groups.api';
 import { useGroupsStore } from '@scorely/web/src/modules/groups/groups.store';
-import { displayName } from '@scorely/web/src/modules/users/user.display';
 import { defineComponent } from 'vue';
 
-/** De quanto em quanto tempo as frases dos cards ("Abre …") se atualizam. */
-const TICK_MS = 60_000;
-
-interface TabOption {
-  name: GroupsTab;
-  label: string;
-}
-
-/**
- * Tela de Grupos (planos 013 e 014): abas Próximos jogos, Meus grupos e Participo, com cards em grade,
- * e Arquivados só quando houver algum (GRP-27).
- * A aba fica na query (`?tab=`) e trocar de aba não entra no histórico (014, D1).
- */
+/** GRV-06: os meus grupos, em cards de capa (capa, logo sobreposto e nome). Sem grupo, só o botão "Criar grupo". */
 export default defineComponent({
   name: 'GroupsPage',
 
-  components: { GroupCard },
+  components: { GroupCover },
 
   setup() {
-    return { auth: useAuthStore(), groups: useGroupsStore() };
+    return { groups: useGroupsStore() };
   },
 
   data() {
-    return {
-      now: new Date(),
-      timer: undefined as ReturnType<typeof setInterval> | undefined,
-    };
+    return { invites: [] as MyGroupInvite[], busy: '' };
   },
 
   computed: {
-    greeting(): string {
-      return this.auth.user
-        ? this.$t('groups.greeting', { name: displayName(this.auth.user) })
-        : this.$t('groups.greetingAnonymous');
-    },
-
     empty(): boolean {
-      return this.groups.loaded && this.groups.mine.length === 0 && this.groups.archived.length === 0;
-    },
-
-    tab(): GroupsTab {
-      return groupsTab(this.$route.query, this.groups.archived.length > 0);
-    },
-
-    split(): { owned: MyGroup[]; joined: MyGroup[] } {
-      return splitGroups(sortByNextGame(this.groups.mine), this.auth.user?.id);
-    },
-
-    tabs(): TabOption[] {
-      return [
-        { name: 'next', label: this.$t('groups.tabs.next') },
-        { name: 'owned', label: `${this.$t('groups.tabs.owned')} · ${this.split.owned.length}` },
-        { name: 'joined', label: `${this.$t('groups.tabs.joined')} · ${this.split.joined.length}` },
-        ...(this.groups.archived.length > 0
-          ? [
-              {
-                name: 'archived' as const,
-                label: `${this.$t('groups.tabs.archived')} · ${this.groups.archived.length}`,
-              },
-            ]
-          : []),
-      ];
-    },
-
-    shown(): (MyGroup | Group)[] {
-      if (this.tab === 'archived') return this.groups.archived;
-      if (this.tab === 'owned') return this.split.owned;
-      if (this.tab === 'joined') return this.split.joined;
-      return sortByNextGame(this.groups.mine);
-    },
-
-    emptyTab(): string {
-      if (this.shown.length > 0) return '';
-      if (this.tab === 'next') return this.$t('groups.emptyNext');
-      return this.tab === 'owned' ? this.$t('groups.emptyOwned') : this.$t('groups.emptyJoined');
+      return this.groups.loaded && this.groups.mine.length === 0 && this.invites.length === 0;
     },
   },
 
-  async mounted() {
-    this.timer = setInterval(() => {
-      this.now = new Date();
-    }, TICK_MS);
-    try {
-      await this.groups.loadMine();
-    } catch (err) {
-      this.$q.notify({ type: 'negative', message: errorMessage(err) });
-    }
+  watch: {
+    // Volta do painel de criar: relê a lista (o grupo novo entra no lugar certo da ordem, GRV-05).
+    '$route.name'(name: unknown) {
+      if (name === 'groups') this.load();
+    },
   },
 
-  beforeUnmount() {
-    clearInterval(this.timer);
+  mounted() {
+    this.load();
   },
 
   methods: {
-    selectTab(tab: GroupsTab) {
-      const query = tab === 'next' ? {} : { tab };
-      this.$router.replace({ name: 'groups', query });
+    groupColor,
+    initials,
+
+    /** GRV-36: entrar pelo cartão usa o mesmo caminho do link (GRV-22) e leva à página do grupo. */
+    async join(invite: MyGroupInvite) {
+      this.busy = invite.id;
+      try {
+        const group = await groupsApi.joinInvite(invite.token);
+        await this.$router.push({ name: 'group', params: { id: group.id } });
+      } catch (err) {
+        this.$q.notify({ type: 'negative', message: errorMessage(err) });
+        await this.load();
+      } finally {
+        this.busy = '';
+      }
+    },
+
+    async decline(invite: MyGroupInvite) {
+      this.busy = invite.id;
+      try {
+        await groupsApi.declineInvite(invite.id);
+        this.$q.notify({ type: 'positive', message: this.$t('groups.myInvites.declined') });
+      } catch (err) {
+        this.$q.notify({ type: 'negative', message: errorMessage(err) });
+      } finally {
+        this.busy = '';
+        await this.load();
+      }
+    },
+
+    async load() {
+      try {
+        const [, invites] = await Promise.all([this.groups.loadMine(), groupsApi.myInvites()]);
+        this.invites = invites;
+      } catch (err) {
+        this.$q.notify({ type: 'negative', message: errorMessage(err) });
+      }
     },
   },
 });
@@ -119,58 +85,88 @@ export default defineComponent({
   <q-page>
     <div class="sc-page page">
       <div class="head">
-        <h1 class="sc-title title">{{ empty ? greeting : $t('nav.groups') }}</h1>
+        <h1 class="sc-title title">{{ $t('groups.title') }}</h1>
         <q-btn
-          v-if="!empty"
+          v-if="groups.loaded && !empty"
           color="primary"
           unelevated
           icon="add"
           class="sc-btn-main new"
-          :label="$q.screen.xs ? undefined : $t('groups.newGroup')"
-          :aria-label="$t('groups.newGroup')"
-          :to="{ name: 'group-create', query: $route.query }"
+          :label="$q.screen.xs ? undefined : $t('groups.create')"
+          :aria-label="$t('groups.create')"
+          :to="{ name: 'group-create' }"
         />
       </div>
 
+      <section v-if="invites.length > 0" class="invites">
+        <h2 class="sc-section">{{ $t('groups.myInvites.title') }}</h2>
+        <ul class="invite-list">
+          <li v-for="i in invites" :key="i.id" class="sc-card invite">
+            <span class="invite-head">
+              <img v-if="i.logoUrl" :src="i.logoUrl" alt="" class="invite-logo" />
+              <span
+                v-else
+                class="sc-display invite-logo"
+                :style="{ background: `var(--sc-group-${groupColor(i.groupId)})` }"
+                aria-hidden="true"
+                >{{ initials(i.name) }}</span
+              >
+              <span class="sc-display invite-name">{{ i.name }}</span>
+            </span>
+            <span class="sc-caption">
+              {{ $t('groups.myInvites.invitedBy', { name: i.invitedBy.nickname }) }} ·
+              {{ $t(`groups.tier.${i.tier}`) }} · {{ $t('groups.myInvites.participants', { count: i.participants }) }}
+            </span>
+            <span class="invite-actions">
+              <q-btn
+                flat
+                no-caps
+                class="sc-btn-outline"
+                :label="$t('groups.myInvites.decline')"
+                :disable="busy === i.id"
+                @click="decline(i)"
+              />
+              <q-btn
+                color="primary"
+                unelevated
+                no-caps
+                class="sc-btn-main"
+                :label="i.myTier ? $t('groups.myInvites.promote') : $t('groups.myInvites.join')"
+                :loading="busy === i.id"
+                @click="join(i)"
+              />
+            </span>
+          </li>
+        </ul>
+      </section>
+
       <div v-if="empty" class="empty">
-        <div class="sc-number zero" aria-hidden="true">0<span class="colon">:</span>0</div>
-        <div class="sc-display empty-title">{{ $t('groups.empty') }}</div>
-        <div class="empty-hint">{{ $t('groups.emptyHint') }}</div>
         <q-btn
           color="primary"
           unelevated
           icon="add"
-          class="full-width sc-btn-main create"
+          class="full-width sc-btn-main"
           :label="$t('groups.create')"
-          :to="{ name: 'group-create', query: $route.query }"
+          :to="{ name: 'group-create' }"
         />
-        <div class="sc-caption text-center q-mt-sm">{{ $t('groups.gotLink') }}</div>
       </div>
 
-      <template v-else-if="groups.loaded">
-        <q-tabs
-          :model-value="tab"
-          dense
-          no-caps
-          align="left"
-          active-color="primary"
-          indicator-color="primary"
-          class="tabs"
-          @update:model-value="selectTab"
+      <div v-else-if="groups.loaded" class="grid">
+        <router-link
+          v-for="g in groups.mine"
+          :key="g.id"
+          :to="{ name: 'group', params: { id: g.id } }"
+          class="sc-card card"
         >
-          <q-tab v-for="t in tabs" :key="t.name" :name="t.name" :label="t.label" class="sc-display tab" />
-        </q-tabs>
-
-        <div v-if="emptyTab" class="sc-caption empty-tab">{{ emptyTab }}</div>
-        <div v-else class="grid">
-          <GroupCard v-for="g in shown" :key="g.id" :group="g" :now="now" />
-        </div>
-      </template>
+          <GroupCover :group="g" />
+          <span class="sc-display card-name">{{ g.name }}</span>
+        </router-link>
+      </div>
 
       <div v-else class="loading"><q-spinner color="primary" size="md" /></div>
     </div>
 
-    <!-- /groups/new: o painel de criar grupo (GRP-34). -->
+    <!-- /groups/new: o painel de criar grupo (GRV-07). -->
     <router-view />
   </q-page>
 </template>
@@ -192,70 +188,79 @@ export default defineComponent({
   min-width: 44px;
 }
 
-.tabs {
-  margin: 16px 0 20px;
-  border-bottom: 1px solid var(--sc-line);
+.invite-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
-/* O Quasar põe o tamanho do texto no rótulo de dentro da aba, não na raiz. */
-.tab {
-  min-height: 44px;
+.invite {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
 }
 
-.tab :deep(.q-tab__label) {
-  font-size: 17px;
-  letter-spacing: 1px;
+.invite-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.invite-logo {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  object-fit: cover;
+}
+
+.invite-name {
+  font-size: 18px;
+}
+
+.invite-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: 16px;
+  margin-top: 20px;
 }
 
-.empty-tab {
-  padding: 24px 0;
-  text-align: center;
+.card {
+  display: block;
+  overflow: hidden;
+  color: inherit;
+  text-decoration: none;
+  border: 1px solid var(--sc-line);
+  border-radius: 12px;
 }
 
-.loading {
-  margin-top: 48px;
-  text-align: center;
+.card-name {
+  display: block;
+  padding: 0 16px 16px;
+  font-size: 20px;
 }
 
 .empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
   max-width: 480px;
   margin: 0 auto;
   padding: 40px 0;
 }
 
-.zero {
-  font-size: 120px;
-  color: var(--sc-line);
-}
-
-.zero .colon {
-  color: var(--sc-line-strong);
-}
-
-.empty-title {
-  font-size: 28px;
-  margin-top: 16px;
-}
-
-.empty-hint {
-  font-size: 15px;
-  color: var(--sc-text-2);
-  margin-top: 8px;
-  max-width: 290px;
-  line-height: 1.45;
-}
-
-.create {
-  margin-top: 24px;
+.loading {
+  margin-top: 48px;
+  text-align: center;
 }
 </style>

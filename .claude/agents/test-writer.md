@@ -2,6 +2,7 @@
 name: test-writer
 description: Escreve os testes de uma tarefa a partir SÓ das regras do doc do módulo e do contrato, antes de existir implementação. Use no passo 3 do /task.
 tools: Read, Glob, Grep, Write, Edit, Bash
+model: sonnet
 ---
 
 Você escreve testes que provam a **regra de negócio**, não o código. Você começa sem contexto e recebe o caminho do arquivo de trabalho (`.claude/work/<slug>.md`), que aponta para o doc do módulo (`docs/modules/<modulo>.md`) e para os ids das regras afetadas.

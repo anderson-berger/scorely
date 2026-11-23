@@ -1,9 +1,5 @@
-import { PermissionSchema } from '@scorely/contracts/src/groups';
-import {
-  TeamPersonIdSchema,
-  TeamRuleConflictSchema,
-  TeamViolationSchema,
-} from '@scorely/contracts/src/teams';
+import { GroupInviteInvalidReasonSchema, GroupPermissionSchema } from '@scorely/contracts/src/groups';
+import { MatchGuestStatusSchema } from '@scorely/contracts/src/matches';
 import { z } from 'zod';
 
 /**
@@ -16,6 +12,7 @@ export const ErrorCodeSchema = z.enum([
   'INVALID_JSON',
   'MISSING_PARAM',
   'INVALID_CURSOR',
+  'VERSION_CONFLICT',
   'INTERNAL_ERROR',
   // auth
   'UNAUTHORIZED',
@@ -27,6 +24,7 @@ export const ErrorCodeSchema = z.enum([
   // users
   'USER_NOT_FOUND',
   'USER_CREATE_CONFLICT',
+  'USER_NICKNAME_IS_PUBLIC_ID',
   // media
   'MEDIA_NOT_FOUND',
   'MEDIA_NOT_UPLOADED',
@@ -35,41 +33,30 @@ export const ErrorCodeSchema = z.enum([
   'NOTIFICATION_NOT_FOUND',
   // groups
   'GROUP_NOT_FOUND',
-  'GROUP_NOT_OWNER',
   'GROUP_PERMISSION_DENIED',
   'GROUP_INVITE_INVALID',
+  'GROUP_INVITE_NOT_FOR_YOU',
+  'GROUP_INVITE_LIMIT',
   'GROUP_MEMBER_NOT_FOUND',
   'GROUP_OWNER_NOT_REMOVABLE',
-  'GROUP_LAYERS_INVALID',
-  'GROUP_ARCHIVED',
-  'GROUP_MEMBERS_FULL',
-  'GROUP_RESERVES_FULL',
-  'GROUP_MEMBER_INVITE_INVALID',
-  'GROUP_MIN_PLAYERS_INVALID',
-  'GAME_SLOTS_BELOW_CONFIRMED',
-  // games
-  'GAME_NOT_FOUND',
-  'GAME_LIST_NOT_OPEN',
-  'GAME_CLOSED',
-  'GAME_CANCELLED',
-  'GAME_LINK_INVALID',
-  // teams
-  'TEAM_PLAYER_NOT_FOUND',
-  'TEAM_POSITION_INVALID',
-  'TEAM_EMPTY',
-  'TEAM_RULES_CONFLICT',
-  'TEAM_RULES_VIOLATED',
-  // competition
-  'COMPETITION_TRIAL_USED',
-  'COMPETITION_INACTIVE',
-  'GAME_NOT_STARTED',
-  'RESULT_INVALID',
-  'MATCH_INVALID',
-  'GAME_MATCHES_FULL',
+  'GROUP_REQUEST_NOT_FOUND',
+  'GROUP_ROLE_TOO_HIGH',
+  'GROUP_OWNER_ONLY',
+  'GROUP_ROLE_NOT_FOUND',
+  'GROUP_ROLE_NAME_TAKEN',
+  'GROUP_ROLE_LIMIT',
+  // matches
   'MATCH_NOT_FOUND',
-  'SEASON_INVALID',
-  'SEASON_NOT_FOUND',
-  'SEASON_CLOSED',
+  'MATCH_LIMIT',
+  'MATCH_NOT_OPEN_FOR_YOU',
+  'MATCH_CLOSED',
+  'MATCH_STARTED',
+  'MATCH_CANCELLED',
+  'MATCH_SLOTS_BELOW_CONFIRMED',
+  'MATCH_GUEST_NOT_FOUND',
+  'MATCH_GUEST_NOT_PENDING',
+  'MATCH_GUEST_DUPLICATE',
+  'MATCH_GUEST_LIMIT',
 ]);
 export type ErrorCode = z.infer<typeof ErrorCodeSchema>;
 
@@ -91,43 +78,26 @@ export const ErrorDetailsSchemas = {
     width: z.number().int().positive(),
     height: z.number().int().positive(),
   }),
-  /** A permissão que faltou (GRP-04, 52). */
-  GROUP_PERMISSION_DENIED: z.object({ permission: PermissionSchema }),
-  GAME_LIST_NOT_OPEN: z.object({ opensAt: z.iso.datetime() }),
-  GROUP_LAYERS_INVALID: z.object({ field: z.enum(['reservesOpenHoursBefore', 'guestsOpenHoursBefore']) }),
-  TEAM_POSITION_INVALID: z.object({ position: z.string() }),
-  /** O número do time vazio, a partir de 1 (TIM-08). */
-  TEAM_EMPTY: z.object({ team: z.number().int().positive() }),
-  /** O que impede o sorteio (TIM-19). */
-  TEAM_RULES_CONFLICT: z.object({ conflicts: z.array(TeamRuleConflictSchema).min(1) }),
-  /** O que está fora das regras ao publicar (TIM-20). */
-  TEAM_RULES_VIOLATED: z.object({ violations: z.array(TeamViolationSchema).min(1) }),
-  /** As vagas que valem (GRP-46): o mínimo não passa delas. */
-  GROUP_MIN_PLAYERS_INVALID: z.object({ max: z.number().int().positive() }),
-  /** Por que a temporada foi recusada (CMP-29, 30). */
-  SEASON_INVALID: z.object({
-    reason: z.enum(['duration', 'past_start', 'too_far', 'overlap', 'started']),
-  }),
-  /** Por que a partida foi recusada (CMP-19–21); `userId` quando é uma pessoa. */
-  MATCH_INVALID: z.object({
-    reason: z.enum(['day_unit', 'person_unknown', 'team_empty', 'person_repeated', 'person_absent']),
-    userId: TeamPersonIdSchema.optional(),
-  }),
-  /** Por que o fechamento do jogo foi recusado (CMP-12, 13); `userId` quando é uma pessoa. */
-  RESULT_INVALID: z.object({
-    reason: z.enum([
-      'attendance_missing',
-      'attendance_unknown',
-      'winner_without_teams',
-      'winner_out_of_range',
-      'winner_with_match_unit',
-      'cancelled_with_result',
-      'absent_played',
-    ]),
-    userId: TeamPersonIdSchema.optional(),
-  }),
-  /** Quantos já estão dentro (GRP-45): as vagas não descem abaixo disso. */
-  GAME_SLOTS_BELOW_CONFIRMED: z.object({ confirmed: z.number().int().nonnegative() }),
+  /** A permissão que faltou (GRV-15). */
+  GROUP_PERMISSION_DENIED: z.object({ permission: GroupPermissionSchema }),
+  /** Por que o convite não vale (GRV-21). */
+  GROUP_INVITE_INVALID: z.object({ reason: GroupInviteInvalidReasonSchema }),
+  /** GRV-18: o máximo de convites ativos. */
+  GROUP_INVITE_LIMIT: z.object({ limit: z.number().int().positive() }),
+  /** GRV-44: o máximo de cargos criados. */
+  GROUP_ROLE_LIMIT: z.object({ limit: z.number().int().positive() }),
+  /** PAR-01: o máximo de partidas por vir. */
+  MATCH_LIMIT: z.object({ limit: z.number().int().positive() }),
+  /** PAR-08, 12, 13: a hora em que a onda abre; ausente quando a onda de convidados está desligada. */
+  MATCH_NOT_OPEN_FOR_YOU: z.object({ opensAt: z.iso.datetime().optional() }),
+  /** PAR-06: quantos já estão dentro. */
+  MATCH_SLOTS_BELOW_CONFIRMED: z.object({ confirmed: z.number().int().nonnegative() }),
+  /** PAR-13, 14: a situação atual do convidado. */
+  MATCH_GUEST_NOT_PENDING: z.object({ status: MatchGuestStatusSchema }),
+  /** PAR-12: o máximo de convidados ativos. */
+  MATCH_GUEST_LIMIT: z.object({ limit: z.number().int().positive() }),
+  /** ADR 0016: a versão atual do item (`0` = ele não existe mais), para a tela reler. */
+  VERSION_CONFLICT: z.object({ currentVersion: z.number().int().nonnegative() }),
 } satisfies Partial<Record<ErrorCode, z.ZodType>>;
 export type ErrorDetails = {
   [C in keyof typeof ErrorDetailsSchemas]: z.infer<(typeof ErrorDetailsSchemas)[C]>;

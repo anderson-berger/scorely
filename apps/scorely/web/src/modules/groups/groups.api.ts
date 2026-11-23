@@ -1,79 +1,133 @@
 import {
+  type ApproveGroupRequestInput,
   type CreateGroupInput,
-  GameSchema,
-  type Group,
+  type CreateGroupInviteBody,
+  type CreateGroupRoleInput,
+  type DeleteGroupRoleInput,
   type GroupImageSlot,
+  GroupInvitePreviewSchema,
+  GroupInviteSchema,
+  GroupJoinRequestSchema,
+  GroupMemberSchema,
+  GroupPreviewSchema,
+  GroupRolesSchema,
   GroupSchema,
-  GuestGameSchema,
-  type InviteKind,
-  InviteSchema,
   MediaUploadSchema,
-  MemberInviteSchema,
-  MemberSchema,
-  MyGroupSchema,
-  type StaffRoleId,
-  type UpdateGameInput,
-  type UpdateGroupInput,
+  MyGroupInviteSchema,
+  type OrderGroupRolesInput,
+  type SetGroupJoinModeInput,
+  type SetMemberRoleInput,
+  type TransferGroupInput,
+  type UpdateGroupRoleInput,
 } from '@scorely/contracts';
 import { request, send } from '@scorely/web/src/lib/http';
 import { contentTypeOf, uploadMedia } from '@scorely/web/src/lib/media';
 
-const game = (groupId: string, date: string) => `/groups/${groupId}/games/${date}`;
-const play = (token: string) => `/play/${encodeURIComponent(token)}`;
-
+/** Grupo (docs/modules/grupos.md): o grupo sempre pelo id público (GRV-08). */
 export const groupsApi = {
   create: (input: CreateGroupInput) => request({ url: '/groups', method: 'POST', data: input }, GroupSchema),
-  mine: () => request({ url: '/me/groups' }, MyGroupSchema.array()),
-  archived: () => request({ url: '/me/groups/archived' }, GroupSchema.array()),
-  archive: (id: string) => request({ url: `/groups/${id}/archive`, method: 'POST' }, GroupSchema),
-  unarchive: (id: string) => request({ url: `/groups/${id}/unarchive`, method: 'POST' }, GroupSchema),
-  get: (id: string) => request({ url: `/groups/${id}` }, GroupSchema),
-  update: (id: string, patch: UpdateGroupInput) =>
-    request({ url: `/groups/${id}`, method: 'PATCH', data: patch }, GroupSchema),
-  /** Vagas e mínimo só do jogo atual (GRP-45, 46); `null` = volta ao padrão do grupo. */
-  updateGame: (id: string, date: string, patch: UpdateGameInput) =>
-    request({ url: `/groups/${id}/games/${date}`, method: 'PATCH', data: patch }, GameSchema),
-  rotateInvite: (id: string, kind: InviteKind) =>
-    request({ url: `/groups/${id}/invite`, method: 'POST', data: { kind } }, InviteSchema),
-  acceptInvite: (token: string) =>
-    request({ url: `/invites/${encodeURIComponent(token)}/accept`, method: 'POST' }, GroupSchema),
-  members: (id: string) => request({ url: `/groups/${id}/members` }, MemberSchema.array()),
+  mine: () => request({ url: '/me/groups' }, GroupSchema.array()),
+  get: (id: string) => request({ url: `/groups/${encodeURIComponent(id)}` }, GroupSchema),
+
+  // Convites (GRV-18–22)
+  createInvite: (id: string, input: CreateGroupInviteBody) =>
+    request(
+      { url: `/groups/${encodeURIComponent(id)}/invites`, method: 'POST', data: input },
+      GroupInviteSchema,
+    ),
+  invites: (id: string) =>
+    request({ url: `/groups/${encodeURIComponent(id)}/invites` }, GroupInviteSchema.array()),
+  revokeInvite: (id: string, inviteId: string) =>
+    send({
+      url: `/groups/${encodeURIComponent(id)}/invites/${encodeURIComponent(inviteId)}`,
+      method: 'DELETE',
+    }),
+  previewInvite: (token: string) =>
+    request({ url: `/invites/${encodeURIComponent(token)}` }, GroupInvitePreviewSchema),
+  joinInvite: (token: string) =>
+    request({ url: `/invites/${encodeURIComponent(token)}/join`, method: 'POST' }, GroupSchema),
+
+  // Convites para mim (GRV-24)
+  myInvites: () => request({ url: '/me/group-invites' }, MyGroupInviteSchema.array()),
+  declineInvite: (inviteId: string) =>
+    send({ url: `/me/group-invites/${encodeURIComponent(inviteId)}`, method: 'DELETE' }),
+
+  // Membros (GRV-29–31)
+  members: (id: string) =>
+    request({ url: `/groups/${encodeURIComponent(id)}/members` }, GroupMemberSchema.array()),
+  leave: (id: string) => send({ url: `/groups/${encodeURIComponent(id)}/members/me`, method: 'DELETE' }),
   removeMember: (id: string, userId: string) =>
-    send({ url: `/groups/${id}/members/${userId}`, method: 'DELETE' }),
-  /** Convite para membro (GRP-40, 41) e sair do grupo (GRP-42). */
-  inviteToMember: (id: string, userId: string) =>
-    request({ url: `/groups/${id}/members/${userId}/member-invite`, method: 'POST' }, MemberInviteSchema),
-  cancelMemberInvite: (id: string, userId: string) =>
-    send({ url: `/groups/${id}/members/${userId}/member-invite`, method: 'DELETE' }),
-  acceptMemberInvite: (id: string) =>
-    request({ url: `/groups/${id}/member-invite/accept`, method: 'POST' }, GroupSchema),
-  declineMemberInvite: (id: string) => send({ url: `/groups/${id}/member-invite/decline`, method: 'POST' }),
-  leaveGroup: (id: string) => send({ url: `/groups/${id}/leave`, method: 'POST' }),
-  /** Cargos (GRP-51) e passar o grupo (GRP-54): só o dono. */
-  setStaffRole: (id: string, userId: string, staffRoleId: StaffRoleId) =>
-    send({ url: `/groups/${id}/members/${userId}/staff-role`, method: 'PUT', data: { staffRoleId } }),
-  clearStaffRole: (id: string, userId: string) =>
-    send({ url: `/groups/${id}/members/${userId}/staff-role`, method: 'DELETE' }),
-  transfer: (id: string, userId: string) =>
-    request({ url: `/groups/${id}/transfer`, method: 'POST', data: { userId } }, GroupSchema),
-  currentGame: (id: string) => request({ url: `/groups/${id}/games/current` }, GameSchema),
-  confirm: (id: string, date: string) =>
-    request({ url: `${game(id, date)}/attendance`, method: 'POST' }, GameSchema),
-  leave: (id: string, date: string) => send({ url: `${game(id, date)}/attendance`, method: 'DELETE' }),
-  cancel: (id: string, date: string) =>
-    request({ url: `${game(id, date)}/cancel`, method: 'POST' }, GameSchema),
-  reopen: (id: string, date: string) =>
-    request({ url: `${game(id, date)}/reopen`, method: 'POST' }, GameSchema),
-  play: (token: string) => request({ url: play(token) }, GuestGameSchema),
-  playConfirm: (token: string, date: string) =>
-    request({ url: `${play(token)}/games/${date}/attendance`, method: 'POST' }, GameSchema),
-  playLeave: (token: string, date: string) =>
-    send({ url: `${play(token)}/games/${date}/attendance`, method: 'DELETE' }),
+    send({
+      url: `/groups/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`,
+      method: 'DELETE',
+    }),
+
+  // Cargos (GRV-42–48)
+  roles: (id: string) => request({ url: `/groups/${encodeURIComponent(id)}/roles` }, GroupRolesSchema),
+  createRole: (id: string, input: CreateGroupRoleInput) =>
+    request(
+      { url: `/groups/${encodeURIComponent(id)}/roles`, method: 'POST', data: input },
+      GroupRolesSchema,
+    ),
+  updateRole: (id: string, roleId: string, input: UpdateGroupRoleInput) =>
+    request(
+      {
+        url: `/groups/${encodeURIComponent(id)}/roles/${encodeURIComponent(roleId)}`,
+        method: 'PUT',
+        data: input,
+      },
+      GroupRolesSchema,
+    ),
+  orderRoles: (id: string, input: OrderGroupRolesInput) =>
+    request(
+      { url: `/groups/${encodeURIComponent(id)}/roles/order`, method: 'PUT', data: input },
+      GroupRolesSchema,
+    ),
+  deleteRole: (id: string, roleId: string, input: DeleteGroupRoleInput) =>
+    request(
+      {
+        url: `/groups/${encodeURIComponent(id)}/roles/${encodeURIComponent(roleId)}`,
+        method: 'DELETE',
+        data: input,
+      },
+      GroupRolesSchema,
+    ),
+  setMemberRole: (id: string, userId: string, input: SetMemberRoleInput) =>
+    send({
+      url: `/groups/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}/role`,
+      method: 'PUT',
+      data: input,
+    }),
+
+  transfer: (id: string, input: TransferGroupInput) =>
+    send({ url: `/groups/${encodeURIComponent(id)}/transfer`, method: 'POST', data: input }),
+
+  // Grupo aberto e pedidos (GRV-25–28)
+  setJoinMode: (id: string, input: SetGroupJoinModeInput) =>
+    request({ url: `/groups/${encodeURIComponent(id)}/join-mode`, method: 'PUT', data: input }, GroupSchema),
+  preview: (id: string) => request({ url: `/groups/${encodeURIComponent(id)}/preview` }, GroupPreviewSchema),
+  request: (id: string) =>
+    request({ url: `/groups/${encodeURIComponent(id)}/requests`, method: 'POST' }, GroupPreviewSchema),
+  cancelRequest: (id: string) =>
+    send({ url: `/groups/${encodeURIComponent(id)}/requests/me`, method: 'DELETE' }),
+  requests: (id: string) =>
+    request({ url: `/groups/${encodeURIComponent(id)}/requests` }, GroupJoinRequestSchema.array()),
+  approveRequest: (id: string, userId: string, input: ApproveGroupRequestInput) =>
+    send({
+      url: `/groups/${encodeURIComponent(id)}/requests/${encodeURIComponent(userId)}/approve`,
+      method: 'POST',
+      data: input,
+    }),
+  declineRequest: (id: string, userId: string) =>
+    send({
+      url: `/groups/${encodeURIComponent(id)}/requests/${encodeURIComponent(userId)}`,
+      method: 'DELETE',
+    }),
 };
 
-/** Logo e capa do grupo (GRP-35): pede o envio → envia ao S3 → confirma (MID-04, MID-05). */
-export async function uploadGroupImage(id: string, slot: GroupImageSlot, blob: Blob): Promise<Group> {
-  const base = `/groups/${id}/images/${slot}`;
+/** Logo e capa (GRV-09): pede o envio → envia ao S3 → confirma (MID-04, MID-05). */
+export async function uploadGroupImage(id: string, slot: GroupImageSlot, blob: Blob) {
+  const base = `/groups/${encodeURIComponent(id)}/images/${slot}`;
   const upload = await request(
     { url: `${base}/upload`, method: 'POST', data: { contentType: contentTypeOf(blob) } },
     MediaUploadSchema,
@@ -83,4 +137,4 @@ export async function uploadGroupImage(id: string, slot: GroupImageSlot, blob: B
 }
 
 export const removeGroupImage = (id: string, slot: GroupImageSlot) =>
-  request({ url: `/groups/${id}/images/${slot}`, method: 'DELETE' }, GroupSchema);
+  request({ url: `/groups/${encodeURIComponent(id)}/images/${slot}`, method: 'DELETE' }, GroupSchema);

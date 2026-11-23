@@ -24,7 +24,7 @@ Referência: `apps/scorely/web/src/modules/users/pages/ProfilePage.vue`.
 
 ## Forms no painel de baixo
 
-Todo form abre no `BottomSheet` (`src/components/BottomSheet.vue`), no padrão do editor de Abertura da lista (`modules/groups/components/LayersCard.vue`): título, uma dica curta, os campos e, no rodapé, Cancelar e a ação principal. Não crie uma tela própria nem um drawer para um form.
+Todo form abre no `BottomSheet` (`src/components/BottomSheet.vue`), no padrão do painel de convite (`modules/groups/components/GroupInviteSheet.vue`): título, uma dica curta, os campos e, no rodapé, Cancelar e a ação principal. Não crie uma tela própria nem um drawer para um form.
 
 ## Módulo novo
 

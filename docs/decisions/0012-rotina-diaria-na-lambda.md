@@ -1,7 +1,7 @@
 # 0012: rotina diária como gatilho de lambda, sem recurso de infra
 
 - Data: 2026-11-14
-- Estado: aceita
+- Estado: aceita; sem uso desde [0018](0018-troca-do-grupo.md) (a competição saiu do ar)
 
 ## Contexto
 
@@ -20,4 +20,4 @@ O evento `schedule` é o gatilho de uma lambda, como o `httpApi`. Ele nasce e mo
 - Fica fácil: avisar no fim do prazo sem depender de acesso, sem fila nem cron externo.
 - Fica mais difícil: a tarefa não pode fazer Scan (ADR 0002), então precisa de um lookup próprio do que está pendente (ex.: `LOOKUP#SEASON#OPEN`).
 - No dev local, a tarefa roda só à mão (`npx sls invoke local -f <função>`, a partir da raiz).
-- Onde vive: `apps/scorely/api/src/modules/competition/functions.ts` (`competitionLockSeasons`) e `docs/modules/competicao.md` (CMP-39).
+- Onde vivia: a rotina `competitionLockSeasons`, no `functions.ts` do módulo de competição, que saiu do ar com a [0018](0018-troca-do-grupo.md) (a regra está em [arquivo/competicao.md](../modules/arquivo/competicao.md), CMP-39). Hoje nenhuma função usa o evento `schedule`.

@@ -1,5 +1,13 @@
 import { GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
-import { dbItem, stripKeys, type TransactItem, transactWrite, ttlFrom } from '@scorely/api/src/lib/db';
+import {
+  dbItem,
+  replaceItem,
+  stripKeys,
+  type TransactItem,
+  touch,
+  transactWrite,
+  ttlFrom,
+} from '@scorely/api/src/lib/db';
 import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
 import {
   MEDIA_ENTITY,
@@ -22,12 +30,29 @@ export interface MediaRepository {
    */
   attach(input: {
     ready: MediaRecord;
-    url: string;
     target: TargetRef;
     previous?: MediaRecord;
   }): Promise<'attached' | 'conflict'>;
-  /** Uma transação: remove `<field>MediaId`/`<field>Url` da área (condição: = `previous.id`) e apaga `previous`. */
+  /** Uma transação: remove `<field>MediaId` da área (condição: = `previous.id`) e apaga `previous`. */
   detach(input: { target: TargetRef; previous: MediaRecord }): Promise<'detached' | 'conflict'>;
+}
+
+/** Campos que só a pendente tem: saem quando ela fica pronta (MID-06). */
+const PENDING_ONLY = ['expiresAt', 'ttl'] as const;
+
+/** Junta uma condição ao `Update` montado pelo `replaceItem`. */
+function withCondition<
+  U extends {
+    ExpressionAttributeNames: Record<string, string>;
+    ExpressionAttributeValues: Record<string, unknown>;
+  },
+>(update: U, condition: string, names: Record<string, string>, values: Record<string, unknown>) {
+  return {
+    ...update,
+    ConditionExpression: condition,
+    ExpressionAttributeNames: { ...update.ExpressionAttributeNames, ...names },
+    ExpressionAttributeValues: { ...update.ExpressionAttributeValues, ...values },
+  };
 }
 
 /** O id ligado na área precisa ser o lido (`expected`); sem `expected`, o campo precisa estar ausente. */
@@ -60,29 +85,31 @@ export const dynamoMediaRepository: MediaRepository = {
     );
   },
 
-  async attach({ ready, url, target, previous }) {
+  async attach({ ready, target, previous }) {
     const names = targetFields(target.field);
     const condition = areaCondition(previous?.id);
     const result = await transactWrite([
       {
-        // Put sem `ttl` nem `expiresAt`: a pronta não vence (MID-06)
-        Put: {
-          TableName: tableName(),
-          Item: dbItem(mediaKey(ready.id), MEDIA_ENTITY, ready),
-          ConditionExpression: '#status = :pending',
-          ExpressionAttributeNames: { '#status': 'status' },
-          ExpressionAttributeValues: { ':pending': 'pending' },
-        },
+        // A pronta substitui a pendente sem `ttl` nem `expiresAt`: não vence (MID-06). A `version` segue (ADR 0013).
+        Update: withCondition(
+          {
+            TableName: tableName(),
+            ...replaceItem(mediaKey(ready.id), MEDIA_ENTITY, { ...ready }, PENDING_ONLY),
+          },
+          '#status_now = :pending',
+          { '#status_now': 'status' },
+          { ':pending': 'pending' },
+        ),
       },
       {
-        Update: {
+        Update: touch({
           TableName: tableName(),
           Key: target.key,
-          UpdateExpression: 'SET #id = :id, #url = :url',
+          UpdateExpression: 'SET #id = :id',
           ConditionExpression: condition.ConditionExpression,
-          ExpressionAttributeNames: { '#id': names.id, '#url': names.url },
-          ExpressionAttributeValues: { ':id': ready.id, ':url': url, ...condition.values },
-        },
+          ExpressionAttributeNames: { '#id': names.id },
+          ExpressionAttributeValues: { ':id': ready.id, ...condition.values },
+        }),
       },
       ...deletePrevious(previous),
     ]);
@@ -93,14 +120,14 @@ export const dynamoMediaRepository: MediaRepository = {
     const names = targetFields(target.field);
     const result = await transactWrite([
       {
-        Update: {
+        Update: touch({
           TableName: tableName(),
           Key: target.key,
-          UpdateExpression: 'REMOVE #id, #url',
+          UpdateExpression: 'REMOVE #id',
           ConditionExpression: 'attribute_exists(PK) AND #id = :expected',
-          ExpressionAttributeNames: { '#id': names.id, '#url': names.url },
+          ExpressionAttributeNames: { '#id': names.id },
           ExpressionAttributeValues: { ':expected': previous.id },
-        },
+        }),
       },
       ...deletePrevious(previous),
     ]);

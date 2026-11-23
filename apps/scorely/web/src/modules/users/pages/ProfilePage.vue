@@ -10,11 +10,11 @@ import { safeRedirect } from '@scorely/web/src/app/guard';
 import BottomSheet from '@scorely/web/src/components/BottomSheet.vue';
 import { errorMessage, issueMessage } from '@scorely/web/src/i18n/errors';
 import { detectTimeZone } from '@scorely/web/src/lib/datetime';
+import { isVersionConflict } from '@scorely/web/src/lib/http';
 import { prepareImage } from '@scorely/web/src/lib/media';
 import { effectiveTimeZone } from '@scorely/web/src/lib/preferences';
 import { useAuthStore } from '@scorely/web/src/modules/auth/auth.store';
-import TrophyRoom from '@scorely/web/src/modules/competition/components/TrophyRoom.vue';
-import { initials } from '@scorely/web/src/modules/groups/scoreboard';
+import { initials } from '@scorely/web/src/modules/groups/group-display';
 import { displayName } from '@scorely/web/src/modules/users/user.display';
 import { copyToClipboard } from 'quasar';
 import { defineComponent } from 'vue';
@@ -37,7 +37,7 @@ type Editor = '' | 'you' | 'prefs';
 export default defineComponent({
   name: 'ProfilePage',
 
-  components: { BottomSheet, TrophyRoom },
+  components: { BottomSheet },
 
   setup() {
     return { auth: useAuthStore() };
@@ -58,6 +58,11 @@ export default defineComponent({
   },
 
   computed: {
+    /** USR-03: o nome é opcional até ser salvo; depois, não volta a ficar vazio. */
+    nameRequired(): boolean {
+      return Boolean(this.auth.user?.private.name);
+    },
+
     avatarInitials(): string {
       return this.auth.user ? initials(displayName(this.auth.user)) : '?';
     },
@@ -142,8 +147,9 @@ export default defineComponent({
     edit(editor: Exclude<Editor, ''>) {
       const u = this.auth.user;
       if (!u) return;
-      this.name = u.name ?? '';
-      this.nickname = u.nickname ?? '';
+      this.name = u.private.name ?? '';
+      // USR-02: o apelido com que a conta nasce é o código; o campo abre vazio para a pessoa escolher.
+      this.nickname = u.nickname === u.id ? '' : u.nickname;
       this.gender = u.gender;
       // Sem idioma/fuso nas preferências: o painel mostra os efetivos (o idioma atual e o fuso detectado).
       this.locale = u.preferences.locale ?? (this.$i18n.locale as Locale);
@@ -202,24 +208,24 @@ export default defineComponent({
     },
 
     /**
-     * Cada painel manda só os seus campos no `PATCH /me` (USR-03): "Seus dados" leva o que é do perfil (nome, apelido,
-     * gênero); "Preferências", o idioma e o fuso.
+     * Cada painel manda só os seus campos no `PATCH /me` (USR-03): "Seus dados" leva o nome (vazio só vale enquanto
+     * nunca foi salvo; depois o form o exige, `nameRequired`), o apelido (obrigatório) e o gênero; "Preferências", o idioma e o fuso.
      */
     async save() {
       // No primeiro acesso, "Seus dados" também grava o idioma e o fuso detectados (como antes do painel).
       const you = {
-        name: this.name,
-        nickname: this.nickname.trim() ? this.nickname : null,
+        ...(this.name.trim() && { private: { name: this.name } }),
+        nickname: this.nickname,
         ...(this.gender && { gender: this.gender }),
       };
+      const preferences = {
+        ...(this.locale && { locale: this.locale }),
+        ...(this.timeZone && { timeZone: this.timeZone }),
+      };
       const fields =
-        this.editor === 'you'
-          ? { ...you, ...(this.welcome && { locale: this.locale, timeZone: this.timeZone }) }
-          : {
-              ...(this.locale && { locale: this.locale }),
-              ...(this.timeZone && { timeZone: this.timeZone }),
-            };
-      const parsed = UpdateMeInputSchema.safeParse(fields);
+        this.editor === 'you' ? { ...you, ...(this.welcome && { preferences }) } : { preferences };
+      // USR-18: a versão do perfil que a tela mostra.
+      const parsed = UpdateMeInputSchema.safeParse({ ...fields, version: this.auth.user?.version ?? 0 });
       if (!parsed.success) {
         return this.$q.notify({
           type: 'warning',
@@ -234,7 +240,12 @@ export default defineComponent({
         this.editor = '';
         if (this.welcome) await this.$router.replace(safeRedirect(this.$route.query.redirect));
       } catch (err) {
-        this.$q.notify({ type: 'negative', message: errorMessage(err) });
+        if (isVersionConflict(err)) {
+          // USR-18: mudou em outro aparelho: relê, fecha o painel e avisa.
+          this.editor = '';
+          this.$q.notify({ type: 'warning', message: this.$t('profile.conflict') });
+          await this.auth.loadMe();
+        } else this.$q.notify({ type: 'negative', message: errorMessage(err) });
       } finally {
         this.saving = false;
       }
@@ -264,8 +275,8 @@ export default defineComponent({
             </div>
             <div class="who-text">
               <div class="sc-display who-name">{{ shownName }}</div>
-              <div v-if="auth.user.nickname && auth.user.name" class="sc-caption">{{ auth.user.name }}</div>
-              <div class="sc-caption">{{ auth.user.email }}</div>
+              <div v-if="auth.user.private.name" class="sc-caption">{{ auth.user.private.name }}</div>
+              <div class="sc-caption">{{ auth.user.private.email }}</div>
             </div>
           </div>
 
@@ -302,8 +313,6 @@ export default defineComponent({
           </div>
         </section>
 
-        <TrophyRoom />
-
         <section class="sc-card card" :aria-label="$t('profile.preferences')">
           <div class="card-head">
             <h2 class="sc-section">{{ $t('profile.preferences') }}</h2>
@@ -327,19 +336,26 @@ export default defineComponent({
       <div class="sc-caption q-mt-xs">{{ welcome ? $t('profile.welcomeHint') : $t('profile.nicknameHint') }}</div>
       <q-form class="fields" @submit.prevent="save">
         <div>
+          <label for="profile-nickname" class="sc-label field-label">{{ $t('profile.nickname') }}</label>
+          <q-input
+            v-model="nickname"
+            for="profile-nickname"
+            outlined
+            autofocus
+            autocomplete="nickname"
+            :rules="[(v) => !!v?.trim() || $t('validation.nickname.too_small')]"
+          />
+        </div>
+        <div>
           <label for="profile-name" class="sc-label field-label">{{ $t('profile.name') }}</label>
           <q-input
             v-model="name"
             for="profile-name"
             outlined
-            autofocus
             autocomplete="name"
-            :rules="[(v) => !!v?.trim() || $t('validation.name.too_small')]"
+            :rules="nameRequired ? [(v) => !!v?.trim() || $t('validation.name.too_small')] : []"
           />
-        </div>
-        <div>
-          <label for="profile-nickname" class="sc-label field-label">{{ $t('profile.nickname') }}</label>
-          <q-input v-model="nickname" for="profile-nickname" outlined />
+          <div class="sc-caption q-mt-xs">{{ $t('profile.nameHint') }}</div>
         </div>
         <fieldset class="group">
           <legend class="sc-label field-label">{{ $t('profile.gender') }}</legend>

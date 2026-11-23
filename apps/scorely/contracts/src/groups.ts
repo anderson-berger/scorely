@@ -1,334 +1,283 @@
-import { EntitySchema } from '@scorely/contracts/src/entity';
-import { PublicUserIdSchema, TimeZoneSchema } from '@scorely/contracts/src/users';
+import { VersionSchema } from '@scorely/contracts/src/entity';
+import { EmailSchema, PublicUserIdSchema, UserSchema } from '@scorely/contracts/src/users';
 import { z } from 'zod';
 
-/** Esportes do grupo. O web traduz o nome (`sports.<valor>`). */
-export const SportSchema = z.enum(['volleyball', 'soccer', 'basketball', 'other']);
-export type Sport = z.infer<typeof SportSchema>;
+// Grupo (docs/modules/grupos.md, ADRs 0017 e 0018).
 
-/** Dia da semana no fuso do grupo: 0 = domingo ... 6 = sábado. */
-export const WeekdaySchema = z.number().int().min(0).max(6);
-
-/** Hora local `HH:mm` (24 h). */
-export const LocalTimeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Invalid time');
-
-/** Data local `YYYY-MM-DD` no fuso do grupo (identifica o jogo nas rotas). */
-export const LocalDateSchema = z.iso.date();
-
-export const GROUP_LIMITS = {
-  slots: { min: 2, max: 50 },
-  /** Mínimo para o jogo acontecer (GRP-46): de 2 até as vagas (a api confere contra as vagas). */
-  minPlayers: { min: 2, max: 50 },
-  listOpensHoursBefore: { min: 1, max: 144 },
-  reservesOpenHoursBefore: { min: 0, max: 144 },
-  guestsOpenHoursBefore: { min: 0, max: 144 },
-  /** Limites do grupo (GRP-38): membros contando o dono; reservas 0 = não aceita reservas. */
-  maxMembers: { min: 2, max: 30 },
-  maxReserves: { min: 0, max: 30 },
-} as const;
-
-const MaxMembersSchema = z.number().int().min(GROUP_LIMITS.maxMembers.min).max(GROUP_LIMITS.maxMembers.max);
-const MaxReservesSchema = z
-  .number()
-  .int()
-  .min(GROUP_LIMITS.maxReserves.min)
-  .max(GROUP_LIMITS.maxReserves.max);
-
-const SlotsSchema = z.number().int().min(GROUP_LIMITS.slots.min).max(GROUP_LIMITS.slots.max);
-const MinPlayersSchema = z.number().int().min(GROUP_LIMITS.minPlayers.min).max(GROUP_LIMITS.minPlayers.max);
-const ListOpensHoursBeforeSchema = z
-  .number()
-  .int()
-  .min(GROUP_LIMITS.listOpensHoursBefore.min)
-  .max(GROUP_LIMITS.listOpensHoursBefore.max);
-
-const LayerHoursSchema = z.number().int().min(0).max(144);
-
-/** Papel de quem participa do jogo (plano 007): membro e reserva são do grupo; convidado vem pelo link do jogo. */
-export const GroupRoleSchema = z.enum(['member', 'reserve', 'guest']);
-export type GroupRole = z.infer<typeof GroupRoleSchema>;
-export const MemberRoleSchema = GroupRoleSchema.exclude(['guest']);
-export type MemberRole = z.infer<typeof MemberRoleSchema>;
+/** Tamanho do id público do grupo (GRV-08). O alfabeto é o do usuário (`PUBLIC_USER_ID_ALPHABET`). */
+export const PUBLIC_GROUP_ID_LENGTH = 8;
 
 /**
- * Permissões de administração do grupo (GRP-49), por assunto. O dono tem todas; quem não tem cargo, nenhuma.
- * Só do dono, fora do catálogo: arquivar, desarquivar, cargos e passar o grupo.
+ * Id público do grupo (GRV-08): o único id de grupo que a api devolve ou recebe. O uuid do sistema fica no banco.
+ * Não é convite: saber o código não dá acesso (GRV-04).
  */
-export const PermissionSchema = z.enum([
-  'game.manage',
-  'teams.manage',
-  'members.manage',
-  'settings.edit',
-  'seasons.manage',
-  'results.record',
+export const PublicGroupIdSchema = z
+  .string()
+  .regex(/^[0-9A-HJKMNP-TV-Z]{8}$/, 'Invalid group id')
+  .brand<'PublicGroupId'>();
+export type PublicGroupId = z.infer<typeof PublicGroupIdSchema>;
+
+/** GRV-01: de 1 a 80 caracteres, sem os espaços das pontas. Pode repetir (GRV-03). */
+export const GroupNameSchema = z.string().trim().min(1, 'Name is required').max(80);
+
+/** Máximo de cargos criados por grupo (GRV-44). */
+export const GROUP_ROLE_MAX = 20;
+
+/** GRV-44: de 1 a 30 caracteres, sem os espaços das pontas. */
+export const GroupRoleNameSchema = z.string().trim().min(1, 'Name is required').max(30);
+
+/**
+ * Um cargo como a pessoa o vê (GRV-40): os fixos, Dono e Todos, vêm sem nome (a tela traduz); o criado traz o uuid
+ * e o nome.
+ */
+export const GroupRoleRefSchema = z.union([
+  z.object({ id: z.literal('owner') }),
+  z.object({ id: z.literal('everyone') }),
+  z.object({ id: z.uuid(), name: z.string() }),
 ]);
-export type Permission = z.infer<typeof PermissionSchema>;
-export const ALL_PERMISSIONS: readonly Permission[] = PermissionSchema.options;
+export type GroupRoleRef = z.infer<typeof GroupRoleRefSchema>;
 
-/** Cargos (GRP-48, 50). Por enquanto só o Admin, fixo no código, com todas as permissões. */
-export const StaffRoleIdSchema = z.enum(['admin']);
-export type StaffRoleId = z.infer<typeof StaffRoleIdSchema>;
-export const STAFF_ROLES: Record<StaffRoleId, { name: string; permissions: readonly Permission[] }> = {
-  admin: { name: 'Admin', permissions: ALL_PERMISSIONS },
-};
+/** Como a pessoa participa (GRV-17): membro, com prioridade, ou reserva. */
+export const GroupTierSchema = z.enum(['member', 'reserve']);
+export type GroupTier = z.infer<typeof GroupTierSchema>;
 
-/** O cargo como sai na lista de membros (GRP-55). */
-export const StaffRoleSchema = z.object({ id: StaffRoleIdSchema, name: z.string() });
-export type StaffRole = z.infer<typeof StaffRoleSchema>;
+/** O catálogo de permissões de administração (GRV-15). */
+export const GroupPermissionSchema = z.enum([
+  'group.edit',
+  'members.invite',
+  'members.remove',
+  'roles.manage',
+  'matches.manage',
+]);
+export type GroupPermission = z.infer<typeof GroupPermissionSchema>;
 
-/** PUT /groups/{id}/members/{userId}/staff-role (dono, GRP-51). */
-export const SetStaffRoleInputSchema = z.object({ staffRoleId: StaffRoleIdSchema });
-export type SetStaffRoleInput = z.infer<typeof SetStaffRoleInputSchema>;
+/** Modo de entrada (GRV-25): só por convite (o padrão) ou também por pedido aceito. */
+export const GroupJoinModeSchema = z.enum(['invite', 'open']);
+export type GroupJoinMode = z.infer<typeof GroupJoinModeSchema>;
 
-/** POST /groups/{id}/transfer (dono, GRP-54): o membro que vira o dono, pelo id público. */
-export const TransferGroupInputSchema = z.object({ userId: PublicUserIdSchema });
-export type TransferGroupInput = z.infer<typeof TransferGroupInputSchema>;
-
-/** Qual link: de membro e de reserva (`/join`) ou do jogo, para convidados (`/play`). */
-export const InviteKindSchema = z.enum(['member', 'reserve', 'guest']);
-export type InviteKind = z.infer<typeof InviteKindSchema>;
-
-/** Camadas da lista (plano 007, D2): membros ≥ reservas ≥ convidados, em horas antes do início. */
-interface Layers {
-  listOpensHoursBefore: number;
-  reservesOpenHoursBefore: number;
-  guestsOpenHoursBefore?: number | null | undefined;
-}
-
-/** O campo que quebra a ordem das camadas, ou `undefined` se está tudo certo. */
-function layersViolation(l: Layers): 'reservesOpenHoursBefore' | 'guestsOpenHoursBefore' | undefined {
-  if (l.reservesOpenHoursBefore > l.listOpensHoursBefore) return 'reservesOpenHoursBefore';
-  if (l.guestsOpenHoursBefore != null && l.guestsOpenHoursBefore > l.reservesOpenHoursBefore) {
-    return 'guestsOpenHoursBefore';
-  }
-  return undefined;
-}
-
-const LAYERS_MESSAGE = 'Layers must open in order: members, reserves, guests';
-
-/** As 3 camadas juntas, já com os valores finais. A api valida com ele o grupo depois de um PATCH. */
-export const GroupLayersSchema = z
-  .object({
-    listOpensHoursBefore: z.number().int(),
-    reservesOpenHoursBefore: z.number().int(),
-    guestsOpenHoursBefore: z.number().int().nullable().optional(),
-  })
-  .superRefine((layers, ctx) => {
-    const field = layersViolation(layers);
-    if (field) ctx.addIssue({ code: 'custom', path: [field], message: LAYERS_MESSAGE });
-  });
-
-/**
- * POST /groups. Sem `timeZone`: o do perfil do dono, ou `America/Sao_Paulo`.
- * Sem `reservesOpenHoursBefore`: metade da dos membros. Sem `guestsOpenHoursBefore`: convidados desligados.
- */
-export const CreateGroupInputSchema = z
-  .object({
-    name: z.string().trim().min(1, 'Name is required').max(80),
-    sport: SportSchema,
-    weekday: WeekdaySchema,
-    time: LocalTimeSchema,
-    timeZone: TimeZoneSchema.optional(),
-    location: z.string().trim().min(1).max(120).optional(),
-    slots: SlotsSchema,
-    /**
-     * Camadas opcionais (GRP-15): quem decide o padrão é a api. Sem nenhuma, membros 48h, reservas 24h e
-     * convidados desligados; com os membros e sem as reservas, reservas na metade dos membros.
-     */
-    listOpensHoursBefore: ListOpensHoursBeforeSchema.optional(),
-    reservesOpenHoursBefore: LayerHoursSchema.optional(),
-    guestsOpenHoursBefore: LayerHoursSchema.optional(),
-  })
-  .superRefine((input, ctx) => {
-    // Sem os membros, o contrato não sabe o padrão (é da api): confere só o que veio. A api confere a ordem completa.
-    if (input.listOpensHoursBefore === undefined) {
-      if (input.reservesOpenHoursBefore === undefined) return;
-      const field = layersViolation({
-        listOpensHoursBefore: input.reservesOpenHoursBefore,
-        reservesOpenHoursBefore: input.reservesOpenHoursBefore,
-        guestsOpenHoursBefore: input.guestsOpenHoursBefore,
-      });
-      if (field) ctx.addIssue({ code: 'custom', path: [field], message: LAYERS_MESSAGE });
-      return;
-    }
-    const field = layersViolation({
-      ...input,
-      listOpensHoursBefore: input.listOpensHoursBefore,
-      // Sem reservas, a api usa a metade da antecedência dos membros, que nunca quebra a ordem das reservas.
-      reservesOpenHoursBefore: input.reservesOpenHoursBefore ?? Math.floor(input.listOpensHoursBefore / 2),
-    });
-    if (field) ctx.addIssue({ code: 'custom', path: [field], message: LAYERS_MESSAGE });
-  });
+/** Corpo do `POST /groups` (GRV-01): só o nome. */
+export const CreateGroupInputSchema = z.object({ name: GroupNameSchema });
 export type CreateGroupInput = z.infer<typeof CreateGroupInputSchema>;
 
-/**
- * PATCH /groups/{id} (`settings.edit`): as camadas, os limites, as vagas e o mínimo padrão (GRP-16, 38, 45, 46).
- * `guestsOpenHoursBefore: null` desliga os convidados; `minPlayers: null` desliga o mínimo.
- */
-export const UpdateGroupInputSchema = z
-  .object({
-    listOpensHoursBefore: ListOpensHoursBeforeSchema.optional(),
-    reservesOpenHoursBefore: LayerHoursSchema.optional(),
-    guestsOpenHoursBefore: LayerHoursSchema.nullable().optional(),
-    maxMembers: MaxMembersSchema.optional(),
-    maxReserves: MaxReservesSchema.optional(),
-    slots: SlotsSchema.optional(),
-    minPlayers: MinPlayersSchema.nullable().optional(),
-  })
-  .refine((patch) => Object.keys(patch).length > 0, { message: 'Nothing to update' });
-export type UpdateGroupInput = z.infer<typeof UpdateGroupInputSchema>;
-
-/**
- * Grupo como a api devolve. Os 3 tokens só vêm para quem tem `members.manage` (GRP-05); `myRole` é o papel
- * de quem pede, e `myPermissions`, as permissões dele (GRP-55).
- * `timeZone` é texto livre na leitura: a api já validou ao gravar (plano 003, D13).
- */
-export const GroupSchema = EntitySchema.extend({
+/** Grupo como a api devolve (GRV-04, 05). O `id` é o público (GRV-08), por isso não estende o `EntitySchema`. */
+export const GroupSchema = z.object({
+  id: PublicGroupIdSchema,
+  createdAt: z.iso.datetime(),
+  version: VersionSchema,
   name: z.string(),
-  sport: SportSchema,
-  weekday: WeekdaySchema,
-  time: LocalTimeSchema,
-  timeZone: z.string(),
-  location: z.string().optional(),
-  slots: z.number().int(),
-  /** Mínimo padrão para o jogo acontecer (GRP-46). Ausente = sem mínimo. */
-  minPlayers: z.number().int().optional(),
-  listOpensHoursBefore: z.number().int(),
-  reservesOpenHoursBefore: z.number().int(),
-  guestsOpenHoursBefore: z.number().int().optional(),
-  /** Id público do dono (USR-16). */
-  ownerId: PublicUserIdSchema,
-  inviteToken: z.string().optional(),
-  reserveInviteToken: z.string().optional(),
-  guestToken: z.string().optional(),
-  archivedAt: z.iso.datetime().optional(),
-  /** Logo e capa (GRP-35, GRP-36): URLs públicas das mídias `group.logo` e `group.cover`. */
+  myTier: GroupTierSchema,
+  myRole: GroupRoleRefSchema,
+  /** O que quem pede pode administrar (GRV-16). A tela só mostra essas ações; a api confere de novo. */
+  myPermissions: z.array(GroupPermissionSchema),
+  /** O modo de entrada (GRV-25), para a tela mostrar o atual (GRV-38). */
+  joinMode: GroupJoinModeSchema,
+  /** Logo e capa (GRV-09, GRV-10): URLs públicas das mídias `group.logo` e `group.cover`, só quando existem. */
   logoUrl: z.url().optional(),
   coverUrl: z.url().optional(),
-  /** Limites (GRP-38). A contagem sai da lista de membros. */
-  maxMembers: z.number().int(),
-  maxReserves: z.number().int(),
-  myRole: MemberRoleSchema,
-  /** O que quem pede pode fazer no grupo (GRP-55). O dono recebe todas. */
-  myPermissions: z.array(PermissionSchema),
-  /** Só para a reserva com convite para membro pendente (GRP-40, 41). */
-  myMemberInvite: z.object({ expiresAt: z.iso.datetime() }).optional(),
 });
 export type Group = z.infer<typeof GroupSchema>;
 
-/** POST /groups/{id}/invite: body opcional com o tipo do link (padrão `member`). */
-export const RotateInviteInputSchema = z.object({ kind: InviteKindSchema.default('member') });
-export type RotateInviteInput = z.infer<typeof RotateInviteInputSchema>;
+// ---- Convites (GRV-18–22) ----
 
-/** POST /groups/{id}/invite: o link novo daquele tipo (o anterior deixa de valer). */
-export const InviteSchema = z.object({ kind: InviteKindSchema, token: z.string() });
-export type Invite = z.infer<typeof InviteSchema>;
+/** Validade em dias; `null` = sem prazo (GRV-18). */
+export const GroupInviteValiditySchema = z.union([z.literal(1), z.literal(7), z.literal(30)]).nullable();
 
-export const MemberSchema = z.object({
-  userId: PublicUserIdSchema,
-  name: z.string().optional(),
-  isOwner: z.boolean(),
-  role: MemberRoleSchema,
-  /** O cargo da pessoa (GRP-48, 55). Ausente = sem cargo. Todos veem. */
-  staffRole: StaffRoleSchema.optional(),
-  /** Só na resposta para quem tem `members.manage`: a reserva tem convite para membro pendente até essa data (GRP-40). */
-  memberInviteExpiresAt: z.iso.datetime().optional(),
-});
-export type Member = z.infer<typeof MemberSchema>;
+/** Limite de usos (GRV-18): de 1 a 100, ou `null` = sem limite. */
+export const GroupInviteMaxUsesSchema = z.number().int().min(1).max(100).nullable();
 
-/** POST /groups/{id}/members/{userId}/member-invite: o convite pendente (GRP-40). */
-export const MemberInviteSchema = z.object({ userId: PublicUserIdSchema, expiresAt: z.iso.datetime() });
-export type MemberInvite = z.infer<typeof MemberInviteSchema>;
+/** Máximo de convites ativos por grupo (GRV-18). */
+export const GROUP_INVITE_MAX_ACTIVE = 50;
 
-export const GameStatusSchema = z.enum(['scheduled', 'open', 'in_progress', 'cancelled']);
-export type GameStatus = z.infer<typeof GameStatusSchema>;
-
-export const AttendeeSchema = z.object({
-  userId: PublicUserIdSchema,
-  name: z.string().optional(),
-  confirmedAt: z.iso.datetime(),
-  role: GroupRoleSchema,
-});
-export type Attendee = z.infer<typeof AttendeeSchema>;
-
-/** Onde o usuário logado está na lista: dentro ou na fila, com a posição (1 = primeiro) naquela parte. */
-export const MyAttendanceSchema = z.object({
-  list: z.enum(['confirmed', 'waitlist']),
-  position: z.number().int().positive(),
-});
-export type MyAttendance = z.infer<typeof MyAttendanceSchema>;
+/** Para quem é o convite pessoal (GRV-23): pelo id público ou pelo email (guardado normalizado). */
+export const GroupInviteTargetInputSchema = z.union([
+  z.object({ publicId: PublicUserIdSchema }),
+  z.object({ email: EmailSchema }),
+]);
+export type GroupInviteTargetInput = z.infer<typeof GroupInviteTargetInputSchema>;
 
 /**
- * Jogo da semana (pode ser "virtual": ainda sem item no banco, com a lista vazia). Instantes em UTC.
- * `opensAt`/`status`: camada dos membros. `myOpensAt`: quando quem pede pode confirmar (ausente = nunca).
+ * Corpo do `POST /groups/{publicId}/invites` (GRV-18, 23). Padrões: membro, 7 dias, sem limite, para qualquer
+ * pessoa. Com `target`, o convite tem sempre 1 uso: a api ignora o `maxUses`.
  */
-export const GameSchema = z.object({
-  groupId: z.uuid(),
-  date: LocalDateSchema,
-  startsAt: z.iso.datetime(),
-  opensAt: z.iso.datetime(),
-  reservesOpensAt: z.iso.datetime(),
-  guestsOpensAt: z.iso.datetime().optional(),
-  myOpensAt: z.iso.datetime().optional(),
-  status: GameStatusSchema,
-  /** Vagas que valem no jogo: as do jogo ou, sem elas, as do grupo (GRP-45). */
-  slots: z.number().int(),
-  /** Mínimo que vale no jogo (GRP-46). Ausente = sem mínimo. */
-  minPlayers: z.number().int().optional(),
-  /** `true` = as vagas / o mínimo são só deste jogo (GRP-45, 46). */
-  slotsCustom: z.boolean().optional(),
-  minPlayersCustom: z.boolean().optional(),
-  confirmed: z.array(AttendeeSchema),
-  waitlist: z.array(AttendeeSchema),
-  me: MyAttendanceSchema.optional(),
+export const CreateGroupInviteInputSchema = z.object({
+  tier: GroupTierSchema.default('member'),
+  validityDays: GroupInviteValiditySchema.default(7),
+  maxUses: GroupInviteMaxUsesSchema.default(null),
+  target: GroupInviteTargetInputSchema.optional(),
 });
-export type Game = z.infer<typeof GameSchema>;
+export type CreateGroupInviteInput = z.infer<typeof CreateGroupInviteInputSchema>;
+/** O corpo como a tela manda: o que fica de fora a api completa com o padrão (GRV-18, 32). */
+export type CreateGroupInviteBody = z.input<typeof CreateGroupInviteInputSchema>;
 
-/**
- * PATCH /groups/{id}/games/{date} (`game.manage`): vagas e mínimo só do jogo atual (GRP-45, 46).
- * `null` = voltar ao padrão do grupo.
- */
-export const UpdateGameInputSchema = z
-  .object({
-    slots: SlotsSchema.nullable().optional(),
-    minPlayers: MinPlayersSchema.nullable().optional(),
-  })
-  .refine((patch) => Object.keys(patch).length > 0, { message: 'Nothing to update' });
-export type UpdateGameInput = z.infer<typeof UpdateGameInputSchema>;
+/** Situação do convite, calculada ao ler (GRV-19). `declined` só vem com o convite pessoal (etapa B). */
+export const GroupInviteStatusSchema = z.enum(['active', 'expired', 'exhausted', 'revoked', 'declined']);
+export type GroupInviteStatus = z.infer<typeof GroupInviteStatusSchema>;
 
-/** GET /me/groups: cada grupo com o resumo do jogo atual. */
-export const MyGroupSchema = GroupSchema.extend({
-  game: GameSchema.pick({
-    date: true,
-    startsAt: true,
-    status: true,
-    slots: true,
-    minPlayers: true,
-    me: true,
-  }).extend({
-    confirmedCount: z.number().int().nonnegative(),
-  }),
+/** O convite como quem tem `members.invite` vê (GRV-18, 19). */
+export const GroupInviteSchema = z.object({
+  id: z.uuid(),
+  /** O token do link `/join/<token>`. */
+  token: z.string().min(1),
+  tier: GroupTierSchema,
+  status: GroupInviteStatusSchema,
+  expiresAt: z.iso.datetime().optional(),
+  maxUses: z.number().int().positive().optional(),
+  uses: z.number().int().nonnegative(),
+  createdBy: UserSchema,
+  createdAt: z.iso.datetime(),
+  /** Quem pede pode cancelar este convite (GRV-19, 43). */
+  manageable: z.boolean(),
+  /** Quem entrou por ele (perfis). */
+  usedBy: z.array(UserSchema),
+  /** Para quem é, no convite pessoal (GRV-23): o perfil, se foi pelo id público; o email, se foi por ele. */
+  target: z.union([z.object({ user: UserSchema }), z.object({ email: EmailSchema })]).optional(),
 });
-export type MyGroup = z.infer<typeof MyGroupSchema>;
+export type GroupInvite = z.infer<typeof GroupInviteSchema>;
 
-/** GET /play/{token}: o jogo atual pelo link do jogo (D7), com o resumo do grupo e o papel de quem pede. */
-export const GuestGameSchema = z.object({
-  group: GroupSchema.pick({
-    id: true,
-    name: true,
-    sport: true,
-    weekday: true,
-    time: true,
-    timeZone: true,
-    location: true,
-    logoUrl: true,
-    coverUrl: true,
-  }),
-  myRole: GroupRoleSchema,
-  game: GameSchema,
+/** Apresentação do grupo para quem abre um convite que vale (GRV-21). */
+export const GroupInvitePreviewSchema = z.object({
+  groupId: PublicGroupIdSchema,
+  name: z.string(),
+  logoUrl: z.url().optional(),
+  coverUrl: z.url().optional(),
+  participants: z.number().int().nonnegative(),
+  /** Como a pessoa vai entrar. */
+  tier: GroupTierSchema,
+  /** Como ela já participa, quando participa. */
+  myTier: GroupTierSchema.optional(),
 });
-export type GuestGame = z.infer<typeof GuestGameSchema>;
+export type GroupInvitePreview = z.infer<typeof GroupInvitePreviewSchema>;
 
-/** Qual imagem do grupo (GRP-35): `logo` → mídia `group.logo`; `cover` → `group.cover`. */
+/** Por que o convite não vale (GRV-21). */
+export const GroupInviteInvalidReasonSchema = z.enum([
+  'not_found',
+  'expired',
+  'exhausted',
+  'revoked',
+  'declined',
+]);
+export type GroupInviteInvalidReason = z.infer<typeof GroupInviteInvalidReasonSchema>;
+
+/** Um convite pessoal para mim (GRV-24, 36): a apresentação do grupo (GRV-21) e quem convidou. */
+export const MyGroupInviteSchema = GroupInvitePreviewSchema.extend({
+  id: z.uuid(),
+  /** O token, para entrar (GRV-22) e abrir `/join/<token>`. */
+  token: z.string().min(1),
+  invitedBy: UserSchema,
+  createdAt: z.iso.datetime(),
+});
+export type MyGroupInvite = z.infer<typeof MyGroupInviteSchema>;
+
+// ---- Grupo aberto e pedidos (GRV-25–28) ----
+
+/** Corpo do `PUT /groups/{publicId}/join-mode` (GRV-25), com a `version` conferida (ADR 0016). */
+export const SetGroupJoinModeInputSchema = z.object({
+  mode: GroupJoinModeSchema,
+  expectedVersion: VersionSchema,
+});
+export type SetGroupJoinModeInput = z.infer<typeof SetGroupJoinModeInputSchema>;
+
+/** Apresentação do grupo aberto pelo código (GRV-26) e resposta do pedido (GRV-27). */
+export const GroupPreviewSchema = z.object({
+  groupId: PublicGroupIdSchema,
+  name: z.string(),
+  logoUrl: z.url().optional(),
+  coverUrl: z.url().optional(),
+  participants: z.number().int().nonnegative(),
+  /** Como a pessoa já participa, quando participa. */
+  myTier: GroupTierSchema.optional(),
+  /** A data do pedido esperando, quando há. */
+  requestedAt: z.iso.datetime().optional(),
+});
+export type GroupPreview = z.infer<typeof GroupPreviewSchema>;
+
+/** Um pedido esperando, como quem tem `members.invite` vê (GRV-28): o perfil e a data. */
+export const GroupJoinRequestSchema = z.object({
+  user: UserSchema,
+  createdAt: z.iso.datetime(),
+});
+export type GroupJoinRequest = z.infer<typeof GroupJoinRequestSchema>;
+
+/** Corpo do aceitar (GRV-28): quem aceita escolhe como a pessoa entra. */
+export const ApproveGroupRequestInputSchema = z.object({ tier: GroupTierSchema });
+export type ApproveGroupRequestInput = z.infer<typeof ApproveGroupRequestInputSchema>;
+
+// ---- Membros (GRV-29) ----
+
+/** Uma participação como a lista de membros mostra (GRV-29). */
+export const GroupMemberSchema = z.object({
+  user: UserSchema,
+  tier: GroupTierSchema,
+  role: GroupRoleRefSchema,
+  /** Quem pede pode mexer nesta pessoa: remover, mudar o cargo (GRV-43). */
+  manageable: z.boolean(),
+  /** A data de entrada: não muda quando a reserva vira membro (GRV-22). */
+  joinedAt: z.iso.datetime(),
+  /** Quem criou o convite pelo qual entrou ou subiu, quando houve. Guardado na participação: não some com o convite. */
+  invitedBy: UserSchema.optional(),
+  /** O convite pelo qual entrou ou subiu (GRV-29, 37). Só para quem tem `members.invite`. */
+  inviteId: z.uuid().optional(),
+});
+export type GroupMember = z.infer<typeof GroupMemberSchema>;
+
+// ---- Logo e capa (GRV-09) ----
+
+/** Qual imagem do grupo (GRV-09): `logo` → mídia `group.logo`; `cover` → `group.cover`. */
 export const GroupImageSlotSchema = z.enum(['logo', 'cover']);
 export type GroupImageSlot = z.infer<typeof GroupImageSlotSchema>;
+
+// ---- Cargos (GRV-40–49) ----
+
+/** Um cargo na lista de cargos (GRV-42), na ordem: Dono, os criados, Todos. */
+export const GroupRoleItemSchema = z.object({
+  id: z.union([z.literal('owner'), z.literal('everyone'), z.uuid()]),
+  /** Só o cargo criado tem nome; os fixos a tela traduz. */
+  name: z.string().optional(),
+  permissions: z.array(GroupPermissionSchema),
+  /** Quantas pessoas têm o cargo. */
+  members: z.number().int().nonnegative(),
+  /** Quem pede pode editar, ordenar e apagar este cargo (GRV-43). */
+  manageable: z.boolean(),
+  fixed: z.enum(['owner', 'everyone']).optional(),
+});
+export type GroupRoleItem = z.infer<typeof GroupRoleItemSchema>;
+
+/** `GET /groups/{publicId}/roles` (GRV-42): a lista e a `version` que toda edição manda de volta. */
+export const GroupRolesSchema = z.object({
+  version: VersionSchema,
+  roles: z.array(GroupRoleItemSchema),
+});
+export type GroupRoles = z.infer<typeof GroupRolesSchema>;
+
+/** Corpo do `POST /groups/{publicId}/roles` (GRV-44). */
+export const CreateGroupRoleInputSchema = z.object({
+  name: GroupRoleNameSchema,
+  permissions: z.array(GroupPermissionSchema),
+  expectedVersion: VersionSchema,
+});
+export type CreateGroupRoleInput = z.infer<typeof CreateGroupRoleInputSchema>;
+
+/** Corpo do `PUT /groups/{publicId}/roles/{roleId}` (GRV-45). No Todos o nome é ignorado. */
+export const UpdateGroupRoleInputSchema = CreateGroupRoleInputSchema;
+export type UpdateGroupRoleInput = CreateGroupRoleInput;
+
+/** Corpo do `PUT /groups/{publicId}/roles/order` (GRV-46): os cargos criados, do mais alto para o mais baixo. */
+export const OrderGroupRolesInputSchema = z.object({
+  roleIds: z.array(z.uuid()),
+  expectedVersion: VersionSchema,
+});
+export type OrderGroupRolesInput = z.infer<typeof OrderGroupRolesInputSchema>;
+
+/** Corpo do `DELETE /groups/{publicId}/roles/{roleId}` (GRV-47). */
+export const DeleteGroupRoleInputSchema = z.object({ expectedVersion: VersionSchema });
+export type DeleteGroupRoleInput = z.infer<typeof DeleteGroupRoleInputSchema>;
+
+/** Corpo do `PUT /groups/{publicId}/members/{userPublicId}/role` (GRV-48): `everyone` ou o uuid de um cargo criado. */
+export const SetMemberRoleInputSchema = z.object({
+  roleId: z.union([z.literal('everyone'), z.uuid()]),
+});
+export type SetMemberRoleInput = z.infer<typeof SetMemberRoleInputSchema>;
+
+/** Corpo do `POST /groups/{publicId}/transfer` (GRV-49). */
+export const TransferGroupInputSchema = z.object({ userPublicId: PublicUserIdSchema });
+export type TransferGroupInput = z.infer<typeof TransferGroupInputSchema>;

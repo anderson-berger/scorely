@@ -8,31 +8,42 @@ const users = createUserService(dynamoUserRepository);
 
 export async function me(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    return users.get(auth.userId);
+    const userId = auth.userId;
+    const user = await users.get(userId);
+    return user;
   });
 }
 
 export async function updateMe(event: HttpEvent) {
   return authRoute(event, async (auth) => {
+    const userId = auth.userId;
     const patch = parseBody(event, UpdateMeInputSchema);
-    return users.update(auth.userId, patch);
+    const result = await users.update(userId, patch);
+    return result;
   });
 }
 
 export async function requestAvatarUpload(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    return users.requestAvatarUpload(auth.userId, parseBody(event, MediaUploadInputSchema));
+    const userId = auth.userId;
+    const uploadData = parseBody(event, MediaUploadInputSchema);
+    const result = await users.requestAvatarUpload(userId, uploadData);
+    return result;
   });
 }
 
 export async function setAvatar(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    return users.setAvatar(auth.userId, parseBody(event, AttachMediaInputSchema));
+    const userId = auth.userId;
+    const result = await users.setAvatar(userId, parseBody(event, AttachMediaInputSchema));
+    return result;
   });
 }
 
 export async function clearAvatar(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    return users.clearAvatar(auth.userId);
+    const userId = auth.userId;
+    const result = await users.clearAvatar(userId);
+    return result;
   });
 }

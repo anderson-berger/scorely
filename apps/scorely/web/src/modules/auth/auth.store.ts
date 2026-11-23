@@ -13,8 +13,8 @@ export const useAuthStore = defineStore('auth', () => {
   const hasSession = ref(Boolean(session.get()));
 
   const isAuthenticated = computed(() => hasSession.value);
-  /** Sem nome ainda: o primeiro acesso manda para o perfil. */
-  const needsProfile = computed(() => Boolean(user.value && !user.value.name));
+  /** AUTH-13: o apelido ainda é o código de amigo (USR-02), então o primeiro acesso manda para o perfil. */
+  const needsProfile = computed(() => Boolean(user.value && user.value.nickname === user.value.id));
 
   async function login(email: string, code: string) {
     const result = await authApi.verifyCode(email, code);

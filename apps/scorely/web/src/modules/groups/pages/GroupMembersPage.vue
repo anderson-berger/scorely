@@ -1,360 +1,489 @@
 <script lang="ts">
-import type { Group, InviteKind, Member, PlayerPosition } from '@scorely/contracts';
-import BottomSheet from '@scorely/web/src/components/BottomSheet.vue';
+import type { Group, GroupInvite, GroupJoinRequest, GroupMember, GroupTier } from '@scorely/contracts';
+import { errorMessage } from '@scorely/web/src/i18n/errors';
+import { formatDateTime } from '@scorely/web/src/lib/datetime';
 import { useAuthStore } from '@scorely/web/src/modules/auth/auth.store';
-import GroupLinksCard from '@scorely/web/src/modules/groups/components/GroupLinksCard.vue';
-import { memberSections } from '@scorely/web/src/modules/groups/groups';
-import { type GroupAccess, NO_ACCESS } from '@scorely/web/src/modules/groups/permissions';
-import { initials } from '@scorely/web/src/modules/groups/scoreboard';
-import PlayerPositions from '@scorely/web/src/modules/teams/components/PlayerPositions.vue';
+import GroupInviteSheet from '@scorely/web/src/modules/groups/components/GroupInviteSheet.vue';
+import GroupMemberRoleSheet from '@scorely/web/src/modules/groups/components/GroupMemberRoleSheet.vue';
+import { groupsApi } from '@scorely/web/src/modules/groups/groups.api';
+import { can } from '@scorely/web/src/modules/groups/nav';
+import { canTransfer, leaveMode, memberActions, roleMark } from '@scorely/web/src/modules/groups/roles';
 import { defineComponent, type PropType } from 'vue';
 
-interface Section {
-  key: 'members' | 'reserves';
-  title: string;
-  people: Member[];
-}
-
 /**
- * Aba Membros (planos 012 e 015 D11; GRP-29): "Membros · N/limite", com o dono no topo, e "Reservas · N/limite".
- * Cada pessoa num bloco, com as posições abaixo do nome (TIM-05) e a marca do cargo (GRP-56). Quem tem
- * `members.manage` manda os links (012, D7) e, pelo menu "⋮" da pessoa, remove e convida reservas para membro
- * (GRP-40); quem tem cargo, só o dono remove (GRP-53). Só o dono dá e tira o cargo e passa o grupo (GRP-51, 54).
- * Quem não é dono sai (GRP-42).
- * Grupo arquivado é só leitura (GRP-37): sem remover, convidar nem sair.
+ * GRV-32: a tela Membros. Duas seções (Membros e Reservas); Convidar, Convites e Pedidos para quem tem `members.invite`;
+ * Remover (`members.remove`) e Mudar cargo (`roles.manage`) nas linhas `manageable`, e Sair do grupo para quem não é o dono.
  */
 export default defineComponent({
   name: 'GroupMembersPage',
 
-  components: { BottomSheet, GroupLinksCard, PlayerPositions },
+  components: { GroupInviteSheet, GroupMemberRoleSheet },
 
-  inheritAttrs: false,
+  props: {
+    group: { type: Object as PropType<Group>, required: true },
+  },
+
+  emits: {
+    /** O grupo como ficou depois de passar o grupo (GRV-49). */
+    saved: (_group: Group) => true,
+  },
 
   setup() {
     return { auth: useAuthStore() };
   },
 
-  props: {
-    group: { type: Object as PropType<Group>, required: true },
-    members: { type: Array as PropType<Member[]>, required: true },
-    busy: { type: Boolean, default: false },
-    isOwner: { type: Boolean, default: false },
-    access: { type: Object as PropType<GroupAccess>, default: () => NO_ACCESS },
-    /** TIM-05: posições de cada pessoa (ausente = o esporte não tem posições). */
-    playerPositions: {
-      type: Object as PropType<Record<string, PlayerPosition[]> | undefined>,
-      default: undefined,
-    },
-    canEditPositions: { type: Boolean, default: false },
-  },
-
-  emits: {
-    remove: (_member: Member) => true,
-    memberInvite: (_member: Member) => true,
-    cancelMemberInvite: (_member: Member) => true,
-    leaveGroup: () => true,
-    editPlayer: (_userId: string) => true,
-    rotate: (_kind: InviteKind) => true,
-    setAdmin: (_member: Member) => true,
-    clearAdmin: (_member: Member) => true,
-    transfer: (_member: Member) => true,
-  },
-
   data() {
-    return { inviting: false };
+    return {
+      members: [] as GroupMember[],
+      invites: [] as GroupInvite[],
+      requests: [] as GroupJoinRequest[],
+      tiers: ['member', 'reserve'] as GroupTier[],
+      loaded: false,
+      error: '',
+      inviteOpen: false,
+      roleOpen: false,
+      roleMember: null as GroupMember | null,
+    };
   },
 
   computed: {
-    /** Quem tem `members.manage` remove, convida e manda os links; no grupo arquivado, ninguém (GRP-37). */
-    canManage(): boolean {
-      return this.access.members && !this.group.archivedAt;
+    canInvite(): boolean {
+      return can(this.group, 'members.invite');
     },
 
-    /** Só o dono dá e tira o cargo e passa o grupo (GRP-51, 54); no arquivado, não (GRP-56). */
-    ownerActions(): boolean {
-      return this.isOwner && !this.group.archivedAt;
+    full(): GroupMember[] {
+      return this.members.filter((m) => m.tier === 'member');
     },
 
-    /** GRP-42/43: quem não é dono sai do grupo; no arquivado, não (GRP-37). */
-    canLeave(): boolean {
-      return !this.isOwner && !this.group.archivedAt;
+    reserves(): GroupMember[] {
+      return this.members.filter((m) => m.tier === 'reserve');
     },
 
-    /** GRP-40: só dá para convidar com lugar de membro livre (o limite vem da api). */
-    hasMemberSpot(): boolean {
-      return memberSections(this.members).members.length < this.group.maxMembers;
+    activeInvites(): number {
+      return this.invites.filter((i) => i.status === 'active').length;
     },
 
-    /** Seção de reservas vazia não aparece. */
-    sections(): Section[] {
-      const { members, reserves } = memberSections(this.members);
-      const all: Section[] = [
-        {
-          key: 'members',
-          title: this.$t('groups.membersSection', { count: members.length, max: this.group.maxMembers }),
-          people: members,
-        },
-        {
-          key: 'reserves',
-          title: this.$t('groups.reservesSection', { count: reserves.length, max: this.group.maxReserves }),
-          people: reserves,
-        },
-      ];
-      return all.filter((s) => s.key === 'members' || s.people.length > 0);
+    mustTransferFirst(): boolean {
+      return leaveMode(this.group) === 'transferFirst';
     },
   },
 
+  mounted() {
+    this.load();
+  },
+
   methods: {
-    initials(m: Pick<Member, 'name'>): string {
-      return initials(this.personName(m));
+    date(iso: string): string {
+      return formatDateTime(iso, 'date');
     },
 
-    /** TIM-05: tocar na pessoa (ou nas posições dela) abre o painel de posições (só o dono, com o grupo ativo). */
-    edit(userId: string) {
-      if (this.canEditPositions) this.$emit('editPlayer', userId);
+    /** GRV-32: "Convidar para membro" na reserva, para quem tem `members.invite`. */
+    promotable(member: GroupMember): boolean {
+      return this.canInvite && member.tier === 'reserve';
     },
 
-    /** GRP-29, 40, 56: o menu "⋮" da pessoa só aparece com alguma ação (o dono não tem). */
-    hasActions(m: Member): boolean {
-      if (m.isOwner) return false;
-      return this.canRemove(m) || this.ownerActions || this.canInvite(m) || this.canEditPositions;
+    async invitePromote(member: GroupMember) {
+      try {
+        // A validade fica de fora: a api usa o padrão (GRV-18, 32). O convite pessoal tem sempre 1 uso (GRV-23).
+        await groupsApi.createInvite(this.group.id, {
+          tier: 'member',
+          target: { publicId: member.user.id },
+        });
+        await this.load();
+        this.$q.notify({
+          type: 'positive',
+          message: this.$t('groups.members.inviteSent', { name: member.user.nickname }),
+        });
+      } catch (err) {
+        this.$q.notify({ type: 'negative', message: errorMessage(err) });
+      }
     },
 
-    /** GRP-40: o convite para membro vai para uma reserva, e nunca para a própria pessoa. */
-    canInvite(m: Member): boolean {
-      return this.canManage && m.role === 'reserve' && m.userId !== this.auth.user?.id;
+    /** GRV-32, 43: Remover e Mudar cargo aparecem nas linhas que a api marca como `manageable` (abaixo do meu cargo), menos a própria. */
+    actions(member: GroupMember): ('remove' | 'changeRole')[] {
+      return member.user.id === this.auth.user?.id ? [] : memberActions(this.group, member);
     },
 
-    /** GRP-25, 53: nem a si mesmo (para isso, sair), e quem tem cargo só o dono remove. */
-    canRemove(m: Member): boolean {
-      if (!this.canManage || m.isOwner || m.userId === this.auth.user?.id) return false;
-      return this.isOwner || !m.staffRole;
+    /** GRV-32: a marca do cargo na linha ("Dono" ou o nome do cargo criado). */
+    mark(member: GroupMember): string {
+      const mark = roleMark(member.role);
+      if (!mark) return '';
+      return mark.kind === 'owner' ? this.$t('groups.members.owner') : mark.name;
     },
 
-    personName(p: Pick<Member, 'name'>): string {
-      return p.name ?? this.$t('groups.unnamed');
+    /** GRV-49, 32: "Passar o grupo" no menu de um membro, só para o Dono. */
+    transferable(member: GroupMember): boolean {
+      return canTransfer(this.group, member);
+    },
+
+    confirmTransfer(member: GroupMember) {
+      this.$q
+        .dialog({
+          title: this.$t('groups.members.transferTitle', { name: member.user.nickname }),
+          message: this.$t('groups.members.transferConfirm', { name: member.user.nickname }),
+          cancel: { label: this.$t('groups.cancel'), flat: true },
+          ok: { label: this.$t('groups.members.transfer'), color: 'negative', flat: true },
+        })
+        .onOk(() => this.transfer(member));
+    },
+
+    /** GRV-49: passa o grupo e relê o grupo (o `myRole` e as permissões mudaram) e a lista. */
+    async transfer(member: GroupMember) {
+      try {
+        await groupsApi.transfer(this.group.id, { userPublicId: member.user.id });
+        this.$emit('saved', await groupsApi.get(this.group.id));
+        await this.load();
+        this.$q.notify({ type: 'positive', message: this.$t('groups.members.transferred') });
+      } catch (err) {
+        this.$q.notify({ type: 'negative', message: errorMessage(err) });
+      }
+    },
+
+    changeRole(member: GroupMember) {
+      this.roleMember = member;
+      this.roleOpen = true;
+    },
+
+    async load() {
+      this.error = '';
+      try {
+        const [members, invites, requests] = await Promise.all([
+          groupsApi.members(this.group.id),
+          this.canInvite ? groupsApi.invites(this.group.id) : Promise.resolve([]),
+          this.canInvite ? groupsApi.requests(this.group.id) : Promise.resolve([]),
+        ]);
+        this.members = members;
+        this.invites = invites;
+        this.requests = requests;
+      } catch (err) {
+        this.error = errorMessage(err);
+      } finally {
+        this.loaded = true;
+      }
+    },
+
+    /** GRV-28: aceitar, escolhendo membro ou reserva. */
+    async approve(request: GroupJoinRequest, tier: GroupTier) {
+      try {
+        await groupsApi.approveRequest(this.group.id, request.user.id, { tier });
+        this.$q.notify({
+          type: 'positive',
+          message: this.$t('groups.requests.approved', { name: request.user.nickname }),
+        });
+      } catch (err) {
+        this.$q.notify({ type: 'negative', message: errorMessage(err) });
+      }
+      await this.load();
+    },
+
+    confirmDecline(request: GroupJoinRequest) {
+      this.$q
+        .dialog({
+          title: this.$t('groups.requests.declineTitle', { name: request.user.nickname }),
+          message: this.$t('groups.requests.declineConfirm', { name: request.user.nickname }),
+          cancel: { label: this.$t('groups.cancel'), flat: true },
+          ok: { label: this.$t('groups.requests.decline'), color: 'negative', flat: true },
+        })
+        .onOk(() => this.decline(request));
+    },
+
+    /** GRV-28: recusar, sem aviso para a pessoa. */
+    async decline(request: GroupJoinRequest) {
+      try {
+        await groupsApi.declineRequest(this.group.id, request.user.id);
+        this.$q.notify({ type: 'positive', message: this.$t('groups.requests.declined') });
+      } catch (err) {
+        this.$q.notify({ type: 'negative', message: errorMessage(err) });
+      }
+      await this.load();
+    },
+
+    openInvites() {
+      this.$router.push({ name: 'group-invites', params: { id: this.group.id } });
+    },
+
+    confirmRemove(member: GroupMember) {
+      this.$q
+        .dialog({
+          title: this.$t('groups.members.removeTitle', { name: member.user.nickname }),
+          message: this.$t('groups.members.removeConfirm', { name: member.user.nickname }),
+          cancel: { label: this.$t('groups.cancel'), flat: true },
+          ok: { label: this.$t('groups.members.remove'), color: 'negative', flat: true },
+        })
+        .onOk(() => this.remove(member));
+    },
+
+    async remove(member: GroupMember) {
+      try {
+        await groupsApi.removeMember(this.group.id, member.user.id);
+        // GRV-37: o convite da participação (o último pelo qual entrou ou subiu), se ainda vale, pode ser cancelado no aviso.
+        const invite = this.invites.find((i) => i.status === 'active' && i.id === member.inviteId);
+        await this.load();
+        if (invite && this.canInvite) this.offerRevoke(member, invite);
+        else this.$q.notify({ type: 'positive', message: this.$t('groups.members.removed') });
+      } catch (err) {
+        this.$q.notify({ type: 'negative', message: errorMessage(err) });
+      }
+    },
+
+    offerRevoke(member: GroupMember, invite: GroupInvite) {
+      this.$q.notify({
+        type: 'warning',
+        timeout: 10000,
+        message: this.$t('groups.members.removedInvite', {
+          name: member.user.nickname,
+          creator: invite.createdBy.nickname,
+        }),
+        actions: [
+          {
+            label: this.$t('groups.invites.revoke'),
+            color: 'white',
+            handler: () => this.revoke(invite),
+          },
+        ],
+      });
+    },
+
+    async revoke(invite: GroupInvite) {
+      try {
+        await groupsApi.revokeInvite(this.group.id, invite.id);
+        await this.load();
+        this.$q.notify({ type: 'positive', message: this.$t('groups.invites.revoked') });
+      } catch (err) {
+        this.$q.notify({ type: 'negative', message: errorMessage(err) });
+      }
+    },
+
+    confirmLeave() {
+      this.$q
+        .dialog({
+          title: this.$t('groups.members.leaveTitle'),
+          message: this.$t('groups.members.leaveConfirm', { name: this.group.name }),
+          cancel: { label: this.$t('groups.cancel'), flat: true },
+          ok: { label: this.$t('groups.members.leave'), color: 'negative', flat: true },
+        })
+        .onOk(() => this.leave());
+    },
+
+    async leave() {
+      try {
+        await groupsApi.leave(this.group.id);
+        await this.$router.replace({ name: 'groups' });
+      } catch (err) {
+        this.$q.notify({ type: 'negative', message: errorMessage(err) });
+      }
     },
   },
 });
 </script>
 
 <template>
-  <div class="sections">
-    <section v-for="s in sections" :key="s.key">
-      <div class="head">
-        <h2 class="sc-section">{{ s.title }}</h2>
-        <q-btn
-          v-if="canManage && s.key === 'members'"
-          flat
-          no-caps
-          color="primary"
-          icon="person_add"
-          class="invite"
-          :label="$t('groups.invite')"
-          @click="inviting = true"
-        />
-      </div>
+  <div>
+    <div v-if="canInvite" class="top">
+      <q-btn
+        color="primary"
+        unelevated
+        no-caps
+        icon="person_add"
+        class="sc-btn-main"
+        :label="$t('groups.members.invite')"
+        @click="inviteOpen = true"
+      />
+      <button type="button" class="sc-card invites-row" @click="openInvites">
+        <span class="sc-display">{{ $t('groups.invites.title') }}</span>
+        <span class="sc-caption">{{ $t('groups.invites.active', { count: activeInvites }) }}</span>
+        <q-icon name="chevron_right" size="22px" aria-hidden="true" />
+      </button>
+    </div>
 
-      <div class="roster">
-        <div
-          v-for="m in s.people"
-          :key="m.userId"
-          class="sc-card member"
-          :class="{ 'sc-card--dashed': s.key === 'reserves', 'member--editable': canEditPositions }"
-          @click="edit(m.userId)"
-        >
-          <span class="avatar">{{ initials(m) }}</span>
-          <span class="who">
-            <span class="mname" :class="{ 'sc-muted': s.key === 'reserves' }">{{ personName(m) }}</span>
-            <PlayerPositions
-              v-if="playerPositions"
-              :positions="playerPositions[m.userId]"
-              :editable="canEditPositions"
-              :name="personName(m)"
-              @edit="edit(m.userId)"
-            />
-          </span>
-          <span v-if="m.isOwner" class="sc-display owner">{{ $t('groups.owner') }}</span>
-          <span v-else-if="m.staffRole" class="sc-display owner">{{ m.staffRole.name }}</span>
-          <span v-else-if="canManage && m.memberInviteExpiresAt" class="sc-label invited">{{
-            $t('groups.memberInvite.sent')
-          }}</span>
-          <q-btn
-            v-if="hasActions(m)"
-            flat
-            round
-            icon="more_vert"
-            class="actions"
-            :aria-label="$t('groups.memberActions', { name: personName(m) })"
-            :disable="busy"
-            @click.stop
-          >
-            <q-menu anchor="bottom right" self="top right">
-              <q-list style="min-width: 220px">
-                <q-item v-if="playerPositions && canEditPositions" v-close-popup clickable @click="edit(m.userId)">
-                  <q-item-section avatar><q-icon name="badge" /></q-item-section>
-                  <q-item-section>{{ $t('teams.positionsMenu') }}</q-item-section>
-                </q-item>
-                <template v-if="canInvite(m)">
-                  <q-item v-if="m.memberInviteExpiresAt" v-close-popup clickable @click="$emit('cancelMemberInvite', m)">
-                    <q-item-section avatar><q-icon name="block" /></q-item-section>
-                    <q-item-section>{{ $t('groups.memberInvite.cancel') }}</q-item-section>
-                  </q-item>
-                  <q-item v-else-if="hasMemberSpot" v-close-popup clickable @click="$emit('memberInvite', m)">
-                    <q-item-section avatar><q-icon name="upgrade" /></q-item-section>
-                    <q-item-section>{{ $t('groups.memberInvite.invite') }}</q-item-section>
-                  </q-item>
-                </template>
-                <template v-if="ownerActions">
-                  <q-item v-if="m.staffRole" v-close-popup clickable @click="$emit('clearAdmin', m)">
-                    <q-item-section avatar><q-icon name="remove_moderator" /></q-item-section>
-                    <q-item-section>{{ $t('groups.staff.clearAdmin') }}</q-item-section>
-                  </q-item>
-                  <q-item v-else v-close-popup clickable @click="$emit('setAdmin', m)">
-                    <q-item-section avatar><q-icon name="add_moderator" /></q-item-section>
-                    <q-item-section>{{ $t('groups.staff.setAdmin') }}</q-item-section>
-                  </q-item>
-                  <q-item v-if="m.role === 'member'" v-close-popup clickable @click="$emit('transfer', m)">
-                    <q-item-section avatar><q-icon name="key" /></q-item-section>
-                    <q-item-section>{{ $t('groups.staff.transfer', { name: personName(m) }) }}</q-item-section>
-                  </q-item>
-                </template>
-                <q-item v-if="canRemove(m)" v-close-popup clickable class="sc-danger" @click="$emit('remove', m)">
-                  <q-item-section avatar><q-icon name="person_remove" /></q-item-section>
-                  <q-item-section>{{ $t('groups.removeMember', { name: personName(m) }) }}</q-item-section>
+    <div v-if="error" class="sc-caption error">{{ error }}</div>
+    <div v-else-if="!loaded" class="loading"><q-spinner color="primary" size="md" /></div>
+    <template v-else>
+      <section v-if="requests.length > 0">
+        <h2 class="sc-section">{{ $t('groups.requests.title') }}</h2>
+        <ul class="sc-card list">
+          <li v-for="r in requests" :key="r.user.id" class="member">
+            <img v-if="r.user.avatarUrl" :src="r.user.avatarUrl" alt="" class="avatar" />
+            <span v-else class="avatar sc-display" aria-hidden="true">{{ r.user.nickname.slice(0, 1).toUpperCase() }}</span>
+            <span class="info">
+              <span class="name">{{ r.user.nickname }}</span>
+              <span class="sc-caption">{{ $t('groups.requests.since', { date: date(r.createdAt) }) }}</span>
+            </span>
+            <q-btn-dropdown
+              color="primary"
+              unelevated
+              no-caps
+              dense
+              :label="$t('groups.requests.approve')"
+              :aria-label="$t('groups.requests.actions', { name: r.user.nickname })"
+            >
+              <q-list>
+                <q-item-label header>{{ $t('groups.requests.approveAs') }}</q-item-label>
+                <q-item v-for="t in tiers" :key="t" v-close-popup clickable @click="approve(r, t)">
+                  <q-item-section>{{ $t(`groups.tier.${t}`) }}</q-item-section>
                 </q-item>
               </q-list>
-            </q-menu>
-          </q-btn>
-        </div>
-      </div>
-    </section>
+            </q-btn-dropdown>
+            <q-btn flat no-caps dense color="negative" :label="$t('groups.requests.decline')" @click="confirmDecline(r)" />
+          </li>
+        </ul>
+      </section>
 
-    <q-btn
-      v-if="canLeave"
-      flat
-      no-caps
-      class="sc-btn-outline leave"
-      icon="logout"
-      :label="$t('groups.leaveGroup')"
-      :disable="busy"
-      @click="$emit('leaveGroup')"
-    />
+      <section v-for="part in [{ key: 'members', list: full }, { key: 'reserves', list: reserves }]" :key="part.key">
+        <template v-if="part.list.length > 0">
+          <h2 class="sc-section">{{ $t(`groups.members.${part.key}`) }}</h2>
+          <ul class="sc-card list">
+            <li v-for="m in part.list" :key="m.user.id" class="member">
+              <img v-if="m.user.avatarUrl" :src="m.user.avatarUrl" alt="" class="avatar" />
+              <span v-else class="avatar sc-display" aria-hidden="true">{{ m.user.nickname.slice(0, 1).toUpperCase() }}</span>
+              <span class="info">
+                <span class="name">
+                  {{ m.user.nickname }}
+                  <q-badge v-if="mark(m)" :color="m.role.id === 'owner' ? 'primary' : 'grey'" :label="mark(m)" />
+                </span>
+                <span class="sc-caption">
+                  {{ $t('groups.members.since', { date: date(m.joinedAt) }) }}
+                  <template v-if="m.invitedBy">
+                    · {{ $t('groups.members.invitedBy', { name: m.invitedBy.nickname }) }}
+                  </template>
+                </span>
+              </span>
+              <q-btn
+                v-if="actions(m).length > 0 || promotable(m) || transferable(m)"
+                flat
+                round
+                dense
+                icon="more_vert"
+                :aria-label="$t('groups.members.actions', { name: m.user.nickname })"
+              >
+                <q-menu>
+                  <q-list>
+                    <q-item v-if="promotable(m)" v-close-popup clickable @click="invitePromote(m)">
+                      <q-item-section>{{ $t('groups.members.inviteAsMember') }}</q-item-section>
+                    </q-item>
+                    <q-item v-if="transferable(m)" v-close-popup clickable @click="confirmTransfer(m)">
+                      <q-item-section>{{ $t('groups.members.transfer') }}</q-item-section>
+                    </q-item>
+                    <q-item v-if="actions(m).includes('changeRole')" v-close-popup clickable @click="changeRole(m)">
+                      <q-item-section>{{ $t('groups.members.changeRole') }}</q-item-section>
+                    </q-item>
+                    <q-item v-if="actions(m).includes('remove')" v-close-popup clickable @click="confirmRemove(m)">
+                      <q-item-section class="text-negative">{{ $t('groups.members.remove') }}</q-item-section>
+                    </q-item>
+                  </q-list>
+                </q-menu>
+              </q-btn>
+            </li>
+          </ul>
+        </template>
+      </section>
 
-    <BottomSheet v-if="canManage" v-model="inviting" :title="$t('groups.invite')">
-      <GroupLinksCard :group="group" :busy="busy" @rotate="$emit('rotate', $event)" />
-    </BottomSheet>
+      <p v-if="mustTransferFirst" class="leave-hint">{{ $t('groups.members.ownerCannotLeave') }}</p>
+      <q-btn
+        v-else
+        flat
+        no-caps
+        color="negative"
+        class="leave"
+        :label="$t('groups.members.leave')"
+        @click="confirmLeave"
+      />
+    </template>
+
+    <GroupInviteSheet v-model="inviteOpen" :group-id="group.id" @created="load" />
+    <GroupMemberRoleSheet v-model="roleOpen" :group="group" :member="roleMember" @changed="load" />
   </div>
 </template>
 
 <style scoped>
-.member--editable {
+.top {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.invites-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 56px;
+  padding: 12px 14px;
+  border: 0;
+  color: var(--sc-text);
+  font-family: inherit;
+  text-align: left;
   cursor: pointer;
 }
 
-/* TIM-05: a linha inteira abre as posições; o destaque mostra que dá para tocar. */
-.member--editable:hover,
-.member--editable:active {
-  border-color: var(--sc-accent);
+.invites-row .sc-caption {
+  flex-grow: 1;
 }
 
-.sections {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-
-.head .sc-section {
-  margin-bottom: 0;
-}
-
-.invite {
-  min-height: 44px;
-}
-
-/* Cada pessoa num bloco separado (TIM-05). */
-.roster {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow: hidden;
 }
 
 .member {
   display: flex;
   align-items: center;
   gap: 12px;
-  min-height: 56px;
-  padding: 8px 4px 8px 12px;
-  border-radius: 12px;
+  min-height: 64px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--sc-line);
+}
+
+.member:last-child {
+  border-bottom: 0;
 }
 
 .avatar {
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   flex-shrink: 0;
-  border-radius: 8px;
-  background: var(--sc-line);
-  color: var(--sc-text-2);
-  font-size: 12px;
-  font-weight: 700;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--sc-surface-2);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.who {
-  flex-grow: 1;
-  min-width: 0;
+.info {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-}
-
-.mname {
+  flex-grow: 1;
   min-width: 0;
-  font-size: 15px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-.owner {
-  font-size: 13px;
+.name {
   font-weight: 700;
-  color: var(--sc-accent);
-  padding-right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
-.actions {
-  color: var(--sc-muted);
-}
-
-.invited {
-  font-size: 11px;
-  color: var(--sc-accent);
-  white-space: nowrap;
-  padding-right: 4px;
+.leave-hint {
+  margin: 16px 0 0;
+  text-align: center;
+  color: var(--sc-text-muted, inherit);
 }
 
 .leave {
-  align-self: flex-start;
-  min-height: 44px;
+  margin-top: 24px;
 }
 
-/* Desktop: as pessoas em quantas colunas couberem, com espaço entre os blocos (planos 015 D11 e 016 D3; TIM-05). */
-@media (min-width: 1024px) {
-  .roster {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: 10px;
-  }
+.error {
+  padding: 24px 0;
+  text-align: center;
+}
+
+.loading {
+  margin-top: 48px;
+  text-align: center;
 }
 </style>

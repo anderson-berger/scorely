@@ -1,11 +1,10 @@
 import { devAuthSecret, project, tableNameFor, uploadsBucketFor } from '@scorely/api/project';
 import { AUTHORIZER } from '@scorely/api/src/lib/auth';
 import { authFunctions } from '@scorely/api/src/modules/auth/functions';
-import { competitionFunctions } from '@scorely/api/src/modules/competition/functions';
 import { groupsFunctions } from '@scorely/api/src/modules/groups/functions';
 import { healthFunctions } from '@scorely/api/src/modules/health/functions';
+import { matchesFunctions } from '@scorely/api/src/modules/matches/functions';
 import { notificationsFunctions } from '@scorely/api/src/modules/notifications/functions';
-import { teamsFunctions } from '@scorely/api/src/modules/teams/functions';
 import { usersFunctions } from '@scorely/api/src/modules/users/functions';
 import type { AWS } from '@serverless/typescript';
 
@@ -56,6 +55,8 @@ const config: AWS = {
       // Só no dev local (S3Mock): endpoint interno e o que o navegador alcança (a assinatura inclui o host)
       S3_ENDPOINT: "${env:S3_ENDPOINT, ''}",
       S3_PUBLIC_ENDPOINT: "${env:S3_PUBLIC_ENDPOINT, ''}",
+      // MID-12: base pública das mídias (ex.: CDN). Vazio = o endereço do bucket
+      MEDIA_BASE_URL: "${env:MEDIA_BASE_URL, ''}",
       AUTH_SECRET: authSecret,
       // Sem domínio verificado no SES ainda: o código de login vai para o log (CloudWatch / terminal).
       EMAIL_MODE: "${env:EMAIL_MODE, 'console'}",
@@ -150,8 +151,7 @@ const config: AWS = {
     ...usersFunctions,
     ...notificationsFunctions,
     ...groupsFunctions,
-    ...teamsFunctions,
-    ...competitionFunctions,
+    ...matchesFunctions,
   },
 };
 

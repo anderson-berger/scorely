@@ -7,7 +7,8 @@ const notifications = createNotificationService(dynamoNotificationRepository);
 
 export async function list(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    return notifications.list(auth.userId, event.queryStringParameters?.cursor);
+    const result = await notifications.list(auth.userId, event.queryStringParameters?.cursor);
+    return result;
   });
 }
 

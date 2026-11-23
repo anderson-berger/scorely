@@ -1,9 +1,9 @@
+import { matchesGroupRoutes } from '@scorely/web/src/modules/matches/routes';
 import type { RouteRecordRaw } from 'vue-router';
 
+/** Grupo (docs/modules/grupos.md). */
 export const groupsRoutes: RouteRecordRaw[] = [
-  // A tela inicial é a de Grupos (plano 013, D3); `/` continua valendo para quem tem o link.
-  { path: '', redirect: { name: 'groups' } },
-  // Criar grupo é um painel por cima da tela de Grupos (GRP-34): rota filha, o voltar fecha.
+  // GRV-07: criar grupo é um painel por cima da lista (rota filha, o voltar fecha).
   {
     path: 'groups',
     name: 'groups',
@@ -16,7 +16,7 @@ export const groupsRoutes: RouteRecordRaw[] = [
       },
     ],
   },
-  // Casco com as abas (plano 012, D1). `group` continua sendo o jogo, para os links que já existem.
+  // GRV-13: o casco carrega o grupo e mostra a barra; cada área é uma rota filha.
   {
     path: 'groups/:id',
     component: () => import('@scorely/web/src/modules/groups/pages/GroupPage.vue'),
@@ -24,24 +24,23 @@ export const groupsRoutes: RouteRecordRaw[] = [
       {
         path: '',
         name: 'group',
-        component: () => import('@scorely/web/src/modules/groups/pages/GroupGamePage.vue'),
+        component: () => import('@scorely/web/src/modules/groups/pages/GroupHomePage.vue'),
       },
-      // GRP-29: os times do jogo numa aba própria (TIM-14).
-      {
-        path: 'teams',
-        name: 'group-teams',
-        component: () => import('@scorely/web/src/modules/groups/pages/GroupTeamsPage.vue'),
-      },
+      ...matchesGroupRoutes,
       {
         path: 'members',
         name: 'group-members',
         component: () => import('@scorely/web/src/modules/groups/pages/GroupMembersPage.vue'),
       },
-      // CMP-09: a competição do grupo (módulo próprio), com a competição já ativada alguma vez.
       {
-        path: 'competition',
-        name: 'group-competition',
-        component: () => import('@scorely/web/src/modules/competition/pages/GroupCompetitionPage.vue'),
+        path: 'invites',
+        name: 'group-invites',
+        component: () => import('@scorely/web/src/modules/groups/pages/GroupInvitesPage.vue'),
+      },
+      {
+        path: 'roles',
+        name: 'group-roles',
+        component: () => import('@scorely/web/src/modules/groups/pages/GroupRolesPage.vue'),
       },
       {
         path: 'settings',
@@ -50,16 +49,10 @@ export const groupsRoutes: RouteRecordRaw[] = [
       },
     ],
   },
-  // Não é pública: sem sessão, o guard manda para o login e volta aqui depois (caso 3).
+  // GRV-35: a página do convite (sem login, a pessoa passa pelo login e volta).
   {
     path: 'join/:token',
-    name: 'join',
-    component: () => import('@scorely/web/src/modules/groups/pages/JoinPage.vue'),
-  },
-  // Link do jogo para convidados (plano 007, D7). Também não é pública.
-  {
-    path: 'play/:token',
-    name: 'play',
-    component: () => import('@scorely/web/src/modules/groups/pages/PlayPage.vue'),
+    name: 'group-join',
+    component: () => import('@scorely/web/src/modules/groups/pages/GroupJoinPage.vue'),
   },
 ];

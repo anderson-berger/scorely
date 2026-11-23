@@ -1,13 +1,16 @@
 import {
   BatchGetCommand,
   type BatchGetCommandOutput,
+  GetCommand,
   QueryCommand,
   TransactWriteCommand,
   type TransactWriteCommandInput,
 } from '@aws-sdk/lib-dynamodb';
 import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
-import { appError } from '@scorely/api/src/lib/errors';
+import { type AppError, appError } from '@scorely/api/src/lib/errors';
 import { chunk } from '@scorely/api/src/lib/fn';
+import { LOGIN_CODE_ENTITY, SESSION_ENTITY } from '@scorely/api/src/modules/auth/auth.table';
+import { USER_PREFERENCES_ENTITY, USER_PRIVATE_ENTITY } from '@scorely/api/src/modules/users/user.table';
 import { z } from 'zod';
 
 export interface Key {
@@ -17,8 +20,23 @@ export interface Key {
 
 /** `entity` de todo item ponteiro. As chaves de cada lookup ficam no `<mod>.table.ts` do módulo. */
 export const LOOKUP_ENTITY = 'Lookup';
+/** `entity` do contador que nasce por `Put` (ex.: `GROUP#<id> / COUNTERS`). */
+export const COUNTERS_ENTITY = 'Counters';
 
-/** Remove os atributos de infraestrutura antes de devolver a entidade. */
+/**
+ * Itens que não são entidades: sem `updatedAt` nem `version` (ADR 0013). Inclui o código de login e a sessão do auth
+ * e a parte privada e as preferências do usuário (a `version` da pessoa é a do `META`, USR-18).
+ */
+const NOT_ENTITIES: ReadonlySet<string> = new Set([
+  LOOKUP_ENTITY,
+  COUNTERS_ENTITY,
+  LOGIN_CODE_ENTITY,
+  SESSION_ENTITY,
+  USER_PRIVATE_ENTITY,
+  USER_PREFERENCES_ENTITY,
+]);
+
+/** Remove os atributos de infraestrutura antes de devolver a entidade (`updatedAt` e `version` saem, ADR 0013). */
 export function stripKeys<T>(row: Record<string, unknown>): T {
   const { PK: _pk, SK: _sk, entity: _e, ttl: _t, ...rest } = row;
   return rest as T;
@@ -28,6 +46,7 @@ export function stripKeys<T>(row: Record<string, unknown>): T {
  * Monta o item que vai para o banco: chaves, `entity` e `createdAt` (ISO em UTC). Todo `Put` passa por aqui.
  * Se `data` já tem `createdAt` (entidade criada com `newEntity`), ele vale; senão usa `createdAt`
  * (passe o da entidade nos lookups da mesma transação, para gravarem o mesmo instante).
+ * Entidade (não lookup, não contador) nasce com `updatedAt` (o de `data` ou o `createdAt`) e `version: 1` (ADR 0013).
  */
 export function dbItem(
   keys: Key,
@@ -35,7 +54,152 @@ export function dbItem(
   data: object,
   createdAt: string = new Date().toISOString(),
 ): Record<string, unknown> {
-  return { createdAt, ...data, ...keys, entity };
+  if (NOT_ENTITIES.has(entity)) return { createdAt, ...data, ...keys, entity };
+  const item: Record<string, unknown> = { createdAt, ...data };
+  return { ...item, updatedAt: item.updatedAt ?? item.createdAt, version: 1, ...keys, entity };
+}
+
+const TOUCHED_AT = ':touchedAt';
+const VERSION_STEP = ':versionStep';
+
+interface UpdateParts {
+  UpdateExpression?: string | undefined;
+  ExpressionAttributeValues?: Record<string, unknown> | undefined;
+}
+
+/**
+ * ADR 0013: toda alteração de entidade grava `updatedAt` e soma 1 na `version`. Recebe o `Update` (comando ou item
+ * de transação) e devolve o mesmo com `SET updatedAt` e `ADD version`. Se a expressão já grava o `updatedAt`, ele
+ * vale. Num upsert, a `version` começa em 1 (o `ADD` parte de 0).
+ */
+export function touch<U extends UpdateParts>(
+  update: U,
+  at: Date | string = new Date(),
+): U & { UpdateExpression: string; ExpressionAttributeValues: Record<string, unknown> } {
+  const expression = update.UpdateExpression ?? '';
+  const setsUpdatedAt = /(^|[\s,])#?updatedAt\s*=/.test(expression);
+  const withSet = setsUpdatedAt
+    ? expression
+    : /\bSET\s/.test(expression)
+      ? expression.replace(/\bSET\s+/, `SET updatedAt = ${TOUCHED_AT}, `)
+      : `SET updatedAt = ${TOUCHED_AT} ${expression}`;
+  const withAdd = /\bADD\s/.test(withSet)
+    ? withSet.replace(/\bADD\s+/, `ADD version ${VERSION_STEP}, `)
+    : `${withSet} ADD version ${VERSION_STEP}`;
+  return {
+    ...update,
+    UpdateExpression: withAdd.replace(/\s+/g, ' ').trim(),
+    ExpressionAttributeValues: {
+      ...update.ExpressionAttributeValues,
+      ...(!setsUpdatedAt && { [TOUCHED_AT]: typeof at === 'string' ? at : at.toISOString() }),
+      [VERSION_STEP]: 1,
+    },
+  };
+}
+
+/** Atributos que o `replaceItem` nunca grava a partir de `data`. */
+const MANAGED = new Set(['PK', 'SK', 'entity', 'createdAt', 'updatedAt', 'version']);
+
+/**
+ * Substitui a entidade inteira sem voltar a `version` para 1 (ADR 0013): no lugar do `Put`, um `Update` que grava
+ * cada campo de `data`, apaga os opcionais de `removable` que vieram ausentes, mantém o `createdAt` da 1ª gravação e
+ * soma a `version`. Devolve os parâmetros do `Update` (sem `TableName`), para um comando ou uma transação.
+ */
+export function replaceItem(
+  key: Key,
+  entity: string,
+  data: Record<string, unknown>,
+  removable: readonly string[] = [],
+) {
+  const fields = Object.entries(data).filter(([k, v]) => v !== undefined && !MANAGED.has(k));
+  const absent = removable.filter((k) => data[k] === undefined && !MANAGED.has(k));
+  const createdAt = (data.createdAt as string | undefined) ?? new Date().toISOString();
+  const updatedAt = (data.updatedAt as string | undefined) ?? new Date().toISOString();
+  const sets = [
+    '#entity = :entity',
+    'createdAt = if_not_exists(createdAt, :createdAt)',
+    'updatedAt = :updatedAt',
+    ...fields.map(([k]) => `#f_${k} = :f_${k}`),
+  ];
+  return touch({
+    Key: key,
+    UpdateExpression: `SET ${sets.join(', ')}${absent.length > 0 ? ` REMOVE ${absent.map((k) => `#f_${k}`).join(', ')}` : ''}`,
+    ExpressionAttributeNames: {
+      '#entity': 'entity',
+      ...Object.fromEntries([...fields.map(([k]) => k), ...absent].map((k) => [`#f_${k}`, k])),
+    },
+    ExpressionAttributeValues: {
+      ':entity': entity,
+      ':createdAt': createdAt,
+      ':updatedAt': updatedAt,
+      ...Object.fromEntries(fields.map(([k, v]) => [`:f_${k}`, v])),
+    },
+  });
+}
+
+/**
+ * ADR 0016: a condição de que o item ainda está na versão que a tela mostrou. `0` = o item ainda não existe
+ * (a gravação cria). Junte com a condição própria da escrita pelo `withVersion`.
+ */
+export function expectVersion(expected: number): {
+  ConditionExpression: string;
+  ExpressionAttributeValues?: Record<string, unknown>;
+} {
+  return expected === 0
+    ? { ConditionExpression: 'attribute_not_exists(PK)' }
+    : {
+        ConditionExpression: 'version = :expectedVersion',
+        ExpressionAttributeValues: { ':expectedVersion': expected },
+      };
+}
+
+/** O `Update`/`Delete` (comando ou item de transação) com a condição da versão somada à que ele já tem (ADR 0016). */
+export function withVersion<
+  U extends {
+    ConditionExpression?: string | undefined;
+    ExpressionAttributeValues?: Record<string, unknown> | undefined;
+  },
+>(update: U, expected: number): U & { ConditionExpression: string } {
+  const version = expectVersion(expected);
+  const values = { ...update.ExpressionAttributeValues, ...version.ExpressionAttributeValues };
+  return {
+    ...update,
+    ConditionExpression: update.ConditionExpression
+      ? `(${update.ConditionExpression}) AND ${version.ConditionExpression}`
+      : version.ConditionExpression,
+    ...(Object.keys(values).length > 0 && { ExpressionAttributeValues: values }),
+  };
+}
+
+/** ADR 0016: a gravação falhou na versão. Relê a atual (`0` se o item sumiu) para a tela recarregar. */
+export async function versionConflict(readCurrent: () => Promise<number>): Promise<AppError> {
+  return appError('VERSION_CONFLICT', { currentVersion: await readCurrent() });
+}
+
+/** A versão atual de um item (leitura consistente), `0` se ele não existe. */
+export async function currentVersion(key: Key): Promise<number> {
+  const { Item } = await dynamo().send(
+    new GetCommand({
+      TableName: tableName(),
+      Key: key,
+      ConsistentRead: true,
+      ProjectionExpression: 'version',
+    }),
+  );
+  return Item ? Number(Item.version ?? 0) : 0;
+}
+
+/**
+ * Manda um `Update` ou `Delete` de edição com a condição da versão (ADR 0016). Falhou na condição → `VERSION_CONFLICT`
+ * com a versão atual. Devolve o que o comando devolveu (ex.: `Attributes`).
+ */
+export async function sendVersioned<T>(key: Key, send: () => Promise<T>): Promise<T> {
+  try {
+    return await send();
+  } catch (err) {
+    if (isConditionFailed(err)) throw await versionConflict(() => currentVersion(key));
+    throw err;
+  }
 }
 
 /** Para item criado por `Update` (upsert, ex.: contador): grava `createdAt` só na primeira escrita. */

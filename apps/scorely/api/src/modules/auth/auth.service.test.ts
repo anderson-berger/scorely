@@ -1,19 +1,13 @@
 import type { EmailMessage, Mailer } from '@scorely/api/src/lib/email';
 import type { AppError } from '@scorely/api/src/lib/errors';
 import { range } from '@scorely/api/src/lib/fn';
-import type { UserId } from '@scorely/api/src/lib/ids';
 import { verifyJwt } from '@scorely/api/src/lib/jwt';
 import type { AuthRepository } from '@scorely/api/src/modules/auth/auth.repository';
 import { AUTH_LIMITS, createAuthService } from '@scorely/api/src/modules/auth/auth.service';
-import type { LoginCode, Session } from '@scorely/api/src/modules/auth/auth.table';
-import type { MeRecord, UserRecord, UserRepository } from '@scorely/api/src/modules/users/user.repository';
+import { type LoginCode, loginCodeKey, type Session } from '@scorely/api/src/modules/auth/auth.table';
 import { createUserService } from '@scorely/api/src/modules/users/user.service';
-import {
-  type Preferences,
-  type PublicUserId,
-  PublicUserIdSchema,
-  type UpdateMeInput,
-} from '@scorely/contracts';
+import { memoryUsers } from '@scorely/api/src/modules/users/users.memory';
+import { PublicUserIdSchema } from '@scorely/contracts';
 import { describe, expect, it } from 'vitest';
 
 const SECRET = 'test-secret-with-at-least-32-characters!!';
@@ -24,17 +18,17 @@ function memoryAuthRepo(): AuthRepository {
   const codes = new Map<string, LoginCode>();
   const sessions = new Map<string, Session>();
   return {
-    getCode: async (email) => structuredClone(codes.get(email)),
-    putCode: async (code) => void codes.set(code.email, structuredClone(code)),
+    getCode: async (email) => structuredClone(codes.get(loginCodeKey(email).PK)),
+    putCode: async (code) => void codes.set(loginCodeKey(code.email).PK, structuredClone(code)),
     async registerAttempt(email, max) {
-      const code = codes.get(email);
+      const code = codes.get(loginCodeKey(email).PK);
       if (!code || code.attempts >= max) return undefined;
       code.attempts += 1;
       return structuredClone(code);
     },
     async consumeCode(email, hash) {
-      if (codes.get(email)?.codeHash !== hash) return false;
-      return codes.delete(email);
+      if (codes.get(loginCodeKey(email).PK)?.codeHash !== hash) return false;
+      return codes.delete(loginCodeKey(email).PK);
     },
     getSession: async (id) => structuredClone(sessions.get(id)),
     putSession: async (s) => void sessions.set(s.id, structuredClone(s)),
@@ -48,69 +42,12 @@ function memoryAuthRepo(): AuthRepository {
   };
 }
 
-type ReadOpts = { consistent?: boolean };
-
-/**
- * Repositório de usuários em memória com as três partes da pessoa (usuarios.md, seção 3). `systemIdOf` dá o id do
- * sistema de um email: é ele que vai no JWT (USR-16), e o `user` do login só tem o público.
- */
-function memoryUserRepo() {
-  const profiles = new Map<UserId, UserRecord>();
-  const emails = new Map<UserId, string>();
-  const prefs = new Map<UserId, Preferences>();
-  const me = (id: UserId): MeRecord | undefined => {
-    const profile = profiles.get(id);
-    const email = emails.get(id);
-    if (!profile || email === undefined) return undefined;
-    return structuredClone({ ...profile, email, preferences: prefs.get(id) ?? {} });
-  };
-  const idOf = (email: string) => [...emails.entries()].find(([, e]) => e === email)?.[0];
-  const repo: UserRepository = {
-    get: async (id: UserId, _opts?: ReadOpts) => structuredClone(profiles.get(id)),
-    getMe: async (id: UserId, _opts?: ReadOpts) => me(id),
-    getByEmail: async (email: string, _opts?: ReadOpts) => {
-      const id = idOf(email);
-      return id === undefined ? undefined : me(id);
-    },
-    getPreferences: async (id: UserId): Promise<Preferences> => structuredClone(prefs.get(id) ?? {}),
-    async create(user: UserRecord, email: string) {
-      if (idOf(email) !== undefined) return 'email_taken';
-      if ([...profiles.values()].some((p) => p.publicId === user.publicId)) return 'public_id_taken';
-      profiles.set(user.id, structuredClone(user));
-      emails.set(user.id, email);
-      prefs.set(user.id, {});
-      return 'created';
-    },
-    async update(id: UserId, patch: UpdateMeInput) {
-      const profile = profiles.get(id);
-      const preferences = prefs.get(id);
-      if (!profile || !preferences) return undefined;
-      const { locale, timeZone, ...rest } = patch;
-      Object.assign(preferences, { ...(locale && { locale }), ...(timeZone && { timeZone }) });
-      Object.assign(profile, rest);
-      return me(id);
-    },
-    resolve: async (codes: readonly PublicUserId[]) =>
-      new Map(
-        [...profiles.values()]
-          .filter((u) => codes.includes(u.publicId))
-          .map((u) => [u.publicId, u.id] as const),
-      ),
-  };
-  const systemIdOf = (email: string): UserId => {
-    const id = idOf(email);
-    if (id === undefined) throw new Error('no user for email in memory store');
-    return id;
-  };
-  return { repo, systemIdOf };
-}
-
 function setup() {
   const clock = { now: new Date('2026-11-06T12:00:00.000Z') };
   const sent: EmailMessage[] = [];
   const notified: string[] = [];
   const mailer: Mailer = { send: async (m) => void sent.push(m) };
-  const userRepo = memoryUserRepo();
+  const userRepo = memoryUsers();
   const users = createUserService(userRepo.repo, () => clock.now);
   const service = createAuthService({
     repo: memoryAuthRepo(),
@@ -195,12 +132,47 @@ describe('auth: pedir código', () => {
   });
 });
 
+describe('auth: email normalizado e janela (AUTH-01, AUTH-02)', () => {
+  it('AUTH-01: Ana@Example.com com espaços é o mesmo limite que ana@example.com', async () => {
+    const t = setup();
+    await t.service.requestCode(EMAIL);
+    const cooldown = await errorOf(t.service.requestCode('  Ana@Example.COM '));
+    expect(cooldown).toMatchObject({ status: 429, code: 'AUTH_CODE_COOLDOWN' });
+  });
+
+  it('AUTH-01: o código pedido com o email em maiúsculas vale para o email normalizado, na mesma conta', async () => {
+    const t = setup();
+    await t.service.requestCode(' Ana@Example.com');
+    const result = await t.service.verifyCode(EMAIL, t.lastCode());
+    expect(result.user.private.email).toBe(EMAIL);
+    t.advance(AUTH_LIMITS.resendCooldownSeconds);
+    await t.service.requestCode(EMAIL);
+    const again = await t.service.verifyCode('ANA@example.com ', t.lastCode());
+    expect(again.isNewUser).toBe(false);
+    expect(again.user.id).toBe(result.user.id);
+  });
+
+  it('AUTH-02: a hora conta do 1º pedido, mesmo com todos os códigos já vencidos', async () => {
+    const t = setup();
+    for (const _ of range(AUTH_LIMITS.codesPerHour)) {
+      await t.service.requestCode(EMAIL);
+      t.advance(AUTH_LIMITS.codeTtlSeconds);
+    }
+    // 5 pedidos a cada 10 min: 50 min desde o 1º, ainda dentro da janela
+    expect(await errorOf(t.service.requestCode(EMAIL))).toMatchObject({
+      code: 'AUTH_CODE_LIMIT',
+    });
+    t.advance(AUTH_LIMITS.codeTtlSeconds);
+    await expect(t.service.requestCode(EMAIL)).resolves.toBeDefined();
+  });
+});
+
 describe('auth: verificar código', () => {
   it('cria o usuário no primeiro login, avisa e devolve tokens válidos', async () => {
     const t = await withCode();
     const result = await t.service.verifyCode(EMAIL, t.lastCode());
     expect(result.isNewUser).toBe(true);
-    expect(result.user.email).toBe(EMAIL);
+    expect(result.user.private.email).toBe(EMAIL);
     const userId = t.systemIdOf(EMAIL);
     expect(t.notified).toEqual([`${userId}:welcome`]);
     expect(verifyJwt(result.accessToken, SECRET, t.nowSeconds())?.sub).toBe(userId);
@@ -310,7 +282,7 @@ describe('auth: idioma do email do código', () => {
     const t = setup();
     await t.service.requestCode(EMAIL, 'en');
     const result = await t.service.verifyCode(EMAIL, codeIn(t.sent[0]?.text ?? '') ?? '');
-    expect(result.user.email).toBe(EMAIL);
+    expect(result.user.private.email).toBe(EMAIL);
   });
 
   it('caso 6: requestCode sem locale → email em português (igual a hoje)', async () => {
@@ -343,17 +315,27 @@ describe('auth: a pessoa e as preferências no login e na renovação (USR-14)',
   it('AUTH-06: o login devolve a pessoa com o email e as preferências (vazias numa conta nova)', async () => {
     const t = await withCode();
     const result = await t.service.verifyCode(EMAIL, t.lastCode());
-    expect(result.user).toMatchObject({ email: EMAIL, preferences: {} });
+    expect(result.user).toMatchObject({
+      private: { email: EMAIL },
+      preferences: {},
+    });
+    expect(result.user).not.toHaveProperty('email');
     expect(result.user).not.toHaveProperty('locale');
     expect(result.user).not.toHaveProperty('timeZone');
   });
 
   it('AUTH-06: o login traz o idioma e o fuso guardados nas preferências', async () => {
     const t = await loggedIn();
-    await t.users.update(t.systemIdOf(EMAIL), { locale: 'en', timeZone: 'Asia/Tokyo' });
+    await t.users.update(t.systemIdOf(EMAIL), {
+      version: 1,
+      preferences: { locale: 'en', timeZone: 'Asia/Tokyo' },
+    });
     const again = await loginAgain(t);
-    expect(again.user.preferences).toEqual({ locale: 'en', timeZone: 'Asia/Tokyo' });
-    expect(again.user.email).toBe(EMAIL);
+    expect(again.user.preferences).toEqual({
+      locale: 'en',
+      timeZone: 'Asia/Tokyo',
+    });
+    expect(again.user.private.email).toBe(EMAIL);
   });
 
   it('AUTH-07: a renovação devolve as preferências atuais da pessoa', async () => {
@@ -365,9 +347,15 @@ describe('auth: a pessoa e as preferências no login e na renovação (USR-14)',
   it('AUTH-07: mudou num aparelho → a renovação do outro já traz as preferências novas', async () => {
     const t = await loggedIn();
     const other = await loginAgain(t);
-    await t.users.update(t.systemIdOf(EMAIL), { locale: 'en', timeZone: 'Europe/Lisbon' });
+    await t.users.update(t.systemIdOf(EMAIL), {
+      version: 1,
+      preferences: { locale: 'en', timeZone: 'Europe/Lisbon' },
+    });
     const next = await t.service.refresh(other.refreshToken);
-    expect(next.preferences).toEqual({ locale: 'en', timeZone: 'Europe/Lisbon' });
+    expect(next.preferences).toEqual({
+      locale: 'en',
+      timeZone: 'Europe/Lisbon',
+    });
     expect(next.refreshToken).not.toBe(other.refreshToken);
     expect(verifyJwt(next.accessToken, SECRET, t.nowSeconds())?.sub).toBe(t.systemIdOf(EMAIL));
   });

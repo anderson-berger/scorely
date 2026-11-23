@@ -4,7 +4,8 @@ import { ApiRequestError } from '@scorely/web/src/lib/http';
 
 /**
  * Mensagem traduzida para um issue de validação do Zod:
- * `validation.<campo>.<código>` → `validation.<código>` → `errors.VALIDATION_ERROR`.
+ * `validation.<caminho>.<código>` → `validation.<último campo do caminho>.<código>` (o `name` de `private.name`)
+ * → `validation.<código>` → `errors.VALIDATION_ERROR`.
  * `field` substitui o caminho do issue (ex.: schema de um valor solto, sem `path`).
  */
 export function issueMessage(
@@ -12,9 +13,10 @@ export function issueMessage(
   field = issue?.path.map(String).join('.') ?? '',
 ): string {
   if (!issue) return t('errors.VALIDATION_ERROR');
-  const keys = field
-    ? [`validation.${field}.${issue.code}`, `validation.${issue.code}`]
-    : [`validation.${issue.code}`];
+  const last = field.split('.').at(-1) ?? '';
+  const keys = [...new Set([field, last].filter(Boolean))]
+    .map((f) => `validation.${f}.${issue.code}`)
+    .concat(`validation.${issue.code}`);
   const key = keys.find((k) => i18n.global.te(k));
   return key ? t(key) : t('errors.VALIDATION_ERROR');
 }

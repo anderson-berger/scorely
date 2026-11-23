@@ -37,9 +37,10 @@ export interface MediaStorage {
   ): Promise<{ url: string; fields: Record<string, string> }>;
   /** `undefined` = o arquivo não existe (MID-05). */
   inspect(key: string): Promise<InspectedFile | undefined>;
-  copy(fromKey: string, toKey: string): Promise<void>;
+  /** Copia com o `Content-Type` dado (o formato real, MID-12). */
+  copy(fromKey: string, toKey: string, contentType: ImageContentType): Promise<void>;
   remove(key: string): Promise<void>;
-  /** URL pública do objeto. */
+  /** URL pública do objeto (`public/...`), pela `MEDIA_BASE_URL` quando houver (MID-12). */
   publicUrl(key: string): string;
 }
 
@@ -143,10 +144,16 @@ export const s3MediaStorage: MediaStorage = {
     return { size, ...readImageHeader(await readHead(key)) };
   },
 
-  async copy(fromKey, toKey) {
+  async copy(fromKey, toKey, contentType) {
     const bucket = env().UPLOADS_BUCKET;
     await client().send(
-      new CopyObjectCommand({ Bucket: bucket, Key: toKey, CopySource: `${bucket}/${fromKey}` }),
+      new CopyObjectCommand({
+        Bucket: bucket,
+        Key: toKey,
+        CopySource: `${bucket}/${fromKey}`,
+        MetadataDirective: 'REPLACE',
+        ContentType: contentType,
+      }),
     );
   },
 
@@ -155,6 +162,9 @@ export const s3MediaStorage: MediaStorage = {
   },
 
   publicUrl(key) {
-    return `${base()}/${key}`;
+    const media = env().MEDIA_BASE_URL;
+    return media && key.startsWith(MEDIA_PREFIXES.public)
+      ? `${media.replace(/\/+$/, '')}/${key.slice(MEDIA_PREFIXES.public.length)}`
+      : `${base()}/${key}`;
   },
 };

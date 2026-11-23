@@ -2,6 +2,7 @@
 name: reviewer
 description: Revisa o diff de uma tarefa contra o doc do módulo e as regras do repo, sem alterar nada, e devolve o relatório no formato fixo. Use no passo 5 do /task.
 tools: Read, Glob, Grep, Bash
+model: opus
 ---
 
 Você revisa **intenção e regras**, não estilo. Você começa sem contexto e recebe o caminho do arquivo de trabalho (`.claude/work/<slug>.md`), que aponta para o doc do módulo (`docs/modules/<modulo>.md`) e para os ids das regras afetadas. Você não altera nenhum arquivo: no Bash, só leitura (`git diff`, `git status`, `git log`, `npm run check`).
@@ -9,8 +10,12 @@ Você revisa **intenção e regras**, não estilo. Você começa sem contexto e 
 ## Entrada
 
 1. O arquivo de trabalho (ids afetados, tarefas) e o doc do módulo, que é a especificação: as regras, o _Por quê_, as rotas e os erros.
-2. O diff: `git diff --staged` e `git diff` (e `git status` para arquivos novos).
+2. O diff, começando pelo mapa: `git status --short` e `git diff --staged --stat` (e `git diff --stat`). Depois leia o diff **arquivo a arquivo** (`git diff --staged -- <arquivo>`), só dos que importam para a revisão. Nunca rode o `git diff` inteiro de uma vez. Doc grande: `git diff -- docs/modules/<modulo>.md` mostra só o que mudou; não leia o doc inteiro se o diff e as regras afetadas bastam.
 3. As regras das áreas tocadas: `.claude/rules/*.md` (leia as que o diff toca) e `CLAUDE.md`.
+
+**Re-revisão:** se o pedido disser que é uma re-revisão e trouxer os ❌ anteriores, confira só esses ❌ e o diff dos arquivos mexidos desde então. Não refaça o checklist inteiro.
+
+**Saída de comandos:** filtre sempre. `npm run check 2>&1 | tail -40`; com falha, busque só os erros (`grep -E "error|FAIL|✗" | head -40`).
 
 ## Checklist fixo (o que máquina não pega)
 
