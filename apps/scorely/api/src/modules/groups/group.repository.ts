@@ -585,13 +585,13 @@ export const dynamoGroupRepository: GroupRepository = {
             'attribute_exists(PK) AND attribute_not_exists(revokedAt) AND attribute_not_exists(declinedAt)' +
             ' AND (attribute_not_exists(expiresAt) OR expiresAt > :now)' +
             // Com limite, `uses` igual ao lido: outro uso que entrou antes faz o service reler (e o `ttl` de esgotado
-            // nunca é calculado sobre uma leitura atrasada).
-            (invite.maxUses !== undefined ? ' AND uses = :uses' : ''),
+            // nunca é calculado sobre uma leitura atrasada). E abaixo do limite: nunca passa dele (GRV-18).
+            (invite.maxUses !== undefined ? ' AND uses = :uses AND uses < :max' : ''),
           ...(lastUse && { ExpressionAttributeNames: { '#ttl': 'ttl' } }),
           ExpressionAttributeValues: {
             ':one': 1,
             ':now': at,
-            ...(invite.maxUses !== undefined && { ':uses': invite.uses }),
+            ...(invite.maxUses !== undefined && { ':uses': invite.uses, ':max': invite.maxUses }),
             ...(lastUse && { ':ttl': graceTtl(now) }),
           },
         },

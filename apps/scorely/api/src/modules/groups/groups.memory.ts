@@ -139,7 +139,8 @@ export function memoryGroups() {
         stored.revokedAt === undefined &&
         stored.declinedAt === undefined &&
         (stored.expiresAt === undefined || stored.expiresAt > now.toISOString()) &&
-        (stored.maxUses === undefined || stored.uses < stored.maxUses);
+        // Com limite, `uses` igual ao lido e abaixo do limite, como a condição do Dynamo.
+        (stored.maxUses === undefined || (stored.uses === invite.uses && stored.uses < stored.maxUses));
       if (!valid) return 'invite_stale';
       const memberKey = `${invite.groupId}#${userId}`;
       const current = members.get(memberKey);
