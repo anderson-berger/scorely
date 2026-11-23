@@ -71,7 +71,7 @@ describe('groups service', () => {
     expect(await service.get(ANA, pid('K3X9PQ2A'))).toMatchObject({
       myTier: 'member',
       myRole: { id: 'owner' },
-      myPermissions: ['group.edit', 'members.invite', 'members.remove', 'roles.manage'],
+      myPermissions: ['group.edit', 'members.invite', 'members.remove', 'roles.manage', 'matches.manage'],
     });
   });
 
@@ -81,7 +81,7 @@ describe('groups service', () => {
     expect((await service.mine(ANA))[0]).toMatchObject({
       myTier: 'member',
       myRole: { id: 'owner' },
-      myPermissions: ['group.edit', 'members.invite', 'members.remove', 'roles.manage'],
+      myPermissions: ['group.edit', 'members.invite', 'members.remove', 'roles.manage', 'matches.manage'],
     });
   });
 

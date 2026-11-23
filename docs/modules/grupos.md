@@ -17,7 +17,7 @@ Caso de referência: a Ana cria a "Pelada de sexta" e é a dona dela. Ela manda 
 | Grupo           | um nome e as pessoas que participam dele                                                                        |
 | Participação    | como a pessoa está no grupo (`myTier`): `member` (membro) ou `reserve` (reserva) (GRV-17)                       |
 | Membro          | quem participa com prioridade. O dono é sempre membro                                                           |
-| Reserva         | quem participa, vê o mesmo que o membro, e vem depois dele nos jogos (quando houver agenda)                     |
+| Reserva         | quem participa, vê o mesmo que o membro, e vem depois dele nas partidas (PAR-03)                                |
 | Cargo           | o que a pessoa administra (`myRole`). Cada pessoa tem um só (GRV-40)                                            |
 | Dono            | o cargo de quem responde pelo grupo: há um só, com todas as permissões, e ele participa como membro             |
 | Todos           | o cargo base: o de quem não tem outro. As permissões dele valem para todo mundo (GRV-41)                        |
@@ -59,13 +59,14 @@ Caso de referência: a Ana cria a "Pelada de sexta" e é a dona dela. Ela manda 
 
 - **GRV-15. Toda ação de administração é conferida por uma permissão, numa função só** ("pode X neste grupo?"). O catálogo de hoje:
 
-  | Permissão        | Libera                                                                                           |
-  | ---------------- | ------------------------------------------------------------------------------------------------ |
-  | `group.edit`     | logo e capa (GRV-09) e o modo de entrada (GRV-25)                                                |
-  | `members.invite` | criar, ver e cancelar os convites do grupo (GRV-18–20, 23) e aceitar ou recusar pedidos (GRV-28) |
-  | `members.remove` | remover alguém do grupo (GRV-31)                                                                 |
-  | `roles.manage`   | criar, editar, ordenar e apagar cargos e mudar o cargo das pessoas (GRV-42–48)                   |
-  - A resposta da função vem do cargo da pessoa (GRV-41). _(Alterada em 2026-11-22: antes, o Dono tinha todas e o cargo base, nenhuma, fixo. Entrou o `roles.manage`.)_
+  | Permissão        | Libera                                                                                                                           |
+  | ---------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+  | `group.edit`     | logo e capa (GRV-09) e o modo de entrada (GRV-25)                                                                                |
+  | `members.invite` | criar, ver e cancelar os convites do grupo (GRV-18–20, 23) e aceitar ou recusar pedidos (GRV-28)                                 |
+  | `members.remove` | remover alguém do grupo (GRV-31)                                                                                                 |
+  | `roles.manage`   | criar, editar, ordenar e apagar cargos e mudar o cargo das pessoas (GRV-42–48)                                                   |
+  | `matches.manage` | criar, editar e cancelar partidas, abrir a próxima onda e liberar convidados ([partidas.md](partidas.md), PAR-01, 05–07, 13, 14) |
+  - A resposta da função vem do cargo da pessoa (GRV-41). _(Alterada em 2026-11-22: antes, o Dono tinha todas e o cargo base, nenhuma, fixo. Entrou o `roles.manage`. Alterada em 2026-11-23: entrou o `matches.manage`.)_
   - A reserva pode ter qualquer cargo, como o membro: participação e cargo são coisas diferentes.
   - Quem participa e não tem a permissão recebe `GROUP_PERMISSION_DENIED` (403 com corpo, `details.permission`). Quem não participa recebe `GROUP_NOT_FOUND` antes, como em GRV-04.
   - O que não é administração não é permissão: ver o grupo e os membros, entrar e sair. Ninguém tira isso de quem participa.
@@ -120,7 +121,7 @@ Caso de referência: a Ana cria a "Pelada de sexta" e é a dona dela. Ela manda 
 
 ### Participação
 
-- **GRV-17. Quem participa é membro ou reserva.** Os dois veem o mesmo: o grupo, os membros e as reservas. A diferença é a prioridade nos jogos, que entra com a agenda (seção 5).
+- **GRV-17. Quem participa é membro ou reserva.** Os dois veem o mesmo: o grupo, os membros, as reservas e as partidas. A diferença é a prioridade nas partidas: a lista abre para os membros antes de abrir para as reservas (PAR-03 em [partidas.md](partidas.md)). _(Alterada em 2026-11-23: antes, a prioridade entrava com a agenda.)_
   - A reserva vira membro por um convite de membro feito para ela (GRV-22, 23), e não sozinha.
   - Ninguém é rebaixado por entrar: um membro que usa um convite de reserva continua membro (GRV-22).
   - _Por quê:_ todo grupo tem os de sempre e os que completam quando falta gente. Subir para membro pelo convite deixa a pessoa aceitar, em vez de ser mudada sem saber.
@@ -237,7 +238,7 @@ Caso de referência: a Ana cria a "Pelada de sexta" e é a dona dela. Ela manda 
   - **Início** (`/groups/{publicId}`): a capa, o logo e o nome em destaque (GRV-07). É a área que abre ao entrar no grupo.
   - **Membros** (`/groups/{publicId}/members`): para todos que participam (GRV-32). _(Nova em 2026-11-21.)_
   - **Configurações** (`/groups/{publicId}/settings`): só para quem tem `group.edit` ou `roles.manage` (GRV-14, 16). Para os outros, a área não aparece, e a rota leva ao Início. _(Alterada em 2026-11-21: antes, só para o dono. Alterada em 2026-11-22: entrou o `roles.manage`.)_
-  - **Partidas** entra na barra junto com a sua etapa (seção 5), não antes.
+  - **Partidas** (`/groups/{publicId}/matches`): para todos que participam (PAR-17 em [partidas.md](partidas.md)), entre o Início e os Membros. _(Nova em 2026-11-23.)_
   - Trocar de área troca a tela sem empilhar no histórico: o voltar do navegador sai do grupo, e não volta para a área anterior. Fora do Início, o topo é compacto: o logo pequeno e o nome.
   - _Por quê:_ abas no topo, como no primeiro grupo, ficam apertadas no celular e somem ao rolar. A barra de baixo fica no alcance do polegar e sempre à vista, o padrão dos apps no celular (até 5 áreas); no PC, a coluna usa a largura que sobra. A área sem conteúdo fica fora para a tela não prometer o que ainda não existe. Sem empilhar, o voltar faz o que se espera de uma barra de app.
   - _(Alterada em 2026-11-21: saiu "com uma área só, a barra não aparece", que deixou de acontecer com os Membros para todos.)_
@@ -342,7 +343,7 @@ Erros: `VALIDATION_ERROR`, `GROUP_NOT_FOUND`, `GROUP_PERMISSION_DENIED` (403), `
 - Não há limite de grupos por pessoa, de participantes por grupo nem de pedidos esperando. Convites ativos: até 50 por grupo (GRV-18).
 - O app não manda email: o convite por email é copiado e mandado por quem criou (GRV-23).
 - Não há bloqueio: quem foi removido volta por um convite que ainda vale, e pode pedir de novo num grupo aberto.
-- Membro e reserva só se diferenciam quando houver agenda. Não há como passar um membro para reserva.
+- Membro e reserva só se diferenciam na onda das partidas (PAR-03). Não há como passar um membro para reserva.
 - Até 20 cargos criados por grupo (GRV-44).
 - Um cargo de baixo pode ter uma permissão que um de cima não tem (o Dono desmarcou depois): a ordem não obriga os de cima a terem tudo o que os de baixo têm.
 - Quem está no Todos não remove ninguém nem gerencia cargos, mesmo que quisessem liberar: não há ninguém abaixo dele (GRV-45).
@@ -352,7 +353,7 @@ Erros: `VALIDATION_ERROR`, `GROUP_NOT_FOUND`, `GROUP_PERMISSION_DENIED` (403), `
 
 ## 5. Em discussão (ainda não é regra)
 
-- **Próximas etapas, nesta ordem:** arquivar → agenda (partidas recorrentes e avulsas, `GROUP#<id>/AGENDA#...`, com os times de cada partida e a prioridade de membros sobre reservas) → regras e aviso fixado → financeiro (mensalidade e rateio) → refazer os times e a competição sobre a agenda (os docs de antes estão em [arquivo/](arquivo/)).
+- **Próximas etapas:** as partidas vêm primeiro, no módulo delas ([partidas.md](partidas.md), seção 5: repetir toda semana → times → resultado e histórico → ranking). Depois, arquivar, regras e aviso fixado, e financeiro (mensalidade e rateio). _(Alterada em 2026-11-23, pela conversa de produto de 2026-11-23: antes, arquivar vinha primeiro.)_
 - **Arquivar** vai ser só do Dono, como passar o grupo (decidido em 2026-11-21), e não uma permissão.
 - **Modelos Tesoureiro e Organizador** (GRV-51): entram com o financeiro e a agenda, junto com as permissões deles.
 - **Passar membro para reserva:** quem e como, se fizer falta.

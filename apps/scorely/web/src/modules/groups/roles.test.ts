@@ -29,7 +29,13 @@ const item = (id: string, manageable: boolean, extra: Partial<GroupRoleItem> = {
 const owner = item('owner', false, { name: undefined, fixed: 'owner' });
 const everyone = (manageable = true) => item('everyone', manageable, { name: undefined, fixed: 'everyone' });
 
-const CATALOG: GroupPermission[] = ['group.edit', 'members.invite', 'members.remove', 'roles.manage'];
+const CATALOG: GroupPermission[] = [
+  'group.edit',
+  'members.invite',
+  'members.remove',
+  'roles.manage',
+  'matches.manage',
+];
 
 describe('roleMark', () => {
   it('GRV-32: o Dono tem a marca de dono', () => {
@@ -130,6 +136,7 @@ describe('rolePanelPermissions', () => {
       'group.edit',
       'members.remove',
       'roles.manage',
+      'matches.manage',
     ]);
     expect(rows.find((r) => r.permission === 'members.remove')).toMatchObject({ on: true, locked: true });
     expect(rows.find((r) => r.permission === 'members.invite')).toMatchObject({ on: false, locked: false });
@@ -137,7 +144,7 @@ describe('rolePanelPermissions', () => {
 
   it('GRV-51: no Todos, members.remove e roles.manage não aparecem', () => {
     const rows = rolePanelPermissions(everyone(), CATALOG);
-    expect(rows.map((r) => r.permission)).toEqual(['group.edit', 'members.invite']);
+    expect(rows.map((r) => r.permission)).toEqual(['group.edit', 'members.invite', 'matches.manage']);
   });
 });
 

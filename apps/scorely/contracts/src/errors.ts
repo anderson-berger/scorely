@@ -1,4 +1,5 @@
 import { GroupInviteInvalidReasonSchema, GroupPermissionSchema } from '@scorely/contracts/src/groups';
+import { MatchGuestStatusSchema } from '@scorely/contracts/src/matches';
 import { z } from 'zod';
 
 /**
@@ -44,6 +45,18 @@ export const ErrorCodeSchema = z.enum([
   'GROUP_ROLE_NOT_FOUND',
   'GROUP_ROLE_NAME_TAKEN',
   'GROUP_ROLE_LIMIT',
+  // matches
+  'MATCH_NOT_FOUND',
+  'MATCH_LIMIT',
+  'MATCH_NOT_OPEN_FOR_YOU',
+  'MATCH_CLOSED',
+  'MATCH_STARTED',
+  'MATCH_CANCELLED',
+  'MATCH_SLOTS_BELOW_CONFIRMED',
+  'MATCH_GUEST_NOT_FOUND',
+  'MATCH_GUEST_NOT_PENDING',
+  'MATCH_GUEST_DUPLICATE',
+  'MATCH_GUEST_LIMIT',
 ]);
 export type ErrorCode = z.infer<typeof ErrorCodeSchema>;
 
@@ -73,6 +86,16 @@ export const ErrorDetailsSchemas = {
   GROUP_INVITE_LIMIT: z.object({ limit: z.number().int().positive() }),
   /** GRV-44: o máximo de cargos criados. */
   GROUP_ROLE_LIMIT: z.object({ limit: z.number().int().positive() }),
+  /** PAR-01: o máximo de partidas por vir. */
+  MATCH_LIMIT: z.object({ limit: z.number().int().positive() }),
+  /** PAR-08, 12, 13: a hora em que a onda abre; ausente quando a onda de convidados está desligada. */
+  MATCH_NOT_OPEN_FOR_YOU: z.object({ opensAt: z.iso.datetime().optional() }),
+  /** PAR-06: quantos já estão dentro. */
+  MATCH_SLOTS_BELOW_CONFIRMED: z.object({ confirmed: z.number().int().nonnegative() }),
+  /** PAR-13, 14: a situação atual do convidado. */
+  MATCH_GUEST_NOT_PENDING: z.object({ status: MatchGuestStatusSchema }),
+  /** PAR-12: o máximo de convidados ativos. */
+  MATCH_GUEST_LIMIT: z.object({ limit: z.number().int().positive() }),
   /** ADR 0016: a versão atual do item (`0` = ele não existe mais), para a tela reler. */
   VERSION_CONFLICT: z.object({ currentVersion: z.number().int().nonnegative() }),
 } satisfies Partial<Record<ErrorCode, z.ZodType>>;

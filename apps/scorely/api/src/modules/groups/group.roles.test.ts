@@ -148,6 +148,7 @@ describe('groups cargos: base', () => {
     const { service, gid } = await withGroup();
     expect((await service.get(ANA, gid)).myPermissions.sort()).toEqual([
       'group.edit',
+      'matches.manage',
       'members.invite',
       'members.remove',
       'roles.manage',

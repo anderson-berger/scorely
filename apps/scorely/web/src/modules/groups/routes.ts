@@ -1,3 +1,4 @@
+import { matchesGroupRoutes } from '@scorely/web/src/modules/matches/routes';
 import type { RouteRecordRaw } from 'vue-router';
 
 /** Grupo (docs/modules/grupos.md). */
@@ -25,6 +26,7 @@ export const groupsRoutes: RouteRecordRaw[] = [
         name: 'group',
         component: () => import('@scorely/web/src/modules/groups/pages/GroupHomePage.vue'),
       },
+      ...matchesGroupRoutes,
       {
         path: 'members',
         name: 'group-members',

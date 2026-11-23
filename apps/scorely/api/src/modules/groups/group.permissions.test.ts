@@ -37,6 +37,7 @@ describe('groups permissions', () => {
   it('GRV-15: o Dono tem todas as permissões do catálogo', () => {
     expect(permissionsOf({ role: 'owner' }, rolesOf()).sort()).toEqual([
       'group.edit',
+      'matches.manage',
       'members.invite',
       'members.remove',
       'roles.manage',

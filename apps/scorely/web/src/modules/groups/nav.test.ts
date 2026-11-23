@@ -14,10 +14,15 @@ const group = (myPermissions: GroupPermission[]): Group =>
   }) as Group;
 
 describe('groupNavItems', () => {
-  it('GRV-13, GRV-16: quem tem group.edit vê Início, Membros e Configurações, nessa ordem, com as rotas de cada área', () => {
+  it('GRV-13, GRV-16: quem tem group.edit vê Início, Partidas, Membros e Configurações, nessa ordem, com as rotas de cada área', () => {
     const items = groupNavItems(group(['group.edit']));
-    expect(items.map((i) => i.key)).toEqual(['home', 'members', 'settings']);
-    expect(items.map((i) => i.to.name)).toEqual(['group', 'group-members', 'group-settings']);
+    expect(items.map((i) => i.key)).toEqual(['home', 'matches', 'members', 'settings']);
+    expect(items.map((i) => i.to.name)).toEqual([
+      'group',
+      'group-matches',
+      'group-members',
+      'group-settings',
+    ]);
   });
 
   it('GRV-13: cada área tem ícone', () => {
@@ -26,8 +31,8 @@ describe('groupNavItems', () => {
     }
   });
 
-  it('GRV-13, GRV-14: sem group.edit, Configurações não aparece; Início e Membros sim', () => {
-    expect(groupNavItems(group([])).map((i) => i.key)).toEqual(['home', 'members']);
+  it('GRV-13, GRV-14: sem group.edit, Configurações não aparece; Início, Partidas e Membros sim (PAR-17)', () => {
+    expect(groupNavItems(group([])).map((i) => i.key)).toEqual(['home', 'matches', 'members']);
   });
 
   it('GRV-13: a lista de convites conta como a área Membros', () => {
@@ -43,11 +48,20 @@ describe('groupNavItems', () => {
 
 describe('groupNavItems com roles.manage', () => {
   it('GRV-13: quem só tem roles.manage também vê Configurações', () => {
-    expect(groupNavItems(group(['roles.manage'])).map((i) => i.key)).toEqual(['home', 'members', 'settings']);
+    expect(groupNavItems(group(['roles.manage'])).map((i) => i.key)).toEqual([
+      'home',
+      'matches',
+      'members',
+      'settings',
+    ]);
   });
 
   it('GRV-13: quem só tem members.invite não vê Configurações', () => {
-    expect(groupNavItems(group(['members.invite'])).map((i) => i.key)).toEqual(['home', 'members']);
+    expect(groupNavItems(group(['members.invite'])).map((i) => i.key)).toEqual([
+      'home',
+      'matches',
+      'members',
+    ]);
   });
 });
 

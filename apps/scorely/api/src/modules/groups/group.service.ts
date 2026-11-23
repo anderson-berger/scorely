@@ -102,7 +102,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const newInviteToken = () => randomBytes(32).toString('base64url');
 
 /** USR-16: o perfil da pessoa como sai na resposta (id público, sem email nem nome). */
-function toUser(record: UserRecord, urlOf: UrlOf): User {
+export function toUser(record: UserRecord, urlOf: UrlOf): User {
   return {
     id: record.publicId,
     createdAt: record.createdAt,

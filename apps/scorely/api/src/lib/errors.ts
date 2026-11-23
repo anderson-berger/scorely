@@ -46,6 +46,18 @@ const CATALOG = {
   GROUP_ROLE_NOT_FOUND: { status: 404, message: 'Role not found in this group' },
   GROUP_ROLE_NAME_TAKEN: { status: 409, message: 'A role with this name already exists' },
   GROUP_ROLE_LIMIT: { status: 409, message: 'The group has too many roles' },
+
+  MATCH_NOT_FOUND: { status: 404, message: 'Match not found in this group' },
+  MATCH_LIMIT: { status: 409, message: 'The group has too many upcoming matches' },
+  MATCH_NOT_OPEN_FOR_YOU: { status: 409, message: 'The match list is not open for you yet' },
+  MATCH_CLOSED: { status: 409, message: 'The match list is closed' },
+  MATCH_STARTED: { status: 409, message: 'The match has already started' },
+  MATCH_CANCELLED: { status: 409, message: 'The match was cancelled' },
+  MATCH_SLOTS_BELOW_CONFIRMED: { status: 409, message: 'More people are confirmed than the new slots' },
+  MATCH_GUEST_NOT_FOUND: { status: 404, message: 'Guest not found in this match' },
+  MATCH_GUEST_NOT_PENDING: { status: 409, message: 'The guest is not in a state that allows this' },
+  MATCH_GUEST_DUPLICATE: { status: 409, message: 'A guest with this name is already in the match' },
+  MATCH_GUEST_LIMIT: { status: 409, message: 'The match has too many guests' },
 } as const satisfies Record<ErrorCode, { status: number; message: string }>;
 
 /** Código com `details` obrigatório pede o objeto; os demais não aceitam nada. */

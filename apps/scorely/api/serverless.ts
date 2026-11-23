@@ -3,6 +3,7 @@ import { AUTHORIZER } from '@scorely/api/src/lib/auth';
 import { authFunctions } from '@scorely/api/src/modules/auth/functions';
 import { groupsFunctions } from '@scorely/api/src/modules/groups/functions';
 import { healthFunctions } from '@scorely/api/src/modules/health/functions';
+import { matchesFunctions } from '@scorely/api/src/modules/matches/functions';
 import { notificationsFunctions } from '@scorely/api/src/modules/notifications/functions';
 import { usersFunctions } from '@scorely/api/src/modules/users/functions';
 import type { AWS } from '@serverless/typescript';
@@ -150,6 +151,7 @@ const config: AWS = {
     ...usersFunctions,
     ...notificationsFunctions,
     ...groupsFunctions,
+    ...matchesFunctions,
   },
 };
 
