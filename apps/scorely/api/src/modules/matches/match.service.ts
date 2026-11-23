@@ -50,15 +50,6 @@ export interface MatchesDeps {
 
 const HOUR_MS = 3_600_000;
 
-/** PAR-01, 03, 04: como a partida nasce. Quem decide o padrão é a api. */
-const MATCH_DEFAULTS = {
-  teams: 2,
-  playersPerTeam: 6,
-  membersHours: 72,
-  reservesHours: 24,
-  guestsHours: 6,
-  closeHours: 0,
-} as const;
 const DAY_MS = 24 * HOUR_MS;
 const MANAGE: GroupPermission = 'matches.manage';
 
@@ -88,15 +79,32 @@ export function guestStatus(guest: StoredGuest): MatchGuestStatus {
 
 const at = (match: StoredMatch, hours: number) => new Date(Date.parse(match.startsAt) - hours * HOUR_MS);
 
-/** PAR-03, 04: a hora em que cada onda abre pelo relógio (sem o que foi aberto à mão), e o fechamento. */
+/**
+ * PAR-03, 04: a hora em que cada onda abre pelo relógio (sem o que foi aberto à mão), e o fechamento. Sem a hora
+ * configurada, a onda dos membros abre na criação e as outras junto com a anterior; "sem convidados" não abre.
+ */
 function naturalTimes(match: StoredMatch) {
+  const members =
+    match.membersHours === undefined ? new Date(match.createdAt) : at(match, match.membersHours);
+  const reserves = match.reservesHours === undefined ? members : at(match, match.reservesHours);
+  const guests = match.guestsHours === undefined ? reserves : at(match, match.guestsHours);
   return {
-    members: at(match, match.membersHours),
-    reserves: at(match, match.reservesHours),
-    guests: match.guestsHours === undefined ? undefined : at(match, match.guestsHours),
+    members,
+    reserves,
+    guests: match.noGuests ? undefined : guests,
     close: at(match, match.closeHours),
   };
 }
+
+/** PAR-03, 06: nenhuma hora da abertura configurada (a lista está aberta a todos por isso). */
+const unconfigured = (m: StoredMatch) =>
+  m.membersHours === undefined && m.reservesHours === undefined && m.guestsHours === undefined;
+
+/** PAR-02: as vagas; sem formato, sem limite. */
+const slotsOf = (m: Pick<StoredMatch, 'teams' | 'playersPerTeam'>) =>
+  m.teams !== undefined && m.playersPerTeam !== undefined
+    ? m.teams * m.playersPerTeam
+    : Number.POSITIVE_INFINITY;
 
 /** PAR-03, 05: a onda aberta agora: a da hora ou a guardada em `advancedTo`, a maior. */
 function currentWave(match: StoredMatch, now: Date): MatchWave | undefined {
@@ -164,7 +172,7 @@ function lineup(
   const ordered = [...players, ...approved].sort((a, b) =>
     a.at === b.at ? (a.id < b.id ? -1 : a.id > b.id ? 1 : 0) : a.at < b.at ? -1 : 1,
   );
-  const slots = match.teams * match.playersPerTeam;
+  const slots = slotsOf(match);
   const notGoing = attendances
     .filter((a) => a.status === 'not_going' && participants.has(a.userId))
     .sort((a, b) => (a.respondedAt < b.respondedAt ? -1 : a.respondedAt > b.respondedAt ? 1 : 0));
@@ -233,9 +241,8 @@ export function createMatchService(deps: MatchesDeps) {
       id: match.id,
       startsAt: match.startsAt,
       endsAt: match.endsAt,
-      ...(match.note !== undefined && { note: match.note }),
-      teams: match.teams,
-      playersPerTeam: match.playersPerTeam,
+      ...(match.teams !== undefined && { teams: match.teams }),
+      ...(match.playersPerTeam !== undefined && { playersPerTeam: match.playersPerTeam }),
       status: statusOf(match, at),
       ...(wave !== undefined && { wave }),
       confirmed: list.in.length,
@@ -275,9 +282,10 @@ export function createMatchService(deps: MatchesDeps) {
       ...summaryOf(match, state.list, userId, at),
       createdAt: match.createdAt,
       version: match.version,
-      membersHours: match.membersHours,
-      reservesHours: match.reservesHours,
+      ...(match.membersHours !== undefined && { membersHours: match.membersHours }),
+      ...(match.reservesHours !== undefined && { reservesHours: match.reservesHours }),
       ...(match.guestsHours !== undefined && { guestsHours: match.guestsHours }),
+      noGuests: match.noGuests,
       closeHours: match.closeHours,
       waves: wavesView(match, at),
       ...(match.cancelledAt !== undefined && { cancelledAt: match.cancelledAt }),
@@ -341,16 +349,16 @@ export function createMatchService(deps: MatchesDeps) {
 
   const fieldsOf = (input: UpdateMatchInput) => ({
     ...timesOf(input),
-    note: input.note,
     teams: input.teams,
     playersPerTeam: input.playersPerTeam,
     membersHours: input.membersHours,
     reservesHours: input.reservesHours,
     guestsHours: input.guestsHours,
+    noGuests: input.noGuests,
     closeHours: input.closeHours,
   });
 
-  /** PAR-01–04: só o início e o fim; o formato e as ondas nascem no padrão, sem recado. */
+  /** PAR-01–04: só o início e o fim; a partida nasce limpa (sem formato, lista aberta a todos, fecha no início). */
   async function create(userId: UserId, publicId: PublicGroupId, input: CreateMatchInput): Promise<Match> {
     const ctx = await deps.groups.access(userId, publicId);
     requireManage(ctx);
@@ -359,7 +367,14 @@ export function createMatchService(deps: MatchesDeps) {
     const upcoming = await deps.matches.listMatches(ctx.groupId, at);
     if (upcoming.length >= MATCH_MAX_UPCOMING) throw appError('MATCH_LIMIT', { limit: MATCH_MAX_UPCOMING });
     const entity = newEntity<Omit<StoredMatch, 'updatedAt'>>(
-      { groupId: ctx.groupId, ...timesOf(input), ...MATCH_DEFAULTS, createdBy: userId, version: 1 },
+      {
+        groupId: ctx.groupId,
+        ...timesOf(input),
+        noGuests: false,
+        closeHours: 0,
+        createdBy: userId,
+        version: 1,
+      },
       at,
     );
     const match: StoredMatch = { ...entity, updatedAt: entity.createdAt };
@@ -413,12 +428,12 @@ export function createMatchService(deps: MatchesDeps) {
     requireLive(match, at);
     checkStart(input, at);
     const before = await stateOf(match, true);
-    const slots = input.teams * input.playersPerTeam;
-    if (slots < before.list.in.length) {
+    if (slotsOf(input) < before.list.in.length) {
       throw appError('MATCH_SLOTS_BELOW_CONFIRMED', { confirmed: before.list.in.length });
     }
-    // A onda aberta agora fica guardada: a edição nunca faz a onda voltar (PAR-05, 06).
-    const openNow = currentWave(match, at);
+    // A onda aberta agora fica guardada: a edição nunca faz a onda voltar (PAR-05, 06). A lista aberta só por não ter
+    // abertura configurada não conta: a primeira configuração passa a valer (PAR-06).
+    const openNow = unconfigured(match) ? match.advancedTo : currentWave(match, at);
     const draft: StoredMatch = { ...match, ...fieldsOf(input), advancedTo: match.advancedTo };
     const advancedTo = rank(openNow) > rank(currentWave(draft, at)) ? openNow : match.advancedTo;
     const saved = await deps.matches.updateMatch({ ...draft, advancedTo }, input.expectedVersion, at);

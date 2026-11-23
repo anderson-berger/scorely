@@ -5,6 +5,7 @@ import { errorMessage } from '@scorely/web/src/i18n/errors';
 import { formatDateTime } from '@scorely/web/src/lib/datetime';
 import { can } from '@scorely/web/src/modules/groups/nav';
 import MatchWhenSheet from '@scorely/web/src/modules/matches/components/MatchWhenSheet.vue';
+import { slotsOf } from '@scorely/web/src/modules/matches/match.settings';
 import { matchesApi } from '@scorely/web/src/modules/matches/matches.api';
 import { defineComponent, type PropType } from 'vue';
 
@@ -56,7 +57,10 @@ export default defineComponent({
     },
 
     count(m: MatchSummary): string {
-      return this.$t('matches.count', { confirmed: m.confirmed, slots: m.teams * m.playersPerTeam });
+      const slots = slotsOf(m);
+      return slots === undefined
+        ? this.$t('matches.countOpen', { confirmed: m.confirmed })
+        : this.$t('matches.count', { confirmed: m.confirmed, slots });
     },
 
     async load() {

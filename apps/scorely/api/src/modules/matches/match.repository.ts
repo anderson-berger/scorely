@@ -38,13 +38,15 @@ export interface StoredMatch {
   version: number;
   startsAt: string;
   endsAt: string;
-  note?: string | undefined;
-  teams: number;
-  playersPerTeam: number;
-  membersHours: number;
-  reservesHours: number;
-  /** Ausente = a onda de convidados desligada (PAR-03). */
+  /** O formato, os dois ou nenhum (sem formato = sem limite, PAR-02). */
+  teams?: number | undefined;
+  playersPerTeam?: number | undefined;
+  /** As horas da abertura (PAR-03); ausente = não configurada. */
+  membersHours?: number | undefined;
+  reservesHours?: number | undefined;
   guestsHours?: number | undefined;
+  /** "Sem convidados" (PAR-03, 12). */
+  noGuests: boolean;
   closeHours: number;
   /** A maior onda já aberta à mão ou guardada por uma edição (PAR-05, 06): a onda nunca volta. */
   advancedTo?: MatchWave | undefined;
@@ -181,7 +183,15 @@ async function queryByPrefix(
 const groupPk = (groupId: GroupId) => matchKey(groupId, '').PK;
 
 /** Os campos que a edição pode deixar ausentes (o `replaceItem` apaga). */
-const MATCH_OPTIONAL = ['note', 'guestsHours', 'advancedTo', 'cancelledAt'] as const;
+const MATCH_OPTIONAL = [
+  'teams',
+  'playersPerTeam',
+  'membersHours',
+  'reservesHours',
+  'guestsHours',
+  'advancedTo',
+  'cancelledAt',
+] as const;
 
 export const dynamoMatchRepository: MatchRepository = {
   async createMatch(match) {

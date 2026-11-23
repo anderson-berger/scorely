@@ -1,5 +1,6 @@
 import type { Match, MatchEntry } from '@scorely/contracts';
 import { formatDateTime } from '@scorely/web/src/lib/datetime';
+import { slotsOf } from '@scorely/web/src/modules/matches/match.settings';
 
 // PAR-19: a mensagem da lista para colar no WhatsApp, em pt-BR, no fuso de quem copia (ADR 0006).
 
@@ -18,12 +19,11 @@ export function matchMessage(
   const weekday = formatDateTime(match.startsAt, 'weekdayShort', at).replace(/\.$/, '');
   const day = formatDateTime(match.startsAt, 'dayMonth', at);
   const time = formatDateTime(match.startsAt, 'time', at);
-  const slots = match.teams * match.playersPerTeam;
+  const slots = slotsOf(match);
   return [
     `${opts.groupName} · ${weekday}, ${day} às ${time}`,
-    ...(match.note !== undefined ? [match.note] : []),
     '',
-    `Confirmados (${match.in.length} de ${slots})`,
+    slots === undefined ? `Confirmados (${match.in.length})` : `Confirmados (${match.in.length} de ${slots})`,
     ...numbered(match.in.map(entryName)),
     ...(match.queue.length > 0 ? ['Fila', ...numbered(match.queue.map(entryName))] : []),
     ...(match.notGoing.length > 0

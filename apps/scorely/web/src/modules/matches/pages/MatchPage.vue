@@ -19,7 +19,7 @@ import MatchSettingSheet, {
 } from '@scorely/web/src/modules/matches/components/MatchSettingSheet.vue';
 import MatchWhenSheet from '@scorely/web/src/modules/matches/components/MatchWhenSheet.vue';
 import { matchMessage } from '@scorely/web/src/modules/matches/match.message';
-import { durationLabel, durationOf } from '@scorely/web/src/modules/matches/match.settings';
+import { durationLabel, durationOf, slotsOf } from '@scorely/web/src/modules/matches/match.settings';
 import { matchesApi } from '@scorely/web/src/modules/matches/matches.api';
 import { copyToClipboard } from 'quasar';
 import { defineComponent, type PropType } from 'vue';
@@ -58,8 +58,25 @@ export default defineComponent({
       return String(this.$route.params.matchId ?? '');
     },
 
-    slots(): number {
-      return this.match ? this.match.teams * this.match.playersPerTeam : 0;
+    /** PAR-02: sem formato, `undefined` (sem limite). */
+    slots(): number | undefined {
+      return this.match ? slotsOf(this.match) : undefined;
+    },
+
+    /** PAR-03: nenhuma hora da abertura configurada. */
+    unconfigured(): boolean {
+      const m = this.match;
+      return (
+        !!m && m.membersHours === undefined && m.reservesHours === undefined && m.guestsHours === undefined
+      );
+    },
+
+    /** "Confirmados (10 de 12)", ou "Confirmados (10)" sem formato (PAR-18). */
+    inTitle(): string {
+      const count = this.match?.in.length ?? 0;
+      return this.slots === undefined
+        ? this.$t('matches.lists.inOpen', { count })
+        : this.$t('matches.lists.in', { count, slots: this.slots });
     },
 
     answer(): AttendanceStatus | undefined {
@@ -68,11 +85,16 @@ export default defineComponent({
       return mine === 'not_going' ? 'not_going' : undefined;
     },
 
-    /** "Aberta para membros · reservas a partir de qui, 19:00" (PAR-18). */
+    /** "Lista aberta para membros · reservas a partir de qui, 19:00", ou "Lista aberta" sem configuração (PAR-18). */
     waveLine(): string {
       const m = this.match;
       if (!m) return '';
       if (m.status !== 'open' && m.status !== 'scheduled') return this.$t(`matches.status.${m.status}`);
+      if (this.unconfigured) {
+        return m.closeHours > 0
+          ? `${this.$t('matches.openToAll')} · ${this.$t('matches.next.close', { at: this.short(m.waves.close) })}`
+          : this.$t('matches.openToAll');
+      }
       const head = m.wave ? this.$t(`matches.wave.${m.wave}`) : this.$t('matches.status.scheduled');
       const nextWave = WAVES[m.wave ? WAVES.indexOf(m.wave) + 1 : 0];
       const nextAt = nextWave ? m.waves[nextWave] : undefined;
@@ -215,22 +237,29 @@ export default defineComponent({
         });
       }
       if (section === 'format') {
-        return this.$t('matches.settings.formatSummary', {
-          teams: m.teams,
-          players: m.playersPerTeam,
-          slots: this.slots,
-        });
+        return this.slots === undefined
+          ? this.$t('matches.settings.noLimit')
+          : this.$t('matches.settings.formatSummary', {
+              teams: m.teams,
+              players: m.playersPerTeam,
+              slots: this.slots,
+            });
       }
-      if (section === 'waves') {
-        const base = this.$t('matches.settings.wavesSummary', {
-          members: m.membersHours,
-          reserves: m.reservesHours,
-        });
-        return m.guestsHours === undefined
-          ? base
-          : `${base} · ${this.$t('matches.settings.guestsSummary', { guests: m.guestsHours })}`;
-      }
-      return m.note ?? this.$t('matches.settings.noNote');
+      const parts = [
+        ...(m.membersHours !== undefined
+          ? [this.$t('matches.settings.membersAt', { hours: m.membersHours })]
+          : []),
+        ...(m.reservesHours !== undefined
+          ? [this.$t('matches.settings.reservesAt', { hours: m.reservesHours })]
+          : []),
+        ...(m.noGuests
+          ? [this.$t('matches.settings.noGuests')]
+          : m.guestsHours !== undefined
+            ? [this.$t('matches.settings.guestsAt', { hours: m.guestsHours })]
+            : []),
+        ...(m.closeHours > 0 ? [this.$t('matches.settings.closeAt', { hours: m.closeHours })] : []),
+      ];
+      return parts.length > 0 ? parts.join(' · ') : this.$t('matches.settings.openToAll');
     },
 
     openSetting(section: MatchSettingSection) {
@@ -288,7 +317,6 @@ export default defineComponent({
           <h1 class="sc-display title">{{ when(match.startsAt) }}</h1>
           <StatusChip v-if="match.status === 'cancelled'" tone="danger">{{ $t('matches.status.cancelled') }}</StatusChip>
         </div>
-        <div v-if="match.note" class="note">{{ match.note }}</div>
         <div class="sc-caption wave">{{ waveLine }}</div>
       </header>
 
@@ -330,7 +358,7 @@ export default defineComponent({
       </div>
 
       <section>
-        <h2 class="sc-section">{{ $t('matches.lists.in', { count: match.in.length, slots }) }}</h2>
+        <h2 class="sc-section">{{ inTitle }}</h2>
         <ol v-if="match.in.length > 0" class="sc-card list">
           <li v-for="(e, i) in match.in" :key="entryKey(e)" class="row">
             <span class="sc-number pos">{{ i + 1 }}</span>
@@ -431,9 +459,9 @@ export default defineComponent({
         <div class="sc-card settings">
           <SettingsRow icon="event" :title="$t('matches.settings.when')" :summary="summaryOf('when')" @open="whenOpen = true" />
           <SettingsRow
-            v-for="s in (['format', 'waves', 'note'] as const)"
+            v-for="s in (['format', 'opening'] as const)"
             :key="s"
-            :icon="s === 'format' ? 'groups' : s === 'waves' ? 'schedule' : 'campaign'"
+            :icon="s === 'format' ? 'groups' : 'schedule'"
             :title="$t(`matches.settings.${s}`)"
             :summary="summaryOf(s)"
             @open="openSetting(s)"
@@ -469,10 +497,6 @@ export default defineComponent({
 .title {
   margin: 0;
   font-size: 22px;
-}
-
-.note {
-  font-weight: 700;
 }
 
 .wave {

@@ -7,23 +7,34 @@ import { matchesApi } from '@scorely/web/src/modules/matches/matches.api';
 import { defineComponent, type PropType } from 'vue';
 
 /** Qual linha das configurações (PAR-18). O "Dia e hora" é o `MatchWhenSheet`. */
-export type MatchSettingSection = 'format' | 'waves' | 'note';
+export type MatchSettingSection = 'format' | 'opening';
 
-/** Quando os convidados são ligados de novo, a onda deles começa no fechamento, a última possível (PAR-03). */
+/** Campo de número vazio (ou limpo pelo X) = hora não configurada (PAR-03). */
+type HoursField = number | '' | null;
+
+const hoursOf = (value: number | undefined): HoursField => value ?? '';
+const hoursFrom = (value: HoursField): number | undefined =>
+  value === '' || value === null ? undefined : Number(value);
+
 function formOf(match: Match) {
   return {
-    teams: match.teams,
-    playersPerTeam: match.playersPerTeam,
-    membersHours: match.membersHours,
-    reservesHours: match.reservesHours,
-    guestsOn: match.guestsHours !== undefined,
-    guestsHours: match.guestsHours ?? match.closeHours,
+    limited: match.teams !== undefined,
+    // Sem formato, os campos começam vazios: nenhum esporte é o padrão (PAR-02).
+    teams: (match.teams ?? '') as number | '',
+    playersPerTeam: (match.playersPerTeam ?? '') as number | '',
+    membersHours: hoursOf(match.membersHours),
+    reservesHours: hoursOf(match.reservesHours),
+    guestsHours: hoursOf(match.guestsHours),
+    acceptGuests: !match.noGuests,
     closeHours: match.closeHours,
-    note: match.note ?? '',
   };
 }
 
-/** PAR-06, 18: o painel de uma linha das configurações da partida. Manda o resto como está, com a `version`. */
+/**
+ * PAR-02, 03, 06, 18: o painel de uma linha das configurações da partida. **Formato**: com limite (times × pessoas)
+ * ou sem limite. **Abertura da lista**: a hora de cada um, em horas antes do início (vazio = desde já, ou junto com
+ * o anterior), aceitar convidados e o fechamento. Manda o resto como está, com a `version`.
+ */
 export default defineComponent({
   name: 'MatchSettingSheet',
 
@@ -55,17 +66,17 @@ export default defineComponent({
     patch() {
       const f = this.form;
       if (this.section === 'format') {
-        return { teams: Number(f.teams), playersPerTeam: Number(f.playersPerTeam) };
+        return f.limited
+          ? { teams: Number(f.teams), playersPerTeam: Number(f.playersPerTeam) }
+          : { teams: undefined, playersPerTeam: undefined };
       }
-      if (this.section === 'waves') {
-        return {
-          membersHours: Number(f.membersHours),
-          reservesHours: Number(f.reservesHours),
-          guestsHours: f.guestsOn ? Number(f.guestsHours) : undefined,
-          closeHours: Number(f.closeHours),
-        };
-      }
-      return { note: f.note.trim() === '' ? undefined : f.note };
+      return {
+        membersHours: hoursFrom(f.membersHours),
+        reservesHours: hoursFrom(f.reservesHours),
+        guestsHours: f.acceptGuests ? hoursFrom(f.guestsHours) : undefined,
+        noGuests: !f.acceptGuests,
+        closeHours: Number(f.closeHours || 0),
+      };
     },
 
     async save() {
@@ -97,81 +108,77 @@ export default defineComponent({
     <q-form class="fields" @submit.prevent="save">
       <div class="sc-caption">{{ $t(`matches.settings.${section}Hint`) }}</div>
 
-      <div v-if="section === 'format'" class="row2">
-        <q-input
-          v-model.number="form.teams"
-          type="number"
-          outlined
-          dense
-          :min="limits.teams.min"
-          :max="limits.teams.max"
-          :label="$t('matches.form.teams')"
-        />
-        <q-input
-          v-model.number="form.playersPerTeam"
-          type="number"
-          outlined
-          dense
-          :min="limits.playersPerTeam.min"
-          :max="limits.playersPerTeam.max"
-          :label="$t('matches.form.playersPerTeam')"
-        />
-      </div>
-
-      <template v-else-if="section === 'waves'">
-        <div class="row2">
+      <template v-if="section === 'format'">
+        <q-toggle v-model="form.limited" :label="$t('matches.settings.limited')" />
+        <div v-if="form.limited" class="row2">
           <q-input
-            v-model.number="form.membersHours"
+            v-model.number="form.teams"
             type="number"
             outlined
             dense
-            :min="0"
-            :max="limits.waveMaxHours"
-            :label="$t('matches.form.membersHours')"
+            :min="limits.teams.min"
+            :max="limits.teams.max"
+            :label="$t('matches.form.teams')"
           />
           <q-input
-            v-model.number="form.reservesHours"
+            v-model.number="form.playersPerTeam"
             type="number"
             outlined
             dense
-            :min="0"
-            :max="limits.waveMaxHours"
-            :label="$t('matches.form.reservesHours')"
-          />
-        </div>
-        <q-toggle v-model="form.guestsOn" :label="$t('matches.form.guestsOn')" />
-        <div class="row2">
-          <q-input
-            v-if="form.guestsOn"
-            v-model.number="form.guestsHours"
-            type="number"
-            outlined
-            dense
-            :min="0"
-            :max="limits.waveMaxHours"
-            :label="$t('matches.form.guestsHours')"
-          />
-          <q-input
-            v-model.number="form.closeHours"
-            type="number"
-            outlined
-            dense
-            :min="0"
-            :max="limits.waveMaxHours"
-            :label="$t('matches.form.closeHours')"
+            :min="limits.playersPerTeam.min"
+            :max="limits.playersPerTeam.max"
+            :label="$t('matches.form.playersPerTeam')"
           />
         </div>
       </template>
 
-      <q-input
-        v-else
-        v-model="form.note"
-        outlined
-        dense
-        autofocus
-        :maxlength="limits.note"
-        :label="$t('matches.form.note')"
-      />
+      <template v-else>
+        <q-input
+          v-model.number="form.membersHours"
+          type="number"
+          outlined
+          dense
+          clearable
+          :min="0"
+          :max="limits.waveMaxHours"
+          :label="$t('matches.form.membersHours')"
+          :hint="$t('matches.settings.membersEmpty')"
+        />
+        <q-input
+          v-model.number="form.reservesHours"
+          type="number"
+          outlined
+          dense
+          clearable
+          :min="0"
+          :max="limits.waveMaxHours"
+          :label="$t('matches.form.reservesHours')"
+          :hint="$t('matches.settings.reservesEmpty')"
+        />
+        <q-toggle v-model="form.acceptGuests" :label="$t('matches.settings.acceptGuests')" />
+        <q-input
+          v-if="form.acceptGuests"
+          v-model.number="form.guestsHours"
+          type="number"
+          outlined
+          dense
+          clearable
+          :min="0"
+          :max="limits.waveMaxHours"
+          :label="$t('matches.form.guestsHours')"
+          :hint="$t('matches.settings.guestsEmpty')"
+        />
+        <q-input
+          v-model.number="form.closeHours"
+          type="number"
+          outlined
+          dense
+          :min="0"
+          :max="limits.waveMaxHours"
+          :label="$t('matches.form.closeHours')"
+          :hint="$t('matches.settings.closeHint')"
+        />
+      </template>
 
       <div class="actions">
         <q-btn

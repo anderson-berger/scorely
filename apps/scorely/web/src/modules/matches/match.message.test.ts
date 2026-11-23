@@ -30,7 +30,6 @@ function match(over: Partial<Match> = {}): Match {
     id: '22222222-2222-4222-8222-222222222222',
     startsAt: '2026-11-27T22:00:00.000Z',
     endsAt: '2026-11-28T00:00:00.000Z',
-    note: 'FERIADO!',
     teams: 2,
     playersPerTeam: 6,
     status: 'open',
@@ -40,6 +39,7 @@ function match(over: Partial<Match> = {}): Match {
     version: 1,
     membersHours: 72,
     reservesHours: 24,
+    noGuests: false,
     closeHours: 0,
     waves: {
       members: '2026-11-24T22:00:00.000Z',
@@ -56,12 +56,12 @@ function match(over: Partial<Match> = {}): Match {
 }
 
 describe('matchMessage (PAR-19)', () => {
-  it('PAR-19: o cabeçalho é o grupo, o dia e a hora no fuso de quem copia, e depois o recado', () => {
+  it('PAR-19: o cabeçalho é o grupo, o dia e a hora no fuso de quem copia, e depois uma linha em branco', () => {
     const lines = matchMessage(match(), SAO_PAULO).split('\n');
     expect(lines[0]).toMatch(/^Pelada de sexta · .*27\/11 às 19:00$/);
     expect(lines[0]).toMatch(/sex/i);
-    expect(lines[1]).toBe('FERIADO!');
-    expect(lines[2]).toBe('');
+    expect(lines[1]).toBe('');
+    expect(lines[2]).toBe('Confirmados (2 de 12)');
   });
 
   it('PAR-19: o dia e a hora seguem o fuso de quem copia (ADR 0006)', () => {
@@ -70,14 +70,17 @@ describe('matchMessage (PAR-19)', () => {
     );
   });
 
-  it('PAR-19: sem recado, a linha não aparece e a mensagem não tem local', () => {
-    const text = matchMessage(match({ note: undefined }), SAO_PAULO);
+  it('PAR-19: a mensagem não tem recado nem local', () => {
+    const text = matchMessage(match(), SAO_PAULO);
+    expect(text).not.toContain('FERIADO');
     expect(text).not.toContain('Quadra');
-    expect(text.split('\n').slice(0, 3)).toEqual([
-      expect.stringContaining('27/11'),
-      '',
-      'Confirmados (2 de 12)',
-    ]);
+  });
+
+  it('PAR-19: sem formato, "Confirmados (n)", sem "de vagas"', () => {
+    const { teams: _t, playersPerTeam: _p, ...rest } = match();
+    const text = matchMessage(rest as Match, SAO_PAULO);
+    expect(text).toContain('Confirmados (2)\n1. Edu\n2. Carioca');
+    expect(text).not.toContain('Confirmados (2 de');
   });
 
   it('PAR-19: Confirmados mostra "n de vagas" e a lista numerada, na ordem', () => {

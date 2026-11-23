@@ -17,7 +17,6 @@ export const MATCH_LIMITS = {
   startMaxDays: 90,
   /** O fim fica até 24 h depois do início. */
   durationMaxHours: 24,
-  note: 200,
   teams: { min: 1, max: 10 },
   playersPerTeam: { min: 1, max: 50 },
   slots: 100,
@@ -27,13 +26,11 @@ export const MATCH_LIMITS = {
 } as const;
 
 /**
- * A duração no painel de criar e no "Dia e hora" (PAR-17, 18): as opções prontas, o padrão e o passo da "outra",
- * em minutos. A tela converte a duração no fim; a api recebe o início e o fim (PAR-01).
+ * A duração no painel de criar e no "Dia e hora" (PAR-17, 18), em minutos: livre de 1 min até 24 h, e o padrão. A tela converte a duração no fim; a api recebe o início e o fim (PAR-01).
  */
 export const MATCH_DURATION = {
   defaultMinutes: 120,
-  optionsMinutes: [60, 90, 120, 180],
-  stepMinutes: 30,
+  minMinutes: 1,
 } as const;
 
 /** Uma onda (PAR-03): quem pode confirmar agora. */
@@ -76,15 +73,25 @@ const MatchTimesSchema = z.object({
 });
 type MatchTimes = z.infer<typeof MatchTimesSchema>;
 
-/** As configurações da partida (PAR-06): o início e o fim, o formato, as ondas e o recado. */
+/**
+ * As configurações da partida (PAR-06): o início e o fim, o formato e a abertura da lista. Tudo nasce vazio (PAR-01):
+ * sem formato = sem limite (PAR-02); sem a hora de uma onda, ela abre com a anterior, e a dos membros desde a
+ * criação (PAR-03).
+ */
 const MatchFieldsSchema = MatchTimesSchema.extend({
-  note: z.string().trim().min(1).max(MATCH_LIMITS.note).optional(),
-  teams: z.number().int().min(MATCH_LIMITS.teams.min).max(MATCH_LIMITS.teams.max),
-  playersPerTeam: z.number().int().min(MATCH_LIMITS.playersPerTeam.min).max(MATCH_LIMITS.playersPerTeam.max),
-  membersHours: hours,
-  reservesHours: hours,
-  /** Ausente = a onda de convidados desligada (PAR-03). */
+  /** O formato: os dois juntos, ou nenhum (PAR-02). */
+  teams: z.number().int().min(MATCH_LIMITS.teams.min).max(MATCH_LIMITS.teams.max).optional(),
+  playersPerTeam: z
+    .number()
+    .int()
+    .min(MATCH_LIMITS.playersPerTeam.min)
+    .max(MATCH_LIMITS.playersPerTeam.max)
+    .optional(),
+  membersHours: hours.optional(),
+  reservesHours: hours.optional(),
   guestsHours: hours.optional(),
+  /** "Sem convidados" (PAR-03, 12). */
+  noGuests: z.boolean(),
   closeHours: hours,
 });
 type MatchFields = z.infer<typeof MatchFieldsSchema>;
@@ -103,25 +110,32 @@ function checkMatchTimes(value: MatchTimes, ctx: z.RefinementCtx): void {
   }
 }
 
-/** PAR-02–04, 06: as horas, as vagas até 100 e as ondas em ordem (membros ≥ reservas ≥ convidados ≥ fechamento). */
+/**
+ * PAR-02–04, 06: as horas, o formato inteiro ou nenhum, as vagas até 100 e as ondas em ordem (membros ≥ reservas ≥
+ * convidados ≥ fechamento), contando a onda sem hora como aberta junto com a anterior.
+ */
 function checkMatchFields(value: MatchFields, ctx: z.RefinementCtx): void {
   checkMatchTimes(value, ctx);
-  if (value.teams * value.playersPerTeam > MATCH_LIMITS.slots) {
+  if ((value.teams === undefined) !== (value.playersPerTeam === undefined)) {
+    ctx.addIssue({ code: 'custom', path: ['teams'], message: 'Teams and players per team go together' });
+  } else if (value.teams !== undefined && value.teams * (value.playersPerTeam ?? 0) > MATCH_LIMITS.slots) {
     ctx.addIssue({ code: 'custom', path: ['playersPerTeam'], message: 'Too many slots' });
   }
-  if (value.reservesHours > value.membersHours) {
+  const members = value.membersHours ?? Number.POSITIVE_INFINITY;
+  const reserves = value.reservesHours ?? members;
+  const guests = value.guestsHours ?? reserves;
+  if (reserves > members) {
     ctx.addIssue({ code: 'custom', path: ['reservesHours'], message: 'Reserves must open after members' });
   }
-  const lastWave = value.guestsHours ?? value.reservesHours;
-  if (value.guestsHours !== undefined && value.guestsHours > value.reservesHours) {
+  if (!value.noGuests && guests > reserves) {
     ctx.addIssue({ code: 'custom', path: ['guestsHours'], message: 'Guests must open after reserves' });
   }
-  if (value.closeHours > lastWave) {
+  if (value.closeHours > (value.noGuests ? reserves : guests)) {
     ctx.addIssue({ code: 'custom', path: ['closeHours'], message: 'Close must come after the last wave' });
   }
 }
 
-/** Corpo do `POST /groups/{publicId}/matches` (PAR-01): só o início e o fim; o resto a api põe no padrão. */
+/** Corpo do `POST /groups/{publicId}/matches` (PAR-01): só o início e o fim; o resto nasce vazio. */
 export const CreateMatchInputSchema = MatchTimesSchema.superRefine(checkMatchTimes);
 export type CreateMatchInput = z.infer<typeof CreateMatchInputSchema>;
 
@@ -182,7 +196,7 @@ export type MatchGuestRequest = z.infer<typeof MatchGuestRequestSchema>;
 export const MatchWavesSchema = z.object({
   members: z.iso.datetime(),
   reserves: z.iso.datetime(),
-  /** Ausente = a onda de convidados desligada e ainda não aberta à mão. */
+  /** Ausente = "sem convidados" e ainda não aberta à mão. */
   guests: z.iso.datetime().optional(),
   close: z.iso.datetime(),
 });
@@ -193,11 +207,11 @@ export const MatchSummarySchema = z.object({
   id: z.uuid(),
   startsAt: z.iso.datetime(),
   endsAt: z.iso.datetime(),
-  note: z.string().optional(),
-  teams: z.number().int().positive(),
-  playersPerTeam: z.number().int().positive(),
+  /** O formato; ausente = sem limite de vagas (PAR-02). */
+  teams: z.number().int().positive().optional(),
+  playersPerTeam: z.number().int().positive().optional(),
   status: MatchStatusSchema,
-  /** A onda aberta agora; ausente antes da onda dos membros. */
+  /** A onda aberta agora; ausente antes da onda dos membros (só com a hora dela configurada). */
   wave: MatchWaveSchema.optional(),
   /** Quantos estão dentro (PAR-09). */
   confirmed: z.number().int().nonnegative(),
@@ -222,10 +236,13 @@ export type MatchActions = z.infer<typeof MatchActionsSchema>;
 export const MatchSchema = MatchSummarySchema.extend({
   createdAt: z.iso.datetime(),
   version: VersionSchema,
-  membersHours: hours,
-  reservesHours: hours,
+  /** A abertura da lista como foi configurada (PAR-03); a hora ausente não foi configurada. */
+  membersHours: hours.optional(),
+  reservesHours: hours.optional(),
   guestsHours: hours.optional(),
+  noGuests: z.boolean(),
   closeHours: hours,
+  /** As horas em que cada onda abre, já calculadas (a sem hora configurada abre com a anterior, ou na criação). */
   waves: MatchWavesSchema,
   cancelledAt: z.iso.datetime().optional(),
   /** Dentro, na ordem (PAR-09). */

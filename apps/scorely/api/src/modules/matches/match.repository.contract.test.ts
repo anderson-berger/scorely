@@ -31,6 +31,7 @@ function newMatch(groupId: GroupId, overrides: Partial<StoredMatch> = {}): Store
     membersHours: 72,
     reservesHours: 24,
     guestsHours: 6,
+    noGuests: false,
     closeHours: 0,
     createdBy: newUser(),
     ...overrides,
@@ -108,9 +109,9 @@ describe.each([
     it('PAR-06: updateMatch grava, sobe a version e devolve a partida nova', async () => {
       const match = newMatch(newGroup());
       await repo.createMatch(match);
-      const updated = await repo.updateMatch({ ...match, note: 'Outro recado', teams: 3 }, 1, at(5));
+      const updated = await repo.updateMatch({ ...match, closeHours: 2, teams: 3 }, 1, at(5));
       expect(updated).toMatchObject({
-        note: 'Outro recado',
+        closeHours: 2,
         teams: 3,
         version: 2,
         updatedAt: at(5).toISOString(),
@@ -121,11 +122,51 @@ describe.each([
     it('PAR-06: updateMatch com a version velha responde VERSION_CONFLICT e não grava', async () => {
       const match = newMatch(newGroup());
       await repo.createMatch(match);
-      await repo.updateMatch({ ...match, note: 'A' }, 1, at(1));
-      await expect(repo.updateMatch({ ...match, note: 'B' }, 1, at(2))).rejects.toMatchObject({
+      await repo.updateMatch({ ...match, closeHours: 1 }, 1, at(1));
+      await expect(repo.updateMatch({ ...match, closeHours: 2 }, 1, at(2))).rejects.toMatchObject({
         code: 'VERSION_CONFLICT',
       });
-      expect((await repo.getMatch(match.groupId, match.id, read))?.note).toBe('A');
+      expect((await repo.getMatch(match.groupId, match.id, read))?.closeHours).toBe(1);
+    });
+
+    it('PAR-01, PAR-02, PAR-03: a partida limpa (sem formato e sem horas) é gravada e lida sem inventar campos', async () => {
+      const {
+        teams: _t,
+        playersPerTeam: _p,
+        membersHours: _m,
+        reservesHours: _r,
+        guestsHours: _g,
+        ...rest
+      } = newMatch(newGroup());
+      const clean: StoredMatch = { ...rest, noGuests: false, closeHours: 0 };
+      await repo.createMatch(clean);
+      const stored = await repo.getMatch(clean.groupId, clean.id, read);
+      expect(stored).toMatchObject({ id: clean.id, noGuests: false, closeHours: 0 });
+      expect(stored?.teams).toBeUndefined();
+      expect(stored?.playersPerTeam).toBeUndefined();
+      expect(stored?.membersHours).toBeUndefined();
+      expect(stored?.reservesHours).toBeUndefined();
+      expect(stored?.guestsHours).toBeUndefined();
+      expect(stored).not.toHaveProperty('note');
+    });
+
+    it('PAR-06: updateMatch tira o formato e as horas (voltam a ausentes) e grava "sem convidados"', async () => {
+      const match = newMatch(newGroup());
+      await repo.createMatch(match);
+      const {
+        teams: _t,
+        playersPerTeam: _p,
+        membersHours: _m,
+        reservesHours: _r,
+        guestsHours: _g,
+        ...rest
+      } = match;
+      const updated = await repo.updateMatch({ ...rest, noGuests: true }, 1, at(5));
+      expect(updated.teams).toBeUndefined();
+      expect(updated.membersHours).toBeUndefined();
+      expect(updated.guestsHours).toBeUndefined();
+      expect(updated.noGuests).toBe(true);
+      expect(await repo.getMatch(match.groupId, match.id, read)).toEqual(updated);
     });
 
     it('PAR-05: advanceMatch grava a onda aberta; repetir ou pedir uma menor devolve false e não volta', async () => {

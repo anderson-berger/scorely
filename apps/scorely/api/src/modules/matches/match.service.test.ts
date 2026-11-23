@@ -109,6 +109,7 @@ function input(over: Partial<Settings> = {}): Settings {
     membersHours: 72,
     reservesHours: 24,
     guestsHours: 6,
+    noGuests: false,
     closeHours: 0,
     ...over,
   };
@@ -149,38 +150,41 @@ async function fill(t: T, matchId: string, users: UserId[]) {
 }
 
 describe('PAR-01: criar a partida', () => {
-  it('PAR-01: cria só com início e fim, e a partida nasce no padrão (2 × 6, ondas 72/24/6, fecha no início, sem recado)', async () => {
+  it('PAR-01: cria só com início e fim, e a partida nasce limpa (sem formato, sem horas, aberta, fecha no início)', async () => {
     const t = setup();
     const m = await t.service.create(ANA, PUBLIC_ID, { startsAt: START, endsAt: END });
     expect(m).toMatchObject({
       startsAt: START,
       endsAt: END,
-      teams: 2,
-      playersPerTeam: 6,
-      membersHours: 72,
-      reservesHours: 24,
-      guestsHours: 6,
+      noGuests: false,
       closeHours: 0,
-      status: 'scheduled',
+      status: 'open',
+      wave: 'guests',
       version: 1,
       confirmed: 0,
       in: [],
       queue: [],
       notGoing: [],
     });
-    expect(m.note).toBeUndefined();
+    expect(m.teams).toBeUndefined();
+    expect(m.playersPerTeam).toBeUndefined();
+    expect(m.membersHours).toBeUndefined();
+    expect(m.reservesHours).toBeUndefined();
+    expect(m.guestsHours).toBeUndefined();
+    expect(m).not.toHaveProperty('note');
     expect(m).not.toHaveProperty('place');
     expect(m.id).toMatch(/^[0-9a-f-]{36}$/);
     expect(m.createdAt).toBe(T0);
-    expect(await get(t, BIA, m.id)).toMatchObject({ id: m.id, teams: 2, playersPerTeam: 6 });
+    expect(await get(t, BIA, m.id)).toMatchObject({ id: m.id, status: 'open' });
   });
 
-  it('PAR-01: o corpo do criar é só { startsAt, endsAt }: formato, ondas e recado mandados são ignorados', async () => {
+  it('PAR-01: o corpo do criar é só { startsAt, endsAt }: formato e horas mandados são ignorados', async () => {
     const times = { startsAt: START, endsAt: END };
     expect(CreateMatchInputSchema.parse({ ...times, teams: 5, note: 'x', place: 'Quadra' })).toEqual(times);
     const t = setup();
     const m = await t.service.create(ANA, PUBLIC_ID, { ...times, teams: 5, membersHours: 1 } as never);
-    expect(m).toMatchObject({ teams: 2, playersPerTeam: 6, membersHours: 72 });
+    expect(m.teams).toBeUndefined();
+    expect(m.membersHours).toBeUndefined();
   });
 
   it('PAR-01: quem participa sem a permissão recebe GROUP_PERMISSION_DENIED (403)', async () => {
@@ -222,14 +226,27 @@ describe('PAR-01: criar a partida', () => {
     expect(CreateMatchInputSchema.safeParse({ ...ok, endsAt: iso(START, 24) }).success).toBe(true);
   });
 
-  it('PAR-06: recado (200), formato e limites das configurações; o local não existe mais', () => {
+  it('PAR-06: formato e limites das configurações; o local e o recado não existem mais', () => {
     const ok = { ...input(), expectedVersion: 1 };
     expect(UpdateMatchInputSchema.safeParse(ok).success).toBe(true);
-    expect(UpdateMatchInputSchema.safeParse({ ...ok, note: 'a'.repeat(201) }).success).toBe(false);
+    expect(UpdateMatchInputSchema.parse({ ...ok, note: 'Trazer colete' })).not.toHaveProperty('note');
     expect(UpdateMatchInputSchema.safeParse({ ...ok, teams: 0 }).success).toBe(false);
     expect(UpdateMatchInputSchema.safeParse({ ...ok, teams: 11 }).success).toBe(false);
     expect(UpdateMatchInputSchema.safeParse({ ...ok, playersPerTeam: 51 }).success).toBe(false);
     expect(UpdateMatchInputSchema.parse({ ...ok, place: 'Quadra' })).not.toHaveProperty('place');
+  });
+
+  it('PAR-06: o formato é inteiro ou nenhum, e as horas são opcionais; o fechamento vai sempre', () => {
+    const { teams: _t, playersPerTeam: _p, ...noFormat } = input();
+    expect(UpdateMatchInputSchema.safeParse({ ...noFormat, expectedVersion: 1 }).success).toBe(true);
+    const { teams: _t2, ...onlyPlayers } = input();
+    expect(UpdateMatchInputSchema.safeParse({ ...onlyPlayers, expectedVersion: 1 }).success).toBe(false);
+    const { playersPerTeam: _p2, ...onlyTeams } = input();
+    expect(UpdateMatchInputSchema.safeParse({ ...onlyTeams, expectedVersion: 1 }).success).toBe(false);
+    const clean = { startsAt: START, endsAt: END, noGuests: false, closeHours: 0, expectedVersion: 1 };
+    expect(UpdateMatchInputSchema.safeParse(clean).success).toBe(true);
+    const { closeHours: _c, ...noClose } = clean;
+    expect(UpdateMatchInputSchema.safeParse(noClose).success).toBe(false);
   });
 
   it('PAR-01: a 21ª partida por vir responde MATCH_LIMIT com details.limit = 20', async () => {
@@ -258,7 +275,52 @@ describe('PAR-02, 03, 04: vagas e ondas', () => {
   it('PAR-02: as vagas são times × pessoas por time: 2 × 6 deixa 12 dentro e o resto na fila', async () => {
     const t = setup();
     const m = await create(t, { teams: 2, playersPerTeam: 6 });
-    expect(m.teams * m.playersPerTeam).toBe(12);
+    expect((m.teams ?? 0) * (m.playersPerTeam ?? 0)).toBe(12);
+  });
+
+  it('PAR-02: sem formato não há limite: todos que dizem "vou" estão dentro, e não há fila', async () => {
+    const t = setup();
+    const m = await t.service.create(ANA, PUBLIC_ID, { startsAt: START, endsAt: END });
+    const users = [BIA, CAIO, EDU, ANA, DUDA];
+    for (const [i, user] of users.entries()) {
+      t.at(iso(T0, (i + 1) / 60));
+      await go(t, user, m.id);
+    }
+    const seen = await get(t, ANA, m.id);
+    expect(publicIds(seen.in)).toEqual(users.map(pub));
+    expect(seen.queue).toEqual([]);
+    expect(seen.confirmed).toBe(5);
+    expect((await t.service.list(ANA, PUBLIC_ID))[0]).toMatchObject({ confirmed: 5 });
+  });
+
+  it('PAR-02, PAR-06: configurar o formato abaixo de quem já está dentro responde MATCH_SLOTS_BELOW_CONFIRMED', async () => {
+    const t = setup();
+    const m = await t.service.create(ANA, PUBLIC_ID, { startsAt: START, endsAt: END });
+    for (const [i, user] of [BIA, CAIO, EDU].entries()) {
+      t.at(iso(T0, (i + 1) / 60));
+      await go(t, user, m.id);
+    }
+    const err = await failure(
+      t.service.update(ANA, PUBLIC_ID, m.id, {
+        ...input({ teams: 1, playersPerTeam: 2 }),
+        expectedVersion: m.version,
+      }),
+    );
+    expect(err?.code).toBe('MATCH_SLOTS_BELOW_CONFIRMED');
+    expect(err?.details).toMatchObject({ confirmed: 3 });
+  });
+
+  it('PAR-02, PAR-06: tirar o formato volta a não ter limite, e a fila inteira entra', async () => {
+    const t = setup();
+    const m = await create(t, { playersPerTeam: 1 });
+    await fill(t, m.id, [BIA, CAIO, EDU]);
+    const edited = await t.service.update(ANA, PUBLIC_ID, m.id, {
+      ...input({ teams: undefined, playersPerTeam: undefined }),
+      expectedVersion: m.version,
+    });
+    expect(edited.teams).toBeUndefined();
+    expect(publicIds(edited.in)).toEqual([pub(BIA), pub(CAIO), pub(EDU)]);
+    expect(edited.queue).toEqual([]);
   });
 
   it('PAR-02: mais de 100 vagas é recusado pelo contrato', () => {
@@ -278,9 +340,15 @@ describe('PAR-02, 03, 04: vagas e ondas', () => {
     expect(m.waves).toEqual({ members: MEMBERS_AT, reserves: RESERVES_AT, guests: GUESTS_AT, close: START });
   });
 
-  it('PAR-03: cada partida tem as suas horas, e a onda de convidados pode ser desligada (sem guests)', async () => {
+  it('PAR-03: cada partida tem as suas horas, e os convidados podem ser desligados (noGuests)', async () => {
     const t = setup();
-    const m = await create(t, { membersHours: 48, reservesHours: 12, guestsHours: undefined, closeHours: 2 });
+    const m = await create(t, {
+      membersHours: 48,
+      reservesHours: 12,
+      guestsHours: undefined,
+      noGuests: true,
+      closeHours: 2,
+    });
     expect(m.waves.members).toBe(iso(START, -48));
     expect(m.waves.reserves).toBe(iso(START, -12));
     expect(m.waves.guests).toBeUndefined();
@@ -298,6 +366,58 @@ describe('PAR-02, 03, 04: vagas e ondas', () => {
     expect(fieldOf({ guestsHours: undefined, reservesHours: 4, closeHours: 5 })).toBe('closeHours');
     expect(fieldOf({ membersHours: 337 })).toBeDefined();
     expect(fieldOf({ membersHours: 336, reservesHours: 24 })).toBeUndefined();
+  });
+
+  it('PAR-03: a onda sem hora abre junto com a anterior (contando só as configuradas na ordem)', async () => {
+    const t = setup();
+    const m = await create(t, { membersHours: 48, reservesHours: undefined, guestsHours: undefined });
+    expect(m.waves).toEqual({
+      members: iso(START, -48),
+      reserves: iso(START, -48),
+      guests: iso(START, -48),
+      close: START,
+    });
+    t.at(iso(START, -48));
+    expect((await go(t, DUDA, m.id)).myAttendance).toBe('in');
+    const fieldOf = (over: Partial<Settings>) => {
+      const r = UpdateMatchInputSchema.safeParse({ ...input(over), expectedVersion: 1 });
+      return r.success ? undefined : r.error.issues[0]?.path[0];
+    };
+    expect(fieldOf({ membersHours: 10, reservesHours: undefined, guestsHours: 11, closeHours: 0 })).toBe(
+      'guestsHours',
+    );
+    expect(fieldOf({ reservesHours: 4, guestsHours: undefined, noGuests: true, closeHours: 5 })).toBe(
+      'closeHours',
+    );
+  });
+
+  it('PAR-03: sem nada configurado, a lista está aberta a todos desde a criação e fecha no início', async () => {
+    const t = setup();
+    const m = await t.service.create(ANA, PUBLIC_ID, { startsAt: START, endsAt: END });
+    expect(m.waves).toEqual({ members: T0, reserves: T0, guests: T0, close: START });
+    expect((await go(t, BIA, m.id)).myAttendance).toBe('in');
+    expect((await go(t, DUDA, m.id)).myAttendance).toBe('in');
+    t.at(iso(START, -0.01));
+    expect((await get(t, CAIO, m.id)).status).toBe('open');
+    t.at(START);
+    expect((await get(t, CAIO, m.id)).status).toBe('in_progress');
+  });
+
+  it('PAR-03, PAR-04: só o fechamento configurado: a lista fica aberta desde a criação e fecha na hora', async () => {
+    const t = setup();
+    const m = await t.service.create(ANA, PUBLIC_ID, { startsAt: START, endsAt: END });
+    const edited = await t.service.update(ANA, PUBLIC_ID, m.id, {
+      startsAt: START,
+      endsAt: END,
+      noGuests: false,
+      closeHours: 2,
+      expectedVersion: m.version,
+    });
+    expect(edited.waves.close).toBe(iso(START, -2));
+    expect((await go(t, BIA, m.id)).myAttendance).toBe('in');
+    t.at(iso(START, -2));
+    const err = await failure(go(t, CAIO, m.id));
+    expect(err?.code).toBe('MATCH_CLOSED');
   });
 
   it('PAR-03, PAR-16: a situação sai da hora: scheduled → open → closed → in_progress → finished', async () => {
@@ -364,7 +484,7 @@ describe('PAR-05: abrir a onda antes da hora', () => {
 
   it('PAR-05: abrir para convidados abre as reservas junto, mesmo com a onda de convidados desligada', async () => {
     const t = setup();
-    const m = await create(t, { guestsHours: undefined });
+    const m = await create(t, { guestsHours: undefined, noGuests: true });
     t.at('2026-11-25T12:00:00.000Z');
     const advanced = await t.service.advance(ANA, PUBLIC_ID, m.id, { wave: 'guests' });
     expect(advanced.wave).toBe('guests');
@@ -379,6 +499,15 @@ describe('PAR-05: abrir a onda antes da hora', () => {
     const advanced = await t.service.advance(ANA, PUBLIC_ID, m.id, { wave: 'reserves' });
     expect(advanced.waves.reserves).toBe(RESERVES_AT);
     expect(advanced.version).toBe(m.version);
+  });
+
+  it('PAR-05: sem a abertura configurada tudo já está aberto: não há o que abrir, e nada muda', async () => {
+    const t = setup();
+    const m = await t.service.create(ANA, PUBLIC_ID, { startsAt: START, endsAt: END });
+    const advanced = await t.service.advance(ANA, PUBLIC_ID, m.id, { wave: 'guests' });
+    expect(advanced.version).toBe(m.version);
+    expect(advanced.waves).toEqual(m.waves);
+    expect(advanced.wave).toBe('guests');
   });
 
   it('PAR-05: quem não tem matches.manage recebe GROUP_PERMISSION_DENIED', async () => {
@@ -416,18 +545,19 @@ describe('PAR-06: editar a partida', () => {
     const t = setup();
     const m = await create(t);
     const edited = await t.service.update(ANA, PUBLIC_ID, m.id, {
-      ...input({ note: 'Trazer colete' }),
+      ...input({ closeHours: 2 }),
       expectedVersion: m.version,
     });
-    expect(edited).toMatchObject({ note: 'Trazer colete', version: m.version + 1 });
+    expect(edited).toMatchObject({ closeHours: 2, version: m.version + 1 });
+    expect(edited).not.toHaveProperty('note');
   });
 
   it('PAR-06: version velha responde VERSION_CONFLICT (409)', async () => {
     const t = setup();
     const m = await create(t);
-    await t.service.update(ANA, PUBLIC_ID, m.id, { ...input({ note: 'A' }), expectedVersion: m.version });
+    await t.service.update(ANA, PUBLIC_ID, m.id, { ...input({ closeHours: 1 }), expectedVersion: m.version });
     const err = await failure(
-      t.service.update(ANA, PUBLIC_ID, m.id, { ...input({ note: 'B' }), expectedVersion: m.version }),
+      t.service.update(ANA, PUBLIC_ID, m.id, { ...input({ closeHours: 2 }), expectedVersion: m.version }),
     );
     expect(err?.code).toBe('VERSION_CONFLICT');
     expect(err?.status).toBe(409);
@@ -505,6 +635,31 @@ describe('PAR-06: editar a partida', () => {
     expect(edited.wave).toBe('reserves');
     t.at(iso(RESERVES_AT, 1));
     expect((await get(t, BIA, m.id)).wave).toBe('reserves');
+  });
+
+  it('PAR-06, PAR-03: a primeira configuração da abertura passa a valer: quem não respondeu espera a hora da onda', async () => {
+    const t = setup();
+    const m = await t.service.create(ANA, PUBLIC_ID, { startsAt: START, endsAt: END });
+    expect(m.wave).toBe('guests');
+    const edited = await t.service.update(ANA, PUBLIC_ID, m.id, { ...input(), expectedVersion: m.version });
+    expect(edited.wave).toBeUndefined();
+    expect(edited.status).toBe('scheduled');
+    const err = await failure(go(t, DUDA, m.id));
+    expect(err?.code).toBe('MATCH_NOT_OPEN_FOR_YOU');
+    expect(err?.details).toMatchObject({ opensAt: RESERVES_AT });
+    expect((await failure(go(t, BIA, m.id)))?.code).toBe('MATCH_NOT_OPEN_FOR_YOU');
+  });
+
+  it('PAR-06, PAR-09: quem confirmou na partida limpa continua na lista depois da primeira configuração', async () => {
+    const t = setup();
+    const m = await t.service.create(ANA, PUBLIC_ID, { startsAt: START, endsAt: END });
+    await go(t, BIA, m.id);
+    t.at(iso(T0, 1 / 60));
+    await go(t, DUDA, m.id);
+    const edited = await t.service.update(ANA, PUBLIC_ID, m.id, { ...input(), expectedVersion: m.version });
+    expect(publicIds(edited.in)).toEqual([pub(BIA), pub(DUDA)]);
+    expect((await get(t, BIA, m.id)).myAttendance).toBe('in');
+    expect((await get(t, DUDA, m.id)).myAttendance).toBe('in');
   });
 
   it('PAR-06: sem onda aberta antes da edição, o início para depois move as ondas junto', async () => {
@@ -806,6 +961,22 @@ describe('PAR-15: as próximas partidas', () => {
     expect(list[1]?.myAttendance).toBeUndefined();
   });
 
+  it('PAR-15: a partida limpa vem sem formato, aberta, com quantos confirmaram', async () => {
+    const t = setup();
+    const m = await t.service.create(ANA, PUBLIC_ID, { startsAt: START, endsAt: END });
+    await go(t, BIA, m.id);
+    const [item] = await t.service.list(BIA, PUBLIC_ID);
+    expect(item).toMatchObject({
+      id: m.id,
+      status: 'open',
+      wave: 'guests',
+      confirmed: 1,
+      myAttendance: 'in',
+    });
+    expect(item?.teams).toBeUndefined();
+    expect(item?.playersPerTeam).toBeUndefined();
+  });
+
   it('PAR-15: myAttendance distingue dentro, fila e não vou', async () => {
     const t = setup();
     const m = await create(t, { playersPerTeam: 1 });
@@ -867,6 +1038,23 @@ describe('PAR-16: ver a partida', () => {
       requestGuest: false,
       manage: false,
     });
+  });
+
+  it('PAR-16: na partida limpa, o membro e a reserva podem confirmar e pedir convidado desde a criação', async () => {
+    const t = setup();
+    const m = await t.service.create(ANA, PUBLIC_ID, { startsAt: START, endsAt: END });
+    const expected = { going: true, notGoing: true, requestGuest: true, manage: false };
+    expect((await get(t, BIA, m.id)).actions).toEqual(expected);
+    expect((await get(t, DUDA, m.id)).actions).toEqual(expected);
+  });
+
+  it('PAR-16, PAR-03: com "sem convidados" não se pede convidado, e a situação só é scheduled com a hora dos membros configurada', async () => {
+    const t = setup();
+    const m = await create(t, { noGuests: true, guestsHours: undefined });
+    t.at(GUESTS_AT);
+    expect((await get(t, BIA, m.id)).actions.requestGuest).toBe(false);
+    const clean = await t.service.create(ANA, PUBLIC_ID, { startsAt: START, endsAt: END });
+    expect(clean.status).not.toBe('scheduled');
   });
 
   it('PAR-16: a reserva antes da onda dela só pode dizer "não vou"', async () => {

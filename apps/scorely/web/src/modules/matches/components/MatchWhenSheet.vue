@@ -1,29 +1,27 @@
 <script lang="ts">
 import { CreateMatchInputSchema, MATCH_DURATION, MATCH_LIMITS, type Match } from '@scorely/contracts';
 import BottomSheet from '@scorely/web/src/components/BottomSheet.vue';
-import HoursStepper from '@scorely/web/src/components/HoursStepper.vue';
 import { errorMessage, issueMessage } from '@scorely/web/src/i18n/errors';
 import { zonedInputToIso, zonedInputValue } from '@scorely/web/src/lib/datetime';
 import {
-  durationLabel,
   durationOf,
   endFrom,
+  joinDuration,
+  splitDuration,
   withSettings,
 } from '@scorely/web/src/modules/matches/match.settings';
 import { matchesApi } from '@scorely/web/src/modules/matches/matches.api';
 import { defineComponent, type PropType } from 'vue';
 
-const OTHER = 'other' as const;
-const MAX_MINUTES = MATCH_LIMITS.durationMaxHours * 60;
-
 /**
  * PAR-01, 17: criar a partida pede só o dia, a hora e a duração. Com `match`, é a linha "Dia e hora" das
- * configurações (PAR-06, 18), que muda só isso. O dia e a hora são lidos no fuso de quem vê (ADR 0006).
+ * configurações (PAR-06, 18), que muda só isso. A duração é livre, em horas e minutos (ex.: 1 h 45). O dia e a
+ * hora são lidos no fuso de quem vê (ADR 0006).
  */
 export default defineComponent({
   name: 'MatchWhenSheet',
 
-  components: { BottomSheet, HoursStepper },
+  components: { BottomSheet },
 
   props: {
     modelValue: { type: Boolean, required: true },
@@ -41,9 +39,9 @@ export default defineComponent({
     return {
       date: '',
       time: '',
-      minutes: MATCH_DURATION.defaultMinutes as number,
-      choice: MATCH_DURATION.defaultMinutes as number | typeof OTHER,
+      ...splitDuration(MATCH_DURATION.defaultMinutes),
       saving: false,
+      maxHours: MATCH_LIMITS.durationMaxHours,
     };
   },
 
@@ -52,11 +50,8 @@ export default defineComponent({
       return this.match !== undefined;
     },
 
-    options(): { label: string; value: number | typeof OTHER }[] {
-      return [
-        ...MATCH_DURATION.optionsMinutes.map((m) => ({ label: durationLabel(m), value: m })),
-        { label: this.$t('matches.schedule.other'), value: OTHER },
-      ];
+    total(): number | undefined {
+      return joinDuration(Number(this.hours), Number(this.minutes));
     },
   },
 
@@ -66,32 +61,21 @@ export default defineComponent({
       const local = this.match ? zonedInputValue(this.match.startsAt) : '';
       this.date = local.slice(0, 10);
       this.time = local.slice(11, 16);
-      this.minutes = this.match ? durationOf(this.match) : MATCH_DURATION.defaultMinutes;
-      this.choice = (MATCH_DURATION.optionsMinutes as readonly number[]).includes(this.minutes)
-        ? this.minutes
-        : OTHER;
-    },
-
-    choice(value: number | typeof OTHER) {
-      if (value !== OTHER) this.minutes = value;
+      Object.assign(this, splitDuration(this.match ? durationOf(this.match) : MATCH_DURATION.defaultMinutes));
     },
   },
 
   methods: {
-    durationLabel(minutes: number): string {
-      return durationLabel(minutes);
-    },
-
-    step(direction: number) {
-      const next = this.minutes + direction * MATCH_DURATION.stepMinutes;
-      this.minutes = Math.min(MAX_MINUTES, Math.max(MATCH_DURATION.stepMinutes, next));
-    },
-
     async save() {
+      const total = this.total;
+      if (total === undefined) {
+        this.$q.notify({ type: 'negative', message: this.$t('matches.schedule.invalidDuration') });
+        return;
+      }
       const startsAt = zonedInputToIso(`${this.date}T${this.time}`) ?? '';
       const parsed = CreateMatchInputSchema.safeParse({
         startsAt,
-        endsAt: startsAt && endFrom(startsAt, this.minutes),
+        endsAt: startsAt && endFrom(startsAt, total),
       });
       if (!parsed.success) {
         this.$q.notify({ type: 'negative', message: issueMessage(parsed.error.issues[0]) });
@@ -130,16 +114,25 @@ export default defineComponent({
 
       <div>
         <div class="sc-label field-label">{{ $t('matches.schedule.duration') }}</div>
-        <q-btn-toggle v-model="choice" no-caps unelevated toggle-color="primary" :options="options" />
-        <div v-if="choice === 'other'" class="other">
-          <HoursStepper
-            :value="minutes / 60"
-            unit="h"
-            :dec-label="$t('matches.schedule.less')"
-            :inc-label="$t('matches.schedule.more')"
-            @step="step"
+        <div class="row2">
+          <q-input
+            v-model.number="hours"
+            type="number"
+            outlined
+            dense
+            :min="0"
+            :max="maxHours"
+            :label="$t('matches.schedule.hours')"
           />
-          <span class="sc-caption">{{ durationLabel(minutes) }}</span>
+          <q-input
+            v-model.number="minutes"
+            type="number"
+            outlined
+            dense
+            :min="0"
+            :max="59"
+            :label="$t('matches.schedule.minutes')"
+          />
         </div>
       </div>
 
@@ -185,12 +178,6 @@ export default defineComponent({
   margin-bottom: 6px;
 }
 
-.other {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-top: 12px;
-}
 
 .actions {
   display: flex;
@@ -198,7 +185,4 @@ export default defineComponent({
   gap: 8px;
 }
 
-.fields :deep(.q-btn-group) {
-  flex-wrap: wrap;
-}
 </style>

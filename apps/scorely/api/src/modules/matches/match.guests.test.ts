@@ -93,6 +93,7 @@ function input(over: Partial<Settings> = {}): Settings {
     membersHours: 72,
     reservesHours: 24,
     guestsHours: 6,
+    noGuests: false,
     closeHours: 0,
     ...over,
   };
@@ -116,6 +117,7 @@ const approve = (t: T, user: UserId, matchId: string, guestId: string) =>
   t.service.approveGuest(user, PUBLIC_ID, matchId, guestId);
 const remove = (t: T, user: UserId, matchId: string, guestId: string) =>
   t.service.removeGuest(user, PUBLIC_ID, matchId, guestId);
+const get = (t: T, user: UserId, matchId: string) => t.service.get(user, PUBLIC_ID, matchId);
 const go = (t: T, user: UserId, matchId: string) =>
   t.service.setAttendance(user, PUBLIC_ID, matchId, { status: 'going' });
 const names = (entries: readonly MatchEntry[]) =>
@@ -160,10 +162,28 @@ describe('PAR-12: pedir um convidado', () => {
 
   it('PAR-12, PAR-05: com a onda aberta à mão, o pedido passa', async () => {
     const t = setup();
-    const m = await createWith(t, { guestsHours: undefined });
+    const m = await createWith(t, { guestsHours: undefined, noGuests: true });
     t.at(MEMBERS_AT);
     await t.service.advance(ANA, PUBLIC_ID, m.id, { wave: 'guests' });
     expect((await ask(t, BIA, m.id, 'Joao')).guestRequests).toHaveLength(1);
+  });
+
+  it('PAR-12, PAR-03: sem a abertura configurada, o pedido passa desde a criação', async () => {
+    const t = setup();
+    const m = await t.service.create(ANA, PUBLIC_ID, { startsAt: START, endsAt: END });
+    expect((await ask(t, BIA, m.id, 'Joao')).guestRequests).toHaveLength(1);
+    expect((await get(t, BIA, m.id)).actions.requestGuest).toBe(true);
+  });
+
+  it('PAR-12, PAR-03: com "sem convidados" o pedido responde MATCH_NOT_OPEN_FOR_YOU, sem details.opensAt', async () => {
+    const t = setup();
+    const m = await createWith(t, { noGuests: true, guestsHours: undefined });
+    t.at(GUESTS_AT);
+    const err = await failure(ask(t, BIA, m.id, 'Joao'));
+    expect(err?.code).toBe('MATCH_NOT_OPEN_FOR_YOU');
+    expect(err?.status).toBe(409);
+    expect(err?.details ?? {}).not.toHaveProperty('opensAt');
+    expect((await get(t, BIA, m.id)).actions.requestGuest).toBe(false);
   });
 
   it('PAR-12: depois do fechamento responde MATCH_CLOSED', async () => {
