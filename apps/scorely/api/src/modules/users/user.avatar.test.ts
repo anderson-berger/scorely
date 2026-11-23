@@ -1,17 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { appError } from '@scorely/api/src/lib/errors';
-import { asUserId, type UserId } from '@scorely/api/src/lib/ids';
+import { asUserId } from '@scorely/api/src/lib/ids';
 import type { MediaService } from '@scorely/api/src/modules/media/media.service';
-import type { MeRecord, UserRecord, UserRepository } from '@scorely/api/src/modules/users/user.repository';
 import { createUserService } from '@scorely/api/src/modules/users/user.service';
 import { userKey } from '@scorely/api/src/modules/users/user.table';
-import {
-  MEDIA_PURPOSES,
-  type Preferences,
-  type PublicUserId,
-  PublicUserIdSchema,
-  type UpdateMeInput,
-} from '@scorely/contracts';
+import { memoryUsers } from '@scorely/api/src/modules/users/users.memory';
+import { MEDIA_PURPOSES, PublicUserIdSchema } from '@scorely/contracts';
 import { describe, expect, it } from 'vitest';
 
 // USR-08 (docs/modules/usuarios.md): a foto é a mídia `avatar`, e só a própria pessoa mexe nela.
@@ -24,76 +18,11 @@ const BASE = 'https://uploads.test';
 const PUBLIC_ID = PublicUserIdSchema.parse('7K3QX9TA');
 
 type MediaCall<K extends keyof MediaService> = Parameters<MediaService[K]>[0];
-type ReadOpts = { consistent?: boolean };
-
-/**
- * Repositório em memória com as três partes da pessoa (usuarios.md, seção 3): perfil (`META`, com `publicId` e o
- * `avatarMediaId` interno), email e preferências. `null` no patch remove o atributo.
- */
-function memoryUserRepo() {
-  const users = new Map<UserId, UserRecord>();
-  const emails = new Map<UserId, string>();
-  const prefs = new Map<UserId, Preferences>();
-  const me = (id: UserId): MeRecord | undefined => {
-    const profile = users.get(id);
-    const email = emails.get(id);
-    if (!profile || email === undefined) return undefined;
-    return structuredClone({
-      ...profile,
-      private: { email },
-      preferences: prefs.get(id) ?? {},
-    });
-  };
-  const idOf = (email: string) => [...emails.entries()].find(([, e]) => e === email)?.[0];
-  const write = (target: Record<string, unknown>, part: Record<string, unknown>) =>
-    Object.entries(part).forEach(([k, v]) => {
-      if (v === null) delete target[k];
-      else if (v !== undefined) target[k] = v;
-    });
-  const repo: UserRepository = {
-    get: async (id: UserId, _opts?: ReadOpts) => structuredClone(users.get(id)),
-    getMe: async (id: UserId, _opts?: ReadOpts) => me(id),
-    getByEmail: async (email: string, _opts?: ReadOpts) => {
-      const id = idOf(email);
-      return id === undefined ? undefined : me(id);
-    },
-    getPreferences: async (id: UserId): Promise<Preferences> => structuredClone(prefs.get(id) ?? {}),
-    async create(user: UserRecord, email: string) {
-      if (idOf(email) !== undefined) return 'email_taken';
-      users.set(user.id, structuredClone(user));
-      emails.set(user.id, email);
-      prefs.set(user.id, {});
-      return 'created';
-    },
-    async update(id: UserId, patch: UpdateMeInput) {
-      const user = users.get(id);
-      const preferences = prefs.get(id);
-      if (!user || !preferences) return undefined;
-      const { private: _private, preferences: preferencesPatch, ...rest } = patch;
-      write(preferences, { ...preferencesPatch });
-      write(user, rest);
-      return me(id);
-    },
-    resolve: async (codes: readonly PublicUserId[]) =>
-      new Map(
-        [...users.values()].filter((u) => codes.includes(u.publicId)).map((u) => [u.publicId, u.id] as const),
-      ),
-  };
-  /** O que a transação da mídia grava no item do usuário (`key` = `userKey(id)`): só o id (MID-12). */
-  const link = (key: { PK: string; SK: string }, mediaId: string | null) => {
-    const user = [...users.values()].find((u) => userKey(u.id).PK === key.PK && key.SK === 'META');
-    if (!user) throw new Error('user not found in memory store');
-    if (mediaId) user.avatarMediaId = mediaId;
-    else delete user.avatarMediaId;
-  };
-  return { repo, users, link };
-}
-
 /**
  * Dublê da mídia: registra as chamadas e o que `target.readCurrent()` devolveu em cada uma. A URL pública é
  * `<base>/public/<purpose>/<mediaId>` (MID-12), como a mídia real.
  */
-function fakeMedia(link: ReturnType<typeof memoryUserRepo>['link']) {
+function fakeMedia(link: ReturnType<typeof memoryUsers>['link']) {
   const calls = {
     requestUpload: [] as MediaCall<'requestUpload'>[],
     attach: [] as (MediaCall<'attach'> & { current: string | undefined })[],
@@ -137,7 +66,7 @@ function fakeMedia(link: ReturnType<typeof memoryUserRepo>['link']) {
 
 async function withUser() {
   const clock = { now: new Date('2026-11-10T12:00:00.000Z') };
-  const memory = memoryUserRepo();
+  const memory = memoryUsers();
   const fake = fakeMedia(memory.link);
   const service = createUserService(
     memory.repo,
@@ -154,7 +83,7 @@ async function withUser() {
     me,
     calls: fake.calls,
     failNext: fake.failNext,
-    users: memory.users,
+    users: memory.profiles,
   };
 }
 
@@ -279,7 +208,7 @@ describe('foto de perfil de conta que não existe mais (AUTH-16)', () => {
     // A mídia não acha o item para ligar: o dublê só ignora; quem responde é o serviço de usuários.
     const fake = fakeMedia(() => undefined);
     return createUserService(
-      memoryUserRepo().repo,
+      memoryUsers().repo,
       () => clock.now,
       fake.media,
       () => PUBLIC_ID,

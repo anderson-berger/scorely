@@ -1,97 +1,23 @@
 import { randomUUID } from 'node:crypto';
-import { appError } from '@scorely/api/src/lib/errors';
 import { asUserId, type UserId } from '@scorely/api/src/lib/ids';
 import { newPublicId } from '@scorely/api/src/modules/users/public-id';
-import type { MeRecord, UserRecord, UserRepository } from '@scorely/api/src/modules/users/user.repository';
+import type { MeRecord, UserRepository } from '@scorely/api/src/modules/users/user.repository';
 import { createUserService, toMe } from '@scorely/api/src/modules/users/user.service';
+import { memoryUsers } from '@scorely/api/src/modules/users/users.memory';
 import {
   MeSchema,
   type Preferences,
   PUBLIC_USER_ID_ALPHABET,
   type PublicUserId,
   PublicUserIdSchema,
-  type UpdateMeInput,
   UpdateMeInputSchema,
 } from '@scorely/contracts';
 import { describe, expect, it } from 'vitest';
-
-/** ADR 0016: o que o banco faz na gravação condicionada pela versão (o repositório lança o mesmo erro). */
-function expectVersionIn(current: number, expected: number): void {
-  if (current !== expected) throw appError('VERSION_CONFLICT', { currentVersion: current });
-}
 
 const EMAIL = 'ana@example.com';
 type ReadOpts = { consistent?: boolean };
 
 const pid = (code: string): PublicUserId => PublicUserIdSchema.parse(code);
-
-/**
- * Repositório em memória (usuarios.md, seção 3): perfil (`META`, com `publicId` e `nickname`), parte privada
- * (`PRIVATE`: email e nome, USR-13), preferências e os dois lookups (email e id público). `taken` são códigos já em
- * uso por outra conta (USR-15: o código é único). `created` guarda o que cada `create` recebeu.
- */
-function memoryUserRepo(taken: readonly string[] = []) {
-  /** O `META` com a `version` do perfil (USR-18). */
-  const profiles = new Map<UserId, UserRecord & { version: number }>();
-  const privates = new Map<UserId, { email: string; name?: string }>();
-  const prefs = new Map<UserId, Preferences>();
-  const publicIds = new Map<string, UserId>(taken.map((code) => [code, asUserId(randomUUID())]));
-  const created: { user: UserRecord; email: string }[] = [];
-  const me = (id: UserId): MeRecord | undefined => {
-    const profile = profiles.get(id);
-    const priv = privates.get(id);
-    if (!profile || priv === undefined) return undefined;
-    return structuredClone({
-      ...profile,
-      private: priv,
-      preferences: prefs.get(id) ?? {},
-    });
-  };
-  const idOf = (email: string) => [...privates.entries()].find(([, p]) => p.email === email)?.[0];
-  const repo: UserRepository = {
-    get: async (id: UserId, _opts?: ReadOpts) => structuredClone(profiles.get(id)),
-    getMe: async (id: UserId, _opts?: ReadOpts) => me(id),
-    getByEmail: async (email: string, _opts?: ReadOpts) => {
-      const id = idOf(email);
-      return id === undefined ? undefined : me(id);
-    },
-    getPreferences: async (id: UserId): Promise<Preferences> => structuredClone(prefs.get(id) ?? {}),
-    async create(user: UserRecord, email: string) {
-      created.push(structuredClone({ user, email }));
-      if (idOf(email) !== undefined) return 'email_taken';
-      if (publicIds.has(user.publicId)) return 'public_id_taken';
-      profiles.set(user.id, { ...structuredClone(user), version: 1 });
-      privates.set(user.id, { email });
-      prefs.set(user.id, {});
-      publicIds.set(user.publicId, user.id);
-      return 'created';
-    },
-    /** USR-18 (ADR 0016): condicionado na `version` do META, que soma 1 em toda mudança, mesmo só no privado ou nas preferências. */
-    async update(id: UserId, patch: UpdateMeInput) {
-      const profile = profiles.get(id);
-      const priv = privates.get(id);
-      if (!profile || !priv) return undefined;
-      expectVersionIn(profile.version, patch.version);
-      const { private: privatePatch, preferences, version: _version, ...rest } = patch;
-      profile.version += 1;
-      Object.assign(prefs.get(id) ?? {}, preferences ?? {});
-      Object.assign(priv, privatePatch ?? {});
-      Object.assign(profile, rest);
-      return me(id);
-    },
-    async resolve(codes: readonly PublicUserId[]) {
-      return new Map(
-        codes.flatMap((code) => {
-          const id = publicIds.get(code);
-          return id === undefined ? [] : [[code, id] as const];
-        }),
-      );
-    },
-  };
-  /** USR-18: a versão do perfil que a tela mostrou (`0` sem conta). */
-  const v = (id: UserId) => ({ version: profiles.get(id)?.version ?? 0 });
-  return { repo, profiles, privates, created, v };
-}
 
 /** Gerador de códigos fake: devolve os da lista, na ordem, e conta as chamadas. */
 function codes(...list: string[]) {
@@ -140,7 +66,7 @@ function racedRepo(visibleToConsistentRead: boolean) {
 
 describe('conta e email (USR-01, USR-13)', () => {
   it('USR-13: o primeiro login grava o email à parte; o perfil vai sem email', async () => {
-    const memory = memoryUserRepo();
+    const memory = memoryUsers();
     await createUserService(memory.repo, () => clock.now).findOrCreateByEmail(EMAIL);
     expect(memory.created).toHaveLength(1);
     expect(memory.created[0]?.email).toBe(EMAIL);
@@ -150,7 +76,7 @@ describe('conta e email (USR-01, USR-13)', () => {
   });
 
   it('USR-13: GET /me devolve o perfil, o email e as preferências (vazias numa conta nova)', async () => {
-    const memory = memoryUserRepo();
+    const memory = memoryUsers();
     const service = createUserService(memory.repo, () => clock.now);
     const { userId, me: first, created } = await service.findOrCreateByEmail(EMAIL);
     expect(created).toBe(true);
@@ -166,7 +92,7 @@ describe('conta e email (USR-01, USR-13)', () => {
   });
 
   it('USR-02: a conta nasce com o apelido igual ao código de amigo e sem nome', async () => {
-    const memory = memoryUserRepo();
+    const memory = memoryUsers();
     const service = createUserService(memory.repo, () => clock.now, undefined, codes('7K3QX9TA').next);
     const { userId, me } = await service.findOrCreateByEmail(EMAIL);
     expect(me.nickname).toBe('7K3QX9TA');
@@ -182,7 +108,7 @@ describe('conta e email (USR-01, USR-13)', () => {
   });
 
   it('USR-02: o código sorteado de novo (USR-15) também vira o apelido', async () => {
-    const memory = memoryUserRepo(['AAAAAAAA']);
+    const memory = memoryUsers({ takenPublicIds: ['AAAAAAAA'] });
     const service = createUserService(
       memory.repo,
       () => clock.now,
@@ -195,14 +121,14 @@ describe('conta e email (USR-01, USR-13)', () => {
   });
 
   it('USR-13: o primeiro login não grava nome nem email no perfil', async () => {
-    const memory = memoryUserRepo();
+    const memory = memoryUsers();
     await createUserService(memory.repo, () => clock.now).findOrCreateByEmail(EMAIL);
     expect(memory.created[0]?.user).not.toHaveProperty('name');
     expect(memory.created[0]?.user).not.toHaveProperty('email');
   });
 
   it('USR-13: o nome salvo pelo PATCH /me volta no GET /me, mas não no perfil que os outros módulos leem', async () => {
-    const memory = memoryUserRepo();
+    const memory = memoryUsers();
     const service = createUserService(memory.repo, () => clock.now);
     const { userId } = await service.findOrCreateByEmail(EMAIL);
     const patched = await service.update(userId, {
@@ -218,7 +144,7 @@ describe('conta e email (USR-01, USR-13)', () => {
   });
 
   it('USR-01: cada email tem uma conta só (o segundo login acha a mesma)', async () => {
-    const memory = memoryUserRepo();
+    const memory = memoryUsers();
     const service = createUserService(memory.repo, () => clock.now);
     const first = await service.findOrCreateByEmail(EMAIL);
     const second = await service.findOrCreateByEmail(EMAIL);
@@ -251,7 +177,7 @@ describe('id público, o código de amigo (USR-15)', () => {
   });
 
   it('USR-15: nasce no primeiro login, gravado no perfil junto com o id do sistema (que é outro)', async () => {
-    const memory = memoryUserRepo();
+    const memory = memoryUsers();
     const gen = codes('7K3QX9TA');
     const service = createUserService(memory.repo, () => clock.now, undefined, gen.next);
     const { userId, me } = await service.findOrCreateByEmail(EMAIL);
@@ -265,7 +191,7 @@ describe('id público, o código de amigo (USR-15)', () => {
   });
 
   it('USR-15: o código não muda: o segundo login devolve o mesmo, sem sortear outro', async () => {
-    const memory = memoryUserRepo();
+    const memory = memoryUsers();
     const gen = codes('7K3QX9TA', 'B0B0B0B0');
     const service = createUserService(memory.repo, () => clock.now, undefined, gen.next);
     const first = await service.findOrCreateByEmail(EMAIL);
@@ -280,7 +206,7 @@ describe('id público, o código de amigo (USR-15)', () => {
   });
 
   it('USR-15: código sorteado já em uso → sorteia outro e cria com o novo', async () => {
-    const memory = memoryUserRepo(['AAAAAAAA']);
+    const memory = memoryUsers({ takenPublicIds: ['AAAAAAAA'] });
     const gen = codes('AAAAAAAA', 'BBBBBBBB');
     const service = createUserService(memory.repo, () => clock.now, undefined, gen.next);
     const { me, created } = await service.findOrCreateByEmail(EMAIL);
@@ -291,7 +217,7 @@ describe('id público, o código de amigo (USR-15)', () => {
   });
 
   it('USR-15: três códigos seguidos em uso → USER_CREATE_CONFLICT (409), sem quarta tentativa', async () => {
-    const memory = memoryUserRepo(['AAAAAAAA', 'BBBBBBBB', 'CCCCCCCC', 'DDDDDDDD']);
+    const memory = memoryUsers({ takenPublicIds: ['AAAAAAAA', 'BBBBBBBB', 'CCCCCCCC', 'DDDDDDDD'] });
     const gen = codes('AAAAAAAA', 'BBBBBBBB', 'CCCCCCCC', 'DDDDDDDD');
     const service = createUserService(memory.repo, () => clock.now, undefined, gen.next);
     const err = await service.findOrCreateByEmail(EMAIL).catch((e: unknown) => e);
@@ -301,7 +227,7 @@ describe('id público, o código de amigo (USR-15)', () => {
   });
 
   it('USR-15: duas contas ganham códigos diferentes', async () => {
-    const memory = memoryUserRepo();
+    const memory = memoryUsers();
     const gen = codes('AAAAAAAA', 'BBBBBBBB');
     const service = createUserService(memory.repo, () => clock.now, undefined, gen.next);
     const ana = await service.findOrCreateByEmail('ana@example.com');
@@ -313,7 +239,7 @@ describe('id público, o código de amigo (USR-15)', () => {
 
 describe('o id do sistema não sai (USR-16)', () => {
   it('USR-16: GET /me e PATCH /me devolvem o `id` público, sem o id do sistema nem `publicId`', async () => {
-    const memory = memoryUserRepo();
+    const memory = memoryUsers();
     const service = createUserService(memory.repo, () => clock.now, undefined, codes('7K3QX9TA').next);
     const { userId, me } = await service.findOrCreateByEmail(EMAIL);
     const read = await service.get(userId);
@@ -361,7 +287,7 @@ describe('o id do sistema não sai (USR-16)', () => {
 
 describe('quem a ação atinge (USR-17)', () => {
   it('USR-17: o perfil é editado pelo id do login (sistema); a outra conta não muda', async () => {
-    const memory = memoryUserRepo();
+    const memory = memoryUsers();
     const gen = codes('AAAAAAAA', 'BBBBBBBB');
     const service = createUserService(memory.repo, () => clock.now, undefined, gen.next);
     const ana = await service.findOrCreateByEmail('ana@example.com');
@@ -375,7 +301,7 @@ describe('quem a ação atinge (USR-17)', () => {
   });
 
   it('USR-17: o diretório traduz id público → id do sistema; o código desconhecido fica de fora', async () => {
-    const memory = memoryUserRepo();
+    const memory = memoryUsers();
     const service = createUserService(memory.repo, () => clock.now, undefined, codes('AAAAAAAA').next);
     const { userId } = await service.findOrCreateByEmail(EMAIL);
     const map = await memory.repo.resolve([pid('AAAAAAAA'), pid('ZZZZZZZZ')]);
@@ -412,13 +338,13 @@ describe('conta que não existe mais (AUTH-16)', () => {
   const ghost = asUserId('00000000-0000-4000-8000-0000000000ff');
 
   it('AUTH-16: GET /me com conta inexistente → SESSION_INVALID (401), não USER_NOT_FOUND', async () => {
-    const service = createUserService(memoryUserRepo().repo, () => clock.now);
+    const service = createUserService(memoryUsers().repo, () => clock.now);
     const err = await service.get(ghost).catch((e: unknown) => e);
     expect(err).toMatchObject({ code: 'SESSION_INVALID', status: 401 });
   });
 
   it('AUTH-16: PATCH /me com conta inexistente → SESSION_INVALID (401) e nada é criado', async () => {
-    const memory = memoryUserRepo();
+    const memory = memoryUsers();
     const service = createUserService(memory.repo, () => clock.now);
     const err = await service
       .update(ghost, { ...memory.v(ghost), private: { name: 'Ana' } })
@@ -430,7 +356,7 @@ describe('conta que não existe mais (AUTH-16)', () => {
 
 describe('campos do perfil (USR-03)', () => {
   it('USR-03: apelido igual ao próprio código de amigo → USER_NICKNAME_IS_PUBLIC_ID (422), nada gravado', async () => {
-    const memory = memoryUserRepo();
+    const memory = memoryUsers();
     const service = createUserService(memory.repo, () => clock.now, undefined, codes('7K3QX9TA').next);
     const { userId } = await service.findOrCreateByEmail(EMAIL);
     await service.update(userId, { ...memory.v(userId), nickname: 'Aninha' });
@@ -451,7 +377,7 @@ describe('campos do perfil (USR-03)', () => {
   });
 
   it('USR-03: o código com espaços em volta (o PATCH /me faz trim) também é recusado', async () => {
-    const memory = memoryUserRepo();
+    const memory = memoryUsers();
     const service = createUserService(memory.repo, () => clock.now, undefined, codes('7K3QX9TA').next);
     const { userId } = await service.findOrCreateByEmail(EMAIL);
     const input = UpdateMeInputSchema.parse({
@@ -466,7 +392,7 @@ describe('campos do perfil (USR-03)', () => {
   });
 
   it('USR-03: a comparação é exata: o código em minúsculas é aceito como apelido', async () => {
-    const memory = memoryUserRepo();
+    const memory = memoryUsers();
     const service = createUserService(memory.repo, () => clock.now, undefined, codes('7K3QX9TA').next);
     const { userId } = await service.findOrCreateByEmail(EMAIL);
     const patched = await service.update(userId, {
@@ -477,7 +403,7 @@ describe('campos do perfil (USR-03)', () => {
   });
 
   it('USR-03: o código de amigo de outra pessoa não é o da própria: é aceito como apelido', async () => {
-    const memory = memoryUserRepo();
+    const memory = memoryUsers();
     const gen = codes('AAAAAAAA', 'BBBBBBBB');
     const service = createUserService(memory.repo, () => clock.now, undefined, gen.next);
     const ana = await service.findOrCreateByEmail('ana@example.com');
@@ -496,7 +422,7 @@ describe('campos do perfil (USR-03)', () => {
   });
 
   it('USR-03: o nome preenchido pode ser trocado', async () => {
-    const memory = memoryUserRepo();
+    const memory = memoryUsers();
     const service = createUserService(memory.repo, () => clock.now);
     const { userId } = await service.findOrCreateByEmail(EMAIL);
     await service.update(userId, {
@@ -553,7 +479,7 @@ describe('resposta montada campo a campo pelo contrato (USR-13, ADR 0013)', () =
 
 describe('salvar o perfil com a versão que a tela mostrou (USR-18)', () => {
   const fresh = async () => {
-    const memory = memoryUserRepo();
+    const memory = memoryUsers();
     const service = createUserService(memory.repo, () => clock.now);
     const { userId } = await service.findOrCreateByEmail(EMAIL);
     return { memory, service, userId };

@@ -1,93 +1,15 @@
-import { appError } from '@scorely/api/src/lib/errors';
 import { parseBody, route } from '@scorely/api/src/lib/http';
-import type { UserId } from '@scorely/api/src/lib/ids';
-import type { MeRecord, UserRecord, UserRepository } from '@scorely/api/src/modules/users/user.repository';
 import { createUserService } from '@scorely/api/src/modules/users/user.service';
-import {
-  type Preferences,
-  type PublicUserId,
-  PublicUserIdSchema,
-  TimeZoneSchema,
-  type UpdateMeInput,
-  UpdateMeInputSchema,
-} from '@scorely/contracts';
+import { memoryUsers } from '@scorely/api/src/modules/users/users.memory';
+import { PublicUserIdSchema, TimeZoneSchema, UpdateMeInputSchema } from '@scorely/contracts';
 import type { APIGatewayProxyEventV2 } from 'aws-lambda';
 import { describe, expect, it } from 'vitest';
 
 const EMAIL = 'ana@example.com';
 const PUBLIC_ID = PublicUserIdSchema.parse('7K3QX9TA');
-type ReadOpts = { consistent?: boolean };
-
-/**
- * Repositório em memória com as três partes da pessoa (usuarios.md, seção 3): perfil (apelido, gênero), parte
- * privada (email e nome, USR-13) e preferências; `writes` conta as gravações (para conferir "nada gravado").
- */
-function memoryUserRepo() {
-  /** O `META` com a `version` do perfil (USR-18). */
-  const profiles = new Map<UserId, UserRecord & { version: number }>();
-  const privates = new Map<UserId, { email: string; name?: string }>();
-  const prefs = new Map<UserId, Preferences>();
-  const writes = { count: 0 };
-  const me = (id: UserId): MeRecord | undefined => {
-    const profile = profiles.get(id);
-    const priv = privates.get(id);
-    if (!profile || priv === undefined) return undefined;
-    return structuredClone({
-      ...profile,
-      private: priv,
-      preferences: prefs.get(id) ?? {},
-    });
-  };
-  const idOf = (email: string) => [...privates.entries()].find(([, p]) => p.email === email)?.[0];
-  const assign = (target: Record<string, unknown>, patch: Record<string, unknown>) =>
-    Object.entries(patch).forEach(([k, v]) => {
-      if (v === null) delete target[k];
-      else if (v !== undefined) target[k] = v;
-    });
-  const repo: UserRepository = {
-    get: async (id: UserId, _opts?: ReadOpts) => structuredClone(profiles.get(id)),
-    getMe: async (id: UserId, _opts?: ReadOpts) => me(id),
-    getByEmail: async (email: string, _opts?: ReadOpts) => {
-      const id = idOf(email);
-      return id === undefined ? undefined : me(id);
-    },
-    getPreferences: async (id: UserId): Promise<Preferences> => structuredClone(prefs.get(id) ?? {}),
-    async create(user: UserRecord, email: string) {
-      if (idOf(email) !== undefined) return 'email_taken';
-      profiles.set(user.id, { ...structuredClone(user), version: 1 });
-      privates.set(user.id, { email });
-      prefs.set(user.id, {});
-      return 'created';
-    },
-    async update(id: UserId, patch: UpdateMeInput) {
-      const profile = profiles.get(id);
-      const preferences = prefs.get(id);
-      const priv = privates.get(id);
-      if (!profile || !preferences || !priv) return undefined;
-      // USR-18 (ADR 0016): condicionado na `version` do META, que soma 1 em toda mudança.
-      if (profile.version !== patch.version)
-        throw appError('VERSION_CONFLICT', { currentVersion: profile.version });
-      writes.count += 1;
-      profile.version += 1;
-      const { private: privatePatch, preferences: preferencesPatch, version: _version, ...rest } = patch;
-      assign(preferences, { ...preferencesPatch });
-      assign(priv, { ...privatePatch });
-      assign(profile, rest);
-      return me(id);
-    },
-    resolve: async (codes: readonly PublicUserId[]) =>
-      new Map(
-        [...profiles.values()]
-          .filter((u) => codes.includes(u.publicId))
-          .map((u) => [u.publicId, u.id] as const),
-      ),
-  };
-  return { repo, writes, profiles, privates, prefs };
-}
-
 async function withUser() {
   const clock = { now: new Date('2026-11-06T12:00:00.000Z') };
-  const memory = memoryUserRepo();
+  const memory = memoryUsers();
   const service = createUserService(
     memory.repo,
     () => clock.now,

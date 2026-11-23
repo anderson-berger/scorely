@@ -1,19 +1,13 @@
 import type { EmailMessage, Mailer } from '@scorely/api/src/lib/email';
 import type { AppError } from '@scorely/api/src/lib/errors';
 import { range } from '@scorely/api/src/lib/fn';
-import type { UserId } from '@scorely/api/src/lib/ids';
 import { verifyJwt } from '@scorely/api/src/lib/jwt';
 import type { AuthRepository } from '@scorely/api/src/modules/auth/auth.repository';
 import { AUTH_LIMITS, createAuthService } from '@scorely/api/src/modules/auth/auth.service';
 import { type LoginCode, loginCodeKey, type Session } from '@scorely/api/src/modules/auth/auth.table';
-import type { MeRecord, UserRecord, UserRepository } from '@scorely/api/src/modules/users/user.repository';
 import { createUserService } from '@scorely/api/src/modules/users/user.service';
-import {
-  type Preferences,
-  type PublicUserId,
-  PublicUserIdSchema,
-  type UpdateMeInput,
-} from '@scorely/contracts';
+import { memoryUsers } from '@scorely/api/src/modules/users/users.memory';
+import { PublicUserIdSchema } from '@scorely/contracts';
 import { describe, expect, it } from 'vitest';
 
 const SECRET = 'test-secret-with-at-least-32-characters!!';
@@ -48,73 +42,12 @@ function memoryAuthRepo(): AuthRepository {
   };
 }
 
-type ReadOpts = { consistent?: boolean };
-
-/**
- * Repositório de usuários em memória com as três partes da pessoa (usuarios.md, seção 3). `systemIdOf` dá o id do
- * sistema de um email: é ele que vai no JWT (USR-16), e o `user` do login só tem o público.
- */
-function memoryUserRepo() {
-  const profiles = new Map<UserId, UserRecord>();
-  const emails = new Map<UserId, string>();
-  const prefs = new Map<UserId, Preferences>();
-  const me = (id: UserId): MeRecord | undefined => {
-    const profile = profiles.get(id);
-    const email = emails.get(id);
-    if (!profile || email === undefined) return undefined;
-    return structuredClone({
-      ...profile,
-      private: { email },
-      preferences: prefs.get(id) ?? {},
-    });
-  };
-  const idOf = (email: string) => [...emails.entries()].find(([, e]) => e === email)?.[0];
-  const repo: UserRepository = {
-    get: async (id: UserId, _opts?: ReadOpts) => structuredClone(profiles.get(id)),
-    getMe: async (id: UserId, _opts?: ReadOpts) => me(id),
-    getByEmail: async (email: string, _opts?: ReadOpts) => {
-      const id = idOf(email);
-      return id === undefined ? undefined : me(id);
-    },
-    getPreferences: async (id: UserId): Promise<Preferences> => structuredClone(prefs.get(id) ?? {}),
-    async create(user: UserRecord, email: string) {
-      if (idOf(email) !== undefined) return 'email_taken';
-      if ([...profiles.values()].some((p) => p.publicId === user.publicId)) return 'public_id_taken';
-      profiles.set(user.id, structuredClone(user));
-      emails.set(user.id, email);
-      prefs.set(user.id, {});
-      return 'created';
-    },
-    async update(id: UserId, patch: UpdateMeInput) {
-      const profile = profiles.get(id);
-      const preferences = prefs.get(id);
-      if (!profile || !preferences) return undefined;
-      const { private: _private, preferences: preferencesPatch, ...rest } = patch;
-      Object.assign(preferences, { ...preferencesPatch });
-      Object.assign(profile, rest);
-      return me(id);
-    },
-    resolve: async (codes: readonly PublicUserId[]) =>
-      new Map(
-        [...profiles.values()]
-          .filter((u) => codes.includes(u.publicId))
-          .map((u) => [u.publicId, u.id] as const),
-      ),
-  };
-  const systemIdOf = (email: string): UserId => {
-    const id = idOf(email);
-    if (id === undefined) throw new Error('no user for email in memory store');
-    return id;
-  };
-  return { repo, systemIdOf };
-}
-
 function setup() {
   const clock = { now: new Date('2026-11-06T12:00:00.000Z') };
   const sent: EmailMessage[] = [];
   const notified: string[] = [];
   const mailer: Mailer = { send: async (m) => void sent.push(m) };
-  const userRepo = memoryUserRepo();
+  const userRepo = memoryUsers();
   const users = createUserService(userRepo.repo, () => clock.now);
   const service = createAuthService({
     repo: memoryAuthRepo(),
