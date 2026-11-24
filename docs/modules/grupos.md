@@ -348,7 +348,7 @@ Erros: `VALIDATION_ERROR`, `GROUP_NOT_FOUND`, `GROUP_PERMISSION_DENIED` (403), `
 - Um cargo de baixo pode ter uma permissão que um de cima não tem (o Dono desmarcou depois): a ordem não obriga os de cima a terem tudo o que os de baixo têm.
 - Quem está no Todos não remove ninguém nem gerencia cargos, mesmo que quisessem liberar: não há ninguém abaixo dele (GRV-45).
 - O dono que passou o grupo não tem como desfazer: quem recebeu precisa passar de volta.
-- O grupo não muda de nome, não é arquivado nem apagado. Por isso, as mídias de um grupo nunca ficam sem dono.
+- O grupo não muda de nome, não é arquivado nem apagado. Por isso, as mídias de um grupo nunca ficam sem dono. Quando a troca do nome entrar, ela precisa levar junto o nome copiado na agenda das partidas ([partidas.md](partidas.md) §3).
 - A cor sem imagem (GRV-11) vem do id público: se um dia o código mudar (GRV-08), a cor muda junto.
 
 ## 5. Em discussão (ainda não é regra)
