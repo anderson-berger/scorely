@@ -670,12 +670,11 @@ describe.each([
 
     it('PAR-21, 24: a agenda devolve os itens com instante até agora, das horas pedidas, e o apagado some', async () => {
       const match = newMatch(newGroup());
-      await repo.createMatch(match);
       const base = '2031-01-01T10';
       const early = agendaOf(match, `${base}:05:00.000Z`);
       const due = agendaOf(match, `${base}:20:00.000Z`);
       const later = agendaOf(match, `${base}:50:00.000Z`);
-      await repo.putAgenda([early, due, later], new Date('2031-01-01T09:00:00.000Z'));
+      await repo.createMatch(match, { agenda: [early, due, later] });
       const mine = (list: { matchId: string }[]) => list.filter((e) => e.matchId === match.id);
       const now = new Date(`${base}:30:00.000Z`);
       expect(mine(await repo.listAgenda(new Date(`${base}:10:00.000Z`), now))).toEqual([early, due]);
@@ -687,25 +686,6 @@ describe.each([
         ),
       ).toEqual([]);
     });
-
-    it.runIf(dynamo)(
-      'PAR-21, 24: regravar o item da agenda mantém o createdAt da primeira gravação',
-      async () => {
-        const match = newMatch(newGroup());
-        await repo.createMatch(match);
-        const entry = agendaOf(match, '2031-02-01T10:20:00.000Z');
-        await repo.putAgenda([entry], at(1));
-        await repo.putAgenda([entry], at(30));
-        const { Item } = await dynamoClient().send(
-          new GetCommand({
-            TableName: tableName(),
-            Key: matchAgendaKey(entry.at, match.groupId, match.id),
-            ConsistentRead: true,
-          }),
-        );
-        expect(Item?.createdAt).toBe(at(1).toISOString());
-      },
-    );
 
     it('PAR-06, 24: updateMatch com a agenda grava os itens junto com a partida', async () => {
       const match = newMatch(newGroup());

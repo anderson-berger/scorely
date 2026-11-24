@@ -131,17 +131,13 @@ describe('PAR-21, 24: a rotina trata cada item da agenda sozinho', () => {
 describe('PAR-06, 24: a edição grava a agenda na mesma gravação da partida', () => {
   const build = () => {
     const base = memoryMatches().repo;
-    const calls = { agenda: [] as { at: string }[][], putAgenda: 0, failUpdate: false };
+    const calls = { agenda: [] as { at: string }[][], failUpdate: false };
     const matches: typeof base = {
       ...base,
       updateMatch: async (match, expectedVersion, at, opts) => {
         if (calls.failUpdate) throw new Error('write failed');
         calls.agenda.push([...(opts?.agenda ?? [])]);
         return base.updateMatch(match, expectedVersion, at, opts);
-      },
-      putAgenda: async (entries, at) => {
-        calls.putAgenda += 1;
-        return base.putAgenda(entries, at);
       },
     };
     return { base, matches, calls };
@@ -158,7 +154,7 @@ describe('PAR-06, 24: a edição grava a agenda na mesma gravação da partida',
     expectedVersion,
   });
 
-  it('PAR-06, 24: a edição passa ao repositório os itens de cada onda configurada e não chama putAgenda', async () => {
+  it('PAR-06, 24: a edição passa ao repositório os itens de cada onda configurada', async () => {
     const { matches, calls } = build();
     const t = setup(matches);
     await configured(t, startsAt);
@@ -166,7 +162,6 @@ describe('PAR-06, 24: a edição grava a agenda na mesma gravação da partida',
     expect(last.map((e) => e.at).sort()).toEqual(
       [iso(startsAt, -72), iso(startsAt, -24), iso(startsAt, -6)].sort(),
     );
-    expect(calls.putAgenda).toBe(0);
   });
 
   it('PAR-06, 24: a gravação que falha não deixa a partida nem a agenda salvas', async () => {

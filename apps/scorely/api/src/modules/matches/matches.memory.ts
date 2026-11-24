@@ -27,6 +27,14 @@ export function memoryMatches() {
     g.approvedAt === undefined && g.declinedAt === undefined && g.cancelledAt === undefined;
   const isApproved = (g: StoredGuest) => g.approvedAt !== undefined && g.removedAt === undefined;
 
+  /** Grava itens da agenda (um repetido só se regrava, mantendo o `createdAt`); só as escritas da partida chamam. */
+  const putAgenda = (entries: readonly AgendaEntry[], at: Date) => {
+    for (const entry of entries) {
+      const k = key(entry.at, entry.groupId, entry.matchId);
+      agenda.set(k, { ...entry, createdAt: agenda.get(k)?.createdAt ?? at.toISOString() });
+    }
+  };
+
   const repo: MatchRepository = {
     async createMatch(match, extras = {}) {
       const k = key(match.groupId, match.id);
@@ -36,7 +44,7 @@ export function memoryMatches() {
       }
       matches.set(k, copy(match));
       if (extras.series) series.set(key(extras.series.groupId, extras.series.id), copy(extras.series));
-      await repo.putAgenda(extras.agenda ?? [], new Date(match.createdAt));
+      putAgenda(extras.agenda ?? [], new Date(match.createdAt));
     },
     async getMatch(groupId, matchId) {
       const match = matches.get(key(groupId, matchId));
@@ -63,7 +71,7 @@ export function memoryMatches() {
         version: current.version + 1,
       };
       matches.set(k, next);
-      await repo.putAgenda(opts.agenda ?? [], at);
+      putAgenda(opts.agenda ?? [], at);
       return copy(next);
     },
     async advanceMatch(groupId, matchId, wave, openedAt, at) {
@@ -153,14 +161,8 @@ export function memoryMatches() {
         version: current.version + 1,
       });
       matches.set(key(match.groupId, match.id), copy(match));
-      await repo.putAgenda(entries, at);
+      putAgenda(entries, at);
       return true;
-    },
-    async putAgenda(entries, at) {
-      for (const entry of entries) {
-        const k = key(entry.at, entry.groupId, entry.matchId);
-        agenda.set(k, { ...entry, createdAt: agenda.get(k)?.createdAt ?? at.toISOString() });
-      }
     },
     async listAgenda(from, to) {
       const firstHour = from.toISOString().slice(0, 13);

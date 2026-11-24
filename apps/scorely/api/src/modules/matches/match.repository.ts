@@ -244,8 +244,6 @@ export interface MatchRepository {
     agenda: readonly AgendaEntry[];
     at: Date;
   }): Promise<boolean>;
-  /** PAR-21, 24: grava itens da agenda (um repetido só se regrava); `at` é o `createdAt` deles. */
-  putAgenda(entries: readonly AgendaEntry[], at: Date): Promise<void>;
   /** Os itens com instante até `to`, das partições da hora de `from` à de `to` (UTC). */
   listAgenda(from: Date, to: Date): Promise<AgendaEntry[]>;
   deleteAgenda(entry: AgendaEntry): Promise<void>;
@@ -658,11 +656,6 @@ export const dynamoMatchRepository: MatchRepository = {
     if (result.ok) return true;
     if (result.failed.includes(0)) return false;
     throw new Error('Next match create failed');
-  },
-
-  /** Regrava o item da agenda sem perder o `createdAt` de quando ele nasceu (a edição usa o mesmo upsert na transação). */
-  async putAgenda(entries, at) {
-    await Promise.all(entries.map((entry) => dynamo().send(new UpdateCommand(agendaUpsert(entry, at)))));
   },
 
   async listAgenda(from, to) {
