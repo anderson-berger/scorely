@@ -7,7 +7,8 @@
     "dev": "serverless offline start",
     "build": "serverless package",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "invoke": "tsx scripts/invoke-local.ts"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.1161.0",
@@ -24,6 +25,7 @@
     "@serverless/typescript": "^4.30.0",
     "@types/aws-lambda": "^8.10.164",
     "serverless": "^4.46.0",
-    "serverless-offline": "^14.8.4"
+    "serverless-offline": "^14.8.4",
+    "tsx": "^4.23.15"
   }
 }

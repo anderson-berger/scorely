@@ -336,7 +336,7 @@ Erros: `VALIDATION_ERROR`, `GROUP_NOT_FOUND`, `GROUP_PERMISSION_DENIED`, `MATCH_
 - A repetição é só semanal, e só existe a próxima partida de cada uma: não dá para responder "não vou" para daqui a duas semanas (PAR-21).
 - Mudar a repetição não muda a próxima partida, que já existe (PAR-22): a tela oferece mudar as duas.
 - Encerrar a repetição não se desfaz, e não há pausa (PAR-23).
-- O aviso de lista aberta pela hora chega até 15 min depois de a onda abrir, e a próxima da repetição nasce até 15 min depois do fim (ou na primeira leitura). No dev local, a rotina roda só à mão (ADR 0012).
+- O aviso de lista aberta pela hora chega até 15 min depois de a onda abrir, e a próxima da repetição nasce até 15 min depois do fim (ou na primeira leitura). No dev local, ela roda sozinha com o `npm run dev` de pé, e na hora com `npm run invoke:scorely -- matchesAgenda` (ADR 0012).
 - Um item da agenda que falha por mais de 48 h é deixado de lado: o aviso daquela onda não sai, e a próxima da repetição fica para a primeira leitura das partidas do grupo (PAR-21). O log é o que mostra o que falhou.
 - Se o envio do aviso de lista aberta falha depois de a onda ser marcada em `notifiedWave`, aquele aviso não sai de novo: marcar antes de avisar é o que impede o aviso duplicado (PAR-24).
 - Não há lembrete além do aviso de lista aberta (ex.: "falta 1", "a lista fecha em 1 h").
