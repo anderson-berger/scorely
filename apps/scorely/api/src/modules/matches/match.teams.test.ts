@@ -37,6 +37,8 @@ function setup() {
       [DUDA, 'reserve'],
     ]),
     managers: new Set<UserId>([ANA]),
+    /** Quem perdeu o perfil (PAR-28): continua no grupo, mas o lookup de usuários não o acha. */
+    noProfile: new Set<UserId>(),
   };
   const groups: GroupAccess = {
     access: async (userId, publicId) => {
@@ -51,7 +53,7 @@ function setup() {
   const users = {
     getMany: async (ids: readonly UserId[]): Promise<UserRecord[]> =>
       ids
-        .filter((id) => PUB[id] !== undefined)
+        .filter((id) => PUB[id] !== undefined && !state.noProfile.has(id))
         .map((id) => ({
           id,
           publicId: PUB[id] as UserRecord['publicId'],
@@ -59,6 +61,15 @@ function setup() {
           createdAt: '2026-01-01T00:00:00.000Z',
           version: 1,
         })),
+    resolve: async (publicIds: readonly UserRecord['publicId'][]) =>
+      new Map(
+        Object.entries(PUB)
+          .filter(
+            ([id, pub]) =>
+              publicIds.includes(pub as UserRecord['publicId']) && !state.noProfile.has(id as UserId),
+          )
+          .map(([id, pub]) => [pub as UserRecord['publicId'], id as UserId]),
+      ),
   };
   const notifications = {
     notify: async (userId: UserId, n: { type: string; link?: string }) => {
@@ -119,7 +130,9 @@ const link = (matchId: string) => `/groups/${PUBLIC_ID}/matches/${matchId}`;
 type Lineup = NonNullable<Awaited<ReturnType<T['service']['get']>>['lineup']>;
 const nameOf = (e: Lineup['unassigned'][number]) => (e.kind === 'player' ? e.user.id : e.name);
 const teamIds = (lineup: Lineup | undefined) =>
-  lineup?.list.map((team) => team.map((p) => (p.kind === 'player' ? p.user.id : p.guestId)));
+  lineup?.list.map((team) =>
+    team.map((p) => (p.kind === 'player' ? p.user.id : p.kind === 'guest' ? p.guestId : 'gone')),
+  );
 
 async function failure(promise: Promise<unknown>) {
   try {
@@ -212,7 +225,9 @@ describe('PAR-25: salvar os times', () => {
     expect(err).toMatchObject({ code: 'MATCH_TEAM_PLAYER_OUT', status: 409 });
     const players = (err?.details as { players: MatchTeamPlayerRef[] } | undefined)?.players ?? [];
     expect(players).toHaveLength(2);
-    expect(players).toEqual(expect.arrayContaining([ref(CAIO), ref(DUDA)]));
+    expect(players).toEqual(
+      expect.arrayContaining([expect.objectContaining(ref(CAIO)), expect.objectContaining(ref(DUDA))]),
+    );
     expect((await t.service.get(ANA, PUBLIC_ID, m.id)).lineup).toBeUndefined();
   });
 
@@ -343,6 +358,86 @@ describe('PAR-28: a lista muda, os times não', () => {
     const seen = await t.service.get(ANA, PUBLIC_ID, m.id);
     expect(seen.lineup?.unassigned.map(nameOf)).toEqual([PUB[CAIO]]);
     expect(teamIds(seen.lineup)).toEqual([[PUB[ANA]], [PUB[BIA]]]);
+  });
+});
+
+describe('PAR-25: o nome de quem saiu', () => {
+  type Out = { kind: string; id: string; name?: string };
+  const outOf = (err: { details?: unknown } | undefined) =>
+    (err?.details as { players: Out[] } | undefined)?.players ?? [];
+
+  it('PAR-25: details.players traz o nome de quem tem conta (apelido) e do convidado, mesmo de quem a tela nunca teve', async () => {
+    const t = setup();
+    const m = await everyoneIn(t, { teams: 1, playersPerTeam: 2 }); // CAIO e DUDA na fila
+    await t.service.requestGuest(BIA, PUBLIC_ID, m.id, { name: 'Primo' }); // só pedido: fora
+    const guestId = (await t.service.get(ANA, PUBLIC_ID, m.id)).guestRequests[0]?.id as string;
+    const err = await failure(
+      save(t, ANA, m.id, [
+        [ref(ANA), ref(CAIO)],
+        [guestRef(guestId), ref(DUDA)],
+      ]),
+    );
+    expect(err?.code).toBe('MATCH_TEAM_PLAYER_OUT');
+    const players = outOf(err);
+    expect(players).toHaveLength(3);
+    expect(players).toEqual(
+      expect.arrayContaining([
+        { kind: 'user', id: PUB[CAIO], name: (PUB[CAIO] as string).toLowerCase() },
+        { kind: 'user', id: PUB[DUDA], name: (PUB[DUDA] as string).toLowerCase() },
+        { kind: 'guest', id: guestId, name: 'Primo' },
+      ]),
+    );
+  });
+
+  it('PAR-25: quem disse "não vou" também vem com nome', async () => {
+    const t = setup();
+    const m = await open(t);
+    await go(t, ANA, m.id);
+    await notGoing(t, BIA, m.id);
+    const err = await failure(save(t, ANA, m.id, [[ref(ANA)], [ref(BIA)]]));
+    expect(outOf(err)).toEqual([{ kind: 'user', id: PUB[BIA], name: (PUB[BIA] as string).toLowerCase() }]);
+  });
+
+  it('PAR-25: o id que não é de ninguém vem sem name', async () => {
+    const t = setup();
+    const m = await everyoneIn(t);
+    const nobody = '9ZZZZZZZ' as never;
+    const unknownGuest = '99999999-9999-4999-8999-999999999999';
+    const err = await failure(
+      save(t, ANA, m.id, [[ref(ANA), { kind: 'user', id: nobody }], [guestRef(unknownGuest)]]),
+    );
+    expect(err?.code).toBe('MATCH_TEAM_PLAYER_OUT');
+    const players = outOf(err);
+    expect(players).toHaveLength(2);
+    expect(players.every((p) => p.name === undefined)).toBe(true);
+  });
+});
+
+describe('PAR-28: quem não tem mais perfil', () => {
+  it('PAR-28: quem perdeu o perfil continua no time como pessoa removida (gone), com left', async () => {
+    const t = setup();
+    const m = await everyoneIn(t);
+    await save(t, ANA, m.id, [[ref(ANA), ref(BIA)], [ref(CAIO)]]);
+    t.state.participants.delete(BIA);
+    t.state.noProfile.add(BIA);
+    const seen = await t.service.get(ANA, PUBLIC_ID, m.id);
+    expect(seen.lineup?.list[0]).toHaveLength(2);
+    expect(seen.lineup?.list[0]?.[1]).toEqual({ kind: 'gone', left: true });
+    expect(seen.lineup?.list[0]?.[0]).toMatchObject({ kind: 'player', left: false });
+    expect(seen.lineup?.list[1]).toHaveLength(1);
+  });
+
+  it('PAR-28: o convidado de quem perdeu o perfil continua no time como pessoa removida', async () => {
+    const t = setup();
+    const m = await everyoneIn(t);
+    const guestId = await approvedGuest(t, m.id); // pedido pela BIA
+    await save(t, ANA, m.id, [[guestRef(guestId), ref(ANA)], [ref(CAIO)]]);
+    await t.service.removeGuest(BIA, PUBLIC_ID, m.id, guestId);
+    t.state.participants.delete(BIA);
+    t.state.noProfile.add(BIA);
+    const seen = await t.service.get(ANA, PUBLIC_ID, m.id);
+    expect(seen.lineup?.list[0]).toHaveLength(2);
+    expect(seen.lineup?.list[0]?.[0]).toEqual({ kind: 'gone', left: true });
   });
 });
 

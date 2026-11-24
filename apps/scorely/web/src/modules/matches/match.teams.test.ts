@@ -86,6 +86,7 @@ describe('PAR-28, 30: a tela com times salvos', () => {
       [
         { kind: 'guest', guestId: 'g1', name: 'Joao', requestedBy: user('Edu', 'E1'), left: false },
         { kind: 'guest', guestId: 'g2', name: 'Zeca', requestedBy: user('Edu', 'E1'), left: true },
+        { kind: 'gone', left: true },
       ],
     ],
     unassigned: [

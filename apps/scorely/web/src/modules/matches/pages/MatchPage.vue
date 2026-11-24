@@ -309,11 +309,14 @@ export default defineComponent({
       }
     },
 
-    memberKey(member: MatchTeamMember): string {
+    memberKey(member: MatchTeamMember, index: number): string {
+      if (member.kind === 'gone') return `gone:${index}`;
       return member.kind === 'player' ? member.user.id : member.guestId;
     },
 
+    /** PAR-28: quem não tem mais perfil aparece como "Pessoa removida". */
     memberName(member: MatchTeamMember): string {
+      if (member.kind === 'gone') return this.$t('matches.lineup.removed');
       return member.kind === 'player' ? member.user.nickname : member.name;
     },
 
@@ -410,7 +413,7 @@ export default defineComponent({
             <q-badge v-if="myTeam === t" color="primary" :label="$t('matches.lineup.mine')" />
           </div>
           <ol v-if="team.length > 0" class="list">
-            <li v-for="(p, i) in team" :key="memberKey(p)" class="row" :class="{ gone: p.left }">
+            <li v-for="(p, i) in team" :key="memberKey(p, i)" class="row" :class="{ gone: p.left }">
               <span class="sc-number pos">{{ i + 1 }}</span>
               <span class="name">{{ memberName(p) }}</span>
               <q-badge v-if="p.kind === 'player' && p.tier === 'reserve'" color="grey" :label="$t('matches.reserve')" />

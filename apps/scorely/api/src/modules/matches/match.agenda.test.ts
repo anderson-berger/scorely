@@ -50,6 +50,17 @@ function setup(repo?: ReturnType<typeof memoryMatches>['repo']) {
         createdAt: '2026-01-01T00:00:00.000Z',
         version: 1,
       })),
+    resolve: async (publicIds: readonly UserRecord['publicId'][]) =>
+      new Map(
+        (
+          [
+            ['1AAAAAAA', ANA],
+            ['3CCCCCCC', CAIO],
+          ] as const
+        )
+          .filter(([pub]) => publicIds.includes(pub as UserRecord['publicId']))
+          .map(([pub, id]) => [pub as UserRecord['publicId'], id]),
+      ),
   };
   const notifications = {
     notify: async (userId: UserId, n: { type: string; link?: string }) => {

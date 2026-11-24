@@ -434,6 +434,8 @@ export const ptBR = {
       team: 'Time {n}',
       mine: 'Seu time',
       left: 'saiu da lista',
+      removed: 'Pessoa removida',
+      someone: 'Alguém',
       unassigned: 'Sem time',
       guest: 'convidado',
       empty: 'Ninguém',

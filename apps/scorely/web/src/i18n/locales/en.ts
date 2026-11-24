@@ -424,6 +424,8 @@ export const en: MessageSchema = {
       team: 'Team {n}',
       mine: 'Your team',
       left: 'left the list',
+      removed: 'Removed person',
+      someone: 'Someone',
       unassigned: 'No team',
       guest: 'guest',
       empty: 'Nobody',

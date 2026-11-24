@@ -1,5 +1,5 @@
 import { GroupInviteInvalidReasonSchema, GroupPermissionSchema } from '@scorely/contracts/src/groups';
-import { MatchGuestStatusSchema, MatchTeamPlayerRefSchema } from '@scorely/contracts/src/matches';
+import { MatchGuestStatusSchema, MatchTeamPlayerOutSchema } from '@scorely/contracts/src/matches';
 import { z } from 'zod';
 
 /**
@@ -98,7 +98,7 @@ export const ErrorDetailsSchemas = {
   /** PAR-08, 12, 13: a hora em que a onda abre; ausente quando a onda de convidados está desligada. */
   MATCH_NOT_OPEN_FOR_YOU: z.object({ opensAt: z.iso.datetime().optional() }),
   /** PAR-25: quem foi posto num time e não está dentro. */
-  MATCH_TEAM_PLAYER_OUT: z.object({ players: z.array(MatchTeamPlayerRefSchema).min(1) }),
+  MATCH_TEAM_PLAYER_OUT: z.object({ players: z.array(MatchTeamPlayerOutSchema).min(1) }),
   /** PAR-06: quantos já estão dentro. */
   MATCH_SLOTS_BELOW_CONFIRMED: z.object({ confirmed: z.number().int().nonnegative() }),
   /** PAR-13, 14: a situação atual do convidado. */

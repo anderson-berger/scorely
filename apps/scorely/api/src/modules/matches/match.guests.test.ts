@@ -62,6 +62,12 @@ function setup() {
           createdAt: '2026-01-01T00:00:00.000Z',
           version: 1,
         })),
+    resolve: async (publicIds: readonly UserRecord['publicId'][]) =>
+      new Map(
+        Object.entries(PUB)
+          .filter(([, pub]) => publicIds.includes(pub as UserRecord['publicId']))
+          .map(([id, pub]) => [pub as UserRecord['publicId'], id as UserId]),
+      ),
   };
   const notifications = {
     notify: async (userId: UserId, n: { type: string; link?: string }) => {

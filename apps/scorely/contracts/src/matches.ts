@@ -265,6 +265,16 @@ export const MatchTeamPlayerRefSchema = z.discriminatedUnion('kind', [
 export type MatchTeamPlayerRef = z.infer<typeof MatchTeamPlayerRefSchema>;
 
 /**
+ * Uma pessoa de `MATCH_TEAM_PLAYER_OUT` (PAR-25): como foi enviada, com o nome achado pela api (apelido de quem tem
+ * conta, nome do convidado). Sem `name` quando o id não é de ninguém ou a pessoa não tem mais perfil.
+ */
+export const MatchTeamPlayerOutSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('user'), id: PublicUserIdSchema, name: z.string().optional() }),
+  z.object({ kind: z.literal('guest'), id: z.uuid(), name: z.string().optional() }),
+]);
+export type MatchTeamPlayerOut = z.infer<typeof MatchTeamPlayerOutSchema>;
+
+/**
  * Corpo do `PUT .../teams` (PAR-25): os times, na ordem, cada um com as pessoas, e a `version` dos times que a tela
  * mostrou (0 sem times, ADR 0016). Cada pessoa num time só; de 2 a 10 times; um time pode ficar vazio.
  */
@@ -283,9 +293,11 @@ export type SaveMatchTeamsInput = z.infer<typeof SaveMatchTeamsInputSchema>;
 
 /**
  * Uma pessoa num time salvo (PAR-27, 28), com a marca `left` de quem não está mais dentro. A participação (`tier`)
- * fica ausente para quem saiu do grupo.
+ * fica ausente para quem saiu do grupo. `gone` é quem não tem mais perfil, o convidado sem registro ou o convidado
+ * de quem não tem mais perfil (PAR-28: "Pessoa removida"), sempre com `left`.
  */
 export const MatchTeamMemberSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('gone'), left: z.literal(true) }),
   z.object({
     kind: z.literal('player'),
     user: UserSchema,

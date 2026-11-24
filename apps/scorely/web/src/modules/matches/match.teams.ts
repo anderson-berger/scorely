@@ -12,8 +12,15 @@ export function refKey(ref: MatchTeamPlayerRef): string {
   return `${ref.kind}:${ref.id}`;
 }
 
+/** Quem está num time salvo e ainda tem perfil (PAR-28: a "Pessoa removida" fica de fora). */
+export type KnownTeamMember = Exclude<MatchTeamMember, { kind: 'gone' }>;
+
+export function isKnownMember(member: MatchTeamMember): member is KnownTeamMember {
+  return member.kind !== 'gone';
+}
+
 /** A pessoa de uma lista ou de um time salvo, como vai ao salvar. */
-export function refOf(person: MatchEntry | MatchTeamMember): MatchTeamPlayerRef {
+export function refOf(person: MatchEntry | KnownTeamMember): MatchTeamPlayerRef {
   return person.kind === 'player'
     ? { kind: 'user', id: person.user.id }
     : { kind: 'guest', id: person.guestId };
@@ -45,10 +52,18 @@ export function drawTeams(
   return { teams, unassigned: [] };
 }
 
-/** PAR-28, 30: a tela com times salvos: os times sem quem saiu da lista, e quem está sem time à parte. */
+/**
+ * PAR-28, 30: a tela com times salvos: os times sem quem saiu da lista (a pessoa removida também saiu), e quem está
+ * sem time à parte.
+ */
 export function draftFromLineup(lineup: MatchLineup): TeamsDraft {
   return {
-    teams: lineup.list.map((team) => team.filter((p) => !p.left).map(refOf)),
+    teams: lineup.list.map((team) =>
+      team
+        .filter((p) => !p.left)
+        .filter(isKnownMember)
+        .map(refOf),
+    ),
     unassigned: lineup.unassigned.map(refOf),
   };
 }

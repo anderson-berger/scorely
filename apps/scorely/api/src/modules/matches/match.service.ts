@@ -36,10 +36,13 @@ import {
   type MatchStatus,
   type MatchSummary,
   type MatchTeamMember,
+  type MatchTeamPlayerOut,
+  type MatchTeamPlayerRef,
   type MatchWave,
   type MatchWaves,
   type MyAttendance,
   type PublicGroupId,
+  type PublicUserId,
   type RequestMatchGuestInput,
   type SaveMatchTeamsInput,
   SaveMatchTeamsInputSchema,
@@ -54,7 +57,8 @@ export interface MatchesDeps {
   matches: MatchRepository;
   /** Participação, tier e permissão (GRV-15, 17): o grupo não sabe nada das partidas. */
   groups: GroupAccess;
-  users: Pick<UserDirectory, 'getMany'>;
+  /** `resolve`: o nome de quem saiu da lista em `MATCH_TEAM_PLAYER_OUT` (PAR-25). */
+  users: Pick<UserDirectory, 'getMany' | 'resolve'>;
   /** Os avisos `match_promoted` (PAR-09), `match_cancelled` (PAR-07), `match_guest_requested` (PAR-12), `match_list_open` (PAR-24) e `match_teams_ready` (PAR-29). */
   notifications: { notify(...args: Parameters<NotificationService['notify']>): Promise<unknown> };
   /** MID-12: só o `urlOf` da mídia. Sem ele, a mídia de produção. */
@@ -452,7 +456,8 @@ export function createMatchService(deps: MatchesDeps) {
 
   /**
    * PAR-27, 28: os times salvos, cada pessoa com a marca de quem não está mais dentro, e quem está dentro sem time
-   * à parte, na ordem da lista. Quem não tem mais perfil (ou o convidado que não existe) fica de fora.
+   * à parte, na ordem da lista. Quem não tem mais perfil, o convidado que não existe ou o convidado de quem não tem
+   * mais perfil fica no lugar como `gone` ("Pessoa removida", sempre com `left`).
    */
   function lineupView(
     saved: StoredTeams,
@@ -462,27 +467,46 @@ export function createMatchService(deps: MatchesDeps) {
   ): MatchLineup {
     const inside = new Set(state.list.in.map((i) => `${i.kind === 'player' ? 'user' : 'guest'}:${i.id}`));
     const guests = new Map(state.guests.map((g) => [g.id, g]));
-    const member = (p: StoredTeamPlayer): MatchTeamMember[] => {
+    const gone: MatchTeamMember = { kind: 'gone', left: true };
+    const member = (p: StoredTeamPlayer): MatchTeamMember => {
       const left = !inside.has(`${p.kind}:${p.id}`);
       if (p.kind === 'user') {
         const user = people.get(p.id as UserId);
         const tier = state.participants.get(p.id as UserId);
-        return user ? [{ kind: 'player', user, ...(tier !== undefined && { tier }), left }] : [];
+        return user ? { kind: 'player', user, ...(tier !== undefined && { tier }), left } : gone;
       }
       const guest = guests.get(p.id);
       const by = guest && people.get(guest.requestedBy);
       return guest && by
-        ? [{ kind: 'guest', guestId: guest.id, name: guest.name, requestedBy: by, left }]
-        : [];
+        ? { kind: 'guest', guestId: guest.id, name: guest.name, requestedBy: by, left }
+        : gone;
     };
     const placed = new Set(saved.teams.flat().map((p) => `${p.kind}:${p.id}`));
     return {
-      list: saved.teams.map((team) => team.flatMap(member)),
+      list: saved.teams.map((team) => team.map(member)),
       unassigned: state.list.in
         .filter((i) => !placed.has(`${i.kind === 'player' ? 'user' : 'guest'}:${i.id}`))
         .map(entry),
       version: saved.version,
     };
+  }
+
+  /**
+   * PAR-25: quem saiu, com o nome achado aqui (apelido de quem tem conta, nome do convidado em qualquer situação),
+   * mesmo de quem a tela nunca teve. Sem perfil ou sem registro, vai sem `name`.
+   */
+  async function namedOut(
+    out: readonly MatchTeamPlayerRef[],
+    guests: readonly StoredGuest[],
+  ): Promise<MatchTeamPlayerOut[]> {
+    const publicIds = out.flatMap((p) => (p.kind === 'user' ? [p.id] : []));
+    const ids = publicIds.length > 0 ? await deps.users.resolve(publicIds) : new Map<PublicUserId, UserId>();
+    const people = await profiles([...ids.values()]);
+    const guestNames = new Map(guests.map((g) => [g.id, g.name]));
+    return out.map((p) => {
+      const name = p.kind === 'user' ? people.get(ids.get(p.id) as UserId)?.nickname : guestNames.get(p.id);
+      return name === undefined ? p : { ...p, name };
+    });
   }
 
   /** PAR-25: os times da entrada, com o `UserId` de quem está dentro; quem não está dentro vai em `out`. */
@@ -527,7 +551,8 @@ export function createMatchService(deps: MatchesDeps) {
     const state = await stateOf(match, true);
     const people = await profiles(state.list.in.flatMap((i) => (i.kind === 'player' ? [i.userId] : [])));
     const { teams, out } = resolveTeams(parsed.data, state.list, people);
-    if (out.length > 0) throw appError('MATCH_TEAM_PLAYER_OUT', { players: out });
+    if (out.length > 0)
+      throw appError('MATCH_TEAM_PLAYER_OUT', { players: await namedOut(out, state.guests) });
     const result = await deps.matches.saveTeams({
       groupId: ctx.groupId,
       matchId,

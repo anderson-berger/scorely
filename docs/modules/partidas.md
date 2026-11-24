@@ -186,7 +186,9 @@ Caso de referência: a Ana cria a partida de sexta, às 19h, toda semana, e conf
   - A partida tem uma divisão só: salvar de novo troca a anterior inteira. Não há apagar: para refazer, sorteia-se e salva-se de novo.
   - Salvar manda a `version` dos times que a tela mostrou (0 quando ainda não há times, [ADR 0016](../decisions/0016-version-confere-nas-edicoes.md)); outra responde `VERSION_CONFLICT`.
   - Vale até o fim da partida, inclusive durante o jogo. Depois, `MATCH_FINISHED` (409); na cancelada, `MATCH_CANCELLED`.
-  - Uma pessoa repetida, ou um número de times fora de 2 a 10, responde `VALIDATION_ERROR`. Alguém que não está dentro (saiu enquanto a tela estava aberta, ou nunca esteve) responde `MATCH_TEAM_PLAYER_OUT` (409, `details.players`: as pessoas como foram enviadas, `{ kind, id }`), e nada é gravado.
+  - Uma pessoa repetida, ou um número de times fora de 2 a 10, responde `VALIDATION_ERROR`. Alguém que não está dentro (saiu enquanto a tela estava aberta, ou nunca esteve) responde `MATCH_TEAM_PLAYER_OUT` (409, `details.players`: as pessoas como foram enviadas, `{ kind, id, name }`), e nada é gravado.
+    - **O nome de quem saiu:** `name` é o apelido de quem tem conta (USR-13) ou o nome do convidado, achado pela api, mesmo de quem a tela nunca teve na lista. Só falta quando o id não é de ninguém (ou a pessoa não tem mais perfil). _(Nova em 2026-11-24.)_
+    - _Por quê:_ a tela avisa "Fulano saiu da lista" com os nomes que ela já tinha; quem nunca esteve nela (o id veio de outra aba, por exemplo) saía sem nome no aviso. Quem sabe o nome é a api.
   - A resposta é a partida (PAR-16), já com os times.
   - O número de times não depende do formato (PAR-02): o formato só dá o número que a tela sugere (PAR-26).
   - _Por quê:_ dividir à mão tentando equilibrar era uma das dores de quem organiza. Durante o jogo ainda se troca gente (alguém chegou, alguém se machucou). Quem está na fila não joga, por isso fica fora (seção 4). O formato é o que o grupo combinou para a lista, mas no dia, com 11 dentro numa partida de 2 × 6, os times continuam sendo 2: por isso a divisão guarda o próprio número.
@@ -198,6 +200,8 @@ Caso de referência: a Ana cria a partida de sexta, às 19h, toda semana, e conf
   - A partida que nasce de uma repetição (PAR-21) nasce sem times: os times não passam de uma semana para a outra.
   - Os times de uma partida que terminou ou foi cancelada ficam guardados, como tudo da partida (PAR-07): é com eles que o resultado vai ser registrado (seção 5).
 - **PAR-28. Os times não mudam sozinhos quando a lista muda.** Quem estava num time e não está mais dentro (disse "não vou", saiu do grupo, ou o convidado foi tirado) continua no time, com a marca **saiu da lista**, para todos. Quem passou a estar dentro depois de salvar (confirmou, subiu da fila, convidado liberado) fica **sem time**.
+  - **Quem não tem mais perfil** (ou o convidado cujo registro não existe mais, ou o convidado de quem não tem mais perfil) também continua no time, como **Pessoa removida**, com a mesma marca **saiu da lista**. Ele conta como quem saiu: a tela de dividir começa sem ele (PAR-30), e a mensagem dos times não o inclui (PAR-19). Hoje nada apaga um perfil nem um convidado; a regra vale para quando isso existir. _(Nova em 2026-11-24: antes, ele sumia do time sem marca.)_
+    - _Por quê:_ um time que encolhe sem explicação parece erro; com a marca, quem organiza vê que falta alguém e decide, como com quem saiu da lista.
   - Para mudar, quem organiza abre a tela de dividir: ela já começa com os times salvos, sem quem saiu, e com quem está sem time à parte (PAR-30).
   - _Por quê:_ mexer nos times pelas costas de quem organiza seria pior do que mostrar o que mudou. No dia do jogo, "o Fulano saiu do Time 2" é exatamente o que ele precisa ver para decidir.
 - **PAR-29. Os times salvos pela primeira vez avisam quem está neles** (`match_teams_ready`, com o link da partida): quem tem conta e está num time, menos quem salvou. Salvar de novo não avisa.
@@ -212,7 +216,7 @@ Caso de referência: a Ana cria a partida de sexta, às 19h, toda semana, e conf
   - A situação é calculada pela hora: `scheduled` (antes da onda dos membros, só com a hora dela configurada), `open` (com a onda atual), `closed` (depois do fechamento), `in_progress` (do início ao fim), `finished` e `cancelled`.
   - Vem também o que quem pede pode fazer agora: responder, pedir convidado, e o que a permissão libera.
   - A partida de uma repetição vem com ela: o id, o dia da semana, a hora, a duração, o fuso, o formato, a abertura, se está encerrada e a `version` (para PAR-22). _(Nova em 2026-11-23.)_
-  - Com times salvos, vêm os times (PAR-27), cada pessoa com a marca de quem saiu da lista (PAR-28), quem está sem time e a `version` dos times (para PAR-25). _(Nova em 2026-11-24.)_
+  - Com times salvos, vêm os times (PAR-27), cada pessoa com a marca de quem saiu da lista (PAR-28) e quem não tem mais perfil como pessoa removida (PAR-28), quem está sem time e a `version` dos times (para PAR-25). _(Nova em 2026-11-24.)_
   - Uma partida que não existe responde `MATCH_NOT_FOUND` (404). Quem não participa do grupo recebe `GROUP_NOT_FOUND`, como em GRV-04.
   - _Por quê:_ todo mundo vê a mesma lista que hoje está no WhatsApp, com a diferença de quem está dentro e quem está na fila.
 
@@ -281,7 +285,7 @@ Caso de referência: a Ana cria a partida de sexta, às 19h, toda semana, e conf
   - No topo, **Times: − 2 +** (de 2 a 10) e **Sortear** (com times na tela, **Sortear de novo**). Mudar o número não sorteia: quem estava num time que sumiu vai para Sem time, e um time novo nasce vazio.
   - Cada time mostra o número de pessoas e as pessoas, com a marca "reserva" e "convidado". Tocar numa pessoa abre um painel de baixo com **Time 1**, **Time 2**... e **Sem time**, o atual marcado: escolher move a pessoa. Sem arrastar: tocar funciona igual no celular.
   - **Salvar** grava (PAR-25) e volta para a página da partida. Sair com mudanças não salvas pede confirmação ("Descartar os times?").
-  - Ao salvar com `MATCH_TEAM_PLAYER_OUT`, a tela relê a partida, tira quem saiu, mantém o resto como estava e avisa ("Fulano saiu da lista. Confira e salve de novo."). Com `VERSION_CONFLICT`, ela relê os times salvos e avisa ("Alguém mudou os times antes de você. Atualizamos; faça a mudança de novo.").
+  - Ao salvar com `MATCH_TEAM_PLAYER_OUT`, a tela relê a partida, tira quem saiu, mantém o resto como estava e avisa ("Fulano saiu da lista. Confira e salve de novo."), com os nomes que a api mandou (PAR-25); quem vem sem nome entra como "Alguém". _(Alterada em 2026-11-24: antes, os nomes vinham só da lista que a tela tinha.)_ Com `VERSION_CONFLICT`, ela relê os times salvos e avisa ("Alguém mudou os times antes de você. Atualizamos; faça a mudança de novo.").
   - _Por quê:_ dividir tem muitos controles e precisa do espaço da tela inteira; a página da partida continua sendo a do "eu vou?". Abrir já sorteado faz o caso comum (sortear e salvar) ser um toque.
 
 ## 3. Como funciona
@@ -361,6 +365,7 @@ Erros: `VALIDATION_ERROR`, `GROUP_NOT_FOUND`, `GROUP_PERMISSION_DENIED`, `MATCH_
 
 - **Próximas etapas, nesta ordem** (conversa de produto de 2026-11-23): resultado e histórico (registrado sobre os times salvos, PAR-27) → ranking e temporada (o campeonato interno). O sorteio ajustável entrou em 2026-11-24 (PAR-25–30). _(Alterada em 2026-11-24.)_
 - **Times, depois:** equilibrar o sorteio pelo histórico (sem nível técnico), quando houver resultado; espalhar homens e mulheres (o perfil já tem o gênero, USR); fixar alguém num time antes de sortear; nome ou cor do time (o colete); e quem está na fila num time. Equilibrar pelo histórico leva o sorteio para a api, que tem os resultados.
+- **Quem está numa lista e perde o perfil** (dentro, fila ou não vão, PAR-16): hoje nada apaga um perfil. A "Pessoa removida" vale só nos times (PAR-28). O que as listas fazem (some, aparece como removida, se ocupa vaga, se a fila sobe) fica para decidir junto com apagar a conta. _(Nova em 2026-11-24.)_
 - **Local da partida:** saiu em 2026-11-23. Não vai ser texto livre; o jeito (lugares cadastrados no grupo, endereço, mapa) fica para decidir.
 - **Recado da partida** (o "FERIADO!"): saiu em 2026-11-23, como o local. Volta se fizer falta, decidido de novo.
 - **Modelo Organizador** (GRV-51), com `matches.manage`, quando houver mais de uma permissão de partida.

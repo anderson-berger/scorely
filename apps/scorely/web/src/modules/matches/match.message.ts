@@ -1,6 +1,7 @@
-import type { Match, MatchEntry, MatchTeamMember } from '@scorely/contracts';
+import type { Match, MatchEntry } from '@scorely/contracts';
 import { formatDateTime } from '@scorely/web/src/lib/datetime';
 import { slotsOf } from '@scorely/web/src/modules/matches/match.settings';
+import { isKnownMember, type KnownTeamMember } from '@scorely/web/src/modules/matches/match.teams';
 
 // PAR-19: as mensagens da lista e dos times para colar no WhatsApp, em pt-BR, no fuso de quem copia (ADR 0006).
 
@@ -42,10 +43,10 @@ export function matchMessage(match: Match, opts: MessageOptions): string {
   ].join('\n');
 }
 
-const memberName = (member: MatchTeamMember) =>
+const memberName = (member: KnownTeamMember) =>
   member.kind === 'player' ? member.user.nickname : member.name;
 
-/** PAR-19: os times salvos, sem quem saiu da lista e com o convidado só pelo nome. */
+/** PAR-19: os times salvos, sem quem saiu da lista (nem a pessoa removida, PAR-28) e com o convidado só pelo nome. */
 export function teamsMessage(match: Match, opts: MessageOptions): string {
   const teams = match.lineup?.list ?? [];
   return [
@@ -53,7 +54,12 @@ export function teamsMessage(match: Match, opts: MessageOptions): string {
     '',
     ...teams.flatMap((team, i) => [
       `Time ${i + 1}`,
-      ...numbered(team.filter((m) => !m.left).map(memberName)),
+      ...numbered(
+        team
+          .filter((m) => !m.left)
+          .filter(isKnownMember)
+          .map(memberName),
+      ),
     ]),
     '',
     `Partida: ${opts.link}`,

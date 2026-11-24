@@ -4,6 +4,7 @@ import {
   MATCH_TEAMS_LIMITS,
   type Match,
   type MatchEntry,
+  type MatchTeamPlayerOut,
   type MatchTeamPlayerRef,
 } from '@scorely/contracts';
 import BottomSheet from '@scorely/web/src/components/BottomSheet.vue';
@@ -209,8 +210,9 @@ export default defineComponent({
         this.$q.notify({ type: 'negative', message: errorMessage(err) });
         return;
       }
-      const players = out ? ((err.details as { players?: MatchTeamPlayerRef[] }).players ?? []) : [];
-      const names = this.personsOf(players).map((p) => p.name);
+      const players = out ? ((err.details as { players?: MatchTeamPlayerOut[] }).players ?? []) : [];
+      // PAR-25, 30: o nome vem da api, mesmo de quem a tela nunca teve; sem nome, "Alguém".
+      const names = players.map((p) => p.name ?? this.$t('matches.lineup.someone'));
       const match = await this.fetch();
       if (!match) return;
       this.match = match;

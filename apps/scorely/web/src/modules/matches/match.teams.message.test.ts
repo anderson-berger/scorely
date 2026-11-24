@@ -79,6 +79,14 @@ describe('teamsMessage (PAR-19)', () => {
     expect(text).not.toContain('Bia');
   });
 
+  it('PAR-19: a pessoa removida (sem perfil) não entra na mensagem', () => {
+    const text = teamsMessage(
+      match([[player('Edu', '1AAAAAAA'), { kind: 'gone', left: true }], [player('Carioca', '2BBBBBBB')]]),
+      OPTIONS,
+    );
+    expect(text).toContain('Time 1\n1. Edu\nTime 2\n1. Carioca');
+  });
+
   it('PAR-19: o convidado sai só com o nome', () => {
     const text = teamsMessage(match([[guest('Joao')], [player('Carioca', '2BBBBBBB')]]), OPTIONS);
     expect(text).toContain('Time 1\n1. Joao\n');
