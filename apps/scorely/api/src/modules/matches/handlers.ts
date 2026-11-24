@@ -15,6 +15,7 @@ import {
   RequestMatchGuestInputSchema,
   SetAttendanceInputSchema,
   UpdateMatchInputSchema,
+  UpdateMatchSeriesInputSchema,
 } from '@scorely/contracts';
 
 const matches = createMatchService({
@@ -28,6 +29,7 @@ const matches = createMatchService({
 const groupOf = (event: HttpEvent) => asPublicGroupId(pathParam(event, 'publicId'));
 const matchOf = (event: HttpEvent) => pathParam(event, 'matchId');
 const guestOf = (event: HttpEvent) => pathParam(event, 'guestId');
+const seriesOf = (event: HttpEvent) => pathParam(event, 'seriesId');
 
 export async function createMatch(event: HttpEvent) {
   return authRoute(event, async (auth) => {
@@ -108,4 +110,24 @@ export async function removeGuest(event: HttpEvent) {
     const match = await matches.removeGuest(auth.userId, groupOf(event), matchOf(event), guestOf(event));
     return match;
   });
+}
+
+export async function updateMatchSeries(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
+    const input = parseBody(event, UpdateMatchSeriesInputSchema);
+    const series = await matches.updateSeries(auth.userId, groupOf(event), seriesOf(event), input);
+    return series;
+  });
+}
+
+export async function endMatchSeries(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
+    const series = await matches.endSeries(auth.userId, groupOf(event), seriesOf(event));
+    return series;
+  });
+}
+
+/** A rotina `matchesAgenda` (evento `schedule`, PAR-21, 24, ADR 0012): não é rota. */
+export async function matchesAgenda() {
+  await matches.runAgenda();
 }

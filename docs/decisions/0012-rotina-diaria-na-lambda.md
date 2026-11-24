@@ -1,7 +1,7 @@
 # 0012: rotina diária como gatilho de lambda, sem recurso de infra
 
 - Data: 2026-11-14
-- Estado: aceita; sem uso desde [0018](0018-troca-do-grupo.md) (a competição saiu do ar)
+- Estado: aceita; sem uso desde [0018](0018-troca-do-grupo.md) (a competição saiu do ar); volta a ter uso com a rotina `matchesAgenda` (2026-11-23, PAR-21, 24 em partidas.md)
 
 ## Contexto
 

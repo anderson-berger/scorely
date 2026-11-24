@@ -48,6 +48,9 @@ export const ErrorCodeSchema = z.enum([
   // matches
   'MATCH_NOT_FOUND',
   'MATCH_LIMIT',
+  'MATCH_SERIES_NOT_FOUND',
+  'MATCH_SERIES_LIMIT',
+  'MATCH_SERIES_ENDED',
   'MATCH_NOT_OPEN_FOR_YOU',
   'MATCH_CLOSED',
   'MATCH_STARTED',
@@ -88,6 +91,8 @@ export const ErrorDetailsSchemas = {
   GROUP_ROLE_LIMIT: z.object({ limit: z.number().int().positive() }),
   /** PAR-01: o máximo de partidas por vir. */
   MATCH_LIMIT: z.object({ limit: z.number().int().positive() }),
+  /** PAR-20: o máximo de repetições ativas. */
+  MATCH_SERIES_LIMIT: z.object({ limit: z.number().int().positive() }),
   /** PAR-08, 12, 13: a hora em que a onda abre; ausente quando a onda de convidados está desligada. */
   MATCH_NOT_OPEN_FOR_YOU: z.object({ opensAt: z.iso.datetime().optional() }),
   /** PAR-06: quantos já estão dentro. */

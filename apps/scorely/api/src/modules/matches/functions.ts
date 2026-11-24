@@ -7,6 +7,7 @@ const route = (method: string, path: string) => [
   { httpApi: { method, path, authorizer: { name: AUTHORIZER } } },
 ];
 const MATCH = '/groups/{publicId}/matches/{matchId}';
+const SERIES = '/groups/{publicId}/match-series/{seriesId}';
 
 export const matchesFunctions: AWS['functions'] = {
   createMatch: { handler: handler('createMatch'), events: route('POST', '/groups/{publicId}/matches') },
@@ -27,4 +28,9 @@ export const matchesFunctions: AWS['functions'] = {
     events: route('POST', `${MATCH}/guests/{guestId}/decline`),
   },
   removeMatchGuest: { handler: handler('removeGuest'), events: route('DELETE', `${MATCH}/guests/{guestId}`) },
+  // Repetição (PAR-22, 23)
+  updateMatchSeries: { handler: handler('updateMatchSeries'), events: route('PUT', SERIES) },
+  endMatchSeries: { handler: handler('endMatchSeries'), events: route('POST', `${SERIES}/end`) },
+  // Rotina da agenda (PAR-21, 24; ADR 0012): evento `schedule`, sem recurso de infra.
+  matchesAgenda: { handler: handler('matchesAgenda'), events: [{ schedule: 'rate(15 minutes)' }] },
 };

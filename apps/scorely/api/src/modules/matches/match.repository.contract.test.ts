@@ -1,11 +1,15 @@
 import { randomUUID } from 'node:crypto';
-import { asGroupId, asUserId, type GroupId, type UserId } from '@scorely/api/src/lib/ids';
+import { GetCommand } from '@aws-sdk/lib-dynamodb';
+import { dynamo as dynamoClient, tableName } from '@scorely/api/src/lib/dynamo';
+import { asGroupId, asPublicGroupId, asUserId, type GroupId, type UserId } from '@scorely/api/src/lib/ids';
 import {
   dynamoMatchRepository,
   type MatchRepository,
   type StoredGuest,
   type StoredMatch,
+  type StoredSeries,
 } from '@scorely/api/src/modules/matches/match.repository';
+import { matchAgendaKey } from '@scorely/api/src/modules/matches/match.table';
 import { memoryMatches } from '@scorely/api/src/modules/matches/matches.memory';
 import { beforeAll, describe, expect, inject, it } from 'vitest';
 
@@ -54,6 +58,34 @@ function newGuest(match: StoredMatch, name: string, overrides: Partial<StoredGue
 }
 
 const read = { consistent: true };
+
+function newSeries(match: StoredMatch, overrides: Partial<StoredSeries> = {}): StoredSeries {
+  return {
+    id: randomUUID(),
+    groupId: match.groupId,
+    createdAt: T0.toISOString(),
+    updatedAt: T0.toISOString(),
+    version: 1,
+    weekday: 5,
+    time: '19:00',
+    durationMinutes: 120,
+    timeZone: 'America/Sao_Paulo',
+    noGuests: false,
+    closeHours: 0,
+    currentMatchId: match.id,
+    currentDate: '2026-11-27',
+    createdBy: match.createdBy,
+    ...overrides,
+  };
+}
+
+const agendaOf = (match: StoredMatch, when: string) => ({
+  at: when,
+  groupId: match.groupId,
+  matchId: match.id,
+  publicId: asPublicGroupId('K3X9PQ2A'),
+  groupName: 'Pelada de sexta',
+});
 
 describe.each([
   { name: 'memória', make: () => memoryMatches().repo as MatchRepository },
@@ -383,6 +415,131 @@ describe.each([
         repo.transitionGuest({ guest, transition: 'decline', by: newUser(), at: at(5) }),
       ]);
       expect(results.filter(Boolean)).toHaveLength(1);
+    });
+  });
+  describe('repetição e agenda', () => {
+    it('PAR-20: createMatch com a repetição grava as duas; listSeries devolve as do grupo', async () => {
+      const match = newMatch(newGroup());
+      const series = newSeries(match);
+      const linked = { ...match, seriesId: series.id, seriesDate: series.currentDate };
+      await repo.createMatch(linked, { series });
+      expect(await repo.getMatch(match.groupId, match.id, read)).toEqual(linked);
+      expect(await repo.getSeries(match.groupId, series.id, read)).toEqual(series);
+      expect(await repo.listSeries(match.groupId)).toEqual([series]);
+      expect(await repo.getSeries(newGroup(), series.id, read)).toBeUndefined();
+    });
+
+    it('PAR-22: updateSeries confere a version, apaga os opcionais ausentes e não mexe no endedAt', async () => {
+      const match = newMatch(newGroup());
+      const series = newSeries(match, { teams: 2, playersPerTeam: 6 });
+      await repo.createMatch(match, { series });
+      const saved = await repo.updateSeries(
+        { ...series, time: '20:00', teams: undefined, playersPerTeam: undefined },
+        1,
+        at(1),
+      );
+      expect(saved).toMatchObject({ time: '20:00', version: 2, updatedAt: at(1).toISOString() });
+      expect(saved.teams).toBeUndefined();
+      await expect(repo.updateSeries(series, 1, at(2))).rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
+    });
+
+    it('PAR-23: endSeries grava uma vez; a segunda volta false', async () => {
+      const match = newMatch(newGroup());
+      const series = newSeries(match);
+      await repo.createMatch(match, { series });
+      expect(await repo.endSeries(match.groupId, series.id, at(1))).toBe(true);
+      expect(await repo.endSeries(match.groupId, series.id, at(2))).toBe(false);
+      expect((await repo.getSeries(match.groupId, series.id, read))?.endedAt).toBe(at(1).toISOString());
+    });
+
+    it('PAR-21: createNextMatch cria uma vez só, e não cria com a repetição encerrada', async () => {
+      const match = newMatch(newGroup());
+      const series = newSeries(match);
+      await repo.createMatch(match, { series });
+      const next = { ...newMatch(match.groupId), seriesId: series.id, seriesDate: '2026-12-04' };
+      const other = { ...newMatch(match.groupId), seriesId: series.id, seriesDate: '2026-12-04' };
+      const results = await Promise.all([
+        repo.createNextMatch({ match: next, previousMatchId: match.id, agenda: [], at: at(1) }),
+        repo.createNextMatch({ match: other, previousMatchId: match.id, agenda: [], at: at(1) }),
+      ]);
+      expect(results.filter(Boolean)).toHaveLength(1);
+      expect((await repo.getSeries(match.groupId, series.id, read))?.currentDate).toBe('2026-12-04');
+
+      const ended = newMatch(newGroup());
+      const endedSeries = newSeries(ended);
+      await repo.createMatch(ended, { series: endedSeries });
+      await repo.endSeries(ended.groupId, endedSeries.id, at(1));
+      const after = { ...newMatch(ended.groupId), seriesId: endedSeries.id, seriesDate: '2026-12-04' };
+      expect(
+        await repo.createNextMatch({ match: after, previousMatchId: ended.id, agenda: [], at: at(2) }),
+      ).toBe(false);
+      expect(await repo.getMatch(ended.groupId, after.id, read)).toBeUndefined();
+    });
+
+    it('PAR-24: markNotified grava só se a onda avisada ainda é a lida, sem somar a version', async () => {
+      const match = newMatch(newGroup());
+      await repo.createMatch(match);
+      expect(await repo.markNotified(match.groupId, match.id, undefined, 'members')).toBe(true);
+      expect(await repo.markNotified(match.groupId, match.id, undefined, 'members')).toBe(false);
+      expect(await repo.markNotified(match.groupId, match.id, 'members', 'reserves')).toBe(true);
+      const saved = await repo.getMatch(match.groupId, match.id, read);
+      expect(saved).toMatchObject({ notifiedWave: 'reserves', version: 1 });
+    });
+
+    it('PAR-24: updateMatch mantém o notifiedWave do banco, a não ser com resetNotified', async () => {
+      const match = newMatch(newGroup());
+      await repo.createMatch(match);
+      await repo.markNotified(match.groupId, match.id, undefined, 'members');
+      const kept = await repo.updateMatch({ ...match, notifiedWave: undefined }, 1, at(1));
+      expect(kept.notifiedWave).toBe('members');
+      const reset = await repo.updateMatch({ ...match, notifiedWave: undefined }, 2, at(2), {
+        resetNotified: true,
+      });
+      expect(reset.notifiedWave).toBeUndefined();
+    });
+
+    it('PAR-21, 24: a agenda devolve os itens com instante até agora, das horas pedidas, e o apagado some', async () => {
+      const match = newMatch(newGroup());
+      await repo.createMatch(match);
+      const base = '2031-01-01T10';
+      const early = agendaOf(match, `${base}:05:00.000Z`);
+      const due = agendaOf(match, `${base}:20:00.000Z`);
+      const later = agendaOf(match, `${base}:50:00.000Z`);
+      await repo.putAgenda([early, due, later], new Date('2031-01-01T09:00:00.000Z'));
+      const mine = (list: { matchId: string }[]) => list.filter((e) => e.matchId === match.id);
+      const now = new Date(`${base}:30:00.000Z`);
+      expect(mine(await repo.listAgenda(new Date(`${base}:10:00.000Z`), now))).toEqual([early, due]);
+      await repo.deleteAgenda(early);
+      expect(mine(await repo.listAgenda(new Date('2031-01-01T08:00:00.000Z'), now))).toEqual([due]);
+      expect(
+        mine(
+          await repo.listAgenda(new Date('2031-01-01T11:00:00.000Z'), new Date('2031-01-01T12:00:00.000Z')),
+        ),
+      ).toEqual([]);
+    });
+
+    it.runIf(dynamo)(
+      'PAR-21, 24: regravar o item da agenda mantém o createdAt da primeira gravação',
+      async () => {
+        const match = newMatch(newGroup());
+        await repo.createMatch(match);
+        const entry = agendaOf(match, '2031-02-01T10:20:00.000Z');
+        await repo.putAgenda([entry], at(1));
+        await repo.putAgenda([entry], at(30));
+        const { Item } = await dynamoClient().send(
+          new GetCommand({
+            TableName: tableName(),
+            Key: matchAgendaKey(entry.at, match.groupId, match.id),
+            ConsistentRead: true,
+          }),
+        );
+        expect(Item?.createdAt).toBe(at(1).toISOString());
+      },
+    );
+
+    it('PAR-21, 24: o cursor da rotina guarda a última leitura', async () => {
+      await repo.setAgendaCursor(at(5));
+      expect(await repo.getAgendaCursor()).toBe(at(5).toISOString());
     });
   });
 });

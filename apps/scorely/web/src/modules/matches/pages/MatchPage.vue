@@ -6,6 +6,7 @@ import type {
   Match,
   MatchEntry,
   MatchGuestRequest,
+  MatchSeries,
   MatchWave,
 } from '@scorely/contracts';
 import SettingsRow from '@scorely/web/src/components/SettingsRow.vue';
@@ -14,12 +15,14 @@ import { errorMessage } from '@scorely/web/src/i18n/errors';
 import { currentTimeZone, formatDateTime } from '@scorely/web/src/lib/datetime';
 import { canShare } from '@scorely/web/src/modules/groups/invite-link';
 import MatchGuestSheet from '@scorely/web/src/modules/matches/components/MatchGuestSheet.vue';
+import MatchSeriesSheet from '@scorely/web/src/modules/matches/components/MatchSeriesSheet.vue';
 import MatchSettingSheet, {
   type MatchSettingSection,
 } from '@scorely/web/src/modules/matches/components/MatchSettingSheet.vue';
 import MatchWhenSheet from '@scorely/web/src/modules/matches/components/MatchWhenSheet.vue';
 import { matchMessage } from '@scorely/web/src/modules/matches/match.message';
 import { durationLabel, durationOf, slotsOf } from '@scorely/web/src/modules/matches/match.settings';
+import { formatSummary, openingSummary, seriesSummary } from '@scorely/web/src/modules/matches/match.summary';
 import { matchesApi } from '@scorely/web/src/modules/matches/matches.api';
 import { copyToClipboard } from 'quasar';
 import { defineComponent, type PropType } from 'vue';
@@ -35,7 +38,14 @@ const WAVES: readonly MatchWave[] = ['members', 'reserves', 'guests'];
 export default defineComponent({
   name: 'MatchPage',
 
-  components: { MatchGuestSheet, MatchSettingSheet, MatchWhenSheet, SettingsRow, StatusChip },
+  components: {
+    MatchGuestSheet,
+    MatchSeriesSheet,
+    MatchSettingSheet,
+    MatchWhenSheet,
+    SettingsRow,
+    StatusChip,
+  },
 
   props: {
     group: { type: Object as PropType<Group>, required: true },
@@ -50,6 +60,7 @@ export default defineComponent({
       settingOpen: false,
       section: 'format' as MatchSettingSection,
       guestOpen: false,
+      seriesOpen: false,
     };
   },
 
@@ -226,7 +237,7 @@ export default defineComponent({
     },
 
     /** PAR-18: o resumo de cada linha das configurações. */
-    summaryOf(section: MatchSettingSection | 'when'): string {
+    summaryOf(section: MatchSettingSection | 'when' | 'series'): string {
       const m = this.match;
       if (!m) return '';
       if (section === 'when') {
@@ -236,30 +247,8 @@ export default defineComponent({
           duration: durationLabel(durationOf(m)),
         });
       }
-      if (section === 'format') {
-        return this.slots === undefined
-          ? this.$t('matches.settings.noLimit')
-          : this.$t('matches.settings.formatSummary', {
-              teams: m.teams,
-              players: m.playersPerTeam,
-              slots: this.slots,
-            });
-      }
-      const parts = [
-        ...(m.membersHours !== undefined
-          ? [this.$t('matches.settings.membersAt', { hours: m.membersHours })]
-          : []),
-        ...(m.reservesHours !== undefined
-          ? [this.$t('matches.settings.reservesAt', { hours: m.reservesHours })]
-          : []),
-        ...(m.noGuests
-          ? [this.$t('matches.settings.noGuests')]
-          : m.guestsHours !== undefined
-            ? [this.$t('matches.settings.guestsAt', { hours: m.guestsHours })]
-            : []),
-        ...(m.closeHours > 0 ? [this.$t('matches.settings.closeAt', { hours: m.closeHours })] : []),
-      ];
-      return parts.length > 0 ? parts.join(' · ') : this.$t('matches.settings.openToAll');
+      if (section === 'series') return m.series ? seriesSummary(m.series) : '';
+      return section === 'format' ? formatSummary(m) : openingSummary(m);
     },
 
     openSetting(section: MatchSettingSection) {
@@ -271,6 +260,12 @@ export default defineComponent({
       this.match = match;
       this.whenOpen = false;
       this.settingOpen = false;
+    },
+
+    /** PAR-23: encerrada, a partida mostra a repetição com a data de encerramento. */
+    seriesEnded(series: MatchSeries) {
+      if (this.match) this.match = { ...this.match, series };
+      this.seriesOpen = false;
     },
 
     guestSaved(match: Match) {
@@ -466,11 +461,19 @@ export default defineComponent({
             :summary="summaryOf(s)"
             @open="openSetting(s)"
           />
+          <SettingsRow
+            v-if="match.series"
+            icon="event_repeat"
+            :title="$t('matches.series.title')"
+            :summary="summaryOf('series')"
+            @open="seriesOpen = true"
+          />
         </div>
       </section>
 
       <MatchWhenSheet v-model="whenOpen" :group-id="group.id" :match="match" @saved="edited" />
       <MatchSettingSheet v-model="settingOpen" :group-id="group.id" :match="match" :section="section" @saved="edited" />
+      <MatchSeriesSheet v-if="match.series" v-model="seriesOpen" :group-id="group.id" :match="match" @ended="seriesEnded" />
       <MatchGuestSheet v-model="guestOpen" :group-id="group.id" :match-id="match.id" @saved="guestSaved" />
     </template>
   </div>

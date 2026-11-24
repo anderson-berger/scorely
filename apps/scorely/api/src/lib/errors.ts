@@ -49,6 +49,9 @@ const CATALOG = {
 
   MATCH_NOT_FOUND: { status: 404, message: 'Match not found in this group' },
   MATCH_LIMIT: { status: 409, message: 'The group has too many upcoming matches' },
+  MATCH_SERIES_NOT_FOUND: { status: 404, message: 'Match series not found' },
+  MATCH_SERIES_LIMIT: { status: 409, message: 'The group has too many active match series' },
+  MATCH_SERIES_ENDED: { status: 409, message: 'The match series has ended' },
   MATCH_NOT_OPEN_FOR_YOU: { status: 409, message: 'The match list is not open for you yet' },
   MATCH_CLOSED: { status: 409, message: 'The match list is closed' },
   MATCH_STARTED: { status: 409, message: 'The match has already started' },

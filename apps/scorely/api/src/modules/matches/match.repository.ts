@@ -1,4 +1,4 @@
-import { GetCommand, PutCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { DeleteCommand, GetCommand, PutCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import {
   COUNTERS_ENTITY,
   dbItem,
@@ -6,19 +6,26 @@ import {
   LOOKUP_ENTITY,
   replaceItem,
   sendVersioned,
+  setCreatedAtIfNew,
   stripKeys,
   type TransactItem,
   touch,
   transactWrite,
+  ttlFrom,
   withVersion,
 } from '@scorely/api/src/lib/db';
 import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
 import type { GroupId, UserId } from '@scorely/api/src/lib/ids';
 import {
+  MATCH_AGENDA_CURSOR_KEY,
   MATCH_ATTENDANCE_ENTITY,
   MATCH_ENTITY,
   MATCH_GUEST_ENTITY,
   MATCH_PREFIX,
+  MATCH_SERIES_ENTITY,
+  MATCH_SERIES_PREFIX,
+  matchAgendaKey,
+  matchAgendaPk,
   matchAttendanceKey,
   matchAttendancePrefix,
   matchGuestKey,
@@ -26,8 +33,10 @@ import {
   matchGuestPrefix,
   matchGuestsCounterKey,
   matchKey,
+  matchSeriesKey,
+  ROUTINE_ENTITY,
 } from '@scorely/api/src/modules/matches/match.table';
-import type { AdvanceMatchWave, AttendanceStatus, MatchWave } from '@scorely/contracts';
+import type { AdvanceMatchWave, AttendanceStatus, MatchWave, PublicGroupId } from '@scorely/contracts';
 
 /** A partida como fica no banco (PAR-01, seção 3 do doc). Interna da api. */
 export interface StoredMatch {
@@ -50,8 +59,52 @@ export interface StoredMatch {
   closeHours: number;
   /** A maior onda já aberta à mão ou guardada por uma edição (PAR-05, 06): a onda nunca volta. */
   advancedTo?: MatchWave | undefined;
+  /** A maior onda já avisada (PAR-24); ausente = nenhuma. */
+  notifiedWave?: MatchWave | undefined;
+  /** A repetição de onde a partida saiu e o dia previsto dela, no fuso da repetição (PAR-21). */
+  seriesId?: string | undefined;
+  seriesDate?: string | undefined;
   cancelledAt?: string | undefined;
   createdBy: UserId;
+}
+
+/** A repetição (PAR-20), `GROUP#<g> / MATCHSERIES#<seriesId>`. */
+export interface StoredSeries {
+  id: string;
+  groupId: GroupId;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+  /** 1 a 7, de segunda a domingo. */
+  weekday: number;
+  /** `HH:mm`, no fuso. */
+  time: string;
+  durationMinutes: number;
+  timeZone: string;
+  teams?: number | undefined;
+  playersPerTeam?: number | undefined;
+  membersHours?: number | undefined;
+  reservesHours?: number | undefined;
+  guestsHours?: number | undefined;
+  noGuests: boolean;
+  closeHours: number;
+  /** A próxima partida e o dia previsto dela (PAR-21). */
+  currentMatchId: string;
+  currentDate: string;
+  endedAt?: string | undefined;
+  createdBy: UserId;
+}
+
+/**
+ * Um item da agenda (PAR-21, 24): "olhe esta partida neste instante". Leva o id público e o nome do grupo para a
+ * rotina montar o aviso sem ler o grupo (o nome não muda, GRV-01).
+ */
+export interface AgendaEntry {
+  at: string;
+  groupId: GroupId;
+  matchId: string;
+  publicId: PublicGroupId;
+  groupName: string;
 }
 
 /** A resposta (PAR-08), `GROUP#<g> / MATCHATT#<matchId>#<userId>`. Entidade de relação. */
@@ -91,7 +144,11 @@ export type GuestTransition = 'approve' | 'decline' | 'cancel' | 'remove';
 export type RequestGuestResult = 'ok' | 'duplicate' | 'limit';
 
 export interface MatchRepository {
-  createMatch(match: StoredMatch): Promise<void>;
+  /** PAR-01, 20: a partida e, juntos, a repetição dela e os itens da agenda. */
+  createMatch(
+    match: StoredMatch,
+    extras?: { series?: StoredSeries; agenda?: readonly AgendaEntry[] },
+  ): Promise<void>;
   getMatch(
     groupId: GroupId,
     matchId: string,
@@ -99,12 +156,59 @@ export interface MatchRepository {
   ): Promise<StoredMatch | undefined>;
   /** PAR-15: as que não terminaram (`endsAt` depois de `endsAfter`). */
   listMatches(groupId: GroupId, endsAfter: Date): Promise<StoredMatch[]>;
-  /** PAR-06: grava a partida inteira se a `version` for a esperada; senão `VERSION_CONFLICT`. */
-  updateMatch(match: StoredMatch, expectedVersion: number, at: Date): Promise<StoredMatch>;
+  /**
+   * PAR-06: grava a partida inteira se a `version` for a esperada; senão `VERSION_CONFLICT`. O `notifiedWave` fica
+   * como está no banco, a não ser com `resetNotified` (a primeira configuração da abertura, PAR-24).
+   */
+  updateMatch(
+    match: StoredMatch,
+    expectedVersion: number,
+    at: Date,
+    opts?: { resetNotified?: boolean },
+  ): Promise<StoredMatch>;
   /** PAR-05: `false` = já estava nessa onda ou numa maior (a onda nunca volta). */
   advanceMatch(groupId: GroupId, matchId: string, wave: AdvanceMatchWave, at: Date): Promise<boolean>;
   /** PAR-07: `false` = já cancelada. */
   cancelMatch(groupId: GroupId, matchId: string, at: Date): Promise<boolean>;
+  /**
+   * PAR-24: grava `notifiedWave = to` se ele ainda é `from`; `false` = outro já gravou (e avisou). Não soma a
+   * `version`: é controle interno, e quem tem a partida aberta não mudou nada.
+   */
+  markNotified(
+    groupId: GroupId,
+    matchId: string,
+    from: MatchWave | undefined,
+    to: MatchWave,
+  ): Promise<boolean>;
+  getSeries(
+    groupId: GroupId,
+    seriesId: string,
+    opts?: { consistent?: boolean },
+  ): Promise<StoredSeries | undefined>;
+  /** PAR-20, 21: as repetições do grupo, encerradas incluídas. */
+  listSeries(groupId: GroupId): Promise<StoredSeries[]>;
+  /** PAR-22: grava a repetição inteira se a `version` for a esperada; senão `VERSION_CONFLICT`. */
+  updateSeries(series: StoredSeries, expectedVersion: number, at: Date): Promise<StoredSeries>;
+  /** PAR-23: `false` = já encerrada. */
+  endSeries(groupId: GroupId, seriesId: string, at: Date): Promise<boolean>;
+  /**
+   * PAR-21: numa transação, a partida nova, a agenda dela e a repetição apontando para ela, se a repetição ainda
+   * aponta para `previousMatchId` e não foi encerrada. `false` = outro já criou (ou encerrou).
+   */
+  createNextMatch(input: {
+    match: StoredMatch;
+    previousMatchId: string;
+    agenda: readonly AgendaEntry[];
+    at: Date;
+  }): Promise<boolean>;
+  /** PAR-21, 24: grava itens da agenda (um repetido só se regrava); `at` é o `createdAt` deles. */
+  putAgenda(entries: readonly AgendaEntry[], at: Date): Promise<void>;
+  /** Os itens com instante até `to`, das partições da hora de `from` à de `to` (UTC). */
+  listAgenda(from: Date, to: Date): Promise<AgendaEntry[]>;
+  deleteAgenda(entry: AgendaEntry): Promise<void>;
+  /** Até onde a rotina já leu a agenda. */
+  getAgendaCursor(): Promise<string | undefined>;
+  setAgendaCursor(at: Date): Promise<void>;
   listAttendances(
     groupId: GroupId,
     matchId: string,
@@ -193,15 +297,95 @@ const MATCH_OPTIONAL = [
   'cancelledAt',
 ] as const;
 
+/** Os campos que a edição da repetição pode deixar ausentes (PAR-22). */
+const SERIES_OPTIONAL = ['teams', 'playersPerTeam', 'membersHours', 'reservesHours', 'guestsHours'] as const;
+
+const HOUR_MS = 3_600_000;
+/** PAR-21, 24: o item da agenda some sozinho 7 dias depois do instante, se a rotina não apagou (ADR 0004). */
+const AGENDA_TTL_MS = 7 * 24 * HOUR_MS;
+
+/** `createdAt`: quando o item foi gravado (o da partida, na mesma transação), não o instante dele. */
+function agendaPut(entry: AgendaEntry, createdAt: string) {
+  return {
+    TableName: tableName(),
+    Item: {
+      ...dbItem(matchAgendaKey(entry.at, entry.groupId, entry.matchId), LOOKUP_ENTITY, entry, createdAt),
+      ttl: ttlFrom(new Date(Date.parse(entry.at) + AGENDA_TTL_MS)),
+    },
+  };
+}
+
+function agendaUpsert(entry: AgendaEntry, at: Date) {
+  const created = setCreatedAtIfNew(at);
+  const fields: Record<string, unknown> = {
+    ...entry,
+    entity: LOOKUP_ENTITY,
+    ttl: ttlFrom(new Date(Date.parse(entry.at) + AGENDA_TTL_MS)),
+  };
+  const names = Object.keys(fields);
+  return {
+    TableName: tableName(),
+    Key: matchAgendaKey(entry.at, entry.groupId, entry.matchId),
+    UpdateExpression: `SET ${[...names.map((name) => `#${name} = :${name}`), created.expression].join(', ')}`,
+    ExpressionAttributeNames: Object.fromEntries(names.map((name) => [`#${name}`, name])),
+    ExpressionAttributeValues: {
+      ...Object.fromEntries(names.map((name) => [`:${name}`, fields[name]])),
+      ...created.values,
+    },
+  };
+}
+
+const seriesPut = (series: StoredSeries) => ({
+  TableName: tableName(),
+  Item: dbItem(matchSeriesKey(series.groupId, series.id), MATCH_SERIES_ENTITY, series),
+  ConditionExpression: 'attribute_not_exists(PK)',
+});
+
+const matchPut = (match: StoredMatch) => ({
+  TableName: tableName(),
+  Item: dbItem(matchKey(match.groupId, match.id), MATCH_ENTITY, match),
+  ConditionExpression: 'attribute_not_exists(PK)',
+});
+
+/** As horas (`AAAA-MM-DDTHH`, UTC) de `from` até `to`. */
+function hoursBetween(from: Date, to: Date): string[] {
+  const first = Math.floor(from.getTime() / HOUR_MS);
+  const last = Math.floor(to.getTime() / HOUR_MS);
+  return last < first
+    ? []
+    : Array.from({ length: last - first + 1 }, (_, i) => new Date((first + i) * HOUR_MS).toISOString());
+}
+
+/** Os itens de uma partição da agenda com instante até `to`. */
+async function agendaHour(
+  hour: string,
+  to: string,
+  startKey?: Record<string, unknown>,
+): Promise<Record<string, unknown>[]> {
+  const { Items = [], LastEvaluatedKey } = await dynamo().send(
+    new QueryCommand({
+      TableName: tableName(),
+      KeyConditionExpression: 'PK = :pk AND SK <= :to',
+      ExpressionAttributeValues: { ':pk': matchAgendaPk(hour), ':to': `${to}#~` },
+      ...(startKey && { ExclusiveStartKey: startKey }),
+    }),
+  );
+  return LastEvaluatedKey ? [...Items, ...(await agendaHour(hour, to, LastEvaluatedKey))] : Items;
+}
+
 export const dynamoMatchRepository: MatchRepository = {
-  async createMatch(match) {
-    await dynamo().send(
-      new PutCommand({
-        TableName: tableName(),
-        Item: dbItem(matchKey(match.groupId, match.id), MATCH_ENTITY, match),
-        ConditionExpression: 'attribute_not_exists(PK)',
-      }),
-    );
+  async createMatch(match, extras = {}) {
+    const agenda = extras.agenda ?? [];
+    if (extras.series === undefined && agenda.length === 0) {
+      await dynamo().send(new PutCommand(matchPut(match)));
+      return;
+    }
+    const result = await transactWrite([
+      { Put: matchPut(match) },
+      ...(extras.series ? [{ Put: seriesPut(extras.series) }] : []),
+      ...agenda.map((entry) => ({ Put: agendaPut(entry, match.createdAt) })),
+    ]);
+    if (!result.ok) throw new Error('Match create failed');
   },
 
   async getMatch(groupId, matchId, opts) {
@@ -214,10 +398,15 @@ export const dynamoMatchRepository: MatchRepository = {
     return rows.map((row) => stripKeys<StoredMatch>(row));
   },
 
-  async updateMatch(match, expectedVersion, at) {
+  async updateMatch(match, expectedVersion, at, opts = {}) {
     const key = matchKey(match.groupId, match.id);
-    const { version: _v, updatedAt: _u, ...data } = match;
-    const update = replaceItem(key, MATCH_ENTITY, { ...data, updatedAt: at.toISOString() }, MATCH_OPTIONAL);
+    const { version: _v, updatedAt: _u, notifiedWave, ...data } = match;
+    const update = opts.resetNotified
+      ? replaceItem(key, MATCH_ENTITY, { ...data, notifiedWave, updatedAt: at.toISOString() }, [
+          ...MATCH_OPTIONAL,
+          'notifiedWave',
+        ])
+      : replaceItem(key, MATCH_ENTITY, { ...data, updatedAt: at.toISOString() }, MATCH_OPTIONAL);
     const result = await sendVersioned(key, () =>
       dynamo().send(
         new UpdateCommand({
@@ -282,6 +471,153 @@ export const dynamoMatchRepository: MatchRepository = {
       if (isConditionFailed(err)) return false;
       throw err;
     }
+  },
+
+  async markNotified(groupId, matchId, from, to) {
+    try {
+      await dynamo().send(
+        new UpdateCommand({
+          TableName: tableName(),
+          Key: matchKey(groupId, matchId),
+          UpdateExpression: 'SET notifiedWave = :to',
+          ConditionExpression:
+            from === undefined
+              ? 'attribute_exists(PK) AND attribute_not_exists(notifiedWave)'
+              : 'attribute_exists(PK) AND notifiedWave = :from',
+          ExpressionAttributeValues: { ':to': to, ...(from !== undefined && { ':from': from }) },
+        }),
+      );
+      return true;
+    } catch (err) {
+      if (isConditionFailed(err)) return false;
+      throw err;
+    }
+  },
+
+  async getSeries(groupId, seriesId, opts) {
+    const item = await getItem(matchSeriesKey(groupId, seriesId), opts?.consistent);
+    return item ? stripKeys<StoredSeries>(item) : undefined;
+  },
+
+  async listSeries(groupId) {
+    const rows = await queryByPrefix(groupPk(groupId), MATCH_SERIES_PREFIX);
+    return rows.map((row) => stripKeys<StoredSeries>(row));
+  },
+
+  async updateSeries(series, expectedVersion, at) {
+    const key = matchSeriesKey(series.groupId, series.id);
+    const { version: _v, updatedAt: _u, ...data } = series;
+    const update = replaceItem(
+      key,
+      MATCH_SERIES_ENTITY,
+      { ...data, updatedAt: at.toISOString() },
+      SERIES_OPTIONAL,
+    );
+    const result = await sendVersioned(key, () =>
+      dynamo().send(
+        new UpdateCommand({
+          TableName: tableName(),
+          ...withVersion({ ...update, ConditionExpression: 'attribute_exists(PK)' }, expectedVersion),
+          ReturnValues: 'ALL_NEW',
+        }),
+      ),
+    );
+    return stripKeys<StoredSeries>(result.Attributes ?? {});
+  },
+
+  async endSeries(groupId, seriesId, at) {
+    try {
+      await dynamo().send(
+        new UpdateCommand({
+          TableName: tableName(),
+          ...touch(
+            {
+              Key: matchSeriesKey(groupId, seriesId),
+              UpdateExpression: 'SET endedAt = :at',
+              ConditionExpression: 'attribute_exists(PK) AND attribute_not_exists(endedAt)',
+              ExpressionAttributeValues: { ':at': at.toISOString() },
+            },
+            at,
+          ),
+        }),
+      );
+      return true;
+    } catch (err) {
+      if (isConditionFailed(err)) return false;
+      throw err;
+    }
+  },
+
+  async createNextMatch({ match, previousMatchId, agenda, at }) {
+    if (match.seriesId === undefined || match.seriesDate === undefined)
+      throw new Error('Next match without a series');
+    const result = await transactWrite([
+      {
+        Update: {
+          TableName: tableName(),
+          ...touch(
+            {
+              Key: matchSeriesKey(match.groupId, match.seriesId),
+              UpdateExpression: 'SET currentMatchId = :next, currentDate = :date',
+              ConditionExpression:
+                'attribute_exists(PK) AND currentMatchId = :previous AND attribute_not_exists(endedAt)',
+              ExpressionAttributeValues: {
+                ':next': match.id,
+                ':date': match.seriesDate,
+                ':previous': previousMatchId,
+              },
+            },
+            at,
+          ),
+        },
+      },
+      { Put: matchPut(match) },
+      ...agenda.map((entry) => ({ Put: agendaPut(entry, match.createdAt) })),
+    ]);
+    if (result.ok) return true;
+    if (result.failed.includes(0)) return false;
+    throw new Error('Next match create failed');
+  },
+
+  /** Regrava o item da agenda (a edição da partida) sem perder o `createdAt` de quando ele nasceu. */
+  async putAgenda(entries, at) {
+    await Promise.all(entries.map((entry) => dynamo().send(new UpdateCommand(agendaUpsert(entry, at)))));
+  },
+
+  async listAgenda(from, to) {
+    const until = to.toISOString();
+    const pages = await Promise.all(hoursBetween(from, to).map((hour) => agendaHour(hour, until)));
+    return pages
+      .flat()
+      .map((row) => stripKeys<AgendaEntry & { createdAt?: string }>(row))
+      .filter((entry) => entry.at <= until)
+      .map(({ createdAt: _c, ...entry }) => entry);
+  },
+
+  async deleteAgenda(entry) {
+    await dynamo().send(
+      new DeleteCommand({
+        TableName: tableName(),
+        Key: matchAgendaKey(entry.at, entry.groupId, entry.matchId),
+      }),
+    );
+  },
+
+  async getAgendaCursor() {
+    const item = await getItem(MATCH_AGENDA_CURSOR_KEY, true);
+    return item?.lastRunAt as string | undefined;
+  },
+
+  async setAgendaCursor(at) {
+    await dynamo().send(
+      new UpdateCommand({
+        TableName: tableName(),
+        Key: MATCH_AGENDA_CURSOR_KEY,
+        UpdateExpression: 'SET #entity = :entity, lastRunAt = :at, createdAt = if_not_exists(createdAt, :at)',
+        ExpressionAttributeNames: { '#entity': 'entity' },
+        ExpressionAttributeValues: { ':entity': ROUTINE_ENTITY, ':at': at.toISOString() },
+      }),
+    );
   },
 
   async listAttendances(groupId, matchId, opts) {

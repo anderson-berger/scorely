@@ -6,12 +6,14 @@ import { formatDateTime } from '@scorely/web/src/lib/datetime';
 import { can } from '@scorely/web/src/modules/groups/nav';
 import MatchWhenSheet from '@scorely/web/src/modules/matches/components/MatchWhenSheet.vue';
 import { slotsOf } from '@scorely/web/src/modules/matches/match.settings';
+import { everyLabel } from '@scorely/web/src/modules/matches/match.summary';
 import { matchesApi } from '@scorely/web/src/modules/matches/matches.api';
 import { defineComponent, type PropType } from 'vue';
 
 /**
  * PAR-17: a área Partidas. As próximas partidas em cartões (dia e hora, "10 de 12" e a resposta de quem vê);
- * quem tem `matches.manage` vê Criar partida, que abre o painel de baixo.
+ * quem tem `matches.manage` vê Criar partida, que abre o painel de baixo. A partida de uma repetição ativa tem a
+ * marca "Toda sexta".
  */
 export default defineComponent({
   name: 'MatchListPage',
@@ -54,6 +56,10 @@ export default defineComponent({
         day: formatDateTime(iso, 'dayMonth'),
         time: formatDateTime(iso, 'time'),
       });
+    },
+
+    every(weekday: number): string {
+      return everyLabel(weekday);
     },
 
     count(m: MatchSummary): string {
@@ -115,7 +121,10 @@ export default defineComponent({
             </StatusChip>
           </span>
           <span class="bottom">
-            <span class="sc-number">{{ count(m) }}</span>
+            <span class="count">
+              <span class="sc-number">{{ count(m) }}</span>
+              <q-badge v-if="m.seriesWeekday" color="grey" :label="every(m.seriesWeekday)" />
+            </span>
             <span v-if="m.myAttendance" class="sc-caption mine">{{ $t(`matches.mine.${m.myAttendance}`) }}</span>
           </span>
         </button>
@@ -166,6 +175,12 @@ export default defineComponent({
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
+}
+
+.count {
+  display: flex;
+  align-items: center;
   gap: 8px;
 }
 
