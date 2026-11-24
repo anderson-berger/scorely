@@ -833,13 +833,13 @@ export function createMatchService(deps: MatchesDeps) {
     };
     // PAR-24: a primeira configuração faz a onda que voltou a esperar avisar de novo quando abrir.
     const firstSetup = unconfigured(match) && !unconfigured(next);
+    // PAR-21, 24: a agenda vai na mesma transação da partida (o `agendaFor` só usa o que a edição define).
     const saved = await deps.matches.updateMatch(
       { ...next, notifiedWave: firstSetup ? currentWave(next, at) : match.notifiedWave },
       input.expectedVersion,
       at,
-      { resetNotified: firstSetup },
+      { resetNotified: firstSetup, agenda: agendaFor(next, ctx, at) },
     );
-    await deps.matches.putAgenda(agendaFor(saved, ctx, at), at);
     const after = lineup(saved, before.attendances, before.guests, before.participants);
     await notifyPromoted(ctx, saved, before.list, after);
     await checkListOpen(saved, ctx, at);

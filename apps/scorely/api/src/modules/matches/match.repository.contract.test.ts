@@ -707,6 +707,56 @@ describe.each([
       },
     );
 
+    it('PAR-06, 24: updateMatch com a agenda grava os itens junto com a partida', async () => {
+      const match = newMatch(newGroup());
+      await repo.createMatch(match);
+      const a = agendaOf(match, '2031-03-01T10:20:00.000Z');
+      const b = agendaOf(match, '2031-03-01T10:40:00.000Z');
+      const updated = await repo.updateMatch({ ...match, closeHours: 2 }, 1, at(5), { agenda: [a, b] });
+      expect(updated).toMatchObject({ closeHours: 2, version: 2 });
+      expect(await repo.getMatch(match.groupId, match.id, read)).toEqual(updated);
+      const listed = await repo.listAgenda(
+        new Date('2031-03-01T10:00:00.000Z'),
+        new Date('2031-03-01T10:59:00.000Z'),
+      );
+      expect(listed.filter((e) => e.matchId === match.id)).toEqual([a, b]);
+    });
+
+    it('PAR-06, 24: updateMatch com a version velha e a agenda não grava a partida nem os itens', async () => {
+      const match = newMatch(newGroup());
+      await repo.createMatch(match);
+      await repo.updateMatch({ ...match, closeHours: 1 }, 1, at(1));
+      const entry = agendaOf(match, '2031-04-01T10:20:00.000Z');
+      await expect(
+        repo.updateMatch({ ...match, closeHours: 2 }, 1, at(2), { agenda: [entry] }),
+      ).rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
+      expect((await repo.getMatch(match.groupId, match.id, read))?.closeHours).toBe(1);
+      const listed = await repo.listAgenda(
+        new Date('2031-04-01T10:00:00.000Z'),
+        new Date('2031-04-01T10:59:00.000Z'),
+      );
+      expect(listed.filter((e) => e.matchId === match.id)).toEqual([]);
+    });
+
+    it.runIf(dynamo)(
+      'PAR-06, 24: regravar o item pela edição mantém o createdAt da primeira gravação',
+      async () => {
+        const match = newMatch(newGroup());
+        await repo.createMatch(match);
+        const entry = agendaOf(match, '2031-05-01T10:20:00.000Z');
+        await repo.updateMatch({ ...match, closeHours: 1 }, 1, at(1), { agenda: [entry] });
+        await repo.updateMatch({ ...match, closeHours: 2 }, 2, at(30), { agenda: [entry] });
+        const { Item } = await dynamoClient().send(
+          new GetCommand({
+            TableName: tableName(),
+            Key: matchAgendaKey(entry.at, match.groupId, match.id),
+            ConsistentRead: true,
+          }),
+        );
+        expect(Item?.createdAt).toBe(at(1).toISOString());
+      },
+    );
+
     it('PAR-21, 24: o cursor da rotina guarda a última leitura', async () => {
       await repo.setAgendaCursor(at(5));
       expect(await repo.getAgendaCursor()).toBe(at(5).toISOString());

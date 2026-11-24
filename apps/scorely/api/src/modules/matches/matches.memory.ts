@@ -63,6 +63,7 @@ export function memoryMatches() {
         version: current.version + 1,
       };
       matches.set(k, next);
+      await repo.putAgenda(opts.agenda ?? [], at);
       return copy(next);
     },
     async advanceMatch(groupId, matchId, wave, openedAt, at) {

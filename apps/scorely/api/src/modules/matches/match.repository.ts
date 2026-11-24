@@ -1,6 +1,7 @@
 import { DeleteCommand, GetCommand, PutCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import {
   COUNTERS_ENTITY,
+  currentVersion,
   dbItem,
   isConditionFailed,
   LOOKUP_ENTITY,
@@ -12,6 +13,7 @@ import {
   touch,
   transactWrite,
   ttlFrom,
+  versionConflict,
   withVersion,
 } from '@scorely/api/src/lib/db';
 import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
@@ -189,13 +191,14 @@ export interface MatchRepository {
   listMatches(groupId: GroupId, endsAfter: Date): Promise<StoredMatch[]>;
   /**
    * PAR-06: grava a partida inteira se a `version` for a esperada; senão `VERSION_CONFLICT`. O `notifiedWave` fica
-   * como está no banco, a não ser com `resetNotified` (a primeira configuração da abertura, PAR-24).
+   * como está no banco, a não ser com `resetNotified` (a primeira configuração da abertura, PAR-24). Com `agenda`, os
+   * itens da agenda vão na mesma transação (PAR-21, 24): conflito não grava nada; regravar mantém o `createdAt`.
    */
   updateMatch(
     match: StoredMatch,
     expectedVersion: number,
     at: Date,
-    opts?: { resetNotified?: boolean },
+    opts?: { resetNotified?: boolean; agenda?: readonly AgendaEntry[] },
   ): Promise<StoredMatch>;
   /**
    * PAR-05, 16: grava a onda aberta e, junto, o `openedAt` inteiro. `false` = já estava nessa onda ou numa maior (a
@@ -465,6 +468,25 @@ export const dynamoMatchRepository: MatchRepository = {
           'notifiedWave',
         ])
       : replaceItem(key, MATCH_ENTITY, { ...data, updatedAt: at.toISOString() }, MATCH_OPTIONAL);
+    const agenda = opts.agenda ?? [];
+    if (agenda.length > 0) {
+      const tx = await transactWrite([
+        {
+          Update: {
+            TableName: tableName(),
+            ...withVersion({ ...update, ConditionExpression: 'attribute_exists(PK)' }, expectedVersion),
+          },
+        },
+        ...agenda.map((entry) => ({ Update: agendaUpsert(entry, at) })),
+      ]);
+      if (!tx.ok) {
+        if (tx.failed.includes(0)) throw await versionConflict(() => currentVersion(key));
+        throw new Error('Match update failed');
+      }
+      const saved = await getItem(key, true);
+      if (!saved) throw new Error('Match update failed');
+      return stripKeys<StoredMatch>(saved);
+    }
     const result = await sendVersioned(key, () =>
       dynamo().send(
         new UpdateCommand({
@@ -638,7 +660,7 @@ export const dynamoMatchRepository: MatchRepository = {
     throw new Error('Next match create failed');
   },
 
-  /** Regrava o item da agenda (a edição da partida) sem perder o `createdAt` de quando ele nasceu. */
+  /** Regrava o item da agenda sem perder o `createdAt` de quando ele nasceu (a edição usa o mesmo upsert na transação). */
   async putAgenda(entries, at) {
     await Promise.all(entries.map((entry) => dynamo().send(new UpdateCommand(agendaUpsert(entry, at)))));
   },

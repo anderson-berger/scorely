@@ -18,7 +18,7 @@ const T0 = '2026-11-23T10:00:00.000Z';
 const iso = (base: string, hours: number) => new Date(Date.parse(base) + hours * HOUR).toISOString();
 const link = (matchId: string) => `/groups/${PUBLIC_ID}/matches/${matchId}`;
 
-function setup() {
+function setup(repo?: ReturnType<typeof memoryMatches>['repo']) {
   const clock = { now: new Date(T0) };
   const sent: { userId: UserId; link?: string | undefined }[] = [];
   const failing = { link: '', matchId: '' };
@@ -57,7 +57,7 @@ function setup() {
       sent.push({ userId, link: n.link });
     },
   };
-  const base = memoryMatches().repo;
+  const base = repo ?? memoryMatches().repo;
   const matches: typeof base = {
     ...base,
     getMatch: async (groupId, matchId, read) => {
@@ -125,5 +125,59 @@ describe('PAR-21, 24: a rotina trata cada item da agenda sozinho', () => {
     t.clock.now = new Date('2026-11-25T00:30:00.000Z');
     await t.service.runAgenda();
     expect(t.sent.filter((n) => n.link === link(a.id))).toEqual([]);
+  });
+});
+
+describe('PAR-06, 24: a edição grava a agenda na mesma gravação da partida', () => {
+  const build = () => {
+    const base = memoryMatches().repo;
+    const calls = { agenda: [] as { at: string }[][], putAgenda: 0, failUpdate: false };
+    const matches: typeof base = {
+      ...base,
+      updateMatch: async (match, expectedVersion, at, opts) => {
+        if (calls.failUpdate) throw new Error('write failed');
+        calls.agenda.push([...(opts?.agenda ?? [])]);
+        return base.updateMatch(match, expectedVersion, at, opts);
+      },
+      putAgenda: async (entries, at) => {
+        calls.putAgenda += 1;
+        return base.putAgenda(entries, at);
+      },
+    };
+    return { base, matches, calls };
+  };
+  const startsAt = '2026-11-27T22:00:00.000Z';
+  const settings = (expectedVersion: number) => ({
+    startsAt,
+    endsAt: iso(startsAt, 2),
+    membersHours: 72,
+    reservesHours: 24,
+    guestsHours: 6,
+    noGuests: false,
+    closeHours: 0,
+    expectedVersion,
+  });
+
+  it('PAR-06, 24: a edição passa ao repositório os itens de cada onda configurada e não chama putAgenda', async () => {
+    const { matches, calls } = build();
+    const t = setup(matches);
+    await configured(t, startsAt);
+    const last = calls.agenda.at(-1) ?? [];
+    expect(last.map((e) => e.at).sort()).toEqual(
+      [iso(startsAt, -72), iso(startsAt, -24), iso(startsAt, -6)].sort(),
+    );
+    expect(calls.putAgenda).toBe(0);
+  });
+
+  it('PAR-06, 24: a gravação que falha não deixa a partida nem a agenda salvas', async () => {
+    const { base, matches, calls } = build();
+    const t = setup(matches);
+    const first = await t.service.create(ANA, PUBLIC_ID, { startsAt, endsAt: iso(startsAt, 2) });
+    calls.failUpdate = true;
+    await expect(t.service.update(ANA, PUBLIC_ID, first.id, settings(first.version))).rejects.toThrow();
+    const stored = await base.getMatch(GROUP_ID, first.id, { consistent: true });
+    expect(stored?.version).toBe(first.version);
+    const listed = await base.listAgenda(new Date(iso(startsAt, -100)), new Date(iso(startsAt, 0)));
+    expect(listed.filter((e) => e.matchId === first.id)).toEqual([]);
   });
 });
