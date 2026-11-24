@@ -974,7 +974,9 @@ export function createMatchService(deps: MatchesDeps) {
 
   /**
    * A rotina `matchesAgenda` (PAR-21, 24): lê a agenda da hora do `lastRunAt` até agora (no máximo 48 h), trata cada
-   * item com instante até agora e o apaga. Tratar relê a partida e decide pela verdade dela.
+   * item com instante até agora e o apaga. Tratar relê a partida e decide pela verdade dela. Um item que falha é
+   * logado e fica na agenda, sem travar os outros: o cursor para no primeiro que falhou, e a próxima execução
+   * tenta de novo (até 48 h).
    */
   async function runAgenda(): Promise<void> {
     const at = now();
@@ -982,11 +984,32 @@ export function createMatchService(deps: MatchesDeps) {
     const floor = at.getTime() - AGENDA_LOOKBACK_MS;
     const from = new Date(Math.max(cursor === undefined ? floor : Date.parse(cursor), floor));
     const entries = await deps.matches.listAgenda(from, at);
+    const failed: string[] = [];
     for (const entry of entries) {
+      const ok = await runAgendaEntry(entry, at);
+      if (!ok) failed.push(entry.at);
+    }
+    const firstFailed = failed.sort()[0];
+    await deps.matches.setAgendaCursor(firstFailed === undefined ? at : new Date(firstFailed));
+  }
+
+  async function runAgendaEntry(entry: AgendaEntry, at: Date): Promise<boolean> {
+    try {
       await handleAgenda(entry, at);
       await deps.matches.deleteAgenda(entry);
+      return true;
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          message: 'Agenda entry failed',
+          groupId: entry.groupId,
+          matchId: entry.matchId,
+          at: entry.at,
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      );
+      return false;
     }
-    await deps.matches.setAgendaCursor(at);
   }
 
   async function handleAgenda(entry: AgendaEntry, at: Date): Promise<void> {

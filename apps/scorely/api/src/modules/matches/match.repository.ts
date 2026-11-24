@@ -6,6 +6,7 @@ import {
   LOOKUP_ENTITY,
   replaceItem,
   sendVersioned,
+  setCreatedAtIfNew,
   stripKeys,
   type TransactItem,
   touch,
@@ -314,6 +315,26 @@ function agendaPut(entry: AgendaEntry, createdAt: string) {
   };
 }
 
+function agendaUpsert(entry: AgendaEntry, at: Date) {
+  const created = setCreatedAtIfNew(at);
+  const fields: Record<string, unknown> = {
+    ...entry,
+    entity: LOOKUP_ENTITY,
+    ttl: ttlFrom(new Date(Date.parse(entry.at) + AGENDA_TTL_MS)),
+  };
+  const names = Object.keys(fields);
+  return {
+    TableName: tableName(),
+    Key: matchAgendaKey(entry.at, entry.groupId, entry.matchId),
+    UpdateExpression: `SET ${[...names.map((name) => `#${name} = :${name}`), created.expression].join(', ')}`,
+    ExpressionAttributeNames: Object.fromEntries(names.map((name) => [`#${name}`, name])),
+    ExpressionAttributeValues: {
+      ...Object.fromEntries(names.map((name) => [`:${name}`, fields[name]])),
+      ...created.values,
+    },
+  };
+}
+
 const seriesPut = (series: StoredSeries) => ({
   TableName: tableName(),
   Item: dbItem(matchSeriesKey(series.groupId, series.id), MATCH_SERIES_ENTITY, series),
@@ -558,9 +579,9 @@ export const dynamoMatchRepository: MatchRepository = {
     throw new Error('Next match create failed');
   },
 
+  /** Regrava o item da agenda (a edição da partida) sem perder o `createdAt` de quando ele nasceu. */
   async putAgenda(entries, at) {
-    const createdAt = at.toISOString();
-    await Promise.all(entries.map((entry) => dynamo().send(new PutCommand(agendaPut(entry, createdAt)))));
+    await Promise.all(entries.map((entry) => dynamo().send(new UpdateCommand(agendaUpsert(entry, at)))));
   },
 
   async listAgenda(from, to) {

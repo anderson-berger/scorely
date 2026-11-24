@@ -16,7 +16,7 @@ export function memoryMatches() {
   const names = new Map<string, string>();
   const counters = new Map<string, number>();
   const series = new Map<string, StoredSeries>();
-  const agenda = new Map<string, AgendaEntry>();
+  const agenda = new Map<string, AgendaEntry & { createdAt: string }>();
   const cursor = { lastRunAt: undefined as string | undefined };
   const key = (...parts: string[]) => parts.join('#');
   const copy = <T extends object>(value: T): T => ({ ...value });
@@ -152,8 +152,11 @@ export function memoryMatches() {
       await repo.putAgenda(entries, at);
       return true;
     },
-    async putAgenda(entries) {
-      for (const entry of entries) agenda.set(key(entry.at, entry.groupId, entry.matchId), copy(entry));
+    async putAgenda(entries, at) {
+      for (const entry of entries) {
+        const k = key(entry.at, entry.groupId, entry.matchId);
+        agenda.set(k, { ...entry, createdAt: agenda.get(k)?.createdAt ?? at.toISOString() });
+      }
     },
     async listAgenda(from, to) {
       const firstHour = from.toISOString().slice(0, 13);
@@ -161,7 +164,7 @@ export function memoryMatches() {
       return [...agenda.values()]
         .filter((e) => e.at.slice(0, 13) >= firstHour && e.at <= until)
         .sort((a, b) => key(a.at, a.groupId, a.matchId).localeCompare(key(b.at, b.groupId, b.matchId)))
-        .map(copy);
+        .map(({ createdAt: _c, ...entry }) => entry);
     },
     async deleteAgenda(entry) {
       agenda.delete(key(entry.at, entry.groupId, entry.matchId));

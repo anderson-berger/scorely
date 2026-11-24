@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { GetCommand } from '@aws-sdk/lib-dynamodb';
+import { dynamo as dynamoClient, tableName } from '@scorely/api/src/lib/dynamo';
 import { asGroupId, asPublicGroupId, asUserId, type GroupId, type UserId } from '@scorely/api/src/lib/ids';
 import {
   dynamoMatchRepository,
@@ -7,6 +9,7 @@ import {
   type StoredMatch,
   type StoredSeries,
 } from '@scorely/api/src/modules/matches/match.repository';
+import { matchAgendaKey } from '@scorely/api/src/modules/matches/match.table';
 import { memoryMatches } from '@scorely/api/src/modules/matches/matches.memory';
 import { beforeAll, describe, expect, inject, it } from 'vitest';
 
@@ -514,6 +517,25 @@ describe.each([
         ),
       ).toEqual([]);
     });
+
+    it.runIf(dynamo)(
+      'PAR-21, 24: regravar o item da agenda mantém o createdAt da primeira gravação',
+      async () => {
+        const match = newMatch(newGroup());
+        await repo.createMatch(match);
+        const entry = agendaOf(match, '2031-02-01T10:20:00.000Z');
+        await repo.putAgenda([entry], at(1));
+        await repo.putAgenda([entry], at(30));
+        const { Item } = await dynamoClient().send(
+          new GetCommand({
+            TableName: tableName(),
+            Key: matchAgendaKey(entry.at, match.groupId, match.id),
+            ConsistentRead: true,
+          }),
+        );
+        expect(Item?.createdAt).toBe(at(1).toISOString());
+      },
+    );
 
     it('PAR-21, 24: o cursor da rotina guarda a última leitura', async () => {
       await repo.setAgendaCursor(at(5));
