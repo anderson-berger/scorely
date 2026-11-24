@@ -11,7 +11,7 @@ Avisar a pessoa, dentro do app, do que aconteceu sem ela estar olhando: por exem
 ## 2. Regras de negócio
 
 - **NTF-01. Os outros módulos avisam por `notify(userId, { type, title, body?, link? })`.** Nenhum outro módulo grava notificação direto no banco.
-- **NTF-02. Tipos que existem hoje:** _(Alterada em 2026-11-14: entraram os 3 da competição. Alterada em 2026-11-19: entrou o `game_rescheduled`. Alterada em 2026-11-21: entrou o `group_invited`, e saíram os do primeiro grupo, dos times e da competição, que saíram do ar, [ADR 0018](../decisions/0018-troca-do-grupo.md). Alterada em 2026-11-22: entraram o `group_join_requested`, o `group_join_approved`, o `group_role_granted` e o `group_transferred`. Alterada em 2026-11-23: entraram os 3 das partidas. Alterada de novo em 2026-11-23: entrou o `match_list_open`.)_
+- **NTF-02. Tipos que existem hoje:** _(Alterada em 2026-11-14: entraram os 3 da competição. Alterada em 2026-11-19: entrou o `game_rescheduled`. Alterada em 2026-11-21: entrou o `group_invited`, e saíram os do primeiro grupo, dos times e da competição, que saíram do ar, [ADR 0018](../decisions/0018-troca-do-grupo.md). Alterada em 2026-11-22: entraram o `group_join_requested`, o `group_join_approved`, o `group_role_granted` e o `group_transferred`. Alterada em 2026-11-23: entraram os 3 das partidas. Alterada de novo em 2026-11-23: entrou o `match_list_open`. Alterada em 2026-11-24: entrou o `match_teams_ready`.)_
 
   | Tipo                    | Quem dispara                                    | Link                                             |
   | ----------------------- | ----------------------------------------------- | ------------------------------------------------ |
@@ -25,6 +25,7 @@ Avisar a pessoa, dentro do app, do que aconteceu sem ela estar olhando: por exem
   | `match_cancelled`       | a partida foi cancelada (PAR-07)                | a partida                                        |
   | `match_guest_requested` | um pedido de convidado (PAR-12)                 | a partida                                        |
   | `match_list_open`       | uma onda da partida abriu (PAR-24)              | a partida                                        |
+  | `match_teams_ready`     | os times da partida saíram (PAR-29)             | a partida                                        |
   - Um tipo novo entra no contrato e ganha um ícone no web (`notification.icons.ts`).
 
 - **NTF-03. O título e o corpo são gravados em pt-BR** já no momento do aviso. O web mostra o texto como está.

@@ -13,4 +13,10 @@ export const matchesGroupRoutes: RouteRecordRaw[] = [
     name: 'group-match',
     component: () => import('@scorely/web/src/modules/matches/pages/MatchPage.vue'),
   },
+  // PAR-30: a tela de dividir, só para quem tem `matches.manage` (a página leva os outros à partida).
+  {
+    path: 'matches/:matchId/teams',
+    name: 'group-match-teams',
+    component: () => import('@scorely/web/src/modules/matches/pages/MatchTeamsPage.vue'),
+  },
 ];

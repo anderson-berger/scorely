@@ -7,12 +7,14 @@ import type {
   MatchEntry,
   MatchGuestRequest,
   MatchSeries,
+  MatchTeamMember,
   MatchWave,
 } from '@scorely/contracts';
 import SettingsRow from '@scorely/web/src/components/SettingsRow.vue';
 import StatusChip from '@scorely/web/src/components/StatusChip.vue';
 import { errorMessage } from '@scorely/web/src/i18n/errors';
 import { currentTimeZone, formatDateTime } from '@scorely/web/src/lib/datetime';
+import { useAuthStore } from '@scorely/web/src/modules/auth/auth.store';
 import { canShare } from '@scorely/web/src/modules/groups/invite-link';
 import MatchGuestSheet from '@scorely/web/src/modules/matches/components/MatchGuestSheet.vue';
 import MatchSeriesSheet from '@scorely/web/src/modules/matches/components/MatchSeriesSheet.vue';
@@ -20,7 +22,7 @@ import MatchSettingSheet, {
   type MatchSettingSection,
 } from '@scorely/web/src/modules/matches/components/MatchSettingSheet.vue';
 import MatchWhenSheet from '@scorely/web/src/modules/matches/components/MatchWhenSheet.vue';
-import { matchMessage } from '@scorely/web/src/modules/matches/match.message';
+import { matchMessage, teamsMessage } from '@scorely/web/src/modules/matches/match.message';
 import { durationLabel, durationOf, slotsOf } from '@scorely/web/src/modules/matches/match.settings';
 import { formatSummary, openingSummary, seriesSummary } from '@scorely/web/src/modules/matches/match.summary';
 import { matchesApi } from '@scorely/web/src/modules/matches/matches.api';
@@ -49,6 +51,10 @@ export default defineComponent({
 
   props: {
     group: { type: Object as PropType<Group>, required: true },
+  },
+
+  setup() {
+    return { auth: useAuthStore() };
   },
 
   data() {
@@ -128,6 +134,16 @@ export default defineComponent({
 
     shareable(): boolean {
       return canShare();
+    },
+
+    /** PAR-18: o time de quem vê ("Seu time"), ou -1. */
+    myTeam(): number {
+      const me = this.auth.user?.id;
+      return (
+        this.match?.lineup?.list.findIndex((team) =>
+          team.some((p) => p.kind === 'player' && p.user.id === me),
+        ) ?? -1
+      );
     },
   },
 
@@ -293,6 +309,39 @@ export default defineComponent({
       }
     },
 
+    memberKey(member: MatchTeamMember): string {
+      return member.kind === 'player' ? member.user.id : member.guestId;
+    },
+
+    memberName(member: MatchTeamMember): string {
+      return member.kind === 'player' ? member.user.nickname : member.name;
+    },
+
+    /** PAR-19: a mensagem dos times, sem quem saiu da lista. */
+    teamsText(): string {
+      if (!this.match) return '';
+      const link = `${window.location.origin}${this.$route.path}`;
+      return teamsMessage(this.match, { groupName: this.group.name, link, timeZone: currentTimeZone() });
+    },
+
+    async copyTeams() {
+      await copyToClipboard(this.teamsText());
+      this.$q.notify({ type: 'positive', message: this.$t('matches.lineup.copied') });
+    },
+
+    async shareTeams() {
+      try {
+        await navigator.share({ text: this.teamsText() });
+      } catch {
+        // a pessoa fechou o compartilhar: nada a fazer
+      }
+    },
+
+    /** PAR-30: a tela de dividir. */
+    splitTeams() {
+      this.$router.push({ name: 'group-match-teams', params: { id: this.group.id, matchId: this.matchId } });
+    },
+
     back() {
       this.$router.replace({ name: 'group-matches', params: { id: this.group.id } });
     },
@@ -351,6 +400,39 @@ export default defineComponent({
           @click="guestOpen = true"
         />
       </div>
+
+      <section v-if="match.lineup" class="lineup">
+        <h2 class="sc-section">{{ $t('matches.lineup.title') }}</h2>
+        <div v-for="(team, t) in match.lineup.list" :key="t" class="sc-card team" :class="{ mine: myTeam === t }">
+          <div class="team-head">
+            <span class="name">{{ $t('matches.lineup.team', { n: t + 1 }) }}</span>
+            <span class="sc-caption">{{ team.filter((m) => !m.left).length }}</span>
+            <q-badge v-if="myTeam === t" color="primary" :label="$t('matches.lineup.mine')" />
+          </div>
+          <ol v-if="team.length > 0" class="list">
+            <li v-for="(p, i) in team" :key="memberKey(p)" class="row" :class="{ gone: p.left }">
+              <span class="sc-number pos">{{ i + 1 }}</span>
+              <span class="name">{{ memberName(p) }}</span>
+              <q-badge v-if="p.kind === 'player' && p.tier === 'reserve'" color="grey" :label="$t('matches.reserve')" />
+              <q-badge v-if="p.kind === 'guest'" color="grey" :label="$t('matches.lineup.guest')" />
+              <span v-if="p.left" class="sc-caption">{{ $t('matches.lineup.left') }}</span>
+            </li>
+          </ol>
+          <div v-else class="sc-caption team-empty">{{ $t('matches.lineup.empty') }}</div>
+        </div>
+        <div v-if="match.lineup.unassigned.length > 0" class="sc-card team">
+          <div class="team-head">
+            <span class="name">{{ $t('matches.lineup.unassigned') }}</span>
+            <span class="sc-caption">{{ match.lineup.unassigned.length }}</span>
+          </div>
+          <ol class="list">
+            <li v-for="(e, i) in match.lineup.unassigned" :key="entryKey(e)" class="row">
+              <span class="sc-number pos">{{ i + 1 }}</span>
+              <span class="name">{{ entryName(e) }}</span>
+            </li>
+          </ol>
+        </div>
+      </section>
 
       <section>
         <h2 class="sc-section">{{ inTitle }}</h2>
@@ -433,6 +515,30 @@ export default defineComponent({
       <div class="tools">
         <q-btn flat no-caps class="sc-btn-outline" icon="content_copy" :label="$t('matches.copy')" @click="copy" />
         <q-btn v-if="shareable" flat no-caps class="sc-btn-outline" icon="share" :label="$t('matches.share')" @click="share" />
+        <template v-if="match.lineup">
+          <q-btn flat no-caps class="sc-btn-outline" icon="content_copy" :label="$t('matches.lineup.copy')" @click="copyTeams" />
+          <q-btn
+            v-if="shareable"
+            flat
+            no-caps
+            class="sc-btn-outline"
+            icon="share"
+            :label="$t('matches.lineup.share')"
+            @click="shareTeams"
+          />
+        </template>
+      </div>
+
+      <div v-if="match.actions.manageTeams" class="tools">
+        <q-btn
+          flat
+          no-caps
+          class="sc-btn-outline"
+          icon="groups"
+          :label="match.lineup ? $t('matches.lineup.change') : $t('matches.lineup.split')"
+          :disable="busy"
+          @click="splitTeams"
+        />
       </div>
 
       <div v-if="match.actions.manage" class="tools">
@@ -543,6 +649,37 @@ export default defineComponent({
 
 .settings {
   overflow: hidden;
+}
+
+.lineup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.team {
+  overflow: hidden;
+}
+
+.team.mine {
+  outline: 2px solid var(--q-primary);
+}
+
+.team-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--sc-line);
+}
+
+.team-empty {
+  padding: 10px 16px;
+}
+
+.gone .name {
+  text-decoration: line-through;
+  opacity: 0.6;
 }
 
 .settings :deep(.settings-row:last-child) {

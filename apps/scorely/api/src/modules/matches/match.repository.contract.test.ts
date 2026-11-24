@@ -8,6 +8,7 @@ import {
   type StoredGuest,
   type StoredMatch,
   type StoredSeries,
+  type StoredTeamPlayer,
 } from '@scorely/api/src/modules/matches/match.repository';
 import { matchAgendaKey } from '@scorely/api/src/modules/matches/match.table';
 import { memoryMatches } from '@scorely/api/src/modules/matches/matches.memory';
@@ -417,6 +418,135 @@ describe.each([
       expect(results.filter(Boolean)).toHaveLength(1);
     });
   });
+  describe('times', () => {
+    const user = (): StoredTeamPlayer => ({ kind: 'user', id: randomUUID() });
+    const guest = (): StoredTeamPlayer => ({ kind: 'guest', id: randomUUID() });
+
+    it('PAR-25: getTeams de partida sem times devolve undefined', async () => {
+      const match = newMatch(newGroup());
+      expect(await repo.getTeams(match.groupId, match.id, read)).toBeUndefined();
+    });
+
+    it('PAR-25, 29: salvar com expectedVersion 0 cria (version 1, quem e quando) e diz que criou', async () => {
+      const match = newMatch(newGroup());
+      const by = newUser();
+      const teams = [[user(), guest()], [user()]];
+      const result = await repo.saveTeams({
+        groupId: match.groupId,
+        matchId: match.id,
+        teams,
+        by,
+        at: at(1),
+        expectedVersion: 0,
+      });
+      expect(result.created).toBe(true);
+      expect(result.teams).toMatchObject({
+        groupId: match.groupId,
+        matchId: match.id,
+        teams,
+        version: 1,
+        createdBy: by,
+        updatedBy: by,
+        createdAt: at(1).toISOString(),
+        updatedAt: at(1).toISOString(),
+      });
+      expect(await repo.getTeams(match.groupId, match.id, read)).toEqual(result.teams);
+    });
+
+    it('PAR-25: criar com 0 de novo responde VERSION_CONFLICT com a version atual e não troca', async () => {
+      const match = newMatch(newGroup());
+      const first = [[user()], [user()]];
+      const base = {
+        groupId: match.groupId,
+        matchId: match.id,
+        by: newUser(),
+        at: at(1),
+        expectedVersion: 0,
+      };
+      await repo.saveTeams({ ...base, teams: first });
+      const err = await repo.saveTeams({ ...base, teams: [[user()], []] }).catch((e: unknown) => e);
+      expect(err).toMatchObject({ code: 'VERSION_CONFLICT', details: { currentVersion: 1 } });
+      expect((await repo.getTeams(match.groupId, match.id, read))?.teams).toEqual(first);
+    });
+
+    it('PAR-25: salvar com a version certa troca a lista inteira, mantém quem criou e não conta como criação', async () => {
+      const match = newMatch(newGroup());
+      const creator = newUser();
+      const editor = newUser();
+      await repo.saveTeams({
+        groupId: match.groupId,
+        matchId: match.id,
+        teams: [[user()], [user()]],
+        by: creator,
+        at: at(1),
+        expectedVersion: 0,
+      });
+      const next = [[user(), user(), user()], [], [guest()]];
+      const result = await repo.saveTeams({
+        groupId: match.groupId,
+        matchId: match.id,
+        teams: next,
+        by: editor,
+        at: at(5),
+        expectedVersion: 1,
+      });
+      expect(result.created).toBe(false);
+      expect(result.teams).toMatchObject({
+        teams: next,
+        version: 2,
+        createdBy: creator,
+        createdAt: at(1).toISOString(),
+        updatedBy: editor,
+        updatedAt: at(5).toISOString(),
+      });
+      expect((await repo.getTeams(match.groupId, match.id, read))?.teams).toEqual(next);
+    });
+
+    it('PAR-25: version velha responde VERSION_CONFLICT e não grava', async () => {
+      const match = newMatch(newGroup());
+      const base = { groupId: match.groupId, matchId: match.id, by: newUser(), at: at(1) };
+      await repo.saveTeams({ ...base, teams: [[user()], []], expectedVersion: 0 });
+      await repo.saveTeams({ ...base, teams: [[], [user()]], expectedVersion: 1 });
+      const err = await repo
+        .saveTeams({ ...base, teams: [[user()], [user()]], expectedVersion: 1 })
+        .catch((e: unknown) => e);
+      expect(err).toMatchObject({ code: 'VERSION_CONFLICT', details: { currentVersion: 2 } });
+      expect((await repo.getTeams(match.groupId, match.id, read))?.version).toBe(2);
+    });
+
+    it('PAR-25: version esperada 3 onde não há times responde VERSION_CONFLICT com 0', async () => {
+      const match = newMatch(newGroup());
+      const err = await repo
+        .saveTeams({
+          groupId: match.groupId,
+          matchId: match.id,
+          teams: [[user()], []],
+          by: newUser(),
+          at: at(1),
+          expectedVersion: 3,
+        })
+        .catch((e: unknown) => e);
+      expect(err).toMatchObject({ code: 'VERSION_CONFLICT', details: { currentVersion: 0 } });
+      expect(await repo.getTeams(match.groupId, match.id, read)).toBeUndefined();
+    });
+
+    it('PAR-29: dois primeiros salvares ao mesmo tempo: um cria, o outro é VERSION_CONFLICT', async () => {
+      const match = newMatch(newGroup());
+      const base = {
+        groupId: match.groupId,
+        matchId: match.id,
+        by: newUser(),
+        at: at(1),
+        expectedVersion: 0,
+      };
+      const results = await Promise.allSettled([
+        repo.saveTeams({ ...base, teams: [[user()], []] }),
+        repo.saveTeams({ ...base, teams: [[], [user()]] }),
+      ]);
+      expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    });
+  });
+
   describe('repetição e agenda', () => {
     it('PAR-20: createMatch com a repetição grava as duas; listSeries devolve as do grupo', async () => {
       const match = newMatch(newGroup());

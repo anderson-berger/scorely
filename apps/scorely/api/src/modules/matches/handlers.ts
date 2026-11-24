@@ -13,6 +13,7 @@ import {
   AdvanceMatchInputSchema,
   CreateMatchInputSchema,
   RequestMatchGuestInputSchema,
+  SaveMatchTeamsInputSchema,
   SetAttendanceInputSchema,
   UpdateMatchInputSchema,
   UpdateMatchSeriesInputSchema,
@@ -108,6 +109,14 @@ export async function declineGuest(event: HttpEvent) {
 export async function removeGuest(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const match = await matches.removeGuest(auth.userId, groupOf(event), matchOf(event), guestOf(event));
+    return match;
+  });
+}
+
+export async function saveMatchTeams(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
+    const input = parseBody(event, SaveMatchTeamsInputSchema);
+    const match = await matches.saveTeams(auth.userId, groupOf(event), matchOf(event), input);
     return match;
   });
 }

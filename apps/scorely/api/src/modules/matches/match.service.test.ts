@@ -1037,13 +1037,14 @@ describe('PAR-16: ver a partida', () => {
       notGoing: true,
       requestGuest: false,
       manage: false,
+      manageTeams: false,
     });
   });
 
   it('PAR-16: na partida limpa, o membro e a reserva podem confirmar e pedir convidado desde a criação', async () => {
     const t = setup();
     const m = await t.service.create(ANA, PUBLIC_ID, { startsAt: START, endsAt: END });
-    const expected = { going: true, notGoing: true, requestGuest: true, manage: false };
+    const expected = { going: true, notGoing: true, requestGuest: true, manage: false, manageTeams: false };
     expect((await get(t, BIA, m.id)).actions).toEqual(expected);
     expect((await get(t, DUDA, m.id)).actions).toEqual(expected);
   });
@@ -1085,7 +1086,7 @@ describe('PAR-16: ver a partida', () => {
     expect((await get(t, CAIO, m.id)).actions).toMatchObject({ going: false, requestGuest: false });
   });
 
-  it('PAR-16: depois do início, nenhuma ação, nem a de gestão', async () => {
+  it('PAR-16, PAR-25: depois do início, nenhuma ação nem a de gestão; os times ainda se mudam', async () => {
     const t = setup();
     const m = await create(t);
     t.at(START);
@@ -1094,6 +1095,7 @@ describe('PAR-16: ver a partida', () => {
       notGoing: false,
       requestGuest: false,
       manage: false,
+      manageTeams: true,
     });
   });
 

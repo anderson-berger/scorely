@@ -12,6 +12,8 @@ import type {
   StoredGuest,
   StoredMatch,
   StoredSeries,
+  StoredTeamPlayer,
+  StoredTeams,
 } from '@scorely/api/src/modules/matches/match.repository';
 import { type MediaService, mediaService } from '@scorely/api/src/modules/media/media.service';
 import type { NotificationService } from '@scorely/api/src/modules/notifications/notification.service';
@@ -28,14 +30,18 @@ import {
   type Match,
   type MatchEntry,
   type MatchGuestStatus,
+  type MatchLineup,
   type MatchSeries,
   type MatchStatus,
   type MatchSummary,
+  type MatchTeamMember,
   type MatchWave,
   type MatchWaves,
   type MyAttendance,
   type PublicGroupId,
   type RequestMatchGuestInput,
+  type SaveMatchTeamsInput,
+  SaveMatchTeamsInputSchema,
   type SetAttendanceInput,
   TimeZoneSchema,
   type UpdateMatchInput,
@@ -48,7 +54,7 @@ export interface MatchesDeps {
   /** Participação, tier e permissão (GRV-15, 17): o grupo não sabe nada das partidas. */
   groups: GroupAccess;
   users: Pick<UserDirectory, 'getMany'>;
-  /** Os avisos `match_promoted` (PAR-09), `match_cancelled` (PAR-07), `match_guest_requested` (PAR-12) e `match_list_open` (PAR-24). */
+  /** Os avisos `match_promoted` (PAR-09), `match_cancelled` (PAR-07), `match_guest_requested` (PAR-12), `match_list_open` (PAR-24) e `match_teams_ready` (PAR-29). */
   notifications: { notify(...args: Parameters<NotificationService['notify']>): Promise<unknown> };
   /** MID-12: só o `urlOf` da mídia. Sem ele, a mídia de produção. */
   media?: Pick<MediaService, 'urlOf'>;
@@ -201,6 +207,16 @@ function myAttendanceOf(list: Lineup, userId: UserId): MyAttendance | undefined 
   return undefined;
 }
 
+/** PAR-27: de quem os times salvos precisam do perfil: quem tem conta e quem trouxe cada convidado. */
+function teamPeople(saved: StoredTeams | undefined, guests: readonly StoredGuest[]): UserId[] {
+  const byId = new Map(guests.map((g) => [g.id, g]));
+  return (saved?.teams.flat() ?? []).flatMap((p) => {
+    if (p.kind === 'user') return [p.id as UserId];
+    const guest = byId.get(p.id);
+    return guest ? [guest.requestedBy] : [];
+  });
+}
+
 type Access = Awaited<ReturnType<GroupAccess['access']>>;
 
 /** O que o aviso precisa do grupo: o id público (o link) e o nome. A rotina tira da agenda; a requisição, do acesso. */
@@ -339,11 +355,12 @@ export function createMatchService(deps: MatchesDeps) {
 
   /** PAR-16: a partida para quem pede. */
   async function view(ctx: Access, userId: UserId, match: StoredMatch, consistent = false): Promise<Match> {
-    const [state, series] = await Promise.all([
+    const [state, series, saved] = await Promise.all([
       stateOf(match, consistent),
       match.seriesId === undefined
         ? undefined
         : deps.matches.getSeries(match.groupId, match.seriesId, { consistent }),
+      deps.matches.getTeams(match.groupId, match.id, { consistent }),
     ]);
     const at = now();
     const manage = canManage(ctx);
@@ -359,6 +376,7 @@ export function createMatchService(deps: MatchesDeps) {
       ),
       ...state.list.notGoing.map((a) => a.userId),
       ...requests.map((g) => g.requestedBy),
+      ...teamPeople(saved, state.guests),
     ]);
     const entry = (item: LineupItem): MatchEntry =>
       item.kind === 'player'
@@ -400,9 +418,115 @@ export function createMatchService(deps: MatchesDeps) {
         notGoing: live,
         requestGuest: open && wave === 'guests',
         manage: manage && live,
+        manageTeams: manage && match.cancelledAt === undefined && at < new Date(match.endsAt),
       },
       ...(series !== undefined && { series: seriesView(series) }),
+      ...(saved !== undefined && { lineup: lineupView(saved, state, people, entry) }),
     };
+  }
+
+  /**
+   * PAR-27, 28: os times salvos, cada pessoa com a marca de quem não está mais dentro, e quem está dentro sem time
+   * à parte, na ordem da lista. Quem não tem mais perfil (ou o convidado que não existe) fica de fora.
+   */
+  function lineupView(
+    saved: StoredTeams,
+    state: Awaited<ReturnType<typeof stateOf>>,
+    people: Map<UserId, User>,
+    entry: (item: LineupItem) => MatchEntry,
+  ): MatchLineup {
+    const inside = new Set(state.list.in.map((i) => `${i.kind === 'player' ? 'user' : 'guest'}:${i.id}`));
+    const guests = new Map(state.guests.map((g) => [g.id, g]));
+    const member = (p: StoredTeamPlayer): MatchTeamMember[] => {
+      const left = !inside.has(`${p.kind}:${p.id}`);
+      if (p.kind === 'user') {
+        const user = people.get(p.id as UserId);
+        const tier = state.participants.get(p.id as UserId);
+        return user ? [{ kind: 'player', user, ...(tier !== undefined && { tier }), left }] : [];
+      }
+      const guest = guests.get(p.id);
+      const by = guest && people.get(guest.requestedBy);
+      return guest && by
+        ? [{ kind: 'guest', guestId: guest.id, name: guest.name, requestedBy: by, left }]
+        : [];
+    };
+    const placed = new Set(saved.teams.flat().map((p) => `${p.kind}:${p.id}`));
+    return {
+      list: saved.teams.map((team) => team.flatMap(member)),
+      unassigned: state.list.in
+        .filter((i) => !placed.has(`${i.kind === 'player' ? 'user' : 'guest'}:${i.id}`))
+        .map(entry),
+      version: saved.version,
+    };
+  }
+
+  /** PAR-25: os times da entrada, com o `UserId` de quem está dentro; quem não está dentro vai em `out`. */
+  function resolveTeams(input: SaveMatchTeamsInput, list: Lineup, people: Map<UserId, User>) {
+    const users = new Map(
+      list.in.flatMap((i) => {
+        const user = i.kind === 'player' ? people.get(i.userId) : undefined;
+        return i.kind === 'player' && user ? [[user.id as string, i.userId] as const] : [];
+      }),
+    );
+    const guests = new Set(list.in.flatMap((i) => (i.kind === 'guest' ? [i.id] : [])));
+    const out = input.teams.flat().filter((p) => (p.kind === 'user' ? !users.has(p.id) : !guests.has(p.id)));
+    const teams: StoredTeamPlayer[][] = input.teams.map((team) =>
+      team.map((p) => ({ kind: p.kind, id: p.kind === 'user' ? (users.get(p.id) ?? p.id) : p.id })),
+    );
+    return { teams, out };
+  }
+
+  /** PAR-25, 28, 29: salvar os times (troca a divisão inteira). O primeiro salvar avisa quem está num time. */
+  async function saveTeams(
+    userId: UserId,
+    publicId: PublicGroupId,
+    matchId: string,
+    input: SaveMatchTeamsInput,
+  ): Promise<Match> {
+    const ctx = await deps.groups.access(userId, publicId);
+    requireManage(ctx);
+    const match = await load(ctx.groupId, matchId);
+    const at = now();
+    if (match.cancelledAt !== undefined) throw appError('MATCH_CANCELLED');
+    if (at >= new Date(match.endsAt)) throw appError('MATCH_FINISHED');
+    const parsed = SaveMatchTeamsInputSchema.safeParse(input);
+    if (!parsed.success) {
+      throw appError('VALIDATION_ERROR', {
+        issues: parsed.error.issues.map((i) => ({
+          code: i.code,
+          path: i.path.map((p) => (typeof p === 'number' ? p : String(p))),
+          message: i.message,
+        })),
+      });
+    }
+    const state = await stateOf(match, true);
+    const people = await profiles(state.list.in.flatMap((i) => (i.kind === 'player' ? [i.userId] : [])));
+    const { teams, out } = resolveTeams(parsed.data, state.list, people);
+    if (out.length > 0) throw appError('MATCH_TEAM_PLAYER_OUT', { players: out });
+    const result = await deps.matches.saveTeams({
+      groupId: ctx.groupId,
+      matchId,
+      teams,
+      by: userId,
+      at,
+      expectedVersion: parsed.data.expectedVersion,
+    });
+    if (result.created) {
+      const placed = teams
+        .flat()
+        .flatMap((p) => (p.kind === 'user' && p.id !== userId ? [p.id as UserId] : []));
+      await Promise.all(
+        placed.map((u) =>
+          deps.notifications.notify(u, {
+            type: 'match_teams_ready',
+            title: 'Times prontos',
+            body: `Os times da partida de ${ctx.name} saíram.`,
+            link: linkOf(ctx, matchId),
+          }),
+        ),
+      );
+    }
+    return view(ctx, userId, match, true);
   }
 
   /**
@@ -1037,6 +1161,7 @@ export function createMatchService(deps: MatchesDeps) {
     approveGuest,
     declineGuest,
     removeGuest,
+    saveTeams,
   };
 }
 

@@ -8,9 +8,9 @@ Código: `apps/scorely/api/src/modules/matches/`, `apps/scorely/web/src/modules/
 
 **O grupo reúne as pessoas. A partida reúne as pessoas para jogar. O histórico registra o que aconteceu.** Por isso a partida não apaga nada do que aconteceu nela (PAR-07, 11): o histórico (seção 5) vai ser feito a partir disso.
 
-Tirar a lista do jogo do WhatsApp. Quem organiza cria a partida, manda a mensagem pronta no grupo do WhatsApp, e cada pessoa confirma pelo link. A partida nasce limpa: lista aberta a todos e sem limite de vagas. Quem quiser configura o formato (as vagas) e a abertura da lista, que faz a lista encher em ondas, sozinha, pelo horário: primeiro os membros, depois as reservas e, se ainda sobrar vaga, convidados de fora, só com o nome. A partida pode se repetir toda semana: quando uma termina, a da semana seguinte nasce sozinha, e cada onda que abre avisa quem pode confirmar. Os times e o resultado entram nas próximas etapas (seção 5). _(Alterada em 2026-11-23: entrou a repetição.)_
+Tirar a lista do jogo do WhatsApp. Quem organiza cria a partida, manda a mensagem pronta no grupo do WhatsApp, e cada pessoa confirma pelo link. A partida nasce limpa: lista aberta a todos e sem limite de vagas. Quem quiser configura o formato (as vagas) e a abertura da lista, que faz a lista encher em ondas, sozinha, pelo horário: primeiro os membros, depois as reservas e, se ainda sobrar vaga, convidados de fora, só com o nome. A partida pode se repetir toda semana: quando uma termina, a da semana seguinte nasce sozinha, e cada onda que abre avisa quem pode confirmar. Quem organiza divide os times de quem está dentro: sorteia, ajusta à mão e salva, e todos veem o seu time. O resultado entra na próxima etapa (seção 5). _(Alterada em 2026-11-23: entrou a repetição. Alterada em 2026-11-24: entraram os times.)_
 
-Caso de referência: a Ana cria a partida de sexta, às 19h, toda semana, e configura 2 times de 6 e a abertura da lista. A lista abre para os membros na terça, e eles recebem o aviso. Na quinta ainda faltam 3, e ela abre para as reservas, que recebem o aviso. Na sexta de manhã falta 1, e o Edu pede para trazer o primo, só com o nome. A Ana libera. Cada vez que a lista muda, ela copia a mensagem e cola no WhatsApp. Quando a partida termina, a da sexta seguinte já existe, com o mesmo formato e a mesma abertura.
+Caso de referência: a Ana cria a partida de sexta, às 19h, toda semana, e configura 2 times de 6 e a abertura da lista. A lista abre para os membros na terça, e eles recebem o aviso. Na quinta ainda faltam 3, e ela abre para as reservas, que recebem o aviso. Na sexta de manhã falta 1, e o Edu pede para trazer o primo, só com o nome. A Ana libera. Cada vez que a lista muda, ela copia a mensagem e cola no WhatsApp. Na sexta à tarde, com a lista fechada, ela sorteia 2 times, troca o Edu e o Carioca de time e salva: cada um vê o seu time na página da partida, e ela copia os times para o WhatsApp. Quando a partida termina, a da sexta seguinte já existe, com o mesmo formato e a mesma abertura.
 
 | Termo      | Significado                                                                                                                                                                                                                |
 | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -23,6 +23,9 @@ Caso de referência: a Ana cria a partida de sexta, às 19h, toda semana, e conf
 | Convidado  | alguém de fora do grupo, só com o nome e sem conta, que um participante pediu e quem organiza liberou (PAR-13)                                                                                                             |
 | Fechamento | a hora a partir da qual ninguém mais entra na lista (PAR-04)                                                                                                                                                               |
 | Repetição  | o molde de uma partida toda semana: o dia da semana, a hora, a duração, o fuso, o formato e a abertura. Ela cria as partidas, uma de cada vez (PAR-20, 21)                                                                 |
+| Times      | a divisão de quem está dentro em "Time 1", "Time 2"... A partida tem uma só, que quem organiza salva (PAR-25)                                                                                                              |
+| Sorteio    | a sugestão de times que a tela faz ao acaso, para quem organiza ajustar antes de salvar. Não é gravado (PAR-26)                                                                                                            |
+| Sem time   | quem está dentro e não está em nenhum time salvo, como quem confirmou depois (PAR-28)                                                                                                                                      |
 
 "Lista de espera", no grupo, são as **reservas** (GRV-17 em [grupos.md](grupos.md)): gente que joga quando sobra vaga. A fila daqui é outra coisa: é quem confirmou com a lista cheia.
 
@@ -175,6 +178,30 @@ Caso de referência: a Ana cria a partida de sexta, às 19h, toda semana, e conf
   - um `approved`, quem pediu ou quem tem `matches.manage`: vira `removed`, e a fila sobe (PAR-09).
   - Os outros recebem `GROUP_PERMISSION_DENIED`; um convidado que já saiu, `MATCH_GUEST_NOT_PENDING` com a situação.
 
+### Times
+
+- **PAR-25. Quem tem `matches.manage` salva os times da partida** (`PUT /groups/{publicId}/matches/{matchId}/teams` `{ teams, expectedVersion }`). `teams` é a lista dos times, na ordem ("Time 1", "Time 2"...), e cada time é a lista das pessoas: o id público de quem tem conta ou o id do convidado. _(Nova em 2026-11-24.)_
+  - De **2 a 10 times**. Cada pessoa fica em um time só, e só entra num time quem está **dentro** agora (PAR-09): membro, reserva ou convidado liberado. Quem está dentro e não foi posto em nenhum time fica **sem time**. Um time pode ficar vazio.
+  - A partida tem uma divisão só: salvar de novo troca a anterior inteira. Não há apagar: para refazer, sorteia-se e salva-se de novo.
+  - Salvar manda a `version` dos times que a tela mostrou (0 quando ainda não há times, [ADR 0016](../decisions/0016-version-confere-nas-edicoes.md)); outra responde `VERSION_CONFLICT`.
+  - Vale até o fim da partida, inclusive durante o jogo. Depois, `MATCH_FINISHED` (409); na cancelada, `MATCH_CANCELLED`.
+  - Uma pessoa repetida, ou um número de times fora de 2 a 10, responde `VALIDATION_ERROR`. Alguém que não está dentro (saiu enquanto a tela estava aberta, ou nunca esteve) responde `MATCH_TEAM_PLAYER_OUT` (409, `details.players`: as pessoas como foram enviadas, `{ kind, id }`), e nada é gravado.
+  - A resposta é a partida (PAR-16), já com os times.
+  - O número de times não depende do formato (PAR-02): o formato só dá o número que a tela sugere (PAR-26).
+  - _Por quê:_ dividir à mão tentando equilibrar era uma das dores de quem organiza. Durante o jogo ainda se troca gente (alguém chegou, alguém se machucou). Quem está na fila não joga, por isso fica fora (seção 4). O formato é o que o grupo combinou para a lista, mas no dia, com 11 dentro numa partida de 2 × 6, os times continuam sendo 2: por isso a divisão guarda o próprio número.
+- **PAR-26. O sorteio é uma sugestão da tela, e só vale o que se salva.** Na tela de dividir (PAR-30), quem organiza escolhe o número de times (começa no do formato, ou em 2 sem formato ou com 1 time) e sorteia: a tela espalha ao acaso todos de dentro, com os times de tamanhos que diferem em no máximo 1. Depois, ajusta à mão, trocando as pessoas de time, e salva (PAR-25). Sortear de novo dá outro resultado (é sorte: pode repetir).
+  - Nada é gravado antes de salvar: os outros só veem os times salvos, e sair da tela sem salvar descarta o sorteio.
+  - Sortear de novo, com times já salvos, só muda a tela: os times salvos continuam valendo até salvar.
+  - _Por quê:_ o sorteio resolve "quem fica com quem" sem discussão, e o ajuste resolve o que o sorteio não sabe (os dois melhores no mesmo time). Sem um rascunho gravado, não há "rascunho" e "publicado" para explicar: o que está salvo é o que todos veem. Equilibrar pelo histórico vem depois do resultado (seção 5).
+- **PAR-27. Todos que veem a partida veem os times salvos** (PAR-16): cada time com as pessoas, na ordem salva, com o perfil (ou o nome do convidado) e a participação, como nas listas. Sem times salvos, a partida vem sem times.
+  - A partida que nasce de uma repetição (PAR-21) nasce sem times: os times não passam de uma semana para a outra.
+  - Os times de uma partida que terminou ou foi cancelada ficam guardados, como tudo da partida (PAR-07): é com eles que o resultado vai ser registrado (seção 5).
+- **PAR-28. Os times não mudam sozinhos quando a lista muda.** Quem estava num time e não está mais dentro (disse "não vou", saiu do grupo, ou o convidado foi tirado) continua no time, com a marca **saiu da lista**, para todos. Quem passou a estar dentro depois de salvar (confirmou, subiu da fila, convidado liberado) fica **sem time**.
+  - Para mudar, quem organiza abre a tela de dividir: ela já começa com os times salvos, sem quem saiu, e com quem está sem time à parte (PAR-30).
+  - _Por quê:_ mexer nos times pelas costas de quem organiza seria pior do que mostrar o que mudou. No dia do jogo, "o Fulano saiu do Time 2" é exatamente o que ele precisa ver para decidir.
+- **PAR-29. Os times salvos pela primeira vez avisam quem está neles** (`match_teams_ready`, com o link da partida): quem tem conta e está num time, menos quem salvou. Salvar de novo não avisa.
+  - _Por quê:_ todo mundo quer saber em que time está, mas cada troca pequena virando aviso seria barulho. Quem precisa saber de uma troca de última hora fica sabendo pela mensagem dos times no WhatsApp (PAR-19).
+
 ### Ver
 
 - **PAR-15. Quem participa do grupo vê as próximas partidas** (`GET /groups/{publicId}/matches`): as que ainda não terminaram, canceladas incluídas, pelo início. Cada uma vem com o dia, a hora, a duração, o formato (quando há), a situação (PAR-16), quantos estão dentro, a resposta de quem pede e, quando vem de uma repetição ativa, o dia da semana dela. _(Alterada em 2026-11-23: entrou a repetição.)_
@@ -182,6 +209,7 @@ Caso de referência: a Ana cria a partida de sexta, às 19h, toda semana, e conf
   - A situação é calculada pela hora: `scheduled` (antes da onda dos membros, só com a hora dela configurada), `open` (com a onda atual), `closed` (depois do fechamento), `in_progress` (do início ao fim), `finished` e `cancelled`.
   - Vem também o que quem pede pode fazer agora: responder, pedir convidado, e o que a permissão libera.
   - A partida de uma repetição vem com ela: o id, o dia da semana, a hora, a duração, o fuso, o formato, a abertura, se está encerrada e a `version` (para PAR-22). _(Nova em 2026-11-23.)_
+  - Com times salvos, vêm os times (PAR-27), cada pessoa com a marca de quem saiu da lista (PAR-28), quem está sem time e a `version` dos times (para PAR-25). _(Nova em 2026-11-24.)_
   - Uma partida que não existe responde `MATCH_NOT_FOUND` (404). Quem não participa do grupo recebe `GROUP_NOT_FOUND`, como em GRV-04.
   - _Por quê:_ todo mundo vê a mesma lista que hoje está no WhatsApp, com a diferença de quem está dentro e quem está na fila.
 
@@ -191,8 +219,9 @@ Caso de referência: a Ana cria a partida de sexta, às 19h, toda semana, e conf
 - **PAR-18. A página da partida** (`/groups/{publicId}/matches/{matchId}`, o link que vai no WhatsApp) mostra:
   - o dia, a hora e a abertura em uma linha ("Lista aberta para membros · reservas a partir de qui, 19:00"; sem configuração, "Lista aberta");
   - os botões **Vou** e **Não vou**, com a resposta atual marcada, e **Trazer convidado** quando a onda de convidados está aberta;
+  - com times salvos, a seção **Times**, antes das listas: cada time com o número de pessoas e as pessoas, o time de quem vê marcado como **Seu time**, a marca **saiu da lista** (PAR-28) e, embaixo, **Sem time** quando há alguém (PAR-27, 28). _(Nova em 2026-11-24.)_
   - as listas **Confirmados (10 de 12)** (sem formato, **Confirmados (10)**), **Fila** e **Não vão**, numeradas, com a marca "reserva" e "convidado de Fulano";
-  - para quem tem `matches.manage`: os pedidos de convidado com **Liberar** e **Recusar**, **Abrir para as reservas agora** ou **Abrir para convidados agora** (PAR-05), as **Configurações da partida** e **Cancelar partida**, com confirmação.
+  - para quem tem `matches.manage`: os pedidos de convidado com **Liberar** e **Recusar**, **Abrir para as reservas agora** ou **Abrir para convidados agora** (PAR-05), **Dividir times** (ou **Mudar times**, com times salvos; até o fim da partida, PAR-25, 30), as **Configurações da partida** e **Cancelar partida**, com confirmação.
   - **Configurações da partida** é uma lista agrupada, como as Configurações do grupo (GRV-14): cada linha tem o nome, o valor atual e a seta, e tocar abre um painel de baixo só com aquilo (PAR-06):
 
     | Linha             | Valor atual                                                                            | O painel                                                                                            |
@@ -226,6 +255,31 @@ Caso de referência: a Ana cria a partida de sexta, às 19h, toda semana, e conf
 
   - O dia e a hora saem no fuso de quem copia (ADR 0006). O convidado sai como "Nome (convidado de Fulano)". Sem formato, "Confirmados (10)".
   - _Por quê:_ o grupo continua conversando no WhatsApp, e a mensagem leva todo mundo para o link, onde a resposta vale. Sem chat no app.
+  - **Com times salvos, há também Copiar times** (ou compartilhar), com a mensagem dos times. Quem saiu da lista não entra nela, e o convidado sai só com o nome. _(Nova em 2026-11-24.)_
+
+    ```
+    Pelada de sexta · sex, 27/11 às 19:00
+
+    Time 1
+    1. Edu
+    2. Bia
+    ...
+    Time 2
+    1. Carioca
+    ...
+
+    Partida: <link da partida>
+    ```
+
+    - _Por quê:_ na quadra, o time de cada um é conferido no WhatsApp. Duas mensagens, e não uma, porque a lista e os times são mandados em horas diferentes.
+
+- **PAR-30. A tela de dividir** (`/groups/{publicId}/matches/{matchId}/teams`, aberta por **Dividir times** ou **Mudar times**, PAR-18), só para quem tem `matches.manage`; para os outros, a rota leva à página da partida. _(Nova em 2026-11-24.)_
+  - **Sem times salvos,** ela abre já com um sorteio (PAR-26), no número de times sugerido. **Com times salvos,** abre com eles, sem quem saiu da lista, e com quem está sem time numa seção **Sem time** (PAR-28).
+  - No topo, **Times: − 2 +** (de 2 a 10) e **Sortear** (com times na tela, **Sortear de novo**). Mudar o número não sorteia: quem estava num time que sumiu vai para Sem time, e um time novo nasce vazio.
+  - Cada time mostra o número de pessoas e as pessoas, com a marca "reserva" e "convidado". Tocar numa pessoa abre um painel de baixo com **Time 1**, **Time 2**... e **Sem time**, o atual marcado: escolher move a pessoa. Sem arrastar: tocar funciona igual no celular.
+  - **Salvar** grava (PAR-25) e volta para a página da partida. Sair com mudanças não salvas pede confirmação ("Descartar os times?").
+  - Ao salvar com `MATCH_TEAM_PLAYER_OUT`, a tela relê a partida, tira quem saiu, mantém o resto como estava e avisa ("Fulano saiu da lista. Confira e salve de novo."). Com `VERSION_CONFLICT`, ela relê os times salvos e avisa ("Alguém mudou os times antes de você. Atualizamos; faça a mudança de novo.").
+  - _Por quê:_ dividir tem muitos controles e precisa do espaço da tela inteira; a página da partida continua sendo a do "eu vou?". Abrir já sorteado faz o caso comum (sortear e salvar) ser um toque.
 
 ## 3. Como funciona
 
@@ -239,6 +293,7 @@ Caso de referência: a Ana cria a partida de sexta, às 19h, toda semana, e conf
 | Convidados ativos | `GROUP#<g>` / `MATCHGUESTS#<matchId>`                       | contador (`active`, os `pending` + `approved`), que muda com `ADD` na mesma transação do convidado, com a condição `active < 30` ao pedir (PAR-12)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | Nome do convidado | `GROUP#<g>` / `MATCHGUESTNAME#<matchId>#<nome normalizado>` | `{ guestId }`, gravado com `attribute_not_exists` ao pedir e apagado ao recusar, cancelar ou remover, na mesma transação (PAR-12)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | Repetição         | `GROUP#<g>` / `MATCHSERIES#<seriesId>`                      | entidade: `weekday` (1 a 7, segunda a domingo), `time` (`HH:mm`), `durationMinutes`, `timeZone` (IANA), o formato e a abertura como na partida, `currentMatchId` e `currentDate` (a próxima partida e o dia previsto dela), `endedAt`, `createdBy`, `version`. As do grupo são uma Query `begins_with(SK, "MATCHSERIES#")` (o limite de PAR-20 conta as sem `endedAt`)                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Times             | `GROUP#<g>` / `MATCHTEAMS#<matchId>`                        | `teams`: a lista dos times, na ordem, e cada time a lista das pessoas (`{ kind: 'user' \| 'guest', id }`, com o uuid do usuário ou o id do convidado; a api traduz o id público na entrada). `createdAt` e `createdBy` (o primeiro salvar, PAR-29), `updatedAt`, `updatedBy`, `version`. Chave natural pela partida (ADR 0009): um item por partida, sem lookup. O primeiro salvar grava com `attribute_not_exists` (a `version` esperada é 0), e quem ganha essa condição avisa. Não guarda "sem time" nem "saiu da lista": os dois são calculados ao ler, comparando com a lista de dentro (PAR-28)                                                                                                                                                                            |
 | Agenda            | `MATCHAGENDA#<AAAA-MM-DDTHH>` / `<instante>#<g>#<matchId>`  | `{ groupId, matchId, publicId, groupName }`: "olhe esta partida neste instante", com o id público e o nome do grupo para a rotina montar o aviso sem ler o grupo (o nome não muda, GRV-01). Gravado ao criar e ao editar a partida, um para cada onda configurada (PAR-24) e, na partida de uma repetição, um para o fim (PAR-21). A partição é a hora (UTC). Regravar o mesmo item (a edição regrava os da partida) mantém o `createdAt` de quando ele foi gravado a primeira vez. Apagado depois de tratado; `ttl` de 7 dias depois do instante, como reserva (ADR 0004). Não é dado da partida: a regra "nada das partidas expira" (PAR-07) não vale para ele                                                                                                                 |
 | Rotina            | `ROUTINE#MATCHAGENDA` / `META`                              | `lastRunAt`: até onde a rotina já leu a agenda                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 
@@ -249,30 +304,32 @@ Caso de referência: a Ana cria a partida de sexta, às 19h, toda semana, e conf
   - **aviso:** se a onda atual é maior que o `notifiedWave` e a partida não foi cancelada nem começou, grava a onda atual em `notifiedWave` com a condição de ele não ter mudado, e só então avisa (PAR-24). Quem ganhou a condição avisa; o outro, não;
   - **a próxima da repetição:** se a partida terminou, é a `currentMatchId` da repetição e a repetição não foi encerrada, cria a seguinte numa transação: a partida nova, os itens de agenda dela, e a repetição com o `currentMatchId` e o `currentDate` novos, com a condição de o `currentMatchId` ainda ser o da que terminou. A leitura das partidas (PAR-15, 16) faz o mesmo para as repetições do grupo cuja próxima já terminou. Na partida nova, o `notifiedWave` fica vazio: as ondas abertas ao nascer avisam no mesmo tratamento.
 - A partida criada por uma pessoa (PAR-01) grava o `notifiedWave` com a onda aberta na criação. Abrir à mão (PAR-05) e editar (PAR-06) fazem a mesma conferência do aviso dentro da requisição, depois da gravação. A primeira configuração da abertura grava o `notifiedWave` com a onda que vale depois dela.
+- **Os times** (PAR-25–28) são lidos junto com a partida, num GetItem a mais. O sorteio (PAR-26) roda só na web (`web/src/modules/matches/match.teams.ts`, puro e testado): a api só confere e grava o que se salva. Conferir quem está dentro ao salvar usa a mesma lista calculada da leitura (PAR-09).
 - O fuso da repetição converte o dia e a hora em UTC (`api/src/lib/zoned.ts`, ADR 0006).
 - **Partidas e grupo:** o módulo de partidas pergunta ao grupo só quem participa, como (membro ou reserva) e se a pessoa tem uma permissão (GRV-15). O grupo não sabe nada das partidas: as ondas, a lista, a fila e os convidados ficam todos aqui.
 - Responder não usa `version`: é uma disputa por lugar, e a ordem de chegada decide (ADR 0016).
 
 ### Rotas
 
-| Rota                                                            | Quem                           | Regras        |
-| --------------------------------------------------------------- | ------------------------------ | ------------- |
-| `POST /groups/{publicId}/matches`                               | `matches.manage`               | PAR-01–04, 20 |
-| `GET /groups/{publicId}/matches`                                | quem participa                 | PAR-15        |
-| `GET /groups/{publicId}/matches/{matchId}`                      | quem participa                 | PAR-16, 10    |
-| `PUT /groups/{publicId}/matches/{matchId}`                      | `matches.manage`               | PAR-06        |
-| `POST /groups/{publicId}/matches/{matchId}/advance`             | `matches.manage`               | PAR-05        |
-| `POST /groups/{publicId}/matches/{matchId}/cancel`              | `matches.manage`               | PAR-07        |
-| `PUT /groups/{publicId}/matches/{matchId}/attendance`           | quem participa                 | PAR-08, 09    |
-| `POST /groups/{publicId}/matches/{matchId}/guests`              | quem participa                 | PAR-11, 12    |
-| `POST /groups/{publicId}/matches/{matchId}/guests/{id}/approve` | `matches.manage`               | PAR-11, 13    |
-| `POST /groups/{publicId}/matches/{matchId}/guests/{id}/decline` | `matches.manage`               | PAR-11, 13    |
-| `DELETE /groups/{publicId}/matches/{matchId}/guests/{id}`       | quem pediu ou `matches.manage` | PAR-11, 14    |
-| `PUT /groups/{publicId}/match-series/{seriesId}`                | `matches.manage`               | PAR-22        |
-| `POST /groups/{publicId}/match-series/{seriesId}/end`           | `matches.manage`               | PAR-23        |
-| rotina `matchesAgenda` (a cada 15 min)                          | —                              | PAR-21, 24    |
+| Rota                                                            | Quem                           | Regras         |
+| --------------------------------------------------------------- | ------------------------------ | -------------- |
+| `POST /groups/{publicId}/matches`                               | `matches.manage`               | PAR-01–04, 20  |
+| `GET /groups/{publicId}/matches`                                | quem participa                 | PAR-15         |
+| `GET /groups/{publicId}/matches/{matchId}`                      | quem participa                 | PAR-16, 10     |
+| `PUT /groups/{publicId}/matches/{matchId}`                      | `matches.manage`               | PAR-06         |
+| `POST /groups/{publicId}/matches/{matchId}/advance`             | `matches.manage`               | PAR-05         |
+| `POST /groups/{publicId}/matches/{matchId}/cancel`              | `matches.manage`               | PAR-07         |
+| `PUT /groups/{publicId}/matches/{matchId}/attendance`           | quem participa                 | PAR-08, 09     |
+| `POST /groups/{publicId}/matches/{matchId}/guests`              | quem participa                 | PAR-11, 12     |
+| `POST /groups/{publicId}/matches/{matchId}/guests/{id}/approve` | `matches.manage`               | PAR-11, 13     |
+| `POST /groups/{publicId}/matches/{matchId}/guests/{id}/decline` | `matches.manage`               | PAR-11, 13     |
+| `DELETE /groups/{publicId}/matches/{matchId}/guests/{id}`       | quem pediu ou `matches.manage` | PAR-11, 14     |
+| `PUT /groups/{publicId}/matches/{matchId}/teams`                | `matches.manage`               | PAR-25, 28, 29 |
+| `PUT /groups/{publicId}/match-series/{seriesId}`                | `matches.manage`               | PAR-22         |
+| `POST /groups/{publicId}/match-series/{seriesId}/end`           | `matches.manage`               | PAR-23         |
+| rotina `matchesAgenda` (a cada 15 min)                          | —                              | PAR-21, 24     |
 
-Erros: `VALIDATION_ERROR`, `GROUP_NOT_FOUND`, `GROUP_PERMISSION_DENIED`, `MATCH_NOT_FOUND` (404), `MATCH_LIMIT` (409, `details.limit`), `MATCH_SERIES_NOT_FOUND` (404), `MATCH_SERIES_LIMIT` (409, `details.limit`), `MATCH_SERIES_ENDED` (409), `MATCH_NOT_OPEN_FOR_YOU` (409, `details.opensAt`, ausente com "sem convidados"), `MATCH_CLOSED` (409), `MATCH_STARTED` (409), `MATCH_CANCELLED` (409), `MATCH_SLOTS_BELOW_CONFIRMED` (409, `details.confirmed`), `MATCH_GUEST_NOT_FOUND` (404), `MATCH_GUEST_NOT_PENDING` (409, `details.status`), `MATCH_GUEST_DUPLICATE` (409), `MATCH_GUEST_LIMIT` (409, `details.limit`), `VERSION_CONFLICT`. Avisos: `match_promoted`, `match_cancelled`, `match_guest_requested`, `match_list_open`.
+Erros: `VALIDATION_ERROR`, `GROUP_NOT_FOUND`, `GROUP_PERMISSION_DENIED`, `MATCH_NOT_FOUND` (404), `MATCH_LIMIT` (409, `details.limit`), `MATCH_SERIES_NOT_FOUND` (404), `MATCH_SERIES_LIMIT` (409, `details.limit`), `MATCH_SERIES_ENDED` (409), `MATCH_NOT_OPEN_FOR_YOU` (409, `details.opensAt`, ausente com "sem convidados"), `MATCH_CLOSED` (409), `MATCH_STARTED` (409), `MATCH_FINISHED` (409), `MATCH_CANCELLED` (409), `MATCH_TEAM_PLAYER_OUT` (409, `details.players`), `MATCH_SLOTS_BELOW_CONFIRMED` (409, `details.confirmed`), `MATCH_GUEST_NOT_FOUND` (404), `MATCH_GUEST_NOT_PENDING` (409, `details.status`), `MATCH_GUEST_DUPLICATE` (409), `MATCH_GUEST_LIMIT` (409, `details.limit`), `VERSION_CONFLICT`. Avisos: `match_promoted`, `match_cancelled`, `match_guest_requested`, `match_list_open`, `match_teams_ready`.
 
 ## 4. Limites conhecidos
 
@@ -291,10 +348,16 @@ Erros: `VALIDATION_ERROR`, `GROUP_NOT_FOUND`, `GROUP_PERMISSION_DENIED`, `MATCH_
 - O convidado não tem histórico: é só um nome naquela partida.
 - Partidas do mesmo grupo podem se sobrepor no horário.
 - As partidas que terminaram não aparecem em lugar nenhum até o histórico (etapa 4).
+- O sorteio é só ao acaso: não equilibra por nada, nem por gênero (PAR-26). O equilíbrio fica com o ajuste à mão.
+- Não há fixar alguém num time antes de sortear: sortear de novo espalha todo mundo (PAR-26).
+- Quem está na fila não entra num time (PAR-25). Se alguém da fila joga no lugar de quem não veio, quem organiza muda a lista antes (o atrasado diz "não vou", e a fila sobe).
+- Os times se chamam só "Time 1", "Time 2"..., sem nome nem cor.
+- Mudar os times depois do primeiro salvar não avisa ninguém (PAR-29).
 
 ## 5. Em discussão (ainda não é regra)
 
-- **Próximas etapas, nesta ordem** (conversa de produto de 2026-11-23): dividir os times (sorteio ajustável, depois equilibrado pelo histórico, sem nível técnico) → resultado e histórico → ranking e temporada (o campeonato interno).
+- **Próximas etapas, nesta ordem** (conversa de produto de 2026-11-23): resultado e histórico (registrado sobre os times salvos, PAR-27) → ranking e temporada (o campeonato interno). O sorteio ajustável entrou em 2026-11-24 (PAR-25–30). _(Alterada em 2026-11-24.)_
+- **Times, depois:** equilibrar o sorteio pelo histórico (sem nível técnico), quando houver resultado; espalhar homens e mulheres (o perfil já tem o gênero, USR); fixar alguém num time antes de sortear; nome ou cor do time (o colete); e quem está na fila num time. Equilibrar pelo histórico leva o sorteio para a api, que tem os resultados.
 - **Local da partida:** saiu em 2026-11-23. Não vai ser texto livre; o jeito (lugares cadastrados no grupo, endereço, mapa) fica para decidir.
 - **Recado da partida** (o "FERIADO!"): saiu em 2026-11-23, como o local. Volta se fizer falta, decidido de novo.
 - **Modelo Organizador** (GRV-51), com `matches.manage`, quando houver mais de uma permissão de partida.

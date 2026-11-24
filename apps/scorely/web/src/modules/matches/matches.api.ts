@@ -5,6 +5,7 @@ import {
   MatchSeriesSchema,
   MatchSummarySchema,
   type RequestMatchGuestInput,
+  type SaveMatchTeamsInput,
   type SetAttendanceInput,
   type UpdateMatchInput,
   type UpdateMatchSeriesInput,
@@ -42,6 +43,10 @@ export const matchesApi = {
     request({ url: `${guest(groupId, matchId, guestId)}/decline`, method: 'POST' }, MatchSchema),
   removeGuest: (groupId: string, matchId: string, guestId: string) =>
     request({ url: guest(groupId, matchId, guestId), method: 'DELETE' }, MatchSchema),
+
+  // Times (PAR-25)
+  saveTeams: (groupId: string, matchId: string, input: SaveMatchTeamsInput) =>
+    request({ url: `${one(groupId, matchId)}/teams`, method: 'PUT', data: input }, MatchSchema),
 
   // Repetição (PAR-22, 23): responde a repetição.
   updateSeries: (groupId: string, seriesId: string, input: UpdateMatchSeriesInput) =>

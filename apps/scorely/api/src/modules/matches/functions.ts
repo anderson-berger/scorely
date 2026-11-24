@@ -28,6 +28,8 @@ export const matchesFunctions: AWS['functions'] = {
     events: route('POST', `${MATCH}/guests/{guestId}/decline`),
   },
   removeMatchGuest: { handler: handler('removeGuest'), events: route('DELETE', `${MATCH}/guests/{guestId}`) },
+  // Times (PAR-25)
+  saveMatchTeams: { handler: handler('saveMatchTeams'), events: route('PUT', `${MATCH}/teams`) },
   // Repetição (PAR-22, 23)
   updateMatchSeries: { handler: handler('updateMatchSeries'), events: route('PUT', SERIES) },
   endMatchSeries: { handler: handler('endMatchSeries'), events: route('POST', `${SERIES}/end`) },

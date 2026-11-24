@@ -309,6 +309,24 @@ describe('PAR-21: existe sempre só a próxima partida da repetição', () => {
     expect(next.series?.id).toBe((await seriesOf(t, m.id)).id);
   });
 
+  it('PAR-27: a partida que a repetição cria nasce sem times, mesmo com a anterior dividida', async () => {
+    const t = setup();
+    const m = await createSeries(t);
+    t.at(iso(START, -1));
+    await t.service.setAttendance(ANA, PUBLIC_ID, m.id, { status: 'going' });
+    await t.service.setAttendance(BIA, PUBLIC_ID, m.id, { status: 'going' });
+    const saved = await t.service.saveTeams(ANA, PUBLIC_ID, m.id, {
+      teams: [[{ kind: 'user', id: PUB[ANA] as never }], [{ kind: 'user', id: PUB[BIA] as never }]],
+      expectedVersion: 0,
+    });
+    expect(saved.lineup?.list).toHaveLength(2);
+    t.at(END);
+    const list = await t.service.list(BIA, PUBLIC_ID);
+    const next = await get(t, BIA, list[0]?.id ?? '');
+    expect(next.id).not.toBe(m.id);
+    expect(next.lineup).toBeUndefined();
+  });
+
   it('PAR-21: ler as partidas várias vezes não cria duas', async () => {
     const t = setup();
     await createSeries(t);

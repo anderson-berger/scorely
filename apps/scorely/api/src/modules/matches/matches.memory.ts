@@ -6,6 +6,7 @@ import type {
   StoredGuest,
   StoredMatch,
   StoredSeries,
+  StoredTeams,
 } from '@scorely/api/src/modules/matches/match.repository';
 
 /** O repositório de partidas em memória, com o mesmo contrato do Dynamo (suíte de contrato, ADR 0019). */
@@ -17,6 +18,7 @@ export function memoryMatches() {
   const counters = new Map<string, number>();
   const series = new Map<string, StoredSeries>();
   const agenda = new Map<string, AgendaEntry & { createdAt: string }>();
+  const teamsByMatch = new Map<string, StoredTeams>();
   const cursor = { lastRunAt: undefined as string | undefined };
   const key = (...parts: string[]) => parts.join('#');
   const copy = <T extends object>(value: T): T => ({ ...value });
@@ -228,6 +230,30 @@ export function memoryMatches() {
         counters.set(counterKey, (counters.get(counterKey) ?? 0) - 1);
       }
       return true;
+    },
+    async getTeams(groupId, matchId) {
+      const current = teamsByMatch.get(key(groupId, matchId));
+      return current && structuredClone(current);
+    },
+    async saveTeams({ groupId, matchId, teams, by, at, expectedVersion }) {
+      const k = key(groupId, matchId);
+      const current = teamsByMatch.get(k);
+      if ((current?.version ?? 0) !== expectedVersion) {
+        throw appError('VERSION_CONFLICT', { currentVersion: current?.version ?? 0 });
+      }
+      const iso = at.toISOString();
+      const next: StoredTeams = {
+        groupId,
+        matchId,
+        teams: structuredClone(teams),
+        createdAt: current?.createdAt ?? iso,
+        createdBy: current?.createdBy ?? by,
+        updatedAt: iso,
+        updatedBy: by,
+        version: expectedVersion + 1,
+      };
+      teamsByMatch.set(k, next);
+      return { teams: structuredClone(next), created: current === undefined };
     },
   };
   return { repo, counters, agenda };

@@ -1,6 +1,6 @@
 # Módulo Grupos
 
-> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-23.
+> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-24.
 
 Código: `apps/scorely/api/src/modules/groups/`, `apps/scorely/web/src/modules/groups/`. Contrato: `apps/scorely/contracts/src/groups.ts`.
 
@@ -59,13 +59,13 @@ Caso de referência: a Ana cria a "Pelada de sexta" e é a dona dela. Ela manda 
 
 - **GRV-15. Toda ação de administração é conferida por uma permissão, numa função só** ("pode X neste grupo?"). O catálogo de hoje:
 
-  | Permissão        | Libera                                                                                                                           |
-  | ---------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-  | `group.edit`     | logo e capa (GRV-09) e o modo de entrada (GRV-25)                                                                                |
-  | `members.invite` | criar, ver e cancelar os convites do grupo (GRV-18–20, 23) e aceitar ou recusar pedidos (GRV-28)                                 |
-  | `members.remove` | remover alguém do grupo (GRV-31)                                                                                                 |
-  | `roles.manage`   | criar, editar, ordenar e apagar cargos e mudar o cargo das pessoas (GRV-42–48)                                                   |
-  | `matches.manage` | criar, editar e cancelar partidas, abrir a próxima onda e liberar convidados ([partidas.md](partidas.md), PAR-01, 05–07, 13, 14) |
+  | Permissão        | Libera                                                                                                                                                 |
+  | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+  | `group.edit`     | logo e capa (GRV-09) e o modo de entrada (GRV-25)                                                                                                      |
+  | `members.invite` | criar, ver e cancelar os convites do grupo (GRV-18–20, 23) e aceitar ou recusar pedidos (GRV-28)                                                       |
+  | `members.remove` | remover alguém do grupo (GRV-31)                                                                                                                       |
+  | `roles.manage`   | criar, editar, ordenar e apagar cargos e mudar o cargo das pessoas (GRV-42–48)                                                                         |
+  | `matches.manage` | criar, editar e cancelar partidas, abrir a próxima onda, liberar convidados e dividir os times ([partidas.md](partidas.md), PAR-01, 05–07, 13, 14, 25) |
   - A resposta da função vem do cargo da pessoa (GRV-41). _(Alterada em 2026-11-22: antes, o Dono tinha todas e o cargo base, nenhuma, fixo. Entrou o `roles.manage`. Alterada em 2026-11-23: entrou o `matches.manage`.)_
   - A reserva pode ter qualquer cargo, como o membro: participação e cargo são coisas diferentes.
   - Quem participa e não tem a permissão recebe `GROUP_PERMISSION_DENIED` (403 com corpo, `details.permission`). Quem não participa recebe `GROUP_NOT_FOUND` antes, como em GRV-04.

@@ -68,3 +68,10 @@ export function matchAgendaKey(instant: string, groupId: GroupId, matchId: strin
 
 /** Até onde a rotina `matchesAgenda` já leu: `ROUTINE#MATCHAGENDA / META`. */
 export const MATCH_AGENDA_CURSOR_KEY = { PK: 'ROUTINE#MATCHAGENDA', SK: 'META' };
+
+export const MATCH_TEAMS_ENTITY = 'MatchTeams';
+
+/** Os times da partida (PAR-25): `GROUP#<g> / MATCHTEAMS#<matchId>`. Chave natural pela partida (ADR 0009). */
+export function matchTeamsKey(groupId: GroupId, matchId: string) {
+  return { PK: pk(groupId), SK: `MATCHTEAMS#${matchId}` };
+}

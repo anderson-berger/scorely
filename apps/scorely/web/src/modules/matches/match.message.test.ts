@@ -50,7 +50,7 @@ function match(over: Partial<Match> = {}): Match {
     queue: [player('Bia', '3CCCCCCC')],
     notGoing: [{ user: user('Janice', '4DDDDDDD'), tier: 'member' }],
     guestRequests: [],
-    actions: { going: true, notGoing: true, requestGuest: false, manage: false },
+    actions: { going: true, notGoing: true, requestGuest: false, manage: false, manageTeams: false },
     ...over,
   };
 }

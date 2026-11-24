@@ -1,6 +1,6 @@
 import { VersionSchema } from '@scorely/contracts/src/entity';
 import { GroupTierSchema } from '@scorely/contracts/src/groups';
-import { TimeZoneSchema, UserSchema } from '@scorely/contracts/src/users';
+import { PublicUserIdSchema, TimeZoneSchema, UserSchema } from '@scorely/contracts/src/users';
 import { z } from 'zod';
 
 // Partida (docs/modules/partidas.md).
@@ -13,6 +13,9 @@ export const MATCH_GUEST_MAX = 30;
 
 /** Máximo de repetições ativas (não encerradas) por grupo (PAR-20). */
 export const MATCH_SERIES_MAX_ACTIVE = 10;
+
+/** Quantos times a divisão tem (PAR-25). */
+export const MATCH_TEAMS_LIMITS = { min: 2, max: 10 } as const;
 
 /** Limites de PAR-01 e PAR-03. */
 export const MATCH_LIMITS = {
@@ -254,6 +257,62 @@ export const MatchGuestRequestSchema = z.object({
 });
 export type MatchGuestRequest = z.infer<typeof MatchGuestRequestSchema>;
 
+/** Uma pessoa num time, como vai ao salvar (PAR-25): o id público de quem tem conta, ou o id do convidado. */
+export const MatchTeamPlayerRefSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('user'), id: PublicUserIdSchema }),
+  z.object({ kind: z.literal('guest'), id: z.uuid() }),
+]);
+export type MatchTeamPlayerRef = z.infer<typeof MatchTeamPlayerRefSchema>;
+
+/**
+ * Corpo do `PUT .../teams` (PAR-25): os times, na ordem, cada um com as pessoas, e a `version` dos times que a tela
+ * mostrou (0 sem times, ADR 0016). Cada pessoa num time só; de 2 a 10 times; um time pode ficar vazio.
+ */
+export const SaveMatchTeamsInputSchema = z
+  .object({
+    teams: z.array(z.array(MatchTeamPlayerRefSchema)).min(MATCH_TEAMS_LIMITS.min).max(MATCH_TEAMS_LIMITS.max),
+    expectedVersion: VersionSchema,
+  })
+  .superRefine((value, ctx) => {
+    const keys = value.teams.flat().map((p) => `${p.kind}:${p.id}`);
+    if (new Set(keys).size !== keys.length) {
+      ctx.addIssue({ code: 'custom', path: ['teams'], message: 'A person can be in one team only' });
+    }
+  });
+export type SaveMatchTeamsInput = z.infer<typeof SaveMatchTeamsInputSchema>;
+
+/**
+ * Uma pessoa num time salvo (PAR-27, 28), com a marca `left` de quem não está mais dentro. A participação (`tier`)
+ * fica ausente para quem saiu do grupo.
+ */
+export const MatchTeamMemberSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('player'),
+    user: UserSchema,
+    tier: GroupTierSchema.optional(),
+    left: z.boolean(),
+  }),
+  z.object({
+    kind: z.literal('guest'),
+    guestId: z.uuid(),
+    name: z.string(),
+    requestedBy: UserSchema,
+    left: z.boolean(),
+  }),
+]);
+export type MatchTeamMember = z.infer<typeof MatchTeamMemberSchema>;
+
+/** Os times salvos da partida (PAR-16, 27, 28). */
+export const MatchLineupSchema = z.object({
+  /** Os times, na ordem ("Time 1", "Time 2"...), com as pessoas na ordem salva. */
+  list: z.array(z.array(MatchTeamMemberSchema)),
+  /** Quem está dentro e não está em nenhum time (PAR-28), na ordem da lista. */
+  unassigned: z.array(MatchEntrySchema),
+  /** Para o `expectedVersion` do salvar (PAR-25). */
+  version: VersionSchema,
+});
+export type MatchLineup = z.infer<typeof MatchLineupSchema>;
+
 /** A hora em que cada onda abre e a lista fecha (PAR-03, 04), já com o que foi aberto à mão (PAR-05). */
 export const MatchWavesSchema = z.object({
   members: z.iso.datetime(),
@@ -293,6 +352,8 @@ export const MatchActionsSchema = z.object({
   requestGuest: z.boolean(),
   /** Tem `matches.manage` (editar, cancelar, abrir onda, decidir convidados), com a partida ainda não começada. */
   manage: z.boolean(),
+  /** Tem `matches.manage`, com a partida não terminada nem cancelada: dividir ou mudar os times (PAR-25, 30). */
+  manageTeams: z.boolean(),
 });
 export type MatchActions = z.infer<typeof MatchActionsSchema>;
 
@@ -319,5 +380,7 @@ export const MatchSchema = MatchSummarySchema.extend({
   actions: MatchActionsSchema,
   /** A repetição de onde a partida saiu, encerrada ou não (PAR-16, 22). */
   series: MatchSeriesSchema.optional(),
+  /** Os times salvos (PAR-27); ausente sem times. */
+  lineup: MatchLineupSchema.optional(),
 });
 export type Match = z.infer<typeof MatchSchema>;

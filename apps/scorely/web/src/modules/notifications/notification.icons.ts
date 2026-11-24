@@ -12,4 +12,5 @@ export const notificationIcon: Record<NotificationType, string> = {
   match_cancelled: 'event_busy',
   match_guest_requested: 'person_add_alt',
   match_list_open: 'campaign',
+  match_teams_ready: 'groups',
 };

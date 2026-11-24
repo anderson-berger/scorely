@@ -24,6 +24,7 @@ import {
   MATCH_PREFIX,
   MATCH_SERIES_ENTITY,
   MATCH_SERIES_PREFIX,
+  MATCH_TEAMS_ENTITY,
   matchAgendaKey,
   matchAgendaPk,
   matchAttendanceKey,
@@ -34,6 +35,7 @@ import {
   matchGuestsCounterKey,
   matchKey,
   matchSeriesKey,
+  matchTeamsKey,
   ROUTINE_ENTITY,
 } from '@scorely/api/src/modules/matches/match.table';
 import type { AdvanceMatchWave, AttendanceStatus, MatchWave, PublicGroupId } from '@scorely/contracts';
@@ -138,6 +140,27 @@ export interface StoredGuest {
   removedBy?: UserId | undefined;
 }
 
+/** Uma pessoa num time (PAR-25): o `UserId` do sistema, ou o id do convidado. */
+export interface StoredTeamPlayer {
+  kind: 'user' | 'guest';
+  id: string;
+}
+
+/**
+ * Os times da partida (PAR-25), `GROUP#<g> / MATCHTEAMS#<matchId>`. Um item por partida. Não guarda "sem time" nem
+ * "saiu da lista": os dois são calculados ao ler (PAR-28).
+ */
+export interface StoredTeams {
+  groupId: GroupId;
+  matchId: string;
+  teams: StoredTeamPlayer[][];
+  createdAt: string;
+  createdBy: UserId;
+  updatedAt: string;
+  updatedBy: UserId;
+  version: number;
+}
+
 /** PAR-11: de `pending` para `approve`, `decline` ou `cancel`; de `approved` para `remove`. */
 export type GuestTransition = 'approve' | 'decline' | 'cancel' | 'remove';
 
@@ -231,6 +254,23 @@ export interface MatchRepository {
     by: UserId;
     at: Date;
   }): Promise<boolean>;
+  getTeams(
+    groupId: GroupId,
+    matchId: string,
+    opts?: { consistent?: boolean },
+  ): Promise<StoredTeams | undefined>;
+  /**
+   * PAR-25, 29: troca a divisão inteira se a `version` for a esperada (0 = ainda não há times: cria); senão
+   * `VERSION_CONFLICT`. `created` = este salvar criou o item (quem ganha a criação avisa).
+   */
+  saveTeams(input: {
+    groupId: GroupId;
+    matchId: string;
+    teams: StoredTeamPlayer[][];
+    by: UserId;
+    at: Date;
+    expectedVersion: number;
+  }): Promise<{ teams: StoredTeams; created: boolean }>;
 }
 
 const PENDING_CONDITION =
@@ -741,5 +781,49 @@ export const dynamoMatchRepository: MatchRepository = {
     if (result.ok) return true;
     if (result.failed.includes(0)) return false;
     throw new Error('Guest transition failed');
+  },
+
+  async getTeams(groupId, matchId, opts) {
+    const item = await getItem(matchTeamsKey(groupId, matchId), opts?.consistent);
+    return item ? stripKeys<StoredTeams>(item) : undefined;
+  },
+
+  async saveTeams({ groupId, matchId, teams, by, at, expectedVersion }) {
+    const key = matchTeamsKey(groupId, matchId);
+    if (expectedVersion === 0) {
+      // PAR-29: o primeiro salvar cria com a condição de ainda não existir; quem ganha avisa.
+      const data = { groupId, matchId, teams, createdBy: by, updatedBy: by };
+      const item = dbItem(key, MATCH_TEAMS_ENTITY, data, at.toISOString());
+      await sendVersioned(key, () =>
+        dynamo().send(
+          new PutCommand({
+            TableName: tableName(),
+            Item: item,
+            ConditionExpression: 'attribute_not_exists(PK)',
+          }),
+        ),
+      );
+      return { teams: stripKeys<StoredTeams>(item), created: true };
+    }
+    const result = await sendVersioned(key, () =>
+      dynamo().send(
+        new UpdateCommand({
+          TableName: tableName(),
+          ...withVersion(
+            touch(
+              {
+                Key: key,
+                UpdateExpression: 'SET teams = :teams, updatedBy = :by',
+                ExpressionAttributeValues: { ':teams': teams, ':by': by },
+              },
+              at,
+            ),
+            expectedVersion,
+          ),
+          ReturnValues: 'ALL_NEW',
+        }),
+      ),
+    );
+    return { teams: stripKeys<StoredTeams>(result.Attributes ?? {}), created: false };
   },
 };
