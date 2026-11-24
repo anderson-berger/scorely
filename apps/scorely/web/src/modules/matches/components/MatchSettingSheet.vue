@@ -1,8 +1,9 @@
 <script lang="ts">
-import { MATCH_LIMITS, type Match, UpdateMatchInputSchema } from '@scorely/contracts';
+import { MATCH_LIMITS, type Match, type MatchSeries, UpdateMatchInputSchema } from '@scorely/contracts';
 import BottomSheet from '@scorely/web/src/components/BottomSheet.vue';
 import { errorMessage, issueMessage } from '@scorely/web/src/i18n/errors';
-import { withSettings } from '@scorely/web/src/modules/matches/match.settings';
+import { saveSeries } from '@scorely/web/src/modules/matches/match.series';
+import { withSeriesSettings, withSettings } from '@scorely/web/src/modules/matches/match.settings';
 import { matchesApi } from '@scorely/web/src/modules/matches/matches.api';
 import { defineComponent, type PropType } from 'vue';
 
@@ -34,6 +35,7 @@ function formOf(match: Match) {
  * PAR-02, 03, 06, 18: o painel de uma linha das configurações da partida. **Formato**: com limite (times × pessoas)
  * ou sem limite. **Abertura da lista**: a hora de cada um, em horas antes do início (vazio = desde já, ou junto com
  * o anterior), aceitar convidados e o fechamento. Manda o resto como está, com a `version`.
+ * PAR-18, 22: na partida de uma repetição ativa, **Também nas próximas semanas** (ligado) muda também a repetição.
  */
 export default defineComponent({
   name: 'MatchSettingSheet',
@@ -53,12 +55,22 @@ export default defineComponent({
   },
 
   data() {
-    return { form: formOf(this.match), saving: false, limits: MATCH_LIMITS };
+    return { form: formOf(this.match), saving: false, alsoNext: true, limits: MATCH_LIMITS };
+  },
+
+  computed: {
+    /** A repetição ativa da partida mostrada (PAR-18). */
+    activeSeries(): MatchSeries | undefined {
+      const series = this.match.series;
+      return series && !series.endedAt ? series : undefined;
+    },
   },
 
   watch: {
     modelValue(open: boolean) {
-      if (open) this.form = formOf(this.match);
+      if (!open) return;
+      this.form = formOf(this.match);
+      this.alsoNext = true;
     },
   },
 
@@ -80,14 +92,23 @@ export default defineComponent({
     },
 
     async save() {
-      const parsed = UpdateMatchInputSchema.safeParse(withSettings(this.match, this.patch()));
+      const patch = this.patch();
+      const parsed = UpdateMatchInputSchema.safeParse(withSettings(this.match, patch));
       if (!parsed.success) {
         this.$q.notify({ type: 'negative', message: issueMessage(parsed.error.issues[0]) });
         return;
       }
       this.saving = true;
       try {
-        this.$emit('saved', await matchesApi.update(this.groupId, this.match.id, parsed.data));
+        const saved = await matchesApi.update(this.groupId, this.match.id, parsed.data);
+        const series = this.activeSeries;
+        if (!series || !this.alsoNext) {
+          this.$emit('saved', saved);
+          return;
+        }
+        const result = await saveSeries(this.groupId, saved, withSeriesSettings(series, patch));
+        if (result.error) this.$q.notify({ type: 'negative', message: errorMessage(result.error) });
+        this.$emit('saved', result.match);
       } catch (err) {
         this.$q.notify({ type: 'negative', message: errorMessage(err) });
       } finally {
@@ -179,6 +200,8 @@ export default defineComponent({
           :hint="$t('matches.settings.closeHint')"
         />
       </template>
+
+      <q-toggle v-if="activeSeries" v-model="alsoNext" :label="$t('matches.series.alsoNext')" />
 
       <div class="actions">
         <q-btn

@@ -15,9 +15,9 @@ A confirmar. Hoje: qualquer pessoa com email (login por código), sem papéis de
 
 ## MVP (scorely)
 
-| Já existe                                                                                                                                                      | Próximo                                                 |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
-| login por código, perfil com foto, notificações (sino), grupo com logo e capa, convites, membros e reservas, grupo aberto com pedidos, cargos e passar o grupo | partida com confirmação pelo link, em ondas (PAR-01–19) |
+| Já existe                                                                                                                                                                                                               | Próximo                                                 |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| login por código, perfil com foto, notificações (sino), grupo com logo e capa, convites, membros e reservas, grupo aberto com pedidos, cargos e passar o grupo, partida com confirmação pelo link, em ondas (PAR-01–19) | partida toda semana e aviso de lista aberta (PAR-20–24) |
 
 O que cada módulo faz hoje, com as regras e o porquê, está em [`docs/modules/`](../modules/README.md). Este arquivo guarda só a visão e a ordem das entregas.
 

@@ -11,4 +11,5 @@ export const notificationIcon: Record<NotificationType, string> = {
   match_promoted: 'arrow_upward',
   match_cancelled: 'event_busy',
   match_guest_requested: 'person_add_alt',
+  match_list_open: 'campaign',
 };

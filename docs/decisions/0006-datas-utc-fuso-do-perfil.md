@@ -1,7 +1,7 @@
 # 0006: datas em UTC; exibição no fuso do perfil; recorrência em hora local + fuso do grupo
 
 - Data: 2026-11-05 (plano 005)
-- Estado: aceita
+- Estado: aceita. Nota de 2026-11-23: o grupo não tem mais fuso (GRV-01); a repetição da partida (PAR-20 em partidas.md) guarda o próprio fuso, o de quem cria.
 
 ## Contexto
 

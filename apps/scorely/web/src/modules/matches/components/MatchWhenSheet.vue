@@ -1,13 +1,23 @@
 <script lang="ts">
-import { CreateMatchInputSchema, MATCH_DURATION, MATCH_LIMITS, type Match } from '@scorely/contracts';
+import {
+  CreateMatchInputSchema,
+  MATCH_DURATION,
+  MATCH_LIMITS,
+  type Match,
+  type MatchSeries,
+} from '@scorely/contracts';
 import BottomSheet from '@scorely/web/src/components/BottomSheet.vue';
 import { errorMessage, issueMessage } from '@scorely/web/src/i18n/errors';
-import { zonedInputToIso, zonedInputValue } from '@scorely/web/src/lib/datetime';
+import { currentTimeZone, zonedInputToIso, zonedInputValue } from '@scorely/web/src/lib/datetime';
+import { saveSeries } from '@scorely/web/src/modules/matches/match.series';
 import {
   durationOf,
   endFrom,
   joinDuration,
+  seriesWhenOf,
   splitDuration,
+  weekdayOfDate,
+  withSeriesSettings,
   withSettings,
 } from '@scorely/web/src/modules/matches/match.settings';
 import { matchesApi } from '@scorely/web/src/modules/matches/matches.api';
@@ -17,6 +27,8 @@ import { defineComponent, type PropType } from 'vue';
  * PAR-01, 17: criar a partida pede só o dia, a hora e a duração. Com `match`, é a linha "Dia e hora" das
  * configurações (PAR-06, 18), que muda só isso. A duração é livre, em horas e minutos (ex.: 1 h 45). O dia e a
  * hora são lidos no fuso de quem vê (ADR 0006).
+ * PAR-17, 20: no criar, **Repetir toda semana** (desligado) manda o fuso de quem cria e mostra "Toda sexta às 19:00".
+ * PAR-18, 22: na partida de uma repetição ativa, **Também nas próximas semanas** (desligado) muda também a repetição.
  */
 export default defineComponent({
   name: 'MatchWhenSheet',
@@ -41,6 +53,8 @@ export default defineComponent({
       time: '',
       ...splitDuration(MATCH_DURATION.defaultMinutes),
       saving: false,
+      repeatWeekly: false,
+      alsoNext: false,
       maxHours: MATCH_LIMITS.durationMaxHours,
     };
   },
@@ -48,6 +62,21 @@ export default defineComponent({
   computed: {
     editing(): boolean {
       return this.match !== undefined;
+    },
+
+    /** A repetição ativa da partida mostrada (PAR-18). */
+    activeSeries(): MatchSeries | undefined {
+      const series = this.match?.series;
+      return series && !series.endedAt ? series : undefined;
+    },
+
+    /** "Toda sexta às 19:00", pelo dia e pela hora escolhidos (PAR-17). */
+    repeatPreview(): string {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(this.date) || !/^\d{2}:\d{2}$/.test(this.time)) return '';
+      return this.$t('matches.series.preview', {
+        every: this.$t(`matches.series.every.${weekdayOfDate(this.date)}`),
+        time: this.time,
+      });
     },
 
     total(): number | undefined {
@@ -62,6 +91,8 @@ export default defineComponent({
       this.date = local.slice(0, 10);
       this.time = local.slice(11, 16);
       Object.assign(this, splitDuration(this.match ? durationOf(this.match) : MATCH_DURATION.defaultMinutes));
+      this.repeatWeekly = false;
+      this.alsoNext = false;
     },
   },
 
@@ -76,6 +107,7 @@ export default defineComponent({
       const parsed = CreateMatchInputSchema.safeParse({
         startsAt,
         endsAt: startsAt && endFrom(startsAt, total),
+        ...(!this.match && this.repeatWeekly && { repeatWeekly: true, timeZone: currentTimeZone() }),
       });
       if (!parsed.success) {
         this.$q.notify({ type: 'negative', message: issueMessage(parsed.error.issues[0]) });
@@ -83,10 +115,28 @@ export default defineComponent({
       }
       this.saving = true;
       try {
-        const saved = this.match
-          ? await matchesApi.update(this.groupId, this.match.id, withSettings(this.match, parsed.data))
-          : await matchesApi.create(this.groupId, parsed.data);
-        this.$emit('saved', saved);
+        if (!this.match) {
+          this.$emit('saved', await matchesApi.create(this.groupId, parsed.data));
+          return;
+        }
+        const { startsAt: start, endsAt: end } = parsed.data;
+        const saved = await matchesApi.update(
+          this.groupId,
+          this.match.id,
+          withSettings(this.match, { startsAt: start, endsAt: end }),
+        );
+        const series = this.activeSeries;
+        if (!series || !this.alsoNext) {
+          this.$emit('saved', saved);
+          return;
+        }
+        const result = await saveSeries(
+          this.groupId,
+          saved,
+          withSeriesSettings(series, seriesWhenOf(start, total, series.timeZone)),
+        );
+        if (result.error) this.$q.notify({ type: 'negative', message: errorMessage(result.error) });
+        this.$emit('saved', result.match);
       } catch (err) {
         this.$q.notify({ type: 'negative', message: errorMessage(err) });
       } finally {
@@ -135,6 +185,12 @@ export default defineComponent({
           />
         </div>
       </div>
+
+      <template v-if="!editing">
+        <q-toggle v-model="repeatWeekly" :label="$t('matches.series.repeat')" />
+        <div v-if="repeatWeekly && repeatPreview" class="sc-caption">{{ repeatPreview }}</div>
+      </template>
+      <q-toggle v-else-if="activeSeries" v-model="alsoNext" :label="$t('matches.series.alsoNext')" />
 
       <div class="actions">
         <q-btn

@@ -1,11 +1,14 @@
-import type { Match } from '@scorely/contracts';
+import type { Match, MatchSeries } from '@scorely/contracts';
 import {
   durationLabel,
   durationOf,
   endFrom,
   joinDuration,
+  seriesWhenOf,
   settingsOf,
   splitDuration,
+  weekdayOfDate,
+  withSeriesSettings,
   withSettings,
 } from '@scorely/web/src/modules/matches/match.settings';
 import { describe, expect, it } from 'vitest';
@@ -132,5 +135,54 @@ describe('configurações da partida', () => {
   it('PAR-17: splitDuration e joinDuration são inversas', () => {
     const { hours, minutes } = splitDuration(105);
     expect(joinDuration(hours, minutes)).toBe(105);
+  });
+});
+
+describe('repetição (PAR-20, 22)', () => {
+  const series: MatchSeries = {
+    id: '00000000-0000-4000-8000-000000000001',
+    weekday: 5,
+    time: '19:00',
+    durationMinutes: 120,
+    timeZone: 'America/Sao_Paulo',
+    teams: 2,
+    playersPerTeam: 6,
+    membersHours: 72,
+    noGuests: false,
+    closeHours: 0,
+    version: 3,
+  };
+
+  it('PAR-20: weekdayOfDate conta de segunda (1) a domingo (7)', () => {
+    expect(weekdayOfDate('2026-11-23')).toBe(1);
+    expect(weekdayOfDate('2026-11-27')).toBe(5);
+    expect(weekdayOfDate('2026-11-29')).toBe(7);
+  });
+
+  it('PAR-22: seriesWhenOf lê o dia e a hora no fuso da repetição, não no de quem vê', () => {
+    // 22:00 UTC de sexta = 19:00 em São Paulo; 01:00 de sábado em Lisboa não conta.
+    expect(seriesWhenOf('2026-11-27T22:00:00.000Z', 105, 'America/Sao_Paulo')).toEqual({
+      weekday: 5,
+      time: '19:00',
+      durationMinutes: 105,
+    });
+  });
+
+  it('PAR-22: withSeriesSettings manda tudo menos o fuso, com a version, e tira o formato desligado', () => {
+    const input = withSeriesSettings(series, {
+      teams: undefined,
+      playersPerTeam: undefined,
+      reservesHours: 24,
+    });
+    expect(input).toEqual({
+      weekday: 5,
+      time: '19:00',
+      durationMinutes: 120,
+      membersHours: 72,
+      reservesHours: 24,
+      noGuests: false,
+      closeHours: 0,
+      expectedVersion: 3,
+    });
   });
 });

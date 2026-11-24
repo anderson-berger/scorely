@@ -1,6 +1,6 @@
 import { VersionSchema } from '@scorely/contracts/src/entity';
 import { GroupTierSchema } from '@scorely/contracts/src/groups';
-import { UserSchema } from '@scorely/contracts/src/users';
+import { TimeZoneSchema, UserSchema } from '@scorely/contracts/src/users';
 import { z } from 'zod';
 
 // Partida (docs/modules/partidas.md).
@@ -10,6 +10,9 @@ export const MATCH_MAX_UPCOMING = 20;
 
 /** Máximo de convidados `pending` + `approved` por partida (PAR-12). */
 export const MATCH_GUEST_MAX = 30;
+
+/** Máximo de repetições ativas (não encerradas) por grupo (PAR-20). */
+export const MATCH_SERIES_MAX_ACTIVE = 10;
 
 /** Limites de PAR-01 e PAR-03. */
 export const MATCH_LIMITS = {
@@ -110,12 +113,23 @@ function checkMatchTimes(value: MatchTimes, ctx: z.RefinementCtx): void {
   }
 }
 
-/**
- * PAR-02–04, 06: as horas, o formato inteiro ou nenhum, as vagas até 100 e as ondas em ordem (membros ≥ reservas ≥
- * convidados ≥ fechamento), contando a onda sem hora como aberta junto com a anterior.
- */
+/** O formato e a abertura da lista (PAR-02–04): o que a partida (PAR-06) e a repetição (PAR-22) configuram. */
+type MatchSetup = Pick<
+  MatchFields,
+  'teams' | 'playersPerTeam' | 'membersHours' | 'reservesHours' | 'guestsHours' | 'noGuests' | 'closeHours'
+>;
+
+/** PAR-06: as horas, o formato e a abertura. */
 function checkMatchFields(value: MatchFields, ctx: z.RefinementCtx): void {
   checkMatchTimes(value, ctx);
+  checkMatchSetup(value, ctx);
+}
+
+/**
+ * PAR-02–04: o formato inteiro ou nenhum, as vagas até 100 e as ondas em ordem (membros ≥ reservas ≥ convidados ≥
+ * fechamento), contando a onda sem hora como aberta junto com a anterior.
+ */
+function checkMatchSetup(value: MatchSetup, ctx: z.RefinementCtx): void {
   if ((value.teams === undefined) !== (value.playersPerTeam === undefined)) {
     ctx.addIssue({ code: 'custom', path: ['teams'], message: 'Teams and players per team go together' });
   } else if (value.teams !== undefined && value.teams * (value.playersPerTeam ?? 0) > MATCH_LIMITS.slots) {
@@ -135,8 +149,20 @@ function checkMatchFields(value: MatchFields, ctx: z.RefinementCtx): void {
   }
 }
 
-/** Corpo do `POST /groups/{publicId}/matches` (PAR-01): só o início e o fim; o resto nasce vazio. */
-export const CreateMatchInputSchema = MatchTimesSchema.superRefine(checkMatchTimes);
+/**
+ * Corpo do `POST /groups/{publicId}/matches` (PAR-01): só o início e o fim; o resto nasce vazio. Com `repeatWeekly`,
+ * nasce também a repetição, no `timeZone` de quem cria (PAR-20), que aí é obrigatório e válido (a api guarda o nome
+ * canônico, `TimeZoneSchema`). Sem o `repeatWeekly`, o `timeZone` é ignorado.
+ */
+export const CreateMatchInputSchema = MatchTimesSchema.extend({
+  repeatWeekly: z.boolean().optional(),
+  timeZone: z.string().optional(),
+}).superRefine((value, ctx) => {
+  checkMatchTimes(value, ctx);
+  if (value.repeatWeekly === true && !TimeZoneSchema.safeParse(value.timeZone).success) {
+    ctx.addIssue({ code: 'custom', path: ['timeZone'], message: 'Invalid time zone' });
+  }
+});
 export type CreateMatchInput = z.infer<typeof CreateMatchInputSchema>;
 
 /** Corpo do `PUT /groups/{publicId}/matches/{matchId}` (PAR-06): todas as configurações e a `version` (ADR 0016). */
@@ -144,6 +170,42 @@ export const UpdateMatchInputSchema = MatchFieldsSchema.extend({
   expectedVersion: VersionSchema,
 }).superRefine(checkMatchFields);
 export type UpdateMatchInput = z.infer<typeof UpdateMatchInputSchema>;
+
+/** O dia da semana da repetição (PAR-20): 1 a 7, de segunda a domingo (ISO 8601). */
+export const MatchWeekdaySchema = z.number().int().min(1).max(7);
+export type MatchWeekday = z.infer<typeof MatchWeekdaySchema>;
+
+/** A hora da repetição (PAR-20), `HH:mm`, no fuso dela. */
+export const MatchSeriesTimeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Invalid time');
+
+/** O que a repetição configura (PAR-20, 22): o dia da semana, a hora, a duração, o formato e a abertura. */
+const MatchSeriesFieldsSchema = MatchFieldsSchema.omit({ startsAt: true, endsAt: true }).extend({
+  weekday: MatchWeekdaySchema,
+  time: MatchSeriesTimeSchema,
+  /** De 1 min até 24 h (PAR-01, 17). */
+  durationMinutes: z
+    .number()
+    .int()
+    .min(MATCH_DURATION.minMinutes)
+    .max(MATCH_LIMITS.durationMaxHours * 60),
+});
+
+/** Corpo do `PUT /groups/{publicId}/match-series/{seriesId}` (PAR-22): tudo, menos o fuso, e a `version` (ADR 0016). */
+export const UpdateMatchSeriesInputSchema = MatchSeriesFieldsSchema.extend({
+  expectedVersion: VersionSchema,
+}).superRefine(checkMatchSetup);
+export type UpdateMatchSeriesInput = z.infer<typeof UpdateMatchSeriesInputSchema>;
+
+/** A repetição, como vem na partida que ela criou (PAR-16). */
+export const MatchSeriesSchema = MatchSeriesFieldsSchema.extend({
+  id: z.uuid(),
+  /** O fuso de quem criou (PAR-20); não muda. */
+  timeZone: z.string(),
+  /** Encerrada (PAR-23); ausente = ativa. */
+  endedAt: z.iso.datetime().optional(),
+  version: VersionSchema,
+});
+export type MatchSeries = z.infer<typeof MatchSeriesSchema>;
 
 /** Corpo do `POST .../advance` (PAR-05). */
 export const AdvanceMatchInputSchema = z.object({ wave: AdvanceMatchWaveSchema });
@@ -216,6 +278,8 @@ export const MatchSummarySchema = z.object({
   /** Quantos estão dentro (PAR-09). */
   confirmed: z.number().int().nonnegative(),
   myAttendance: MyAttendanceSchema.optional(),
+  /** O dia da semana da repetição de onde a partida saiu, só com ela ativa (PAR-15, 17: "Toda sexta"). */
+  seriesWeekday: MatchWeekdaySchema.optional(),
 });
 export type MatchSummary = z.infer<typeof MatchSummarySchema>;
 
@@ -253,5 +317,7 @@ export const MatchSchema = MatchSummarySchema.extend({
   /** Os pedidos de convidado `pending` que quem pede pode ver. */
   guestRequests: z.array(MatchGuestRequestSchema),
   actions: MatchActionsSchema,
+  /** A repetição de onde a partida saiu, encerrada ou não (PAR-16, 22). */
+  series: MatchSeriesSchema.optional(),
 });
 export type Match = z.infer<typeof MatchSchema>;

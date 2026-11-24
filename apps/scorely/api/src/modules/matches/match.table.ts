@@ -44,3 +44,27 @@ export function matchGuestsCounterKey(groupId: GroupId, matchId: string) {
 export function matchGuestNameKey(groupId: GroupId, matchId: string, normalizedName: string) {
   return { PK: pk(groupId), SK: `MATCHGUESTNAME#${matchId}#${normalizedName}` };
 }
+
+export const MATCH_SERIES_ENTITY = 'MatchSeries';
+export const ROUTINE_ENTITY = 'Routine';
+
+/** Prefixo das repetições do grupo: Query `begins_with(SK, "MATCHSERIES#")`. */
+export const MATCH_SERIES_PREFIX = 'MATCHSERIES#';
+
+/** Repetição (PAR-20): `GROUP#<g> / MATCHSERIES#<seriesId>`. Entidade (`newEntity`). */
+export function matchSeriesKey(groupId: GroupId, seriesId: string) {
+  return { PK: pk(groupId), SK: `${MATCH_SERIES_PREFIX}${seriesId}` };
+}
+
+/** A partição da agenda (PAR-21, 24): a hora em UTC, `MATCHAGENDA#<AAAA-MM-DDTHH>`. */
+export function matchAgendaPk(instant: string) {
+  return `MATCHAGENDA#${instant.slice(0, 13)}`;
+}
+
+/** Item da agenda: `MATCHAGENDA#<hora> / <instante>#<g>#<matchId>`. Ponteiro (`LOOKUP_ENTITY`), não entidade. */
+export function matchAgendaKey(instant: string, groupId: GroupId, matchId: string) {
+  return { PK: matchAgendaPk(instant), SK: `${instant}#${groupId}#${matchId}` };
+}
+
+/** Até onde a rotina `matchesAgenda` já leu: `ROUTINE#MATCHAGENDA / META`. */
+export const MATCH_AGENDA_CURSOR_KEY = { PK: 'ROUTINE#MATCHAGENDA', SK: 'META' };

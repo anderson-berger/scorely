@@ -1,9 +1,11 @@
 import { appError } from '@scorely/api/src/lib/errors';
 import type {
+  AgendaEntry,
   MatchRepository,
   StoredAttendance,
   StoredGuest,
   StoredMatch,
+  StoredSeries,
 } from '@scorely/api/src/modules/matches/match.repository';
 
 /** O repositório de partidas em memória, com o mesmo contrato do Dynamo (suíte de contrato, ADR 0019). */
@@ -13,6 +15,9 @@ export function memoryMatches() {
   const guests = new Map<string, StoredGuest>();
   const names = new Map<string, string>();
   const counters = new Map<string, number>();
+  const series = new Map<string, StoredSeries>();
+  const agenda = new Map<string, AgendaEntry>();
+  const cursor = { lastRunAt: undefined as string | undefined };
   const key = (...parts: string[]) => parts.join('#');
   const copy = <T extends object>(value: T): T => ({ ...value });
 
@@ -21,10 +26,15 @@ export function memoryMatches() {
   const isApproved = (g: StoredGuest) => g.approvedAt !== undefined && g.removedAt === undefined;
 
   const repo: MatchRepository = {
-    async createMatch(match) {
+    async createMatch(match, extras = {}) {
       const k = key(match.groupId, match.id);
       if (matches.has(k)) throw new Error('Match create failed');
+      if (extras.series && series.has(key(extras.series.groupId, extras.series.id))) {
+        throw new Error('Match create failed');
+      }
       matches.set(k, copy(match));
+      if (extras.series) series.set(key(extras.series.groupId, extras.series.id), copy(extras.series));
+      await repo.putAgenda(extras.agenda ?? [], new Date(match.createdAt));
     },
     async getMatch(groupId, matchId) {
       const match = matches.get(key(groupId, matchId));
@@ -37,7 +47,7 @@ export function memoryMatches() {
         .sort((a, b) => a.id.localeCompare(b.id))
         .map(copy);
     },
-    async updateMatch(match, expectedVersion, at) {
+    async updateMatch(match, expectedVersion, at, opts = {}) {
       const k = key(match.groupId, match.id);
       const current = matches.get(k);
       if (!current || current.version !== expectedVersion) {
@@ -45,6 +55,7 @@ export function memoryMatches() {
       }
       const next: StoredMatch = {
         ...match,
+        notifiedWave: opts.resetNotified ? match.notifiedWave : current.notifiedWave,
         createdAt: current.createdAt,
         updatedAt: at.toISOString(),
         version: current.version + 1,
@@ -80,6 +91,86 @@ export function memoryMatches() {
         version: current.version + 1,
       });
       return true;
+    },
+    async markNotified(groupId, matchId, from, to) {
+      const k = key(groupId, matchId);
+      const current = matches.get(k);
+      if (!current || current.notifiedWave !== from) return false;
+      matches.set(k, { ...current, notifiedWave: to });
+      return true;
+    },
+    async getSeries(groupId, seriesId) {
+      const found = series.get(key(groupId, seriesId));
+      return found && copy(found);
+    },
+    async listSeries(groupId) {
+      return [...series.values()]
+        .filter((x) => x.groupId === groupId)
+        .sort((a, b) => a.id.localeCompare(b.id))
+        .map(copy);
+    },
+    async updateSeries(next, expectedVersion, at) {
+      const k = key(next.groupId, next.id);
+      const current = series.get(k);
+      if (!current || current.version !== expectedVersion) {
+        throw appError('VERSION_CONFLICT', { currentVersion: current?.version ?? 0 });
+      }
+      const saved: StoredSeries = {
+        ...next,
+        createdAt: current.createdAt,
+        updatedAt: at.toISOString(),
+        version: current.version + 1,
+      };
+      series.set(k, saved);
+      return copy(saved);
+    },
+    async endSeries(groupId, seriesId, at) {
+      const k = key(groupId, seriesId);
+      const current = series.get(k);
+      if (!current || current.endedAt !== undefined) return false;
+      const iso = at.toISOString();
+      series.set(k, { ...current, endedAt: iso, updatedAt: iso, version: current.version + 1 });
+      return true;
+    },
+    async createNextMatch({ match, previousMatchId, agenda: entries, at }) {
+      if (match.seriesId === undefined || match.seriesDate === undefined)
+        throw new Error('Next match without a series');
+      const k = key(match.groupId, match.seriesId);
+      const current = series.get(k);
+      if (!current || current.currentMatchId !== previousMatchId || current.endedAt !== undefined)
+        return false;
+      if (matches.has(key(match.groupId, match.id))) throw new Error('Next match create failed');
+      const iso = at.toISOString();
+      series.set(k, {
+        ...current,
+        currentMatchId: match.id,
+        currentDate: match.seriesDate,
+        updatedAt: iso,
+        version: current.version + 1,
+      });
+      matches.set(key(match.groupId, match.id), copy(match));
+      await repo.putAgenda(entries, at);
+      return true;
+    },
+    async putAgenda(entries) {
+      for (const entry of entries) agenda.set(key(entry.at, entry.groupId, entry.matchId), copy(entry));
+    },
+    async listAgenda(from, to) {
+      const firstHour = from.toISOString().slice(0, 13);
+      const until = to.toISOString();
+      return [...agenda.values()]
+        .filter((e) => e.at.slice(0, 13) >= firstHour && e.at <= until)
+        .sort((a, b) => key(a.at, a.groupId, a.matchId).localeCompare(key(b.at, b.groupId, b.matchId)))
+        .map(copy);
+    },
+    async deleteAgenda(entry) {
+      agenda.delete(key(entry.at, entry.groupId, entry.matchId));
+    },
+    async getAgendaCursor() {
+      return cursor.lastRunAt;
+    },
+    async setAgendaCursor(at) {
+      cursor.lastRunAt = at.toISOString();
     },
     async listAttendances(groupId, matchId) {
       return [...attendances.values()]
@@ -136,5 +227,5 @@ export function memoryMatches() {
       return true;
     },
   };
-  return { repo, counters };
+  return { repo, counters, agenda };
 }

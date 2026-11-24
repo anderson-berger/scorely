@@ -2,10 +2,12 @@ import {
   type AdvanceMatchInput,
   type CreateMatchInput,
   MatchSchema,
+  MatchSeriesSchema,
   MatchSummarySchema,
   type RequestMatchGuestInput,
   type SetAttendanceInput,
   type UpdateMatchInput,
+  type UpdateMatchSeriesInput,
 } from '@scorely/contracts';
 import { request } from '@scorely/web/src/lib/http';
 
@@ -14,6 +16,8 @@ const base = (groupId: string) => `/groups/${encodeURIComponent(groupId)}/matche
 const one = (groupId: string, matchId: string) => `${base(groupId)}/${encodeURIComponent(matchId)}`;
 const guest = (groupId: string, matchId: string, guestId: string) =>
   `${one(groupId, matchId)}/guests/${encodeURIComponent(guestId)}`;
+const series = (groupId: string, seriesId: string) =>
+  `/groups/${encodeURIComponent(groupId)}/match-series/${encodeURIComponent(seriesId)}`;
 
 export const matchesApi = {
   list: (groupId: string) => request({ url: base(groupId) }, MatchSummarySchema.array()),
@@ -38,4 +42,10 @@ export const matchesApi = {
     request({ url: `${guest(groupId, matchId, guestId)}/decline`, method: 'POST' }, MatchSchema),
   removeGuest: (groupId: string, matchId: string, guestId: string) =>
     request({ url: guest(groupId, matchId, guestId), method: 'DELETE' }, MatchSchema),
+
+  // Repetição (PAR-22, 23): responde a repetição.
+  updateSeries: (groupId: string, seriesId: string, input: UpdateMatchSeriesInput) =>
+    request({ url: series(groupId, seriesId), method: 'PUT', data: input }, MatchSeriesSchema),
+  endSeries: (groupId: string, seriesId: string) =>
+    request({ url: `${series(groupId, seriesId)}/end`, method: 'POST' }, MatchSeriesSchema),
 };

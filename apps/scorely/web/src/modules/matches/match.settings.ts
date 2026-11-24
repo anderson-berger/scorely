@@ -1,4 +1,12 @@
-import { MATCH_DURATION, MATCH_LIMITS, type Match, type UpdateMatchInput } from '@scorely/contracts';
+import {
+  MATCH_DURATION,
+  MATCH_LIMITS,
+  type Match,
+  type MatchSeries,
+  type UpdateMatchInput,
+  type UpdateMatchSeriesInput,
+} from '@scorely/contracts';
+import { zonedInputValue } from '@scorely/web/src/lib/datetime';
 
 // PAR-06, 18: as configurações da partida. Cada painel muda só a sua parte e manda o resto como está.
 
@@ -55,6 +63,44 @@ export function slotsOf(match: Pick<Match, 'teams' | 'playersPerTeam'>): number 
   return match.teams !== undefined && match.playersPerTeam !== undefined
     ? match.teams * match.playersPerTeam
     : undefined;
+}
+
+/** O que dá para mudar na repetição sem mexer nas horas: o formato e a abertura (PAR-22). */
+type SetupPatch = Partial<
+  Pick<
+    UpdateMatchSeriesInput,
+    'teams' | 'playersPerTeam' | 'membersHours' | 'reservesHours' | 'guestsHours' | 'noGuests' | 'closeHours'
+  >
+>;
+
+/** PAR-22: o `PUT` da repetição com a parte mudada, o resto como está e a `version` dela (ADR 0016). */
+export function withSeriesSettings(
+  series: MatchSeries,
+  patch: SetupPatch & Partial<Pick<UpdateMatchSeriesInput, 'weekday' | 'time' | 'durationMinutes'>>,
+): UpdateMatchSeriesInput {
+  const { id: _id, timeZone: _timeZone, endedAt: _endedAt, version, ...fields } = series;
+  const merged: Record<string, unknown> = { ...fields, ...patch, expectedVersion: version };
+  for (const key of Object.keys(merged)) {
+    if (merged[key] === undefined) delete merged[key];
+  }
+  return merged as UpdateMatchSeriesInput;
+}
+
+/** O dia da semana (1 a 7, segunda a domingo) de um `YYYY-MM-DD` do calendário (PAR-20). */
+export function weekdayOfDate(date: string): number {
+  const [y, m, d] = date.split('-').map(Number);
+  const sunday0 = new Date(Date.UTC(y ?? 0, (m ?? 1) - 1, d ?? 1)).getUTCDay();
+  return sunday0 === 0 ? 7 : sunday0;
+}
+
+/** PAR-20, 22: o dia da semana e a hora de um início no fuso da repetição, e a duração. */
+export function seriesWhenOf(
+  startsAt: string,
+  durationMinutes: number,
+  timeZone: string,
+): Pick<UpdateMatchSeriesInput, 'weekday' | 'time' | 'durationMinutes'> {
+  const local = zonedInputValue(startsAt, timeZone);
+  return { weekday: weekdayOfDate(local.slice(0, 10)), time: local.slice(11, 16), durationMinutes };
 }
 
 const MAX_MINUTES = MATCH_LIMITS.durationMaxHours * 60;
