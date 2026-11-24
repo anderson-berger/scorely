@@ -18,4 +18,5 @@ O DynamoDB apaga o item expirado com até ~48 h de atraso. Sem conferir o `expir
 ## Consequências
 
 - O `ttl` só limpa a tabela; a validade é sempre do `expiresAt`.
+- Exceção (2026-11-24): o item que não vale nada sozinho, só aponta para outro, grava só o `ttl`, sem `expiresAt`. Caso: o item da agenda das partidas (`MATCHAGENDA#<hora>`, partidas.md §3). Ele é apagado depois de tratado, e a rotina relê a partida antes de agir, então um item velho não faz nada errado. O `ttl` é só a reserva para o que a rotina não apagou.
 - Regra: `.claude/rules/dynamodb.md`.
