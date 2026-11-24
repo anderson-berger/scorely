@@ -40,6 +40,9 @@ import {
 } from '@scorely/api/src/modules/matches/match.table';
 import type { AdvanceMatchWave, AttendanceStatus, MatchWave, PublicGroupId } from '@scorely/contracts';
 
+/** PAR-16: a hora (ISO) em que cada onda abriu antes da hora configurada. */
+export type MatchOpenedAt = Partial<Record<MatchWave, string>>;
+
 /** A partida como fica no banco (PAR-01, seção 3 do doc). Interna da api. */
 export interface StoredMatch {
   id: string;
@@ -61,6 +64,11 @@ export interface StoredMatch {
   closeHours: number;
   /** A maior onda já aberta à mão ou guardada por uma edição (PAR-05, 06): a onda nunca volta. */
   advancedTo?: MatchWave | undefined;
+  /**
+   * A hora em que cada onda abriu antes da hora configurada (PAR-16): gravada junto com o `advancedTo`, só para as
+   * ondas que ele abriu, e nunca regravada.
+   */
+  openedAt?: MatchOpenedAt | undefined;
   /** A maior onda já avisada (PAR-24); ausente = nenhuma. */
   notifiedWave?: MatchWave | undefined;
   /** A repetição de onde a partida saiu e o dia previsto dela, no fuso da repetição (PAR-21). */
@@ -189,8 +197,17 @@ export interface MatchRepository {
     at: Date,
     opts?: { resetNotified?: boolean },
   ): Promise<StoredMatch>;
-  /** PAR-05: `false` = já estava nessa onda ou numa maior (a onda nunca volta). */
-  advanceMatch(groupId: GroupId, matchId: string, wave: AdvanceMatchWave, at: Date): Promise<boolean>;
+  /**
+   * PAR-05, 16: grava a onda aberta e, junto, o `openedAt` inteiro. `false` = já estava nessa onda ou numa maior (a
+   * onda nunca volta), e nada muda.
+   */
+  advanceMatch(
+    groupId: GroupId,
+    matchId: string,
+    wave: AdvanceMatchWave,
+    openedAt: MatchOpenedAt,
+    at: Date,
+  ): Promise<boolean>;
   /** PAR-07: `false` = já cancelada. */
   cancelMatch(groupId: GroupId, matchId: string, at: Date): Promise<boolean>;
   /**
@@ -334,6 +351,7 @@ const MATCH_OPTIONAL = [
   'reservesHours',
   'guestsHours',
   'advancedTo',
+  'openedAt',
   'cancelledAt',
 ] as const;
 
@@ -459,7 +477,7 @@ export const dynamoMatchRepository: MatchRepository = {
     return stripKeys<StoredMatch>(result.Attributes ?? {});
   },
 
-  async advanceMatch(groupId, matchId, wave, at) {
+  async advanceMatch(groupId, matchId, wave, openedAt, at) {
     // A onda só sobe: `reserves` sobre nada ou `members`; `guests` sobre tudo menos ela mesma.
     const condition =
       wave === 'reserves'
@@ -472,10 +490,11 @@ export const dynamoMatchRepository: MatchRepository = {
           ...touch(
             {
               Key: matchKey(groupId, matchId),
-              UpdateExpression: 'SET advancedTo = :wave',
+              UpdateExpression: 'SET advancedTo = :wave, openedAt = :openedAt',
               ConditionExpression: condition,
               ExpressionAttributeValues: {
                 ':wave': wave,
+                ':openedAt': openedAt,
                 ...(wave === 'reserves' && { ':lower': 'members' }),
               },
             },

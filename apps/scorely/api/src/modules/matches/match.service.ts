@@ -7,6 +7,7 @@ import { toUser, type UrlOf } from '@scorely/api/src/modules/groups/group.servic
 import type {
   AgendaEntry,
   GuestTransition,
+  MatchOpenedAt,
   MatchRepository,
   StoredAttendance,
   StoredGuest,
@@ -136,19 +137,43 @@ function currentWave(match: StoredMatch, now: Date): MatchWave | undefined {
   return rank(match.advancedTo) > rank(byTime) ? match.advancedTo : byTime;
 }
 
-/** PAR-16: as horas das ondas, já com o que foi aberto à mão (aberta antes da hora = aberta agora). */
-function wavesView(match: StoredMatch, now: Date): MatchWaves {
-  const times = naturalTimes(match);
-  const advanced = rank(match.advancedTo);
-  const opened = (natural: Date | undefined, wave: MatchWave) =>
-    advanced >= rank(wave) ? new Date(Math.min(natural?.getTime() ?? now.getTime(), now.getTime())) : natural;
-  const guests = opened(times.guests, 'guests');
+/** PAR-16: a hora que a onda mostra: a configurada ou, se abriu antes dela, a guardada no `openedAt`. */
+function shownTime(match: StoredMatch, wave: MatchWave): Date | undefined {
+  const natural = naturalTimes(match)[wave];
+  const opened = match.openedAt?.[wave];
+  if (opened === undefined) return natural;
+  const openedTime = new Date(opened);
+  return natural === undefined || openedTime < natural ? openedTime : natural;
+}
+
+/** PAR-16: as horas das ondas, já com a hora em que cada uma abriu antes da hora configurada. */
+function wavesView(match: StoredMatch): MatchWaves {
+  const guests = shownTime(match, 'guests');
   return {
-    members: (opened(times.members, 'members') as Date).toISOString(),
-    reserves: (opened(times.reserves, 'reserves') as Date).toISOString(),
+    members: (shownTime(match, 'members') as Date).toISOString(),
+    reserves: (shownTime(match, 'reserves') as Date).toISOString(),
     ...(guests !== undefined && { guests: guests.toISOString() }),
-    close: times.close.toISOString(),
+    close: naturalTimes(match).close.toISOString(),
   };
+}
+
+/**
+ * PAR-05, 06, 16: o `openedAt` de `next`. Cada onda até o `advancedTo` dele guarda a hora em que abriu de fato (a
+ * que mostrava em `before`, ou `at`, quando abre agora), se ela for antes da hora configurada em `next`. As horas
+ * que já existiam não mudam; as das ondas acima do `advancedTo` saem.
+ */
+function openedAtFor(before: StoredMatch, next: StoredMatch, at: Date): MatchOpenedAt {
+  const natural = naturalTimes(next);
+  return Object.fromEntries(
+    WAVE_ORDER.filter((wave) => rank(wave) <= rank(next.advancedTo)).flatMap((wave) => {
+      const kept = before.openedAt?.[wave];
+      if (kept !== undefined) return [[wave, kept]];
+      const previous = shownTime(before, wave);
+      const shown = previous === undefined || previous > at ? at : previous;
+      const configured = natural[wave];
+      return configured !== undefined && configured <= shown ? [] : [[wave, shown.toISOString()]];
+    }),
+  );
 }
 
 /** PAR-16: a situação, calculada pela hora. */
@@ -397,7 +422,7 @@ export function createMatchService(deps: MatchesDeps) {
       ...(match.guestsHours !== undefined && { guestsHours: match.guestsHours }),
       noGuests: match.noGuests,
       closeHours: match.closeHours,
-      waves: wavesView(match, at),
+      waves: wavesView(match),
       ...(match.cancelledAt !== undefined && { cancelledAt: match.cancelledAt }),
       in: state.list.in.map(entry),
       queue: state.list.queue.map(entry),
@@ -800,7 +825,12 @@ export function createMatchService(deps: MatchesDeps) {
     const openNow = unconfigured(match) ? match.advancedTo : currentWave(match, at);
     const draft: StoredMatch = { ...match, ...fieldsOf(input), advancedTo: match.advancedTo };
     const advancedTo = rank(openNow) > rank(currentWave(draft, at)) ? openNow : match.advancedTo;
-    const next: StoredMatch = { ...draft, advancedTo };
+    // PAR-16: cada onda que o `advancedTo` segura aberta guarda a hora que já mostrava.
+    const next: StoredMatch = {
+      ...draft,
+      advancedTo,
+      openedAt: openedAtFor(match, { ...draft, advancedTo }, at),
+    };
     // PAR-24: a primeira configuração faz a onda que voltou a esperar avisar de novo quando abrir.
     const firstSetup = unconfigured(match) && !unconfigured(next);
     const saved = await deps.matches.updateMatch(
@@ -830,7 +860,9 @@ export function createMatchService(deps: MatchesDeps) {
     if (match.cancelledAt !== undefined) throw appError('MATCH_CANCELLED');
     if (at >= naturalTimes(match).close) throw appError('MATCH_CLOSED');
     if (rank(input.wave) > rank(currentWave(match, at))) {
-      await deps.matches.advanceMatch(ctx.groupId, matchId, input.wave, at);
+      // PAR-16: as ondas que abrem agora guardam a hora do pedido.
+      const openedAt = openedAtFor(match, { ...match, advancedTo: input.wave }, at);
+      await deps.matches.advanceMatch(ctx.groupId, matchId, input.wave, openedAt, at);
     }
     // PAR-05, 24: abrir à mão avisa na hora.
     await checkListOpen(await load(ctx.groupId, matchId, true), ctx, at);

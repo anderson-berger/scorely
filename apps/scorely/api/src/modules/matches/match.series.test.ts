@@ -566,6 +566,25 @@ describe('PAR-24: aviso de lista aberta (match_list_open)', () => {
     expect(openedTo(t, BIA, m.id)).toEqual([]);
   });
 
+  it('PAR-24: quem abriu à mão e ainda não respondeu também recebe o aviso', async () => {
+    const t = setup();
+    const m = await createConfigured(t);
+    await t.service.advance(ANA, PUBLIC_ID, m.id, { wave: 'reserves' });
+    expect(openedTo(t, ANA, m.id)).toEqual([{ userId: ANA, type: 'match_list_open', link: link(m.id) }]);
+  });
+
+  it('PAR-24, 06: quem abriu por uma edição e ainda não respondeu também recebe o aviso', async () => {
+    const t = setup();
+    const m = await createConfigured(t);
+    t.at(iso(MEMBERS_AT, 1));
+    const current = await get(t, ANA, m.id);
+    await t.service.update(ANA, PUBLIC_ID, m.id, {
+      ...settings({ reservesHours: 72 }),
+      expectedVersion: current.version,
+    });
+    expect(openedTo(t, ANA, m.id)).toEqual([{ userId: ANA, type: 'match_list_open', link: link(m.id) }]);
+  });
+
   it('PAR-24: quem disse "não vou" antes da onda abrir não é avisado', async () => {
     const t = setup();
     const m = await createConfigured(t);

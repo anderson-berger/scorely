@@ -205,12 +205,52 @@ describe.each([
     it('PAR-05: advanceMatch grava a onda aberta; repetir ou pedir uma menor devolve false e não volta', async () => {
       const match = newMatch(newGroup());
       await repo.createMatch(match);
-      expect(await repo.advanceMatch(match.groupId, match.id, 'reserves', at(1))).toBe(true);
+      expect(
+        await repo.advanceMatch(
+          match.groupId,
+          match.id,
+          'reserves',
+          { reserves: at(1).toISOString() },
+          at(1),
+        ),
+      ).toBe(true);
       expect((await repo.getMatch(match.groupId, match.id, read))?.advancedTo).toBe('reserves');
-      expect(await repo.advanceMatch(match.groupId, match.id, 'reserves', at(2))).toBe(false);
-      expect(await repo.advanceMatch(match.groupId, match.id, 'guests', at(3))).toBe(true);
-      expect(await repo.advanceMatch(match.groupId, match.id, 'reserves', at(4))).toBe(false);
+      expect(
+        await repo.advanceMatch(
+          match.groupId,
+          match.id,
+          'reserves',
+          { reserves: at(2).toISOString() },
+          at(2),
+        ),
+      ).toBe(false);
+      expect(
+        await repo.advanceMatch(
+          match.groupId,
+          match.id,
+          'guests',
+          { reserves: at(1).toISOString(), guests: at(3).toISOString() },
+          at(3),
+        ),
+      ).toBe(true);
+      expect(await repo.advanceMatch(match.groupId, match.id, 'reserves', {}, at(4))).toBe(false);
       expect((await repo.getMatch(match.groupId, match.id, read))?.advancedTo).toBe('guests');
+    });
+
+    it('PAR-16: advanceMatch grava o openedAt junto; a gravação recusada não o troca, e a edição o mantém', async () => {
+      const match = newMatch(newGroup());
+      await repo.createMatch(match);
+      const opened = { reserves: at(1).toISOString() };
+      await repo.advanceMatch(match.groupId, match.id, 'reserves', opened, at(1));
+      await repo.advanceMatch(match.groupId, match.id, 'reserves', { reserves: at(2).toISOString() }, at(2));
+      const stored = await repo.getMatch(match.groupId, match.id, read);
+      expect(stored?.openedAt).toEqual(opened);
+      if (!stored) throw new Error('missing match');
+      const updated = await repo.updateMatch(stored, stored.version, at(3));
+      expect(updated.openedAt).toEqual(opened);
+      const { openedAt: _o, ...withoutOpened } = updated;
+      const cleared = await repo.updateMatch(withoutOpened, updated.version, at(4));
+      expect(cleared.openedAt).toBeUndefined();
     });
 
     it('PAR-07: cancelMatch grava cancelledAt, devolve true, e a segunda vez false sem mudar a data', async () => {

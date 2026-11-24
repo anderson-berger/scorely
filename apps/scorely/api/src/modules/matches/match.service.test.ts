@@ -540,6 +540,79 @@ describe('PAR-05: abrir a onda antes da hora', () => {
   });
 });
 
+describe('PAR-16: a hora de cada onda aberta antes da hora fica guardada', () => {
+  const T1 = '2026-11-25T12:00:00.000Z';
+  const T2 = '2026-11-25T18:00:00.000Z';
+
+  it('PAR-16, PAR-05: aberta à mão, a onda mostra a hora do pedido em toda leitura, mesmo com o relógio adiantado', async () => {
+    const t = setup();
+    const m = await create(t);
+    t.at(T1);
+    await t.service.advance(ANA, PUBLIC_ID, m.id, { wave: 'reserves' });
+    t.at('2026-11-26T01:00:00.000Z'); // antes da hora natural das reservas
+    expect((await get(t, BIA, m.id)).waves.reserves).toBe(T1);
+    t.at('2026-11-26T20:00:00.000Z');
+    expect((await get(t, BIA, m.id)).waves.reserves).toBe(T1);
+    expect((await get(t, CAIO, m.id)).waves.reserves).toBe(T1);
+  });
+
+  it('PAR-16, PAR-05: abrir as reservas e depois os convidados guarda as duas horas', async () => {
+    const t = setup();
+    const m = await create(t);
+    t.at(T1);
+    await t.service.advance(ANA, PUBLIC_ID, m.id, { wave: 'reserves' });
+    t.at(T2);
+    await t.service.advance(ANA, PUBLIC_ID, m.id, { wave: 'guests' });
+    t.at('2026-11-26T01:00:00.000Z');
+    const seen = await get(t, BIA, m.id);
+    expect(seen.waves.reserves).toBe(T1);
+    expect(seen.waves.guests).toBe(T2);
+  });
+
+  it('PAR-16, PAR-05: abrir de novo uma onda já aberta à mão não troca a hora dela', async () => {
+    const t = setup();
+    const m = await create(t);
+    t.at(T1);
+    await t.service.advance(ANA, PUBLIC_ID, m.id, { wave: 'reserves' });
+    t.at(T2);
+    await t.service.advance(ANA, PUBLIC_ID, m.id, { wave: 'reserves' });
+    expect((await get(t, BIA, m.id)).waves.reserves).toBe(T1);
+  });
+
+  it('PAR-16, PAR-06: a edição que segura aberta uma onda aberta pela hora guarda a hora que ela mostrava', async () => {
+    const t = setup();
+    const m = await create(t);
+    t.at(iso(RESERVES_AT, 2));
+    expect((await get(t, BIA, m.id)).waves.reserves).toBe(RESERVES_AT);
+    const later = iso(START, 48);
+    await t.service.update(ANA, PUBLIC_ID, m.id, {
+      ...input({ startsAt: later, endsAt: iso(later, 2) }),
+      expectedVersion: m.version,
+    });
+    t.at(iso(RESERVES_AT, 30));
+    const seen = await get(t, BIA, m.id);
+    expect(seen.wave).toBe('reserves');
+    expect(seen.waves.members).toBe(MEMBERS_AT);
+    expect(seen.waves.reserves).toBe(RESERVES_AT);
+  });
+
+  it('PAR-16, PAR-06: a edição que segura aberta uma onda aberta à mão mantém a hora do pedido', async () => {
+    const t = setup();
+    const m = await create(t);
+    t.at(T1);
+    const advanced = await t.service.advance(ANA, PUBLIC_ID, m.id, { wave: 'reserves' });
+    t.at(T2);
+    const later = iso(START, 48);
+    const edited = await t.service.update(ANA, PUBLIC_ID, m.id, {
+      ...input({ startsAt: later, endsAt: iso(later, 2) }),
+      expectedVersion: advanced.version,
+    });
+    expect(edited.waves.reserves).toBe(T1);
+    t.at(iso(T2, 24));
+    expect((await get(t, BIA, m.id)).waves.reserves).toBe(T1);
+  });
+});
+
 describe('PAR-06: editar a partida', () => {
   it('PAR-06: edita com a expectedVersion, sobe a version e devolve a partida', async () => {
     const t = setup();

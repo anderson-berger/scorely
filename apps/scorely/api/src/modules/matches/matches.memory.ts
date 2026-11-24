@@ -65,7 +65,7 @@ export function memoryMatches() {
       matches.set(k, next);
       return copy(next);
     },
-    async advanceMatch(groupId, matchId, wave, at) {
+    async advanceMatch(groupId, matchId, wave, openedAt, at) {
       const k = key(groupId, matchId);
       const current = matches.get(k);
       if (!current) return false;
@@ -77,6 +77,7 @@ export function memoryMatches() {
       matches.set(k, {
         ...current,
         advancedTo: wave,
+        openedAt: { ...openedAt },
         updatedAt: at.toISOString(),
         version: current.version + 1,
       });
