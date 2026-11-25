@@ -58,6 +58,7 @@ const CATALOG = {
   MATCH_NOT_STARTED: { status: 409, message: 'The match has not started yet' },
   MATCH_FINISHED: { status: 409, message: 'The match has already finished' },
   MATCH_CANCELLED: { status: 409, message: 'The match was cancelled' },
+  MATCH_HAS_RESULT: { status: 409, message: 'The match already has a result' },
   MATCH_TEAM_PLAYER_OUT: { status: 409, message: 'Someone in the teams is not in the match list' },
   MATCH_SLOTS_BELOW_CONFIRMED: { status: 409, message: 'More people are confirmed than the new slots' },
   MATCH_GUEST_NOT_FOUND: { status: 404, message: 'Guest not found in this match' },

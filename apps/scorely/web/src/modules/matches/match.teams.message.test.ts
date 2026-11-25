@@ -61,6 +61,9 @@ function match(list: MatchTeamMember[][]): Match {
       manageTeams: false,
       recordResult: false,
       manageCompetitions: false,
+      start: false,
+      unstart: false,
+      finish: false,
     },
     lineup: { list, unassigned: [], version: 1 },
   } as Match;

@@ -568,6 +568,12 @@ export const MatchActionsSchema = z.object({
   recordResult: z.boolean(),
   /** Tem `matches.manage`, na partida não cancelada, também depois do início e do fim: mudar o "Vale para" (PAR-40). */
   manageCompetitions: z.boolean(),
+  /** Tem `matches.manage`, na partida ainda não iniciada, finalizada nem cancelada: iniciar (PAR-41). */
+  start: z.boolean(),
+  /** Tem `matches.manage`, na partida iniciada, sem resultado e não finalizada: voltar para a lista (PAR-42). */
+  unstart: z.boolean(),
+  /** Tem `matches.manage`, na partida iniciada e não finalizada: finalizar (PAR-43). */
+  finish: z.boolean(),
 });
 export type MatchActions = z.infer<typeof MatchActionsSchema>;
 
@@ -584,6 +590,10 @@ export const MatchSchema = MatchSummarySchema.extend({
   /** As horas em que cada onda abre, já calculadas (a sem hora configurada abre com a anterior, ou na criação). */
   waves: MatchWavesSchema,
   cancelledAt: z.iso.datetime().optional(),
+  /** Quando a partida foi iniciada à mão (PAR-41); ausente antes de iniciar e ao voltar para a lista (PAR-42). */
+  startedAt: z.iso.datetime().optional(),
+  /** Quando a partida foi finalizada à mão (PAR-43). */
+  finishedAt: z.iso.datetime().optional(),
   /** Dentro, na ordem (PAR-09). */
   in: z.array(MatchEntrySchema),
   /** A fila, na ordem (PAR-09). */

@@ -1,8 +1,10 @@
 import { decodeCursor, encodeCursor } from '@scorely/api/src/lib/db';
 import { appError } from '@scorely/api/src/lib/errors';
+import type { GroupId } from '@scorely/api/src/lib/ids';
 import type {
   AgendaEntry,
   MatchRepository,
+  NextMatch,
   StoredAttendance,
   StoredGuest,
   StoredMatch,
@@ -39,6 +41,44 @@ export function memoryMatches() {
     }
   };
 
+  /** PAR-21: a partida seguinte e a repetição apontando para ela; `false` = outro já criou (ou encerrou). */
+  const insertNext = ({ match, previousMatchId, agenda: entries }: NextMatch, at: Date): boolean => {
+    if (match.seriesId === undefined || match.seriesDate === undefined)
+      throw new Error('Next match without a series');
+    const k = key(match.groupId, match.seriesId);
+    const current = series.get(k);
+    if (!current || current.currentMatchId !== previousMatchId || current.endedAt !== undefined) return false;
+    if (matches.has(key(match.groupId, match.id))) throw new Error('Next match create failed');
+    const iso = at.toISOString();
+    series.set(k, {
+      ...current,
+      currentMatchId: match.id,
+      currentDate: match.seriesDate,
+      updatedAt: iso,
+      version: current.version + 1,
+    });
+    matches.set(key(match.groupId, match.id), copy(match));
+    putAgenda(entries, at);
+    return true;
+  };
+
+  /** PAR-07, 41–43: muda a situação se a condição vale, soma a `version` e, com `next`, cria a seguinte junto. */
+  const change = (
+    groupId: GroupId,
+    matchId: string,
+    at: Date,
+    allowed: (m: StoredMatch) => boolean,
+    apply: (m: StoredMatch) => StoredMatch,
+    next?: NextMatch,
+  ): boolean => {
+    const k = key(groupId, matchId);
+    const current = matches.get(k);
+    if (!current || !allowed(current)) return false;
+    if (next !== undefined && !insertNext(next, at)) throw new Error('Match change failed');
+    matches.set(k, { ...apply(current), updatedAt: at.toISOString(), version: current.version + 1 });
+    return true;
+  };
+
   const repo: MatchRepository = {
     async createMatch(match, extras = {}) {
       const k = key(match.groupId, match.id);
@@ -54,10 +94,15 @@ export function memoryMatches() {
       const match = matches.get(key(groupId, matchId));
       return match && copy(match);
     },
-    async listMatches(groupId, endsAfter) {
-      const after = endsAfter.toISOString();
+    async listMatches(groupId, at) {
+      const after = at.toISOString();
       return [...matches.values()]
-        .filter((m) => m.groupId === groupId && m.endsAt > after)
+        .filter(
+          (m) =>
+            m.groupId === groupId &&
+            m.finishedAt === undefined &&
+            (m.cancelledAt === undefined || m.endsAt > after),
+        )
         .sort((a, b) => a.id.localeCompare(b.id))
         .map(copy);
     },
@@ -96,17 +141,44 @@ export function memoryMatches() {
       });
       return true;
     },
-    async cancelMatch(groupId, matchId, at) {
-      const k = key(groupId, matchId);
-      const current = matches.get(k);
-      if (!current || current.cancelledAt !== undefined) return false;
-      matches.set(k, {
-        ...current,
-        cancelledAt: at.toISOString(),
-        updatedAt: at.toISOString(),
-        version: current.version + 1,
-      });
-      return true;
+    async cancelMatch(groupId, matchId, at, next) {
+      return change(
+        groupId,
+        matchId,
+        at,
+        (m) => m.cancelledAt === undefined && m.startedAt === undefined,
+        (m) => ({ ...m, cancelledAt: at.toISOString() }),
+        next,
+      );
+    },
+    async startMatch(groupId, matchId, by, at) {
+      return change(
+        groupId,
+        matchId,
+        at,
+        (m) => m.startedAt === undefined && m.finishedAt === undefined && m.cancelledAt === undefined,
+        (m) => ({ ...m, startedAt: at.toISOString(), startedBy: by }),
+      );
+    },
+    async unstartMatch(groupId, matchId, at) {
+      return change(
+        groupId,
+        matchId,
+        at,
+        // PAR-42: só sem resultado.
+        (m) => m.startedAt !== undefined && m.finishedAt === undefined && !results.has(key(groupId, m.id)),
+        ({ startedAt: _s, startedBy: _b, ...m }) => m,
+      );
+    },
+    async finishMatch(groupId, matchId, by, at, next) {
+      return change(
+        groupId,
+        matchId,
+        at,
+        (m) => m.startedAt !== undefined && m.finishedAt === undefined,
+        (m) => ({ ...m, finishedAt: at.toISOString(), finishedBy: by }),
+        next,
+      );
     },
     async markNotified(groupId, matchId, from, to) {
       const k = key(groupId, matchId);
@@ -148,25 +220,8 @@ export function memoryMatches() {
       series.set(k, { ...current, endedAt: iso, updatedAt: iso, version: current.version + 1 });
       return true;
     },
-    async createNextMatch({ match, previousMatchId, agenda: entries, at }) {
-      if (match.seriesId === undefined || match.seriesDate === undefined)
-        throw new Error('Next match without a series');
-      const k = key(match.groupId, match.seriesId);
-      const current = series.get(k);
-      if (!current || current.currentMatchId !== previousMatchId || current.endedAt !== undefined)
-        return false;
-      if (matches.has(key(match.groupId, match.id))) throw new Error('Next match create failed');
-      const iso = at.toISOString();
-      series.set(k, {
-        ...current,
-        currentMatchId: match.id,
-        currentDate: match.seriesDate,
-        updatedAt: iso,
-        version: current.version + 1,
-      });
-      matches.set(key(match.groupId, match.id), copy(match));
-      putAgenda(entries, at);
-      return true;
+    async createNextMatch({ at, ...next }) {
+      return insertNext(next, at);
     },
     async listAgenda(from, to) {
       const firstHour = from.toISOString().slice(0, 13);
@@ -293,7 +348,11 @@ export function memoryMatches() {
       const after = cursor === undefined ? undefined : decodeCursor(cursor, pk).SK;
       const until = endedBy.toISOString();
       const ended = [...matches.values()]
-        .filter((m) => m.groupId === groupId && m.endsAt <= until)
+        .filter(
+          (m) =>
+            m.groupId === groupId &&
+            (m.finishedAt !== undefined || (m.cancelledAt !== undefined && m.endsAt <= until)),
+        )
         .map((m) => ({ m, sk: matchEndKey(groupId, m.endsAt, m.id).SK }))
         .sort((a, b) => (a.sk < b.sk ? 1 : a.sk > b.sk ? -1 : 0))
         .filter((x) => after === undefined || x.sk < after);

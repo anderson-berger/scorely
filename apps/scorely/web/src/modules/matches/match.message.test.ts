@@ -60,6 +60,9 @@ function match(over: Partial<Match> = {}): Match {
       manageTeams: false,
       recordResult: false,
       manageCompetitions: false,
+      start: false,
+      unstart: false,
+      finish: false,
     },
     ...over,
   };

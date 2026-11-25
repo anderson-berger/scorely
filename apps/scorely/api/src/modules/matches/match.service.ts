@@ -19,6 +19,7 @@ import type {
   GuestTransition,
   MatchOpenedAt,
   MatchRepository,
+  NextMatch,
   StoredAttendance,
   StoredGuest,
   StoredMatch,
@@ -209,11 +210,11 @@ function openedAtFor(before: StoredMatch, next: StoredMatch, at: Date): MatchOpe
   );
 }
 
-/** PAR-16: a situação, calculada pela hora. */
+/** PAR-16: a situação. Iniciar e finalizar são à mão (PAR-41, 43); antes de iniciar, vem da hora. */
 function statusOf(match: StoredMatch, now: Date): MatchStatus {
   if (match.cancelledAt !== undefined) return 'cancelled';
-  if (now >= new Date(match.endsAt)) return 'finished';
-  if (now >= new Date(match.startsAt)) return 'in_progress';
+  if (match.finishedAt !== undefined) return 'finished';
+  if (match.startedAt !== undefined) return 'in_progress';
   if (now >= naturalTimes(match).close) return 'closed';
   return currentWave(match, now) === undefined ? 'scheduled' : 'open';
 }
@@ -590,7 +591,7 @@ export function createMatchService(deps: MatchesDeps) {
     ]);
     const at = now();
     const manage = canManage(ctx);
-    const live = match.cancelledAt === undefined && at < new Date(match.startsAt);
+    const live = match.cancelledAt === undefined && match.startedAt === undefined;
     const open = live && at < naturalTimes(match).close;
     const wave = currentWave(match, at);
     const requests = state.guests.filter(
@@ -627,6 +628,8 @@ export function createMatchService(deps: MatchesDeps) {
       resultMode: match.resultMode,
       waves: wavesView(match),
       ...(match.cancelledAt !== undefined && { cancelledAt: match.cancelledAt }),
+      ...(match.startedAt !== undefined && { startedAt: match.startedAt }),
+      ...(match.finishedAt !== undefined && { finishedAt: match.finishedAt }),
       in: state.list.in.map(entry),
       queue: state.list.queue.map(entry),
       notGoing: state.list.notGoing.map((a) => ({
@@ -646,9 +649,13 @@ export function createMatchService(deps: MatchesDeps) {
         notGoing: live,
         requestGuest: open && wave === 'guests',
         manage: manage && live,
-        manageTeams: manage && match.cancelledAt === undefined && at < new Date(match.endsAt),
-        recordResult: manage && match.cancelledAt === undefined && at >= new Date(match.startsAt),
+        manageTeams: manage && match.cancelledAt === undefined && match.finishedAt === undefined,
+        recordResult: manage && match.cancelledAt === undefined && match.startedAt !== undefined,
         manageCompetitions: manage && match.cancelledAt === undefined,
+        start: manage && live,
+        unstart:
+          manage && match.startedAt !== undefined && match.finishedAt === undefined && result === undefined,
+        finish: manage && match.startedAt !== undefined && match.finishedAt === undefined,
       },
       competitions: refsOf(match.competitionIds, tagged),
       ...(series !== undefined && { series: seriesView(series, refsOf(series.competitionIds, tagged)) }),
@@ -726,7 +733,7 @@ export function createMatchService(deps: MatchesDeps) {
     const match = await load(ctx.groupId, matchId);
     const at = now();
     if (match.cancelledAt !== undefined) throw appError('MATCH_CANCELLED');
-    if (at >= new Date(match.endsAt)) throw appError('MATCH_FINISHED');
+    if (match.finishedAt !== undefined) throw appError('MATCH_FINISHED');
     const parsed = parseOrFail(SaveMatchTeamsInputSchema, input);
     const state = await stateOf(match, true);
     // PAR-25: só quem está dentro.
@@ -777,7 +784,7 @@ export function createMatchService(deps: MatchesDeps) {
     const match = await load(ctx.groupId, matchId);
     const at = now();
     if (match.cancelledAt !== undefined) throw appError('MATCH_CANCELLED');
-    if (at < new Date(match.startsAt)) throw appError('MATCH_NOT_STARTED');
+    if (match.startedAt === undefined) throw appError('MATCH_NOT_STARTED');
     const parsed = parseOrFail(SaveMatchResultInputSchema, input);
     const state = await stateOf(match, true);
     const allowed = [...state.list.in, ...state.list.queue];
@@ -857,7 +864,7 @@ export function createMatchService(deps: MatchesDeps) {
    * só se ganhou, avisa quem ela deixou confirmar. A partida cancelada, ou que já começou, não avisa.
    */
   async function checkListOpen(match: StoredMatch, info: GroupInfo, at: Date): Promise<void> {
-    if (match.cancelledAt !== undefined || at >= new Date(match.startsAt)) return;
+    if (match.cancelledAt !== undefined || match.startedAt !== undefined) return;
     const wave = currentWave(match, at);
     if (wave === undefined || rank(wave) <= rank(match.notifiedWave)) return;
     const won = await deps.matches.markNotified(match.groupId, match.id, match.notifiedWave, wave);
@@ -880,8 +887,8 @@ export function createMatchService(deps: MatchesDeps) {
   }
 
   /**
-   * PAR-21, 24: os itens da agenda da partida: um para cada onda configurada que ainda vai abrir e, na partida de uma
-   * repetição, um para o fim.
+   * PAR-24: os itens da agenda da partida: um para cada onda configurada que ainda vai abrir. A repetição não tem item
+   * de fim: a seguinte nasce ao finalizar ou cancelar (PAR-21).
    */
   function agendaFor(match: StoredMatch, info: GroupInfo, after: Date): AgendaEntry[] {
     const waves = [
@@ -889,10 +896,7 @@ export function createMatchService(deps: MatchesDeps) {
       match.reservesHours,
       match.noGuests ? undefined : match.guestsHours,
     ].flatMap((hours) => (hours === undefined ? [] : [at(match, hours)]));
-    const instants = [
-      ...waves.filter((when) => when > after),
-      ...(match.seriesId !== undefined ? [new Date(match.endsAt)] : []),
-    ];
+    const instants = waves.filter((when) => when > after);
     return [...new Set(instants.map((when) => when.toISOString()))].map((iso) => ({
       at: iso,
       groupId: match.groupId,
@@ -902,12 +906,23 @@ export function createMatchService(deps: MatchesDeps) {
     }));
   }
 
+  /** PAR-21: a seguinte da repetição de `match`, se ele é a partida atual dela e ela segue ativa. */
+  async function nextOf(match: StoredMatch, info: GroupInfo, at: Date): Promise<NextMatch | undefined> {
+    const series =
+      match.seriesId === undefined
+        ? undefined
+        : await deps.matches.getSeries(match.groupId, match.seriesId, { consistent: true });
+    return series === undefined || series.currentMatchId !== match.id
+      ? undefined
+      : buildNext(series, info, at);
+  }
+
   /**
-   * PAR-21: cria a próxima partida da repetição, com o que a repetição tem agora, se ninguém criou antes. Na partida
-   * nova, o `notifiedWave` fica vazio: as ondas já abertas avisam logo depois (PAR-24).
+   * PAR-21: monta a próxima partida da repetição, com o que a repetição tem agora. Na partida nova, o `notifiedWave`
+   * fica vazio: as ondas já abertas avisam logo depois (PAR-24).
    */
-  async function rollSeries(series: StoredSeries, info: GroupInfo, at: Date): Promise<void> {
-    if (series.endedAt !== undefined) return;
+  async function buildNext(series: StoredSeries, info: GroupInfo, at: Date): Promise<NextMatch | undefined> {
+    if (series.endedAt !== undefined) return undefined;
     const date = nextDate(series, series.currentDate, at);
     const startsAt = zonedToUtc(date, series.time, series.timeZone);
     // PAR-21, 40: as competições da repetição que não travaram e cujo período tem o início da partida nova.
@@ -929,22 +944,12 @@ export function createMatchService(deps: MatchesDeps) {
       at,
     );
     const match: StoredMatch = { ...entity, updatedAt: entity.createdAt };
-    const created = await deps.matches.createNextMatch({
-      match,
-      previousMatchId: series.currentMatchId,
-      agenda: agendaFor(match, info, at),
-      at,
-    });
-    if (created) await checkListOpen(match, info, at);
+    return { match, previousMatchId: series.currentMatchId, agenda: agendaFor(match, info, at) };
   }
 
-  /** PAR-21: a leitura cria a próxima das repetições ativas cuja partida atual já terminou (não está nas por vir). */
-  async function rollEnded(info: GroupInfo, upcoming: readonly StoredMatch[], at: Date) {
-    const all = await deps.matches.listSeries(info.groupId);
-    const live = new Set(upcoming.map((m) => m.id));
-    const ended = all.filter((x) => x.endedAt === undefined && !live.has(x.currentMatchId));
-    await Promise.all(ended.map((x) => rollSeries(x, info, at)));
-    return { all, rolled: ended.length > 0 };
+  /** PAR-21: depois de finalizar ou cancelar, a seguinte já nasceu na mesma gravação: as ondas abertas avisam. */
+  async function afterNext(next: NextMatch | undefined, info: GroupInfo, at: Date): Promise<void> {
+    if (next !== undefined) await checkListOpen(next.match, info, at);
   }
 
   /** PAR-09: quem passou a estar dentro recebe o aviso (o convidado não tem conta). */
@@ -1003,7 +1008,9 @@ export function createMatchService(deps: MatchesDeps) {
     const timeZone = input.repeatWeekly === true ? TimeZoneSchema.safeParse(input.timeZone) : undefined;
     if (timeZone !== undefined && !timeZone.success) throw validation('timeZone', 'Invalid time zone');
     const upcoming = await deps.matches.listMatches(ctx.groupId, at);
-    if (upcoming.length >= MATCH_MAX_UPCOMING) throw appError('MATCH_LIMIT', { limit: MATCH_MAX_UPCOMING });
+    // PAR-01: contam as que não foram finalizadas nem canceladas.
+    if (upcoming.filter((m) => m.cancelledAt === undefined).length >= MATCH_MAX_UPCOMING)
+      throw appError('MATCH_LIMIT', { limit: MATCH_MAX_UPCOMING });
     if (timeZone !== undefined) {
       const active = (await deps.matches.listSeries(ctx.groupId)).filter((x) => x.endedAt === undefined);
       if (active.length >= MATCH_SERIES_MAX_ACTIVE) {
@@ -1068,12 +1075,11 @@ export function createMatchService(deps: MatchesDeps) {
   async function list(userId: UserId, publicId: PublicGroupId): Promise<MatchSummary[]> {
     const ctx = await deps.groups.access(userId, publicId);
     const at = now();
-    const first = await deps.matches.listMatches(ctx.groupId, at);
-    const rolled = await rollEnded(ctx, first, at);
-    const matches = rolled.rolled ? await deps.matches.listMatches(ctx.groupId, at) : first;
-    const series = new Map(
-      (rolled.rolled ? await deps.matches.listSeries(ctx.groupId) : rolled.all).map((x) => [x.id, x]),
-    );
+    const [matches, allSeries] = await Promise.all([
+      deps.matches.listMatches(ctx.groupId, at),
+      deps.matches.listSeries(ctx.groupId),
+    ]);
+    const series = new Map(allSeries.map((x) => [x.id, x]));
     const participants = await deps.groups.participants(ctx.groupId);
     const summaries = await Promise.all(
       matches.map(async (match) => {
@@ -1094,19 +1100,13 @@ export function createMatchService(deps: MatchesDeps) {
   async function get(userId: UserId, publicId: PublicGroupId, matchId: string): Promise<Match> {
     const ctx = await deps.groups.access(userId, publicId);
     const match = await load(ctx.groupId, matchId);
-    const at = now();
-    if (match.seriesId !== undefined && at >= new Date(match.endsAt)) {
-      // PAR-21: a leitura depois do fim cria a próxima, se a rotina ainda não criou.
-      const series = await deps.matches.getSeries(ctx.groupId, match.seriesId, { consistent: true });
-      if (series !== undefined && series.currentMatchId === match.id) await rollSeries(series, ctx, at);
-    }
     return view(ctx, userId, match);
   }
 
-  /** Partida que ainda aceita mudança: não cancelada (PAR-07) e antes do início (PAR-06, 08, 14). */
-  function requireLive(match: StoredMatch, at: Date): void {
+  /** Partida que ainda aceita mudança: não cancelada (PAR-07) e não iniciada (PAR-06, 08, 14, 41). */
+  function requireLive(match: StoredMatch): void {
     if (match.cancelledAt !== undefined) throw appError('MATCH_CANCELLED');
-    if (at >= new Date(match.startsAt)) throw appError('MATCH_STARTED');
+    if (match.startedAt !== undefined) throw appError('MATCH_STARTED');
   }
 
   /** PAR-06. */
@@ -1120,7 +1120,7 @@ export function createMatchService(deps: MatchesDeps) {
     requireManage(ctx);
     const match = await load(ctx.groupId, matchId);
     const at = now();
-    requireLive(match, at);
+    requireLive(match);
     checkStart(input, at);
     const before = await stateOf(match, true);
     if (slotsOf(input) < before.list.in.length) {
@@ -1164,6 +1164,7 @@ export function createMatchService(deps: MatchesDeps) {
     const match = await load(ctx.groupId, matchId);
     const at = now();
     if (match.cancelledAt !== undefined) throw appError('MATCH_CANCELLED');
+    if (match.startedAt !== undefined) throw appError('MATCH_STARTED');
     if (at >= naturalTimes(match).close) throw appError('MATCH_CLOSED');
     if (rank(input.wave) > rank(currentWave(match, at))) {
       // PAR-16: as ondas que abrem agora guardam a hora do pedido.
@@ -1182,10 +1183,13 @@ export function createMatchService(deps: MatchesDeps) {
     const match = await load(ctx.groupId, matchId);
     if (match.cancelledAt !== undefined) return view(ctx, userId, match);
     const at = now();
-    if (at >= new Date(match.startsAt)) throw appError('MATCH_STARTED');
+    if (match.startedAt !== undefined) throw appError('MATCH_STARTED');
     const state = await stateOf(match, true);
-    const done = await deps.matches.cancelMatch(ctx.groupId, matchId, at);
+    // PAR-21: cancelar a partida de uma repetição cria a seguinte na mesma gravação.
+    const next = await nextOf(match, ctx, at);
+    const done = await deps.matches.cancelMatch(ctx.groupId, matchId, at, next);
     if (done) {
+      await afterNext(next, ctx, at);
       const people = [...state.list.in, ...state.list.queue].flatMap((i) =>
         i.kind === 'player' && i.userId !== userId ? [i.userId] : [],
       );
@@ -1203,6 +1207,53 @@ export function createMatchService(deps: MatchesDeps) {
     return view(ctx, userId, await load(ctx.groupId, matchId, true), true);
   }
 
+  /** PAR-41: iniciar à mão, a qualquer hora. Ninguém é avisado. */
+  async function start(userId: UserId, publicId: PublicGroupId, matchId: string): Promise<Match> {
+    const ctx = await deps.groups.access(userId, publicId);
+    requireManage(ctx);
+    const match = await load(ctx.groupId, matchId);
+    if (match.cancelledAt !== undefined) throw appError('MATCH_CANCELLED');
+    if (match.finishedAt !== undefined) throw appError('MATCH_FINISHED');
+    if (match.startedAt === undefined) {
+      await deps.matches.startMatch(ctx.groupId, matchId, userId, now());
+    }
+    return view(ctx, userId, await load(ctx.groupId, matchId, true), true);
+  }
+
+  /** PAR-42: voltar para a lista, antes de finalizar e sem resultado. */
+  async function unstart(userId: UserId, publicId: PublicGroupId, matchId: string): Promise<Match> {
+    const ctx = await deps.groups.access(userId, publicId);
+    requireManage(ctx);
+    const match = await load(ctx.groupId, matchId);
+    if (match.cancelledAt !== undefined) throw appError('MATCH_CANCELLED');
+    if (match.finishedAt !== undefined) throw appError('MATCH_FINISHED');
+    if (match.startedAt !== undefined) {
+      if ((await deps.matches.getResult(ctx.groupId, matchId, { consistent: true })) !== undefined) {
+        throw appError('MATCH_HAS_RESULT');
+      }
+      const done = await deps.matches.unstartMatch(ctx.groupId, matchId, now());
+      // Um resultado ou a finalização chegou entre a leitura e a gravação.
+      if (!done) throw appError('MATCH_HAS_RESULT');
+    }
+    return view(ctx, userId, await load(ctx.groupId, matchId, true), true);
+  }
+
+  /** PAR-43: finalizar à mão; não se desfaz. Numa repetição, a seguinte nasce na mesma gravação (PAR-21). */
+  async function finish(userId: UserId, publicId: PublicGroupId, matchId: string): Promise<Match> {
+    const ctx = await deps.groups.access(userId, publicId);
+    requireManage(ctx);
+    const match = await load(ctx.groupId, matchId);
+    if (match.cancelledAt !== undefined) throw appError('MATCH_CANCELLED');
+    if (match.startedAt === undefined) throw appError('MATCH_NOT_STARTED');
+    if (match.finishedAt === undefined) {
+      const at = now();
+      const next = await nextOf(match, ctx, at);
+      const done = await deps.matches.finishMatch(ctx.groupId, matchId, userId, at, next);
+      if (done) await afterNext(next, ctx, at);
+    }
+    return view(ctx, userId, await load(ctx.groupId, matchId, true), true);
+  }
+
   /** PAR-08, 09. */
   async function setAttendance(
     userId: UserId,
@@ -1213,7 +1264,7 @@ export function createMatchService(deps: MatchesDeps) {
     const ctx = await deps.groups.access(userId, publicId);
     const match = await load(ctx.groupId, matchId);
     const at = now();
-    requireLive(match, at);
+    requireLive(match);
     const before = await stateOf(match, true);
     const current = before.attendances.find((a) => a.userId === userId);
     if (current?.status === input.status) return view(ctx, userId, match, true);
@@ -1259,7 +1310,7 @@ export function createMatchService(deps: MatchesDeps) {
     const ctx = await deps.groups.access(userId, publicId);
     const match = await load(ctx.groupId, matchId);
     const at = now();
-    requireLive(match, at);
+    requireLive(match);
     requireGuestWave(match, at);
     const manage = canManage(ctx);
     const iso = at.toISOString();
@@ -1338,7 +1389,7 @@ export function createMatchService(deps: MatchesDeps) {
     requireManage(ctx);
     const match = await load(ctx.groupId, matchId);
     const at = now();
-    requireLive(match, at);
+    requireLive(match);
     const guest = await loadGuest(match, guestId);
     requirePending(guest);
     requireGuestWave(match, at);
@@ -1357,7 +1408,7 @@ export function createMatchService(deps: MatchesDeps) {
     requireManage(ctx);
     const match = await load(ctx.groupId, matchId);
     const at = now();
-    requireLive(match, at);
+    requireLive(match);
     const guest = await loadGuest(match, guestId);
     requirePending(guest);
     await transition(match, guest, 'decline', userId, at);
@@ -1374,7 +1425,7 @@ export function createMatchService(deps: MatchesDeps) {
     const ctx = await deps.groups.access(userId, publicId);
     const match = await load(ctx.groupId, matchId);
     const at = now();
-    requireLive(match, at);
+    requireLive(match);
     const guest = await loadGuest(match, guestId);
     const status = guestStatus(guest);
     if (status !== 'pending' && status !== 'approved') throw appError('MATCH_GUEST_NOT_PENDING', { status });
@@ -1516,10 +1567,8 @@ export function createMatchService(deps: MatchesDeps) {
     const match = await deps.matches.getMatch(entry.groupId, entry.matchId, { consistent: true });
     if (!match) return;
     const info: GroupInfo = { groupId: entry.groupId, publicId: entry.publicId, name: entry.groupName };
+    // PAR-21: a partida seguinte nasce ao finalizar ou cancelar; um item de fim que sobrou no banco não faz nada.
     await checkListOpen(match, info, at);
-    if (match.seriesId === undefined || at < new Date(match.endsAt)) return;
-    const series = await deps.matches.getSeries(match.groupId, match.seriesId, { consistent: true });
-    if (series !== undefined && series.currentMatchId === match.id) await rollSeries(series, info, at);
   }
 
   return {
@@ -1533,6 +1582,9 @@ export function createMatchService(deps: MatchesDeps) {
     update,
     advance,
     cancel,
+    start,
+    unstart,
+    finish,
     setAttendance,
     requestGuest,
     approveGuest,

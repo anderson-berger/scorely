@@ -33,6 +33,12 @@ export const matchesApi = {
     request({ url: `${one(groupId, matchId)}/advance`, method: 'POST', data: input }, MatchSchema),
   cancel: (groupId: string, matchId: string) =>
     request({ url: `${one(groupId, matchId)}/cancel`, method: 'POST' }, MatchSchema),
+  start: (groupId: string, matchId: string) =>
+    request({ url: `${one(groupId, matchId)}/start`, method: 'POST' }, MatchSchema),
+  unstart: (groupId: string, matchId: string) =>
+    request({ url: `${one(groupId, matchId)}/unstart`, method: 'POST' }, MatchSchema),
+  finish: (groupId: string, matchId: string) =>
+    request({ url: `${one(groupId, matchId)}/finish`, method: 'POST' }, MatchSchema),
   setAttendance: (groupId: string, matchId: string, input: SetAttendanceInput) =>
     request({ url: `${one(groupId, matchId)}/attendance`, method: 'PUT', data: input }, MatchSchema),
 

@@ -206,6 +206,7 @@ async function played(
     await t.matches.setAttendance(user, PUBLIC_ID, m.id, { status: 'going' });
   }
   t.at(iso(startsAt, 0.5));
+  await t.matches.start(ANA, PUBLIC_ID, m.id);
   return tagged;
 }
 const record = (t: T, matchId: string, body: SaveMatchResultInput) =>
@@ -484,8 +485,10 @@ describe('COM-05: quais partidas contam', () => {
     const c = await open(t);
     const m = await played(t, { competitionIds: [c.id] });
     await record(t, m.id, day([[ref(ANA)], [ref(BIA)]], 1));
-    // PAR-07 só cancela antes do início e PAR-32 só registra depois: o dado é montado pelo repositório.
-    await t.store.repo.cancelMatch(GROUP_ID, m.id, new Date(iso(START, 1)));
+    // PAR-07 só cancela antes de iniciar e PAR-32 só registra depois: o dado é montado direto no armazenamento.
+    for (const [key, stored] of t.store.matches) {
+      if (stored.id === m.id) t.store.matches.set(key, { ...stored, cancelledAt: iso(START, 1) });
+    }
     expect(await rows(t, c.id)).toEqual([]);
   });
 
@@ -536,12 +539,14 @@ describe('COM-06: só os membros de agora', () => {
     const t = setup();
     const c = await open(t);
     const m = await played(t, { competitionIds: [c.id] });
-    // PAR-12, 13: o convidado entra antes do início.
+    // PAR-12, 13: o convidado entra antes de iniciar (PAR-42 volta a partida para a lista, ainda sem resultado).
     t.at(iso(START, -1));
+    await t.matches.unstart(ANA, PUBLIC_ID, m.id);
     await t.matches.requestGuest(BIA, PUBLIC_ID, m.id, { name: 'Primo' });
     const guestId = (await t.matches.get(ANA, PUBLIC_ID, m.id)).guestRequests[0]?.id as string;
     await t.matches.approveGuest(ANA, PUBLIC_ID, m.id, guestId);
     t.at(iso(START, 0.5));
+    await t.matches.start(ANA, PUBLIC_ID, m.id);
     await record(t, m.id, day([[ref(DUDA), { kind: 'guest', id: guestId }], [ref(ANA)]], 1));
     expect(nicks(await rows(t, c.id))).toEqual([PUB[ANA]]);
   });
@@ -974,7 +979,9 @@ describe('PAR-21, 22, 40: a repetição leva o Vale para', () => {
     const short = await open(t, { endDate: '2026-12-02' }); // não alcança 04/12
     const { first, series: s } = await series(t);
     await t.matches.updateSeries(ANA, PUBLIC_ID, s.id, input(s, [inside.id, short.id]));
-    t.at(iso(END, 0.1)); // a primeira terminou: a seguinte (04/12) nasce
+    t.at(iso(END, 0.1)); // a primeira terminou e foi finalizada: a seguinte (04/12) nasce
+    await t.matches.start(ANA, PUBLIC_ID, first.id);
+    await t.matches.finish(ANA, PUBLIC_ID, first.id);
     const [next] = await t.matches.list(BIA, PUBLIC_ID);
     expect(next?.id).not.toBe(first.id);
     const view = await t.matches.get(BIA, PUBLIC_ID, next?.id ?? '');
@@ -992,12 +999,14 @@ describe('PAR-21, 22, 40: a repetição leva o Vale para', () => {
   it('PAR-21, 40: a competição travada deixa de ir para a partida nova', async () => {
     const t = setup();
     const c = await open(t, { endDate: '2026-12-31' });
-    const { series: s } = await series(t);
+    const { first, series: s } = await series(t);
     await t.matches.updateSeries(ANA, PUBLIC_ID, s.id, input(s, [c.id]));
     t.at(plusDays(END, 70)); // passou muito do prazo: travada
     await t.service.runLock();
-    await t.matches.runAgenda();
+    await t.matches.start(ANA, PUBLIC_ID, first.id);
+    await t.matches.finish(ANA, PUBLIC_ID, first.id);
     const list = await t.matches.list(BIA, PUBLIC_ID);
+    expect(list).toHaveLength(1);
     for (const item of list) {
       expect((await t.matches.get(BIA, PUBLIC_ID, item.id)).competitions).toEqual([]);
     }

@@ -146,6 +146,11 @@ async function createConfigured(t: T) {
   });
 }
 const get = (t: T, user: UserId, matchId: string) => t.service.get(user, PUBLIC_ID, matchId);
+/** Quem organiza inicia e finaliza a partida (PAR-41, 43): é aí que a seguinte da repetição nasce (PAR-21). */
+async function finish(t: T, matchId: string) {
+  await t.service.start(ANA, PUBLIC_ID, matchId);
+  return t.service.finish(ANA, PUBLIC_ID, matchId);
+}
 const go = (t: T, user: UserId, matchId: string, status: 'going' | 'not_going' = 'going') =>
   t.service.setAttendance(user, PUBLIC_ID, matchId, { status });
 const link = (matchId: string) => `/groups/${PUBLIC_ID}/matches/${matchId}`;
@@ -301,10 +306,11 @@ describe('PAR-20: a repetição é um molde que cria partidas de verdade', () =>
 });
 
 describe('PAR-21: existe sempre só a próxima partida da repetição', () => {
-  it('PAR-21: quando a partida termina, a seguinte nasce na semana depois, no mesmo dia e hora, com a mesma duração e a mesma repetição', async () => {
+  it('PAR-21: quando a partida é finalizada, a seguinte nasce na semana depois, no mesmo dia e hora, com a mesma duração e a mesma repetição', async () => {
     const t = setup();
     const m = await createSeries(t);
     t.at(END);
+    await finish(t, m.id);
     const list = await t.service.list(BIA, PUBLIC_ID);
     expect(list).toHaveLength(1);
     expect(list[0]).toMatchObject({
@@ -330,6 +336,7 @@ describe('PAR-21: existe sempre só a próxima partida da repetição', () => {
     });
     expect(saved.lineup?.list).toHaveLength(2);
     t.at(END);
+    await finish(t, m.id);
     const list = await t.service.list(BIA, PUBLIC_ID);
     const next = await get(t, BIA, list[0]?.id ?? '');
     expect(next.id).not.toBe(m.id);
@@ -338,22 +345,13 @@ describe('PAR-21: existe sempre só a próxima partida da repetição', () => {
 
   it('PAR-21: ler as partidas várias vezes não cria duas', async () => {
     const t = setup();
-    await createSeries(t);
+    const m = await createSeries(t);
     t.at(END);
+    await finish(t, m.id);
     await t.service.list(BIA, PUBLIC_ID);
     await t.service.list(CAIO, PUBLIC_ID);
     await t.service.runAgenda();
     expect(await t.service.list(ANA, PUBLIC_ID)).toHaveLength(1);
-  });
-
-  it('PAR-21: a rotina cria a seguinte até 15 min depois do fim, e a leitura depois não cria outra', async () => {
-    const t = setup();
-    await createSeries(t);
-    t.at(iso(END, 0.25));
-    await t.service.runAgenda();
-    t.at(iso(END, 0.3));
-    const list = await t.service.list(BIA, PUBLIC_ID);
-    expect(list.map((m) => m.startsAt)).toEqual([NEXT_START]);
   });
 
   it('PAR-21: antes do fim a seguinte ainda não existe', async () => {
@@ -373,10 +371,11 @@ describe('PAR-21: existe sempre só a próxima partida da repetição', () => {
     expect(list[0]?.status).toBe('open');
   });
 
-  it('PAR-21: com a rotina parada por semanas, a seguinte cai na primeira semana que ainda está no futuro', async () => {
+  it('PAR-21: finalizada semanas depois, a seguinte cai na primeira semana que ainda está no futuro', async () => {
     const t = setup();
-    await createSeries(t);
+    const m = await createSeries(t);
     t.at('2026-12-20T12:00:00.000Z'); // domingo; 04, 11 e 18/12 já passaram
+    await finish(t, m.id);
     const list = await t.service.list(BIA, PUBLIC_ID);
     expect(list.map((m) => m.startsAt)).toEqual(['2026-12-25T22:00:00.000Z']);
   });
@@ -392,6 +391,7 @@ describe('PAR-21: existe sempre só a próxima partida da repetição', () => {
       expectedVersion: m.version,
     });
     t.at(iso(END, 24));
+    await finish(t, m.id);
     const list = await t.service.list(BIA, PUBLIC_ID);
     expect(list.map((x) => x.startsAt)).toEqual([NEXT_START]);
   });
@@ -413,6 +413,7 @@ describe('PAR-21: existe sempre só a próxima partida da repetição', () => {
       }),
     );
     t.at(END);
+    await finish(t, m.id);
     const [next] = await t.service.list(BIA, PUBLIC_ID);
     expect(next).toMatchObject({ teams: 2, playersPerTeam: 6 });
     expect(await get(t, BIA, next?.id ?? '')).toMatchObject({
@@ -427,6 +428,7 @@ describe('PAR-21: existe sempre só a próxima partida da repetição', () => {
     const m = await createSeries(t);
     await t.service.endSeries(ANA, PUBLIC_ID, (await seriesOf(t, m.id)).id);
     t.at(END);
+    await finish(t, m.id);
     await t.service.runAgenda();
     expect(await t.service.list(BIA, PUBLIC_ID)).toEqual([]);
   });
@@ -453,6 +455,7 @@ describe('PAR-22: mudar a repetição vale para as partidas criadas depois', () 
       endsAt: END,
     });
     t.at(END);
+    await finish(t, m.id);
     const [next] = await t.service.list(BIA, PUBLIC_ID);
     expect(next).toMatchObject({
       startsAt: '2026-12-04T23:00:00.000Z',
@@ -673,7 +676,7 @@ describe('PAR-24: aviso de lista aberta (match_list_open)', () => {
     const t = setup();
     const m = await createSeries(t);
     t.at(iso(END, 0.25));
-    await t.service.runAgenda();
+    await finish(t, m.id);
     const [next] = await t.service.list(BIA, PUBLIC_ID);
     expect(next?.id).not.toBe(m.id);
     expect(openedTo(t, BIA, next?.id)).toEqual([
@@ -687,17 +690,18 @@ describe('PAR-24: aviso de lista aberta (match_list_open)', () => {
 describe('PAR-21, 24: casos de borda da repetição e do aviso', () => {
   it('PAR-21: a seguinte nasce mesmo com as 20 partidas por vir, porque toma o lugar da que terminou', async () => {
     const t = setup();
-    await createSeries(t);
+    const m = await createSeries(t);
     t.at(END);
-    for (const n of Array.from({ length: 20 }, (_, i) => i)) {
+    for (const n of Array.from({ length: 19 }, (_, i) => i)) {
       await t.service.create(ANA, PUBLIC_ID, {
         startsAt: iso(START, 24 * (n + 10)),
         endsAt: iso(END, 24 * (n + 10)),
       });
     }
+    await finish(t, m.id);
     const list = await t.service.list(BIA, PUBLIC_ID);
-    expect(list).toHaveLength(21);
-    expect(list.map((m) => m.startsAt)).toContain(NEXT_START);
+    expect(list).toHaveLength(20);
+    expect(list.map((x) => x.startsAt)).toContain(NEXT_START);
   });
 
   it('PAR-21, 24: se a onda dos membros é de mais de uma semana, a lista abre quando a partida nasce, e os membros são avisados', async () => {
@@ -711,7 +715,7 @@ describe('PAR-21, 24: casos de borda da repetição e do aviso', () => {
       seriesInput(series.version, { membersHours: 240, reservesHours: 24, guestsHours: 6 }),
     );
     t.at(iso(END, 0.25));
-    await t.service.runAgenda();
+    await finish(t, m.id);
     const [next] = await t.service.list(BIA, PUBLIC_ID);
     const nextId = next?.id ?? '';
     expect(nextId).not.toBe(m.id);

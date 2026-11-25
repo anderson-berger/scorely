@@ -121,6 +121,9 @@ export default defineComponent({
     waveLine(): string {
       const m = this.match;
       if (!m) return '';
+      // PAR-18: passada a hora marcada sem iniciar, a partida espera.
+      if (m.status === 'closed' && Date.parse(m.startsAt) <= Date.now())
+        return this.$t('matches.status.awaiting');
       if (m.status !== 'open' && m.status !== 'scheduled') return this.$t(`matches.status.${m.status}`);
       if (this.unconfigured) {
         return m.closeHours > 0
@@ -290,6 +293,45 @@ export default defineComponent({
           await this.run(() => matchesApi.cancel(this.group.id, this.matchId));
           this.$q.notify({ type: 'positive', message: this.$t('matches.cancelled') });
         });
+    },
+
+    /** PAR-41: iniciar à mão, a qualquer hora. */
+    confirmStart() {
+      this.$q
+        .dialog({
+          title: this.$t('matches.startTitle'),
+          message: this.$t('matches.startConfirm'),
+          cancel: { label: this.$t('matches.keep'), flat: true },
+          ok: { label: this.$t('matches.start'), flat: true },
+        })
+        .onOk(() => this.run(() => matchesApi.start(this.group.id, this.matchId)));
+    },
+
+    /** PAR-42: voltar para a lista, antes de finalizar e sem resultado. */
+    confirmUnstart() {
+      this.$q
+        .dialog({
+          title: this.$t('matches.unstartTitle'),
+          message: this.$t('matches.unstartConfirm'),
+          cancel: { label: this.$t('matches.keep'), flat: true },
+          ok: { label: this.$t('matches.unstart'), flat: true },
+        })
+        .onOk(() => this.run(() => matchesApi.unstart(this.group.id, this.matchId)));
+    },
+
+    /** PAR-43: finalizar não se desfaz; numa repetição, a da semana seguinte já é criada. */
+    confirmFinish() {
+      const series = this.match?.series?.endedAt === undefined && this.match?.series !== undefined;
+      this.$q
+        .dialog({
+          title: this.$t('matches.finishTitle'),
+          message: series
+            ? `${this.$t('matches.finishConfirm')} ${this.$t('matches.finishSeries')}`
+            : this.$t('matches.finishConfirm'),
+          cancel: { label: this.$t('matches.keep'), flat: true },
+          ok: { label: this.$t('matches.finish'), color: 'negative', flat: true },
+        })
+        .onOk(() => this.run(() => matchesApi.finish(this.group.id, this.matchId)));
     },
 
     /** PAR-18: o resumo de cada linha das configurações. */
@@ -468,7 +510,7 @@ export default defineComponent({
         <div class="sc-caption wave">{{ waveLine }}</div>
       </header>
 
-      <div v-if="match.status !== 'cancelled'" class="answer">
+      <div v-if="!['cancelled', 'in_progress', 'finished'].includes(match.status)" class="answer">
         <q-btn
           :unelevated="answer === 'going'"
           :outline="answer !== 'going'"
@@ -733,6 +775,39 @@ export default defineComponent({
           :label="match.lineup ? $t('matches.lineup.change') : $t('matches.lineup.split')"
           :disable="busy"
           @click="splitTeams"
+        />
+      </div>
+
+      <div v-if="match.actions.start || match.actions.finish || match.actions.unstart" class="tools">
+        <q-btn
+          v-if="match.actions.start"
+          unelevated
+          no-caps
+          color="primary"
+          icon="play_arrow"
+          :label="$t('matches.start')"
+          :disable="busy"
+          @click="confirmStart"
+        />
+        <q-btn
+          v-if="match.actions.finish"
+          unelevated
+          no-caps
+          color="primary"
+          icon="flag"
+          :label="$t('matches.finish')"
+          :disable="busy"
+          @click="confirmFinish"
+        />
+        <q-btn
+          v-if="match.actions.unstart"
+          flat
+          no-caps
+          class="sc-btn-outline"
+          icon="undo"
+          :label="$t('matches.unstart')"
+          :disable="busy"
+          @click="confirmUnstart"
         />
       </div>
 

@@ -16,6 +16,9 @@ export const matchesFunctions: AWS['functions'] = {
   updateMatch: { handler: handler('updateMatch'), events: route('PUT', MATCH) },
   advanceMatch: { handler: handler('advanceMatch'), events: route('POST', `${MATCH}/advance`) },
   cancelMatch: { handler: handler('cancelMatch'), events: route('POST', `${MATCH}/cancel`) },
+  startMatch: { handler: handler('startMatch'), events: route('POST', `${MATCH}/start`) },
+  unstartMatch: { handler: handler('unstartMatch'), events: route('POST', `${MATCH}/unstart`) },
+  finishMatch: { handler: handler('finishMatch'), events: route('POST', `${MATCH}/finish`) },
   setMatchAttendance: { handler: handler('setAttendance'), events: route('PUT', `${MATCH}/attendance`) },
   // Convidados (PAR-11–14)
   requestMatchGuest: { handler: handler('requestGuest'), events: route('POST', `${MATCH}/guests`) },

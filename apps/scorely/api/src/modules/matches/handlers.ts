@@ -80,6 +80,27 @@ export async function cancelMatch(event: HttpEvent) {
   });
 }
 
+export async function startMatch(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
+    const match = await matches.start(auth.userId, groupOf(event), matchOf(event));
+    return match;
+  });
+}
+
+export async function unstartMatch(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
+    const match = await matches.unstart(auth.userId, groupOf(event), matchOf(event));
+    return match;
+  });
+}
+
+export async function finishMatch(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
+    const match = await matches.finish(auth.userId, groupOf(event), matchOf(event));
+    return match;
+  });
+}
+
 export async function setAttendance(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const input = parseBody(event, SetAttendanceInputSchema);
