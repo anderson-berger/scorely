@@ -1,6 +1,6 @@
 # Módulo Auth
 
-> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-20.
+> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-25.
 
 Código: `apps/scorely/api/src/modules/auth/`, `apps/scorely/api/src/lib/auth.ts`, `apps/scorely/web/src/modules/auth/`, `apps/scorely/web/src/app/guard.ts`. Contrato: `apps/scorely/contracts/src/auth.ts`.
 
@@ -121,7 +121,7 @@ Os limites estão em `AUTH_LIMITS` (`auth.service.ts`). As regras da navegação
 ## 4. Limites conhecidos
 
 - O motivo da auth própria no lugar do Cognito ainda está "a confirmar" no ADR 0003.
-- No dev local, o código aparece no terminal em vez de ir por email.
+- No dev local, o código aparece no terminal em vez de ir por email. Também fica num arquivo por destinatário na pasta temporária do sistema, para o `/screens` entrar sozinho ([ADR 0023](../decisions/0023-revisao-visual-por-prints.md)). Fora do serverless offline nada é gravado.
 - **Não há limite por IP.** Os limites do AUTH-02 são por email, então quem tem uma lista de emails pode pedir um código para cada um sem trava. O caminho natural é o WAF ou o throttling do API Gateway, e nenhum dos dois muda os dados.
 - **Dívida técnica: a sessão não sabe de qual aparelho é.** Ela não guarda aparelho, navegador nem último uso, então não existe tela de "meus aparelhos".
 - **Dívida técnica: não há como encerrar todas as sessões de uma pessoa.** Não existe uma lista das sessões por usuário, e "sair de todos os aparelhos" e "apagar conta" não têm como achá-las. Quando um dos dois entrar, a ideia é um lookup `LOOKUP#USER#<userId>#SESSION`, `SK=<sessionId>`, gravado na transação da sessão e com o mesmo `ttl`. Ele também resolve a dívida de cima.

@@ -15,6 +15,12 @@ ENV SHELL=/bin/bash
 # num 2º `npm install` sobre node_modules existente e grava o lockfile sem eles.
 RUN npm install -g npm@12.2.1
 
+# Bibliotecas do sistema para o Chromium headless (Playwright): o Claude tira prints das telas em vários
+# tamanhos. Só dev; o navegador em si é baixado como `node`, no `postCreateCommand`. A versão é a mesma do
+# `@playwright/test` de `@scorely/web`: ao subir uma, suba a outra.
+RUN npx -y playwright@1.49.1 install-deps chromium \
+  && rm -rf /var/lib/apt/lists/*
+
 # Roda como o usuário `node` (uid 1000), não root: o workspace é bind mount do host,
 # e arquivos criados como root no container viram root no host (permission denied).
 # Os diretórios dos volumes nomeados nascem com o dono definido aqui.

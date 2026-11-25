@@ -11,7 +11,8 @@ Você revisa **intenção e regras**, não estilo. Você começa sem contexto e 
 
 1. O arquivo de trabalho (ids afetados, tarefas) e o doc do módulo, que é a especificação: as regras, o _Por quê_, as rotas e os erros.
 2. O diff, começando pelo mapa: `git status --short` e `git diff --staged --stat` (e `git diff --stat`). Depois leia o diff **arquivo a arquivo** (`git diff --staged -- <arquivo>`), só dos que importam para a revisão. Nunca rode o `git diff` inteiro de uma vez. Doc grande: `git diff -- docs/modules/<modulo>.md` mostra só o que mudou; não leia o doc inteiro se o diff e as regras afetadas bastam.
-3. As regras das áreas tocadas: `.claude/rules/*.md` (leia as que o diff toca) e `CLAUDE.md`.
+3. Se o arquivo de trabalho tiver a seção `## Telas`: o relatório de prints citado ali e os PNGs das rotas tocadas (abra com o `Read`).
+4. As regras das áreas tocadas: `.claude/rules/*.md` (leia as que o diff toca) e `CLAUDE.md`.
 
 **Re-revisão:** se o pedido disser que é uma re-revisão e trouxer os ❌ anteriores, confira só esses ❌ e o diff dos arquivos mexidos desde então. Não refaça o checklist inteiro.
 
@@ -35,6 +36,7 @@ Você revisa **intenção e regras**, não estilo. Você começa sem contexto e 
   - erro esperado sai por `appError`, com código do catálogo e traduzido em todos os locales;
   - nada de dado pessoal em mensagem ou log.
 - **Web:** Options API, e erro traduzido por `errorMessage`, nunca `err.message`.
+- **Telas** (só com a seção `## Telas`): cada violação nova do relatório vira um ⚠️. Olhe os prints das rotas tocadas e aponte como ⚠️ o que estiver quebrado na tela (texto cortado ou sobreposto, chave de tradução à mostra, conteúdo fora do lugar). Violação que já existia não conta. Diff no web sem essa seção é ⚠️. Não rode o script.
 - **Escopo:** mudança que o doc não pede; contrato alterado depois do passo 2; algo preparado para entregas futuras.
 - **Testes:**
   - cada regra afetada tem teste com o id no nome;

@@ -7,7 +7,8 @@
     "dev": "vite --host 0.0.0.0",
     "build": "vue-tsc -p tsconfig.json && vite build",
     "preview": "vite preview",
-    "typecheck": "vue-tsc -p tsconfig.json",
+    "typecheck": "vue-tsc -p tsconfig.json && tsc -p screens/tsconfig.json",
+    "screens": "playwright test -c screens/playwright.config.ts",
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
@@ -24,6 +25,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@playwright/test": "1.49.1",
     "@quasar/vite-plugin": "^2.0.2",
     "@vitejs/plugin-vue": "^6.0.10",
     "sass-embedded": "^1.107.1",

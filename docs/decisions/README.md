@@ -24,3 +24,4 @@ Uma linha por decisão. Abra só a que importa. Nova decisão: copie [`_template
 | 0018 | [Troca do grupo, com times, competição e esportes fora do ar](0018-troca-do-grupo.md)                                   | aceita                      |
 | 0019 | [Testes de repositório rodam também contra o DynamoDB Local](0019-testes-de-repositorio-no-dynamodb-local.md)           | aceita                      |
 | 0022 | [Partidas e competição como submódulos do grupo](0022-submodulos-do-grupo.md)                                           | aceita                      |
+| 0023 | [Revisão visual por prints, fora do check](0023-revisao-visual-por-prints.md)                                           | aceita                      |
