@@ -1,5 +1,5 @@
-import { competitionsGroupRoutes } from '@scorely/web/src/modules/competitions/routes';
-import { matchesGroupRoutes } from '@scorely/web/src/modules/matches/routes';
+import { competitionsGroupRoutes } from '@scorely/web/src/modules/groups/competitions/routes';
+import { matchesGroupRoutes } from '@scorely/web/src/modules/groups/matches/routes';
 import type { RouteRecordRaw } from 'vue-router';
 
 /** Grupo (docs/modules/grupos.md). */

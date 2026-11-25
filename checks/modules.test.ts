@@ -18,7 +18,7 @@ interface IndexEntry {
 function parseIndex(markdown: string): IndexEntry[] {
   return markdown.split('\n').flatMap((line) => {
     const cells = line.split('|').map((c) => c.trim());
-    const module = cells[1]?.match(/^`([a-z0-9-]+\/[a-z0-9-]+)`$/)?.[1];
+    const module = cells[1]?.match(/^`([a-z0-9-]+(?:\/[a-z0-9-]+){1,2})`$/)?.[1];
     if (!module) return [];
     const doc = cells[2]?.match(/\(([^)]+\.md)\)/)?.[1];
     const prefix = cells[3]?.match(/^`([A-Z]+)`$/)?.[1];
@@ -57,12 +57,34 @@ function unknownReferences(
   );
 }
 
+/**
+ * Módulos sob `prefix`: cada pasta de `modules/` e, dentro dela, cada subpasta com `functions.ts`
+ * (submódulo, ADR 0022), como `projeto/modulo/sub`.
+ */
+function modulesIn(
+  prefix: string,
+  dirsOf: (rel: string) => string[],
+  hasFunctions: (rel: string) => boolean,
+): string[] {
+  return dirsOf('').flatMap((m) => [
+    `${prefix}/${m}`,
+    ...dirsOf(m)
+      .filter((s) => hasFunctions(`${m}/${s}`))
+      .map((s) => `${prefix}/${m}/${s}`),
+  ]);
+}
+
 /** Pastas de módulo de cada projeto com doc de módulo (hoje só o scorely; o `base` é template). */
 function apiModules(): string[] {
   const projects = [...new Set(parseIndex(read(INDEX)).map((e) => e.module.split('/')[0] as string))];
   return projects.flatMap((p) => {
     const dir = join(ROOT, 'apps', p, 'api', 'src', 'modules');
-    return existsSync(dir) ? readdirSync(dir).map((m) => `${p}/${m}`) : [];
+    if (!existsSync(dir)) return [];
+    const dirsOf = (rel: string) =>
+      readdirSync(join(dir, rel), { withFileTypes: true })
+        .filter((e) => e.isDirectory())
+        .map((e) => e.name);
+    return modulesIn(p, dirsOf, (rel) => existsSync(join(dir, rel, 'functions.ts')));
   });
 }
 
@@ -103,6 +125,18 @@ describe('modules: doc vivo por módulo', () => {
       'x/c: c.md não existe',
       'x/c: doc sem prefixo de regra',
     ]);
+    // Submódulo (pasta com functions.ts dentro de um módulo) entra; pasta sem functions.ts (components/) não
+    const tree: Record<string, string[]> = { '': ['g'], g: ['sub', 'components'], 'g/sub': [] };
+    const found = modulesIn(
+      'x',
+      (rel) => tree[rel] ?? [],
+      (rel) => rel === 'g/sub',
+    );
+    expect(found).toEqual(['x/g', 'x/g/sub']);
+    expect(indexViolations(found, parseIndex('| `x/g` | — | — |'), () => true)).toEqual([
+      'x/g/sub: módulo fora de docs/modules/README.md',
+    ]);
+    expect(parseIndex('| `x/g/sub` | — | — |').map((e) => e.module)).toEqual(['x/g/sub']);
     const ids = definedIds('- **A-01. Um.**\n- ~~**A-02. Dois.**~~ removida\n  - **A-01. Repetida.**');
     expect(ids).toEqual(['A-01', 'A-02', 'A-01']);
     expect(duplicateIds(ids)).toEqual(['A-01']);

@@ -2,7 +2,7 @@
 
 > **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-25.
 
-Código: `apps/scorely/api/src/modules/matches/`, `apps/scorely/web/src/modules/matches/`. Contrato: `apps/scorely/contracts/src/matches.ts`.
+Código: `apps/scorely/api/src/modules/groups/matches/`, `apps/scorely/web/src/modules/groups/matches/`. Contrato: `apps/scorely/contracts/src/matches.ts`.
 
 ## 1. Para que serve
 
@@ -425,7 +425,7 @@ Caso de referência: a Ana cria a partida de sexta, às 19h, toda semana, e conf
 - **Iniciar, voltar e finalizar** (PAR-41–43) gravam na partida, com a condição de ela ainda estar como foi lida (iniciar: sem `startedAt`, `finishedAt` nem `cancelledAt`; voltar: com `startedAt`, sem `finishedAt` e sem resultado; finalizar: com `startedAt` e sem `finishedAt`). Somam a `version` da partida (ADR 0013), mas não pedem a `version` de quem toca: são ações de uma vez, como cancelar, e repetir não muda nada.
 - **A próxima da repetição** (PAR-21) nasce na mesma transação de finalizar ou cancelar: a partida que terminou, a partida nova, os itens de agenda dela, e a repetição com o `currentMatchId` e o `currentDate` novos, com a condição de o `currentMatchId` ainda ser o da que terminou e de a repetição não estar encerrada. Na partida nova, o `notifiedWave` fica vazio: as ondas abertas ao nascer avisam logo depois, dentro da mesma requisição.
 - A partida criada por uma pessoa (PAR-01) grava o `notifiedWave` com a onda aberta na criação. Abrir à mão (PAR-05) e editar (PAR-06) fazem a mesma conferência do aviso dentro da requisição, depois da gravação. A primeira configuração da abertura grava o `notifiedWave` com a onda que vale depois dela.
-- **Os times** (PAR-25–28) são lidos junto com a partida, num GetItem a mais. O sorteio (PAR-26) roda só na web (`web/src/modules/matches/match.teams.ts`, puro e testado): a api só confere e grava o que se salva. Conferir quem está dentro ao salvar usa a mesma lista calculada da leitura (PAR-09).
+- **Os times** (PAR-25–28) são lidos junto com a partida, num GetItem a mais. O sorteio (PAR-26) roda só na web (`web/src/modules/groups/matches/match.teams.ts`, puro e testado): a api só confere e grava o que se salva. Conferir quem está dentro ao salvar usa a mesma lista calculada da leitura (PAR-09).
 - **O resultado** (PAR-31–35) é lido junto com a partida, como os times: a partida vem antes (as conferências dependem dela), e os times e o resultado vêm depois, num GetItem cada, em paralelo. No histórico (PAR-36), as partidas e os resultados de cada página vêm num BatchGet. Conferir quem está na lista ao registrar usa a mesma lista calculada da leitura (PAR-09), com dentro e fila. A contagem e quem venceu o dia saem de funções puras no contrato, que a api e a web usam: a web mostra a contagem enquanto se anota, antes de salvar.
 - O fuso da repetição converte o dia e a hora em UTC (`api/src/lib/zoned.ts`, ADR 0006).
 - **Partidas e grupo:** o módulo de partidas pergunta ao grupo só quem participa, como (membro ou reserva) e se a pessoa tem uma permissão (GRV-15). O grupo não sabe nada das partidas: as ondas, a lista, a fila e os convidados ficam todos aqui.

@@ -1,5 +1,6 @@
 // Regras de handlers (.claude/rules/api.md): toda rota HTTP aponta para uma `export async function` do
 // handlers.ts que responde por `route(event, ...)` ou `authRoute(event, ...)`; rota com authorizer ⇔ `authRoute`.
+// Toda função do serverless (também `schedule`) aponta para um arquivo e um export que existem.
 // O handlers.ts não exporta nenhuma `const`. Nenhum código lê o header Authorization fora de `src/lib/auth.ts`.
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -74,6 +75,36 @@ function routeViolations(
   });
 }
 
+/** Toda função (HTTP, `schedule`, authorizer) aponta para um arquivo que existe e exporta o nome. */
+function handlerTargetViolations(
+  functions: Record<string, FunctionConfig>,
+  exportsOf: (file: string) => Set<string> | undefined,
+): string[] {
+  return Object.entries(functions).flatMap(([fn, cfg]) => {
+    const dot = cfg.handler.lastIndexOf('.');
+    const file = `${cfg.handler.slice(0, dot)}.ts`;
+    const name = cfg.handler.slice(dot + 1);
+    const exports = exportsOf(file);
+    if (!exports) return [`${fn}: ${file} não existe`];
+    if (!exports.has(name)) return [`${fn}: ${file} não exporta a função ${name}`];
+    return [];
+  });
+}
+
+/** Nomes exportados como função: `export (async) function x` e `export { a as x, y } from '...'`. */
+function exportedNames(text: string): Set<string> {
+  const reexports = [...text.matchAll(/^export \{([^}]+)\}/gm)].flatMap((m) =>
+    (m[1] as string).split(',').map(
+      (part) =>
+        part
+          .trim()
+          .split(/\s+as\s+/)
+          .pop() as string,
+    ),
+  );
+  return new Set([...exportedHandlers(text).keys(), ...reexports.filter(Boolean)]);
+}
+
 function authHeaderViolations(files: { path: string; text: string }[]): string[] {
   return files
     .filter(
@@ -94,6 +125,15 @@ describe.each(projects())('api: %s', (project) => {
     const list = routes(config.functions ?? {});
     expect(list.length).toBeGreaterThan(0);
     expect(routeViolations(list, exportsOf)).toEqual([]);
+  });
+
+  it('todo handler aponta para um arquivo e um export que existem', async () => {
+    const config = await loadConfig(project);
+    const exportsOf = (file: string) => {
+      const path = join('apps', project, 'api', file);
+      return existsSync(join(ROOT, path)) ? exportedNames(read(path)) : undefined;
+    };
+    expect(handlerTargetViolations(config.functions ?? {}, exportsOf)).toEqual([]);
   });
 
   it('handlers.ts sem `export const`', () => {
@@ -144,6 +184,23 @@ describe('api: os checks pegam a violação plantada', () => {
   });
   it('rotas certas passam', () => {
     expect(routeViolations([route('me', true), route('health', false)], exportsOf)).toEqual([]);
+  });
+  it('handler para arquivo ou export que não existe (inclusive rotina sem http)', () => {
+    const fns = {
+      ok: { handler: 'h.raw', events: [{ schedule: 'rate(1 day)' }] as never },
+      semExport: { handler: 'h.loose' },
+      semArquivo: { handler: 'src/modules/matches/handlers.me' },
+      reexport: { handler: 'a.handler' },
+    };
+    const texts: Record<string, string> = {
+      'h.ts': file,
+      'a.ts': "export { authorizer as handler, other } from '@x/lib/auth';",
+    };
+    const of = (f: string) => (texts[f] === undefined ? undefined : exportedNames(texts[f]));
+    expect(handlerTargetViolations(fns, of)).toEqual([
+      'semExport: h.ts não exporta a função loose',
+      'semArquivo: src/modules/matches/handlers.ts não existe',
+    ]);
   });
   it('`export const` no handlers.ts', () => {
     expect(exportedConsts('h.ts', 'export const { me } = authHandlers({});')).toHaveLength(1);

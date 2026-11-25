@@ -1,10 +1,10 @@
 import { devAuthSecret, project, tableNameFor, uploadsBucketFor } from '@scorely/api/project';
 import { AUTHORIZER } from '@scorely/api/src/lib/auth';
 import { authFunctions } from '@scorely/api/src/modules/auth/functions';
-import { competitionsFunctions } from '@scorely/api/src/modules/competitions/functions';
+import { competitionsFunctions } from '@scorely/api/src/modules/groups/competitions/functions';
 import { groupsFunctions } from '@scorely/api/src/modules/groups/functions';
+import { matchesFunctions } from '@scorely/api/src/modules/groups/matches/functions';
 import { healthFunctions } from '@scorely/api/src/modules/health/functions';
-import { matchesFunctions } from '@scorely/api/src/modules/matches/functions';
 import { notificationsFunctions } from '@scorely/api/src/modules/notifications/functions';
 import { usersFunctions } from '@scorely/api/src/modules/users/functions';
 import type { AWS } from '@serverless/typescript';

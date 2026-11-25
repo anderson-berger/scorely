@@ -9,11 +9,11 @@
 | `scorely/users`                                     | [usuarios.md](usuarios.md)         | `USR`              |
 | `scorely/notifications`                             | [notificacoes.md](notificacoes.md) | `NTF`              |
 | `scorely/media`                                     | [midia.md](midia.md)               | `MID`              |
-| `scorely/matches`                                   | [partidas.md](partidas.md)         | `PAR`              |
-| `scorely/competitions`                              | [competicao.md](competicao.md)     | `COM`              |
+| `scorely/groups/matches`                            | [partidas.md](partidas.md)         | `PAR`              |
+| `scorely/groups/competitions`                       | [competicao.md](competicao.md)     | `COM`              |
 | `scorely/health`                                    | —                                  | —                  |
 
-O `base` é template e não tem doc de módulo. Um módulo sem regra de negócio, como o `health`, fica na tabela com "—".
+Um **submódulo** é a subpasta de um módulo com o próprio `functions.ts` (ex.: `groups/matches`), com doc e prefixo próprios, listado como `projeto/modulo/submodulo` ([ADR 0022](../decisions/0022-submodulos-do-grupo.md)). O `base` é template e não tem doc de módulo. Um módulo sem regra de negócio, como o `health`, fica na tabela com "—".
 
 Os módulos que saíram do ar ficam em [`arquivo/`](arquivo/), só para consulta quando forem refeitos: o primeiro grupo (`GRP`), times (`TIM`), competição (`CMP`) e esportes (`ESP`), que saíram em 2026-11-21 ([ADR 0018](../decisions/0018-troca-do-grupo.md)). Eles não são fonte de verdade, e os prefixos não voltam a ser usados.
 

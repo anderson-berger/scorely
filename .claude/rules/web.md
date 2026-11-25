@@ -30,6 +30,8 @@ Todo form abre no `BottomSheet` (`src/components/BottomSheet.vue`), no padrão d
 
 `web/src/modules/<mod>/` (routes, api, store, pages) → registre as rotas em `src/app/router.ts`.
 
+Submódulo ([ADR 0022](../../docs/decisions/0022-submodulos-do-grupo.md)): `web/src/modules/<mod>/<sub>/`, com as rotas juntadas no `routes.ts` do módulo pai (ex.: `groups/matches`, `groups/competitions` em `groups/routes.ts`).
+
 ## Datas e preferências (scorely)
 
 Motivo: [docs/decisions/0006-datas-utc-fuso-do-perfil.md](../../docs/decisions/0006-datas-utc-fuso-do-perfil.md).
