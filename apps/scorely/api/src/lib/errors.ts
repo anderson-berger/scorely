@@ -64,6 +64,14 @@ const CATALOG = {
   MATCH_GUEST_NOT_PENDING: { status: 409, message: 'The guest is not in a state that allows this' },
   MATCH_GUEST_DUPLICATE: { status: 409, message: 'A guest with this name is already in the match' },
   MATCH_GUEST_LIMIT: { status: 409, message: 'The match has too many guests' },
+  MATCH_OUTSIDE_COMPETITION: {
+    status: 422,
+    message: 'The match does not start within the competition period',
+  },
+  COMPETITION_NOT_FOUND: { status: 404, message: 'Competition not found in this group' },
+  COMPETITION_LIMIT: { status: 409, message: 'The group has too many open competitions' },
+  COMPETITION_HAS_RESULTS: { status: 409, message: 'The competition already has results' },
+  COMPETITION_LOCKED: { status: 409, message: 'The competition is locked' },
 } as const satisfies Record<ErrorCode, { status: number; message: string }>;
 
 /** Código com `details` obrigatório pede o objeto; os demais não aceitam nada. */

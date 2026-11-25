@@ -10,6 +10,7 @@
 | `scorely/notifications`                             | [notificacoes.md](notificacoes.md) | `NTF`              |
 | `scorely/media`                                     | [midia.md](midia.md)               | `MID`              |
 | `scorely/matches`                                   | [partidas.md](partidas.md)         | `PAR`              |
+| `scorely/competitions`                              | [competicao.md](competicao.md)     | `COM`              |
 | `scorely/health`                                    | —                                  | —                  |
 
 O `base` é template e não tem doc de módulo. Um módulo sem regra de negócio, como o `health`, fica na tabela com "—".

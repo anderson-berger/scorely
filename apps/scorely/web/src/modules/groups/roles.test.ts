@@ -35,6 +35,7 @@ const CATALOG: GroupPermission[] = [
   'members.remove',
   'roles.manage',
   'matches.manage',
+  'competitions.manage',
 ];
 
 describe('roleMark', () => {
@@ -137,6 +138,7 @@ describe('rolePanelPermissions', () => {
       'members.remove',
       'roles.manage',
       'matches.manage',
+      'competitions.manage',
     ]);
     expect(rows.find((r) => r.permission === 'members.remove')).toMatchObject({ on: true, locked: true });
     expect(rows.find((r) => r.permission === 'members.invite')).toMatchObject({ on: false, locked: false });
@@ -144,7 +146,12 @@ describe('rolePanelPermissions', () => {
 
   it('GRV-51: no Todos, members.remove e roles.manage não aparecem', () => {
     const rows = rolePanelPermissions(everyone(), CATALOG);
-    expect(rows.map((r) => r.permission)).toEqual(['group.edit', 'members.invite', 'matches.manage']);
+    expect(rows.map((r) => r.permission)).toEqual([
+      'group.edit',
+      'members.invite',
+      'matches.manage',
+      'competitions.manage',
+    ]);
   });
 });
 

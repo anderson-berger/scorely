@@ -2,6 +2,16 @@ import { newEntity } from '@scorely/api/src/lib/entity';
 import { appError } from '@scorely/api/src/lib/errors';
 import type { GroupId, UserId } from '@scorely/api/src/lib/ids';
 import { addDays, localParts, weekdayOf, zonedToUtc } from '@scorely/api/src/lib/zoned';
+import {
+  competitionRef,
+  competitionStatus,
+  startsWithin,
+} from '@scorely/api/src/modules/competitions/competition.period';
+import {
+  type CompetitionRepository,
+  dynamoCompetitionRepository,
+  type StoredCompetition,
+} from '@scorely/api/src/modules/competitions/competition.repository';
 import type { GroupAccess } from '@scorely/api/src/modules/groups/group.access';
 import { toUser, type UrlOf } from '@scorely/api/src/modules/groups/group.service';
 import type {
@@ -23,6 +33,7 @@ import type { NotificationService } from '@scorely/api/src/modules/notifications
 import type { UserDirectory } from '@scorely/api/src/modules/users/user.repository';
 import {
   type AdvanceMatchInput,
+  type CompetitionRef,
   type CreateMatchInput,
   dayWinners,
   type GroupPermission,
@@ -59,9 +70,12 @@ import {
   type SaveMatchTeamsInput,
   SaveMatchTeamsInputSchema,
   type SetAttendanceInput,
+  type SetMatchCompetitionsInput,
+  SetMatchCompetitionsInputSchema,
   TimeZoneSchema,
   type UpdateMatchInput,
   type UpdateMatchSeriesInput,
+  UpdateMatchSeriesInputSchema,
   type User,
 } from '@scorely/contracts';
 import type { z } from 'zod';
@@ -76,6 +90,8 @@ export interface MatchesDeps {
   notifications: { notify(...args: Parameters<NotificationService['notify']>): Promise<unknown> };
   /** MID-12: só o `urlOf` da mídia. Sem ele, a mídia de produção. */
   media?: Pick<MediaService, 'urlOf'>;
+  /** O "Vale para" (PAR-40): as competições do grupo, só lidas. Sem ele, o repositório de produção. */
+  competitions?: Pick<CompetitionRepository, 'getCompetitions'>;
   now?: () => Date;
 }
 
@@ -398,8 +414,8 @@ function setupOf(
   };
 }
 
-/** PAR-16: a repetição como vem na partida. */
-function seriesView(series: StoredSeries): MatchSeries {
+/** PAR-16: a repetição como vem na partida, com as competições dela (PAR-40). */
+function seriesView(series: StoredSeries, competitions: CompetitionRef[]): MatchSeries {
   return {
     id: series.id,
     weekday: series.weekday,
@@ -415,6 +431,7 @@ function seriesView(series: StoredSeries): MatchSeries {
     closeHours: series.closeHours,
     resultMode: series.resultMode,
     ...(series.endedAt !== undefined && { endedAt: series.endedAt }),
+    competitions,
     version: series.version,
   };
 }
@@ -450,6 +467,51 @@ export function createMatchService(deps: MatchesDeps) {
   const now = deps.now ?? (() => new Date());
   const urlOf: UrlOf = (purpose, mediaId) =>
     deps.media ? deps.media.urlOf(purpose, mediaId) : mediaService.urlOf(purpose, mediaId);
+
+  const competitionRepo = deps.competitions ?? dynamoCompetitionRepository;
+
+  /** PAR-40: as competições destes ids (sem repetir); sem nenhum, nem lê. */
+  async function competitionsOf(groupId: GroupId, ids: readonly string[]): Promise<StoredCompetition[]> {
+    const unique = [...new Set(ids)];
+    return unique.length > 0 ? competitionRepo.getCompetitions(groupId, unique) : [];
+  }
+
+  /** PAR-16, 40: o "Vale para" na resposta, na ordem gravada; a que não existe mais some. */
+  function refsOf(ids: readonly string[] | undefined, found: readonly StoredCompetition[]): CompetitionRef[] {
+    const byId = new Map(found.map((c) => [c.id, c]));
+    return (ids ?? []).flatMap((id) => {
+      const c = byId.get(id);
+      return c ? [competitionRef(c)] : [];
+    });
+  }
+
+  /**
+   * PAR-22, 40: as competições que entram ou saem do "Vale para" existem e não travaram. Com `startsAt` (a partida),
+   * as que entram precisam ter o início dela no período.
+   */
+  async function checkTouched(
+    groupId: GroupId,
+    before: readonly string[],
+    after: readonly string[],
+    at: Date,
+    startsAt?: string,
+  ): Promise<void> {
+    const added = after.filter((id) => !before.includes(id));
+    const touched = [...added, ...before.filter((id) => !after.includes(id))];
+    const found = new Map((await competitionsOf(groupId, touched)).map((c) => [c.id, c]));
+    for (const id of touched) {
+      const c = found.get(id);
+      if (!c) throw appError('COMPETITION_NOT_FOUND');
+      if (competitionStatus(c, at) === 'locked') throw appError('COMPETITION_LOCKED');
+    }
+    if (startsAt === undefined) return;
+    for (const id of added) {
+      const c = found.get(id);
+      if (c && !startsWithin(c, startsAt)) {
+        throw appError('MATCH_OUTSIDE_COMPETITION', { competitionId: id });
+      }
+    }
+  }
 
   const canManage = (ctx: Access) => ctx.permissions.includes(MANAGE);
 
@@ -522,6 +584,10 @@ export function createMatchService(deps: MatchesDeps) {
       deps.matches.getTeams(match.groupId, match.id, { consistent }),
       deps.matches.getResult(match.groupId, match.id, { consistent }),
     ]);
+    const tagged = await competitionsOf(match.groupId, [
+      ...(match.competitionIds ?? []),
+      ...(series?.competitionIds ?? []),
+    ]);
     const at = now();
     const manage = canManage(ctx);
     const live = match.cancelledAt === undefined && at < new Date(match.startsAt);
@@ -582,8 +648,10 @@ export function createMatchService(deps: MatchesDeps) {
         manage: manage && live,
         manageTeams: manage && match.cancelledAt === undefined && at < new Date(match.endsAt),
         recordResult: manage && match.cancelledAt === undefined && at >= new Date(match.startsAt),
+        manageCompetitions: manage && match.cancelledAt === undefined,
       },
-      ...(series !== undefined && { series: seriesView(series) }),
+      competitions: refsOf(match.competitionIds, tagged),
+      ...(series !== undefined && { series: seriesView(series, refsOf(series.competitionIds, tagged)) }),
       ...(saved !== undefined && { lineup: lineupView(saved, state, people, entry) }),
       ...(result !== undefined && {
         result: resultView(result, resultMember(state.guests, state.participants, people)),
@@ -842,12 +910,17 @@ export function createMatchService(deps: MatchesDeps) {
     if (series.endedAt !== undefined) return;
     const date = nextDate(series, series.currentDate, at);
     const startsAt = zonedToUtc(date, series.time, series.timeZone);
+    // PAR-21, 40: as competições da repetição que não travaram e cujo período tem o início da partida nova.
+    const competitionIds = (await competitionsOf(series.groupId, series.competitionIds ?? []))
+      .filter((c) => competitionStatus(c, at) !== 'locked' && startsWithin(c, startsAt.toISOString()))
+      .map((c) => c.id);
     const entity = newEntity<Omit<StoredMatch, 'updatedAt'>>(
       {
         groupId: series.groupId,
         startsAt: startsAt.toISOString(),
         endsAt: new Date(startsAt.getTime() + series.durationMinutes * MINUTE_MS).toISOString(),
         ...setupOf(series),
+        ...(competitionIds.length > 0 && { competitionIds }),
         seriesId: series.id,
         seriesDate: date,
         createdBy: series.createdBy,
@@ -1335,20 +1408,58 @@ export function createMatchService(deps: MatchesDeps) {
   ): Promise<MatchSeries> {
     const ctx = await deps.groups.access(userId, publicId);
     requireManage(ctx);
+    const body = parseOrFail(UpdateMatchSeriesInputSchema, input);
     const series = await loadSeries(ctx.groupId, seriesId);
     if (series.endedAt !== undefined) throw appError('MATCH_SERIES_ENDED');
+    const at = now();
+    // PAR-22, 40: as competições que entram ou saem existem e não travaram.
+    await checkTouched(ctx.groupId, series.competitionIds ?? [], body.competitionIds, at);
     const saved = await deps.matches.updateSeries(
       {
         ...series,
-        weekday: input.weekday,
-        time: input.time,
-        durationMinutes: input.durationMinutes,
-        ...setupOf(input),
+        weekday: body.weekday,
+        time: body.time,
+        durationMinutes: body.durationMinutes,
+        ...setupOf(body),
+        competitionIds: body.competitionIds,
       },
-      input.expectedVersion,
-      now(),
+      body.expectedVersion,
+      at,
     );
-    return seriesView(saved);
+    return seriesView(
+      saved,
+      refsOf(saved.competitionIds, await competitionsOf(ctx.groupId, body.competitionIds)),
+    );
+  }
+
+  /** PAR-40: o "Vale para" da partida, também depois do início e do fim; ninguém é avisado. */
+  async function setCompetitions(
+    userId: UserId,
+    publicId: PublicGroupId,
+    matchId: string,
+    input: SetMatchCompetitionsInput,
+  ): Promise<Match> {
+    const ctx = await deps.groups.access(userId, publicId);
+    requireManage(ctx);
+    const body = parseOrFail(SetMatchCompetitionsInputSchema, input);
+    const match = await load(ctx.groupId, matchId);
+    if (match.cancelledAt !== undefined) throw appError('MATCH_CANCELLED');
+    const at = now();
+    await checkTouched(ctx.groupId, match.competitionIds ?? [], body.competitionIds, at, match.startsAt);
+    await deps.matches.updateMatch(
+      { ...match, competitionIds: body.competitionIds },
+      body.expectedVersion,
+      at,
+    );
+    return view(ctx, userId, await load(ctx.groupId, matchId, true), true);
+  }
+
+  /** PAR-16, 40: a repetição na resposta, com as competições dela. */
+  async function seriesOut(series: StoredSeries): Promise<MatchSeries> {
+    return seriesView(
+      series,
+      refsOf(series.competitionIds, await competitionsOf(series.groupId, series.competitionIds ?? [])),
+    );
   }
 
   /** PAR-23: encerra a repetição; a próxima, que já existe, continua. Encerrar de novo não muda nada. */
@@ -1356,9 +1467,9 @@ export function createMatchService(deps: MatchesDeps) {
     const ctx = await deps.groups.access(userId, publicId);
     requireManage(ctx);
     const series = await loadSeries(ctx.groupId, seriesId);
-    if (series.endedAt !== undefined) return seriesView(series);
+    if (series.endedAt !== undefined) return seriesOut(series);
     await deps.matches.endSeries(ctx.groupId, seriesId, now());
-    return seriesView(await loadSeries(ctx.groupId, seriesId));
+    return seriesOut(await loadSeries(ctx.groupId, seriesId));
   }
 
   /**
@@ -1416,6 +1527,7 @@ export function createMatchService(deps: MatchesDeps) {
     list,
     updateSeries,
     endSeries,
+    setCompetitions,
     runAgenda,
     get,
     update,

@@ -32,6 +32,11 @@ export const matchesFunctions: AWS['functions'] = {
   saveMatchTeams: { handler: handler('saveMatchTeams'), events: route('PUT', `${MATCH}/teams`) },
   // Resultado e histórico (PAR-31–36). A rota estática `history` vence a `{matchId}` no HTTP API.
   saveMatchResult: { handler: handler('saveMatchResult'), events: route('PUT', `${MATCH}/result`) },
+  // Vale para (PAR-40)
+  setMatchCompetitions: {
+    handler: handler('setMatchCompetitions'),
+    events: route('PUT', `${MATCH}/competitions`),
+  },
   matchHistory: {
     handler: handler('matchHistory'),
     events: route('GET', '/groups/{publicId}/matches/history'),

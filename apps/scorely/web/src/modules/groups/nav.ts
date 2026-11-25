@@ -2,7 +2,7 @@ import type { Group, GroupPermission } from '@scorely/contracts';
 
 /** Uma área da barra de navegação do grupo (GRV-13). */
 export type GroupNavItem = {
-  key: 'home' | 'matches' | 'members' | 'settings';
+  key: 'home' | 'matches' | 'competitions' | 'members' | 'settings';
   icon: string;
   to: { name: string };
   /** Rotas em que a área aparece como ativa (a lista de convites é parte dos Membros). */
@@ -14,7 +14,7 @@ export function can(group: Pick<Group, 'myPermissions'>, permission: GroupPermis
   return group.myPermissions.includes(permission);
 }
 
-/** GRV-13: as áreas que a pessoa vê no grupo. Partidas para todos (PAR-17); Configurações com `group.edit` ou `roles.manage` (GRV-14, 16). */
+/** GRV-13: as áreas que a pessoa vê no grupo. Partidas e Competição para todos (PAR-17, COM-12); Configurações com `group.edit` ou `roles.manage` (GRV-14, 16). */
 export function groupNavItems(group: Group): GroupNavItem[] {
   const home: GroupNavItem = { key: 'home', icon: 'home', to: { name: 'group' }, active: ['group'] };
   const matches: GroupNavItem = {
@@ -22,6 +22,12 @@ export function groupNavItems(group: Group): GroupNavItem[] {
     icon: 'sports',
     to: { name: 'group-matches' },
     active: ['group-matches', 'group-match'],
+  };
+  const competitions: GroupNavItem = {
+    key: 'competitions',
+    icon: 'emoji_events',
+    to: { name: 'group-competitions' },
+    active: ['group-competitions', 'group-competition'],
   };
   const members: GroupNavItem = {
     key: 'members',
@@ -36,8 +42,8 @@ export function groupNavItems(group: Group): GroupNavItem[] {
     active: ['group-settings'],
   };
   return can(group, 'group.edit') || can(group, 'roles.manage')
-    ? [home, matches, members, settings]
-    : [home, matches, members];
+    ? [home, matches, competitions, members, settings]
+    : [home, matches, competitions, members];
 }
 
 /** Uma seção de Configurações (GRV-14) e as linhas que a pessoa pode usar nela. */

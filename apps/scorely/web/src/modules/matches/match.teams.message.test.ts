@@ -43,6 +43,7 @@ function match(list: MatchTeamMember[][]): Match {
     noGuests: false,
     closeHours: 0,
     resultMode: 'day',
+    competitions: [],
     waves: {
       members: '2026-11-24T22:00:00.000Z',
       reserves: '2026-11-26T22:00:00.000Z',
@@ -59,6 +60,7 @@ function match(list: MatchTeamMember[][]): Match {
       manage: false,
       manageTeams: false,
       recordResult: false,
+      manageCompetitions: false,
     },
     lineup: { list, unassigned: [], version: 1 },
   } as Match;

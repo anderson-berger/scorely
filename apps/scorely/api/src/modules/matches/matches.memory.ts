@@ -307,6 +307,18 @@ export function memoryMatches() {
         ...(ended.length > limit && last && { nextCursor: encodeCursor({ PK: pk, SK: last.sk }) }),
       };
     },
+    async listByEnd(groupId, from, to) {
+      const since = from.toISOString();
+      const until = to.toISOString();
+      return [...matches.values()]
+        .filter((m) => m.groupId === groupId && m.endsAt >= since && m.endsAt <= until)
+        .sort((a, b) => (a.endsAt === b.endsAt ? a.id.localeCompare(b.id) : a.endsAt < b.endsAt ? -1 : 1))
+        .map((m) => {
+          const result = results.get(key(groupId, m.id));
+          return { match: copy(m), result: result && structuredClone(result) };
+        });
+    },
   };
-  return { repo, counters, agenda };
+  // `matches` e `series` saem para o repositório das competições gravar o "Vale para" junto (COM-01, PAR-40).
+  return { repo, counters, agenda, matches, series };
 }

@@ -95,6 +95,8 @@ export interface StoredMatch {
   /** Como a tela do resultado abre (PAR-31). */
   resultMode: MatchResultMode;
   cancelledAt?: string | undefined;
+  /** O "Vale para" (PAR-40); ausente = nenhuma (as partidas de antes dele). */
+  competitionIds?: string[] | undefined;
   createdBy: UserId;
 }
 
@@ -124,6 +126,8 @@ export interface StoredSeries {
   currentMatchId: string;
   currentDate: string;
   endedAt?: string | undefined;
+  /** As competições que as próximas partidas levam (PAR-21, 40); ausente = nenhuma. */
+  competitionIds?: string[] | undefined;
   createdBy: UserId;
 }
 
@@ -364,6 +368,11 @@ export interface MatchRepository {
     endedBy: Date,
     opts: { limit: number; cursor?: string | undefined },
   ): Promise<Page<HistoryEntry>>;
+  /**
+   * COM-05, 08: as partidas com o fim de `from` a `to` (inclusive), pelo índice `MATCHEND#`, com o resultado de cada
+   * uma, do fim mais antigo para o mais recente.
+   */
+  listByEnd(groupId: GroupId, from: Date, to: Date): Promise<HistoryEntry[]>;
 }
 
 const PENDING_CONDITION =
@@ -1041,4 +1050,41 @@ export const dynamoMatchRepository: MatchRepository = {
       ...(Items.length > limit && last && { nextCursor: encodeCursor({ PK: last.PK, SK: last.SK }) }),
     };
   },
+
+  async listByEnd(groupId, from, to) {
+    const rows = await queryEnds(groupPk(groupId), from.toISOString(), to.toISOString());
+    const ids = rows.map((row) => row.matchId as string);
+    const [matches, results] = await Promise.all([
+      batchGetOrdered(ids.map((id) => matchKey(groupId, id))),
+      batchGetOrdered(ids.map((id) => matchResultKey(groupId, id))),
+    ]);
+    const byMatch = new Map(
+      results.map((row) => stripKeys<StoredResult>(row)).map((r) => [r.matchId, r] as const),
+    );
+    return matches
+      .map((row) => stripKeys<StoredMatch>(row))
+      .map((match) => ({ match, result: byMatch.get(match.id) }));
+  },
 };
+
+/** COM-05: o índice do fim entre `from` e `to`, todas as páginas. */
+async function queryEnds(
+  pk: string,
+  from: string,
+  to: string,
+  startKey?: Record<string, unknown>,
+): Promise<Record<string, unknown>[]> {
+  const { Items = [], LastEvaluatedKey } = await dynamo().send(
+    new QueryCommand({
+      TableName: tableName(),
+      KeyConditionExpression: 'PK = :pk AND SK BETWEEN :from AND :to',
+      ExpressionAttributeValues: {
+        ':pk': pk,
+        ':from': `${MATCH_END_PREFIX}${from}`,
+        ':to': `${MATCH_END_PREFIX}${to}#~`,
+      },
+      ...(startKey && { ExclusiveStartKey: startKey }),
+    }),
+  );
+  return LastEvaluatedKey ? [...Items, ...(await queryEnds(pk, from, to, LastEvaluatedKey))] : Items;
+}

@@ -178,6 +178,7 @@ const seriesInput = (version: number, over: Record<string, unknown> = {}) => ({
   noGuests: false,
   closeHours: 0,
   resultMode: 'day' as const,
+  competitionIds: [] as string[],
   expectedVersion: version,
   ...over,
 });

@@ -14,12 +14,13 @@ const group = (myPermissions: GroupPermission[]): Group =>
   }) as Group;
 
 describe('groupNavItems', () => {
-  it('GRV-13, GRV-16: quem tem group.edit vê Início, Partidas, Membros e Configurações, nessa ordem, com as rotas de cada área', () => {
+  it('GRV-13, GRV-16: quem tem group.edit vê Início, Partidas, Competição, Membros e Configurações, nessa ordem, com as rotas de cada área', () => {
     const items = groupNavItems(group(['group.edit']));
-    expect(items.map((i) => i.key)).toEqual(['home', 'matches', 'members', 'settings']);
+    expect(items.map((i) => i.key)).toEqual(['home', 'matches', 'competitions', 'members', 'settings']);
     expect(items.map((i) => i.to.name)).toEqual([
       'group',
       'group-matches',
+      'group-competitions',
       'group-members',
       'group-settings',
     ]);
@@ -31,8 +32,13 @@ describe('groupNavItems', () => {
     }
   });
 
-  it('GRV-13, GRV-14: sem group.edit, Configurações não aparece; Início, Partidas e Membros sim (PAR-17)', () => {
-    expect(groupNavItems(group([])).map((i) => i.key)).toEqual(['home', 'matches', 'members']);
+  it('GRV-13, GRV-14: sem group.edit, Configurações não aparece; Início, Partidas, Competição e Membros sim (PAR-17, COM-12)', () => {
+    expect(groupNavItems(group([])).map((i) => i.key)).toEqual([
+      'home',
+      'matches',
+      'competitions',
+      'members',
+    ]);
   });
 
   it('GRV-13: a lista de convites conta como a área Membros', () => {
@@ -51,6 +57,7 @@ describe('groupNavItems com roles.manage', () => {
     expect(groupNavItems(group(['roles.manage'])).map((i) => i.key)).toEqual([
       'home',
       'matches',
+      'competitions',
       'members',
       'settings',
     ]);
@@ -60,6 +67,7 @@ describe('groupNavItems com roles.manage', () => {
     expect(groupNavItems(group(['members.invite'])).map((i) => i.key)).toEqual([
       'home',
       'matches',
+      'competitions',
       'members',
     ]);
   });

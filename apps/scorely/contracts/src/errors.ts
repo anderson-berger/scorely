@@ -63,6 +63,12 @@ export const ErrorCodeSchema = z.enum([
   'MATCH_GUEST_NOT_PENDING',
   'MATCH_GUEST_DUPLICATE',
   'MATCH_GUEST_LIMIT',
+  'MATCH_OUTSIDE_COMPETITION',
+  // competitions
+  'COMPETITION_NOT_FOUND',
+  'COMPETITION_LIMIT',
+  'COMPETITION_HAS_RESULTS',
+  'COMPETITION_LOCKED',
 ]);
 export type ErrorCode = z.infer<typeof ErrorCodeSchema>;
 
@@ -106,6 +112,10 @@ export const ErrorDetailsSchemas = {
   MATCH_GUEST_NOT_PENDING: z.object({ status: MatchGuestStatusSchema }),
   /** PAR-12: o máximo de convidados ativos. */
   MATCH_GUEST_LIMIT: z.object({ limit: z.number().int().positive() }),
+  /** PAR-40: a competição cujo período não tem o início da partida. */
+  MATCH_OUTSIDE_COMPETITION: z.object({ competitionId: z.uuid() }),
+  /** COM-01: o máximo de competições abertas. */
+  COMPETITION_LIMIT: z.object({ limit: z.number().int().positive() }),
   /** ADR 0016: a versão atual do item (`0` = ele não existe mais), para a tela reler. */
   VERSION_CONFLICT: z.object({ currentVersion: z.number().int().nonnegative() }),
 } satisfies Partial<Record<ErrorCode, z.ZodType>>;

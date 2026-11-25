@@ -36,6 +36,7 @@ function errorOf(fn: () => void) {
 describe('groups permissions', () => {
   it('GRV-15: o Dono tem todas as permissões do catálogo', () => {
     expect(permissionsOf({ role: 'owner' }, rolesOf()).sort()).toEqual([
+      'competitions.manage',
       'group.edit',
       'matches.manage',
       'members.invite',

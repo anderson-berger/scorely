@@ -48,6 +48,7 @@ export const GroupPermissionSchema = z.enum([
   'members.remove',
   'roles.manage',
   'matches.manage',
+  'competitions.manage',
 ]);
 export type GroupPermission = z.infer<typeof GroupPermissionSchema>;
 

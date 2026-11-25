@@ -1129,6 +1129,7 @@ describe('PAR-16: ver a partida', () => {
       manage: false,
       manageTeams: false,
       recordResult: false,
+      manageCompetitions: false,
     });
   });
 
@@ -1142,6 +1143,7 @@ describe('PAR-16: ver a partida', () => {
       manage: false,
       manageTeams: false,
       recordResult: false,
+      manageCompetitions: false,
     };
     expect((await get(t, BIA, m.id)).actions).toEqual(expected);
     expect((await get(t, DUDA, m.id)).actions).toEqual(expected);
@@ -1195,6 +1197,7 @@ describe('PAR-16: ver a partida', () => {
       manage: false,
       manageTeams: true,
       recordResult: true,
+      manageCompetitions: true,
     });
   });
 

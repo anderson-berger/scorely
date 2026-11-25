@@ -223,6 +223,7 @@ describe('PAR-31: os dois jeitos e a configuração', () => {
       noGuests: false,
       closeHours: 0,
       resultMode: 'games',
+      competitionIds: [],
       expectedVersion: series?.version as number,
     });
     t.at(END);
