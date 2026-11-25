@@ -78,16 +78,25 @@ type SetupPatch = Partial<
     | 'noGuests'
     | 'closeHours'
     | 'resultMode'
+    | 'competitionIds'
   >
 >;
 
-/** PAR-22: o `PUT` da repetição com a parte mudada, o resto como está e a `version` dela (ADR 0016). */
+/**
+ * PAR-22: o `PUT` da repetição com a parte mudada, o resto como está (as competições pelos ids, PAR-40) e a `version`
+ * dela (ADR 0016).
+ */
 export function withSeriesSettings(
   series: MatchSeries,
   patch: SetupPatch & Partial<Pick<UpdateMatchSeriesInput, 'weekday' | 'time' | 'durationMinutes'>>,
 ): UpdateMatchSeriesInput {
-  const { id: _id, timeZone: _timeZone, endedAt: _endedAt, version, ...fields } = series;
-  const merged: Record<string, unknown> = { ...fields, ...patch, expectedVersion: version };
+  const { id: _id, timeZone: _timeZone, endedAt: _endedAt, competitions, version, ...fields } = series;
+  const merged: Record<string, unknown> = {
+    ...fields,
+    competitionIds: competitions.map((c) => c.id),
+    ...patch,
+    expectedVersion: version,
+  };
   for (const key of Object.keys(merged)) {
     if (merged[key] === undefined) delete merged[key];
   }

@@ -1,6 +1,7 @@
 import { authRoute } from '@scorely/api/src/lib/auth';
 import { created, type HttpEvent, parseBody, pathParam } from '@scorely/api/src/lib/http';
 import { asPublicGroupId } from '@scorely/api/src/lib/ids';
+import { dynamoCompetitionRepository } from '@scorely/api/src/modules/competitions/competition.repository';
 import { createGroupAccess } from '@scorely/api/src/modules/groups/group.access';
 import { dynamoGroupRepository } from '@scorely/api/src/modules/groups/group.repository';
 import { dynamoMatchRepository } from '@scorely/api/src/modules/matches/match.repository';
@@ -16,6 +17,7 @@ import {
   SaveMatchResultInputSchema,
   SaveMatchTeamsInputSchema,
   SetAttendanceInputSchema,
+  SetMatchCompetitionsInputSchema,
   UpdateMatchInputSchema,
   UpdateMatchSeriesInputSchema,
 } from '@scorely/contracts';
@@ -25,6 +27,7 @@ const matches = createMatchService({
   groups: createGroupAccess(dynamoGroupRepository),
   users: dynamoUserDirectory,
   media: mediaService,
+  competitions: dynamoCompetitionRepository,
   notifications: createNotificationService(dynamoNotificationRepository),
 });
 
@@ -73,6 +76,27 @@ export async function advanceMatch(event: HttpEvent) {
 export async function cancelMatch(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const match = await matches.cancel(auth.userId, groupOf(event), matchOf(event));
+    return match;
+  });
+}
+
+export async function startMatch(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
+    const match = await matches.start(auth.userId, groupOf(event), matchOf(event));
+    return match;
+  });
+}
+
+export async function unstartMatch(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
+    const match = await matches.unstart(auth.userId, groupOf(event), matchOf(event));
+    return match;
+  });
+}
+
+export async function finishMatch(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
+    const match = await matches.finish(auth.userId, groupOf(event), matchOf(event));
     return match;
   });
 }
@@ -126,6 +150,14 @@ export async function saveMatchResult(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const input = parseBody(event, SaveMatchResultInputSchema);
     const match = await matches.saveResult(auth.userId, groupOf(event), matchOf(event), input);
+    return match;
+  });
+}
+
+export async function setMatchCompetitions(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
+    const input = parseBody(event, SetMatchCompetitionsInputSchema);
+    const match = await matches.setCompetitions(auth.userId, groupOf(event), matchOf(event), input);
     return match;
   });
 }

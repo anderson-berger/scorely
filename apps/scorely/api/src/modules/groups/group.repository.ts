@@ -42,7 +42,13 @@ import {
   userGroupsLookupKey,
   userGroupsLookupPk,
 } from '@scorely/api/src/modules/groups/group.table';
-import type { GroupJoinMode, GroupPermission, GroupTier, PublicGroupId } from '@scorely/contracts';
+import type {
+  GroupJoinMode,
+  GroupModality,
+  GroupPermission,
+  GroupTier,
+  PublicGroupId,
+} from '@scorely/contracts';
 
 /** O grupo como fica no banco (`META`): `id` é o uuid do sistema, `publicId` o código (GRV-08). Interno da api. */
 export interface StoredGroup {
@@ -51,6 +57,8 @@ export interface StoredGroup {
   name: string;
   /** Modo de entrada (GRV-25): nasce `invite`. */
   joinMode: GroupJoinMode;
+  /** Modalidade (GRV-52): nasce `mixed`. */
+  modality: GroupModality;
   createdAt: string;
   updatedAt: string;
   version: number;
@@ -239,6 +247,8 @@ export interface GroupRepository {
 
   /** Muda o modo de entrada (GRV-25), com a `version` conferida (ADR 0016): versão velha → `VERSION_CONFLICT`. */
   setJoinMode(groupId: GroupId, mode: GroupJoinMode, expectedVersion: number, at: Date): Promise<void>;
+  /** Muda a modalidade (GRV-52), com a `version` conferida (ADR 0016): versão velha → `VERSION_CONFLICT`. */
+  setModality(groupId: GroupId, modality: GroupModality, expectedVersion: number, at: Date): Promise<void>;
   /** O pedido da pessoa, se há (GRV-26, 27). `consistent`: para reler depois de a gravação falhar. */
   getRequest(
     groupId: GroupId,
@@ -802,6 +812,29 @@ export const dynamoGroupRepository: GroupRepository = {
                 UpdateExpression: 'SET joinMode = :mode',
                 ConditionExpression: 'attribute_exists(PK)',
                 ExpressionAttributeValues: { ':mode': mode },
+              },
+              at,
+            ),
+            expectedVersion,
+          ),
+        }),
+      ),
+    );
+  },
+
+  async setModality(groupId, modality, expectedVersion, at) {
+    const key = groupKey(groupId);
+    await sendVersioned(key, () =>
+      dynamo().send(
+        new UpdateCommand({
+          TableName: tableName(),
+          ...withVersion(
+            touch(
+              {
+                Key: key,
+                UpdateExpression: 'SET modality = :modality',
+                ConditionExpression: 'attribute_exists(PK)',
+                ExpressionAttributeValues: { ':modality': modality },
               },
               at,
             ),

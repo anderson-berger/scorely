@@ -281,9 +281,24 @@ describe('PAR-01: criar a partida', () => {
     for (const n of Array.from({ length: 20 }, (_, i) => i)) {
       await create(t, { startsAt: iso(START, n), endsAt: iso(END, n) });
     }
-    t.at('2026-11-29T00:00:00.000Z');
     const next = '2026-12-05T22:00:00.000Z';
+    t.at('2026-11-29T00:00:00.000Z');
+    const stale = await failure(create(t, { startsAt: next, endsAt: iso(next, 2) }));
+    expect(stale?.code).toBe('MATCH_LIMIT');
+    const [first] = await t.service.list(ANA, PUBLIC_ID);
+    await t.service.start(ANA, PUBLIC_ID, (first as { id: string }).id);
+    await t.service.finish(ANA, PUBLIC_ID, (first as { id: string }).id);
     expect((await create(t, { startsAt: next, endsAt: iso(next, 2) })).startsAt).toBe(next);
+  });
+
+  it('PAR-01, PAR-07: as partidas canceladas não contam no limite', async () => {
+    const t = setup();
+    const ids = [];
+    for (const n of Array.from({ length: 20 }, (_, i) => i)) {
+      ids.push(await create(t, { startsAt: iso(START, n), endsAt: iso(END, n) }));
+    }
+    await t.service.cancel(ANA, PUBLIC_ID, (ids[0] as { id: string }).id);
+    expect((await create(t)).startsAt).toBe(START);
   });
 });
 
@@ -416,6 +431,8 @@ describe('PAR-02, 03, 04: vagas e ondas', () => {
     t.at(iso(START, -0.01));
     expect((await get(t, CAIO, m.id)).status).toBe('open');
     t.at(START);
+    expect((await get(t, CAIO, m.id)).status).toBe('closed');
+    await t.service.start(ANA, PUBLIC_ID, m.id);
     expect((await get(t, CAIO, m.id)).status).toBe('in_progress');
   });
 
@@ -437,7 +454,7 @@ describe('PAR-02, 03, 04: vagas e ondas', () => {
     expect(err?.code).toBe('MATCH_CLOSED');
   });
 
-  it('PAR-03, PAR-16: a situação sai da hora: scheduled → open → closed → in_progress → finished', async () => {
+  it('PAR-03, PAR-16: a situação sai da hora até iniciar e depois das mãos: scheduled → open → closed → in_progress → finished', async () => {
     const t = setup();
     const m = await create(t, { closeHours: 1 });
     const statusAt = async (when: string) => {
@@ -448,7 +465,11 @@ describe('PAR-02, 03, 04: vagas e ondas', () => {
     expect(await statusAt(MEMBERS_AT)).toBe('open');
     expect(await statusAt(iso(START, -1.5))).toBe('open');
     expect(await statusAt(iso(START, -1))).toBe('closed');
-    expect(await statusAt(START)).toBe('in_progress');
+    expect(await statusAt(START)).toBe('closed');
+    expect(await statusAt(END)).toBe('closed');
+    await t.service.start(ANA, PUBLIC_ID, m.id);
+    expect(await statusAt(END)).toBe('in_progress');
+    await t.service.finish(ANA, PUBLIC_ID, m.id);
     expect(await statusAt(END)).toBe('finished');
   });
 
@@ -541,6 +562,15 @@ describe('PAR-05: abrir a onda antes da hora', () => {
     t.at(iso(START, -1));
     const err = await failure(t.service.advance(ANA, PUBLIC_ID, closing.id, { wave: 'guests' }));
     expect(err?.code).toBe('MATCH_CLOSED');
+    expect(err?.status).toBe(409);
+  });
+
+  it('PAR-05, 41: depois de iniciar responde MATCH_STARTED', async () => {
+    const t = setup();
+    const m = await create(t, { closeHours: 2 });
+    await t.service.start(ANA, PUBLIC_ID, m.id);
+    const err = await failure(t.service.advance(ANA, PUBLIC_ID, m.id, { wave: 'guests' }));
+    expect(err?.code).toBe('MATCH_STARTED');
     expect(err?.status).toBe(409);
   });
 
@@ -666,8 +696,9 @@ describe('PAR-06: editar a partida', () => {
     const t = setup();
     const m = await create(t);
     t.at(START);
+    const started = await t.service.start(ANA, PUBLIC_ID, m.id);
     const err = await failure(
-      t.service.update(ANA, PUBLIC_ID, m.id, { ...input(), expectedVersion: m.version }),
+      t.service.update(ANA, PUBLIC_ID, m.id, { ...input(), expectedVersion: started.version }),
     );
     expect(err?.code).toBe('MATCH_STARTED');
     expect(err?.status).toBe(409);
@@ -835,6 +866,7 @@ describe('PAR-07: cancelar a partida', () => {
     const m = await create(t);
     expect((await failure(t.service.cancel(BIA, PUBLIC_ID, m.id)))?.code).toBe('GROUP_PERMISSION_DENIED');
     t.at(START);
+    await t.service.start(ANA, PUBLIC_ID, m.id);
     expect((await failure(t.service.cancel(ANA, PUBLIC_ID, m.id)))?.code).toBe('MATCH_STARTED');
   });
 });
@@ -882,6 +914,7 @@ describe('PAR-08: responder', () => {
     const left = await go(t, BIA, m.id, 'not_going');
     expect(publicIds(left.in)).toEqual([pub(CAIO)]);
     t.at(START);
+    await t.service.start(ANA, PUBLIC_ID, m.id);
     const err = await failure(go(t, CAIO, m.id, 'not_going'));
     expect(err?.code).toBe('MATCH_STARTED');
   });
@@ -1080,9 +1113,21 @@ describe('PAR-15: as próximas partidas', () => {
 
   it('PAR-15: as que já terminaram não aparecem', async () => {
     const t = setup();
-    await create(t);
+    const m = await create(t);
     t.at(END);
+    expect(await t.service.list(BIA, PUBLIC_ID)).toHaveLength(1);
+    await t.service.start(ANA, PUBLIC_ID, m.id);
+    await t.service.finish(ANA, PUBLIC_ID, m.id);
     expect(await t.service.list(BIA, PUBLIC_ID)).toEqual([]);
+  });
+
+  it('PAR-15: a que passou da hora e ninguém finalizou continua aparecendo', async () => {
+    const t = setup();
+    const m = await create(t);
+    t.at(iso(END, 48));
+    expect((await t.service.list(BIA, PUBLIC_ID)).map((i) => i.id)).toEqual([m.id]);
+    await t.service.start(ANA, PUBLIC_ID, m.id);
+    expect((await t.service.list(BIA, PUBLIC_ID)).map((i) => i.id)).toEqual([m.id]);
   });
 
   it('PAR-15: quem não participa recebe GROUP_NOT_FOUND', async () => {
@@ -1129,6 +1174,10 @@ describe('PAR-16: ver a partida', () => {
       manage: false,
       manageTeams: false,
       recordResult: false,
+      manageCompetitions: false,
+      start: false,
+      unstart: false,
+      finish: false,
     });
   });
 
@@ -1142,6 +1191,10 @@ describe('PAR-16: ver a partida', () => {
       manage: false,
       manageTeams: false,
       recordResult: false,
+      manageCompetitions: false,
+      start: false,
+      unstart: false,
+      finish: false,
     };
     expect((await get(t, BIA, m.id)).actions).toEqual(expected);
     expect((await get(t, DUDA, m.id)).actions).toEqual(expected);
@@ -1188,6 +1241,12 @@ describe('PAR-16: ver a partida', () => {
     const t = setup();
     const m = await create(t);
     t.at(START);
+    expect((await get(t, ANA, m.id)).actions).toMatchObject({
+      manage: true,
+      start: true,
+      recordResult: false,
+    });
+    await t.service.start(ANA, PUBLIC_ID, m.id);
     expect((await get(t, ANA, m.id)).actions).toEqual({
       going: false,
       notGoing: false,
@@ -1195,6 +1254,10 @@ describe('PAR-16: ver a partida', () => {
       manage: false,
       manageTeams: true,
       recordResult: true,
+      manageCompetitions: true,
+      start: false,
+      unstart: true,
+      finish: true,
     });
   });
 

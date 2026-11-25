@@ -7,6 +7,7 @@ import {
   decodeCursor,
   encodeCursor,
   isConditionFailed,
+  type Key,
   LOOKUP_ENTITY,
   type Page,
   replaceItem,
@@ -95,7 +96,22 @@ export interface StoredMatch {
   /** Como a tela do resultado abre (PAR-31). */
   resultMode: MatchResultMode;
   cancelledAt?: string | undefined;
+  /** PAR-41: quando e por quem a partida foi iniciada; apagados ao voltar para a lista (PAR-42). */
+  startedAt?: string | undefined;
+  startedBy?: UserId | undefined;
+  /** PAR-43: quando e por quem a partida foi finalizada. */
+  finishedAt?: string | undefined;
+  finishedBy?: UserId | undefined;
+  /** O "Vale para" (PAR-40); ausente = nenhuma (as partidas de antes dele). */
+  competitionIds?: string[] | undefined;
   createdBy: UserId;
+}
+
+/** A partida seguinte da repetição (PAR-21), gravada junto de quem acaba a anterior. */
+export interface NextMatch {
+  match: StoredMatch;
+  previousMatchId: string;
+  agenda: readonly AgendaEntry[];
 }
 
 /** A repetição (PAR-20), `GROUP#<g> / MATCHSERIES#<seriesId>`. */
@@ -124,6 +140,8 @@ export interface StoredSeries {
   currentMatchId: string;
   currentDate: string;
   endedAt?: string | undefined;
+  /** As competições que as próximas partidas levam (PAR-21, 40); ausente = nenhuma. */
+  competitionIds?: string[] | undefined;
   createdBy: UserId;
 }
 
@@ -235,8 +253,10 @@ export interface MatchRepository {
     matchId: string,
     opts?: { consistent?: boolean },
   ): Promise<StoredMatch | undefined>;
-  /** PAR-15: as que não terminaram (`endsAt` depois de `endsAfter`). */
-  listMatches(groupId: GroupId, endsAfter: Date): Promise<StoredMatch[]>;
+  /**
+   * PAR-15: as que não foram finalizadas, e as canceladas só até o fim do horário marcado (`endsAt` depois de `at`).
+   */
+  listMatches(groupId: GroupId, at: Date): Promise<StoredMatch[]>;
   /**
    * PAR-06: grava a partida inteira se a `version` for a esperada; senão `VERSION_CONFLICT`. O `notifiedWave` fica
    * como está no banco, a não ser com `resetNotified` (a primeira configuração da abertura, PAR-24). Com `agenda`, os
@@ -260,8 +280,20 @@ export interface MatchRepository {
     openedAt: MatchOpenedAt,
     at: Date,
   ): Promise<boolean>;
-  /** PAR-07: `false` = já cancelada. */
-  cancelMatch(groupId: GroupId, matchId: string, at: Date): Promise<boolean>;
+  /**
+   * PAR-07: `false` = já cancelada ou iniciada. Com `next`, a partida seguinte da repetição nasce na mesma
+   * transação (PAR-21).
+   */
+  cancelMatch(groupId: GroupId, matchId: string, at: Date, next?: NextMatch): Promise<boolean>;
+  /** PAR-41: `false` = já iniciada, finalizada ou cancelada. */
+  startMatch(groupId: GroupId, matchId: string, by: UserId, at: Date): Promise<boolean>;
+  /** PAR-42: `false` = não está iniciada, já finalizou ou já tem resultado. */
+  unstartMatch(groupId: GroupId, matchId: string, at: Date): Promise<boolean>;
+  /**
+   * PAR-43: `false` = não está iniciada ou já finalizou. Com `next`, a partida seguinte da repetição nasce na mesma
+   * transação (PAR-21).
+   */
+  finishMatch(groupId: GroupId, matchId: string, by: UserId, at: Date, next?: NextMatch): Promise<boolean>;
   /**
    * PAR-24: grava `notifiedWave = to` se ele ainda é `from`; `false` = outro já gravou (e avisou). Não soma a
    * `version`: é controle interno, e quem tem a partida aberta não mudou nada.
@@ -287,12 +319,7 @@ export interface MatchRepository {
    * PAR-21: numa transação, a partida nova, a agenda dela e a repetição apontando para ela, se a repetição ainda
    * aponta para `previousMatchId` e não foi encerrada. `false` = outro já criou (ou encerrou).
    */
-  createNextMatch(input: {
-    match: StoredMatch;
-    previousMatchId: string;
-    agenda: readonly AgendaEntry[];
-    at: Date;
-  }): Promise<boolean>;
+  createNextMatch(input: NextMatch & { at: Date }): Promise<boolean>;
   /** Os itens com instante até `to`, das partições da hora de `from` à de `to` (UTC). */
   listAgenda(from: Date, to: Date): Promise<AgendaEntry[]>;
   deleteAgenda(entry: AgendaEntry): Promise<void>;
@@ -356,14 +383,19 @@ export interface MatchRepository {
     expectedVersion: number;
   }): Promise<StoredResult>;
   /**
-   * PAR-36: as partidas que terminaram até `endedBy` (o fim em ou antes dele), da que terminou por último para a
-   * primeira, com o resultado de cada uma, em páginas de `limit`. O cursor é opaco; um inválido é `INVALID_CURSOR`.
+   * PAR-36: as finalizadas e as canceladas cujo fim marcado é até `endedBy`, pelo início marcado da mais nova para
+   * a mais antiga, com o resultado de cada uma, em páginas de `limit`. O cursor é opaco; um inválido é `INVALID_CURSOR`.
    */
   listHistory(
     groupId: GroupId,
     endedBy: Date,
     opts: { limit: number; cursor?: string | undefined },
   ): Promise<Page<HistoryEntry>>;
+  /**
+   * COM-05, 08: as partidas com o fim de `from` a `to` (inclusive), pelo índice `MATCHEND#`, com o resultado de cada
+   * uma, do fim mais antigo para o mais recente.
+   */
+  listByEnd(groupId: GroupId, from: Date, to: Date): Promise<HistoryEntry[]>;
 }
 
 const PENDING_CONDITION =
@@ -397,7 +429,7 @@ async function getItem(
 async function queryByPrefix(
   pk: string,
   prefix: string,
-  opts: { consistent?: boolean; endsAfter?: string } = {},
+  opts: { consistent?: boolean; at?: string } = {},
   startKey?: Record<string, unknown>,
 ): Promise<Record<string, unknown>[]> {
   const { Items = [], LastEvaluatedKey } = await dynamo().send(
@@ -407,14 +439,121 @@ async function queryByPrefix(
       ExpressionAttributeValues: {
         ':pk': pk,
         ':prefix': prefix,
-        ...(opts.endsAfter !== undefined && { ':endsAfter': opts.endsAfter }),
+        ...(opts.at !== undefined && { ':at': opts.at }),
       },
-      ...(opts.endsAfter !== undefined && { FilterExpression: 'endsAt > :endsAfter' }),
+      ...(opts.at !== undefined && {
+        FilterExpression:
+          'attribute_not_exists(finishedAt) AND (attribute_not_exists(cancelledAt) OR endsAt > :at)',
+      }),
       ConsistentRead: opts.consistent,
       ...(startKey && { ExclusiveStartKey: startKey }),
     }),
   );
   return LastEvaluatedKey ? [...Items, ...(await queryByPrefix(pk, prefix, opts, LastEvaluatedKey))] : Items;
+}
+
+/**
+ * PAR-07, 41–43: uma mudança de situação da partida, com a condição, somando a `version` (ADR 0013). `false` = a
+ * condição não valeu. Com `next`, a partida seguinte da repetição (PAR-21) entra na mesma transação; `checks` são
+ * condições de outros itens.
+ */
+async function changeMatch(
+  groupId: GroupId,
+  matchId: string,
+  at: Date,
+  update: {
+    UpdateExpression: string;
+    ConditionExpression: string;
+    ExpressionAttributeValues?: Record<string, unknown>;
+  },
+  next?: NextMatch,
+  checks: readonly TransactItem[] = [],
+): Promise<boolean> {
+  const changed = {
+    TableName: tableName(),
+    ...touch({ Key: matchKey(groupId, matchId), ...update }, at),
+  };
+  if (next === undefined && checks.length === 0) {
+    try {
+      await dynamo().send(new UpdateCommand(changed));
+      return true;
+    } catch (err) {
+      if (isConditionFailed(err)) return false;
+      throw err;
+    }
+  }
+  const series: TransactItem[] =
+    next === undefined
+      ? []
+      : [
+          {
+            Update: {
+              TableName: tableName(),
+              ...touch(
+                {
+                  Key: matchSeriesKey(next.match.groupId, next.match.seriesId as string),
+                  UpdateExpression: 'SET currentMatchId = :next, currentDate = :date',
+                  ConditionExpression:
+                    'attribute_exists(PK) AND currentMatchId = :previous AND attribute_not_exists(endedAt)',
+                  ExpressionAttributeValues: {
+                    ':next': next.match.id,
+                    ':date': next.match.seriesDate,
+                    ':previous': next.previousMatchId,
+                  },
+                },
+                at,
+              ),
+            },
+          },
+          { Put: matchPut(next.match) },
+          { Put: endPut(next.match) },
+          ...next.agenda.map((entry) => ({ Put: agendaPut(entry, next.match.createdAt) })),
+        ];
+  const result = await transactWrite([{ Update: changed }, ...checks, ...series]);
+  if (result.ok) return true;
+  // A partida (0) ou uma condição de outro item (PAR-42) falhou: nada gravou.
+  if (result.failed.some((i) => i <= checks.length)) return false;
+  throw new Error('Match change failed');
+}
+
+/**
+ * PAR-36: lê o índice `MATCHEND#` de trás para a frente e fica com as finalizadas e as canceladas cujo fim marcado
+ * já passou, até juntar `want`. O índice tem toda partida, então pula as outras e segue lendo.
+ */
+async function historyRows(
+  groupId: GroupId,
+  endedBy: Date,
+  want: number,
+  startKey?: Key | undefined,
+  found: readonly { sk: string; match: StoredMatch }[] = [],
+): Promise<{ sk: string; match: StoredMatch }[]> {
+  const { Items = [], LastEvaluatedKey } = await dynamo().send(
+    new QueryCommand({
+      TableName: tableName(),
+      KeyConditionExpression: 'PK = :pk AND SK BETWEEN :from AND :to',
+      ExpressionAttributeValues: {
+        ':pk': groupPk(groupId),
+        ':from': MATCH_END_PREFIX,
+        ':to': `${MATCH_END_PREFIX}~`,
+      },
+      ScanIndexForward: false,
+      Limit: want,
+      ...(startKey && { ExclusiveStartKey: startKey }),
+    }),
+  );
+  const rows = await batchGetOrdered(Items.map((row) => matchKey(groupId, row.matchId as string)));
+  const byId = new Map(rows.map((row) => stripKeys<StoredMatch>(row)).map((m) => [m.id, m] as const));
+  const until = endedBy.toISOString();
+  const kept = Items.flatMap((row) => {
+    const match = byId.get(row.matchId as string);
+    const over =
+      match?.finishedAt !== undefined || (match?.cancelledAt !== undefined && match.endsAt <= until);
+    return match !== undefined && over ? [{ sk: row.SK as string, match }] : [];
+  });
+  const all = [...found, ...kept];
+  return all.length >= want || LastEvaluatedKey === undefined
+    ? all
+    : historyRows(groupId, endedBy, want, LastEvaluatedKey as Key, all);
 }
 
 const groupPk = (groupId: GroupId) => matchKey(groupId, '').PK;
@@ -429,6 +568,10 @@ const MATCH_OPTIONAL = [
   'advancedTo',
   'openedAt',
   'cancelledAt',
+  'startedAt',
+  'startedBy',
+  'finishedAt',
+  'finishedBy',
 ] as const;
 
 /** Os campos que a edição da repetição pode deixar ausentes (PAR-22). */
@@ -538,8 +681,8 @@ export const dynamoMatchRepository: MatchRepository = {
     return item ? stripKeys<StoredMatch>(item) : undefined;
   },
 
-  async listMatches(groupId, endsAfter) {
-    const rows = await queryByPrefix(groupPk(groupId), MATCH_PREFIX, { endsAfter: endsAfter.toISOString() });
+  async listMatches(groupId, at) {
+    const rows = await queryByPrefix(groupPk(groupId), MATCH_PREFIX, { at: at.toISOString() });
     return rows.map((row) => stripKeys<StoredMatch>(row));
   },
 
@@ -629,27 +772,67 @@ export const dynamoMatchRepository: MatchRepository = {
     }
   },
 
-  async cancelMatch(groupId, matchId, at) {
-    try {
-      await dynamo().send(
-        new UpdateCommand({
-          TableName: tableName(),
-          ...touch(
-            {
-              Key: matchKey(groupId, matchId),
-              UpdateExpression: 'SET cancelledAt = :at',
-              ConditionExpression: 'attribute_exists(PK) AND attribute_not_exists(cancelledAt)',
-              ExpressionAttributeValues: { ':at': at.toISOString() },
-            },
-            at,
-          ),
-        }),
-      );
-      return true;
-    } catch (err) {
-      if (isConditionFailed(err)) return false;
-      throw err;
-    }
+  async cancelMatch(groupId, matchId, at, next) {
+    return changeMatch(
+      groupId,
+      matchId,
+      at,
+      {
+        UpdateExpression: 'SET cancelledAt = :at',
+        ConditionExpression:
+          'attribute_exists(PK) AND attribute_not_exists(cancelledAt) AND attribute_not_exists(startedAt)',
+        ExpressionAttributeValues: { ':at': at.toISOString() },
+      },
+      next,
+    );
+  },
+
+  async startMatch(groupId, matchId, by, at) {
+    return changeMatch(groupId, matchId, at, {
+      UpdateExpression: 'SET startedAt = :at, startedBy = :by',
+      ConditionExpression:
+        'attribute_exists(PK) AND attribute_not_exists(startedAt) AND attribute_not_exists(finishedAt) AND attribute_not_exists(cancelledAt)',
+      ExpressionAttributeValues: { ':at': at.toISOString(), ':by': by },
+    });
+  },
+
+  async unstartMatch(groupId, matchId, at) {
+    return changeMatch(
+      groupId,
+      matchId,
+      at,
+      {
+        UpdateExpression: 'REMOVE startedAt, startedBy',
+        ConditionExpression:
+          'attribute_exists(PK) AND attribute_exists(startedAt) AND attribute_not_exists(finishedAt)',
+      },
+      undefined,
+      // PAR-42: só sem resultado.
+      [
+        {
+          ConditionCheck: {
+            TableName: tableName(),
+            Key: matchResultKey(groupId, matchId),
+            ConditionExpression: 'attribute_not_exists(PK)',
+          },
+        },
+      ],
+    );
+  },
+
+  async finishMatch(groupId, matchId, by, at, next) {
+    return changeMatch(
+      groupId,
+      matchId,
+      at,
+      {
+        UpdateExpression: 'SET finishedAt = :at, finishedBy = :by',
+        ConditionExpression:
+          'attribute_exists(PK) AND attribute_exists(startedAt) AND attribute_not_exists(finishedAt)',
+        ExpressionAttributeValues: { ':at': at.toISOString(), ':by': by },
+      },
+      next,
+    );
   },
 
   async markNotified(groupId, matchId, from, to) {
@@ -1010,22 +1193,27 @@ export const dynamoMatchRepository: MatchRepository = {
   async listHistory(groupId, endedBy, { limit, cursor }) {
     const pk = groupPk(groupId);
     // Um a mais que a página diz se há a próxima, sem devolver um cursor para uma página vazia.
-    const { Items = [] } = await dynamo().send(
-      new QueryCommand({
-        TableName: tableName(),
-        KeyConditionExpression: 'PK = :pk AND SK BETWEEN :from AND :to',
-        ExpressionAttributeValues: {
-          ':pk': pk,
-          ':from': MATCH_END_PREFIX,
-          ':to': `${MATCH_END_PREFIX}${endedBy.toISOString()}#~`,
-        },
-        ScanIndexForward: false,
-        Limit: limit + 1,
-        ...(cursor && { ExclusiveStartKey: decodeCursor(cursor, pk) }),
-      }),
+    const found = await historyRows(
+      groupId,
+      endedBy,
+      limit + 1,
+      cursor ? decodeCursor(cursor, pk) : undefined,
     );
-    const page = Items.slice(0, limit);
-    const ids = page.map((row) => row.matchId as string);
+    const page = found.slice(0, limit);
+    const results = await batchGetOrdered(page.map(({ match }) => matchResultKey(groupId, match.id)));
+    const byMatch = new Map(
+      results.map((row) => stripKeys<StoredResult>(row)).map((r) => [r.matchId, r] as const),
+    );
+    const last = page[page.length - 1];
+    return {
+      items: page.map(({ match }) => ({ match, result: byMatch.get(match.id) })),
+      ...(found.length > limit && last && { nextCursor: encodeCursor({ PK: pk, SK: last.sk }) }),
+    };
+  },
+
+  async listByEnd(groupId, from, to) {
+    const rows = await queryEnds(groupPk(groupId), from.toISOString(), to.toISOString());
+    const ids = rows.map((row) => row.matchId as string);
     const [matches, results] = await Promise.all([
       batchGetOrdered(ids.map((id) => matchKey(groupId, id))),
       batchGetOrdered(ids.map((id) => matchResultKey(groupId, id))),
@@ -1033,12 +1221,30 @@ export const dynamoMatchRepository: MatchRepository = {
     const byMatch = new Map(
       results.map((row) => stripKeys<StoredResult>(row)).map((r) => [r.matchId, r] as const),
     );
-    const last = page[page.length - 1];
-    return {
-      items: matches
-        .map((row) => stripKeys<StoredMatch>(row))
-        .map((match) => ({ match, result: byMatch.get(match.id) })),
-      ...(Items.length > limit && last && { nextCursor: encodeCursor({ PK: last.PK, SK: last.SK }) }),
-    };
+    return matches
+      .map((row) => stripKeys<StoredMatch>(row))
+      .map((match) => ({ match, result: byMatch.get(match.id) }));
   },
 };
+
+/** COM-05: o índice do fim entre `from` e `to`, todas as páginas. */
+async function queryEnds(
+  pk: string,
+  from: string,
+  to: string,
+  startKey?: Record<string, unknown>,
+): Promise<Record<string, unknown>[]> {
+  const { Items = [], LastEvaluatedKey } = await dynamo().send(
+    new QueryCommand({
+      TableName: tableName(),
+      KeyConditionExpression: 'PK = :pk AND SK BETWEEN :from AND :to',
+      ExpressionAttributeValues: {
+        ':pk': pk,
+        ':from': `${MATCH_END_PREFIX}${from}`,
+        ':to': `${MATCH_END_PREFIX}${to}#~`,
+      },
+      ...(startKey && { ExclusiveStartKey: startKey }),
+    }),
+  );
+  return LastEvaluatedKey ? [...Items, ...(await queryEnds(pk, from, to, LastEvaluatedKey))] : Items;
+}

@@ -21,6 +21,7 @@ function newGroup(publicId = randomUUID().slice(0, 8).toUpperCase()): StoredGrou
     publicId: pid(publicId),
     name: 'Pelada',
     joinMode: 'invite',
+    modality: 'mixed',
     createdAt: T0.toISOString(),
     updatedAt: T0.toISOString(),
     version: 1,

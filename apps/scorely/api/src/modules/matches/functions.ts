@@ -16,6 +16,9 @@ export const matchesFunctions: AWS['functions'] = {
   updateMatch: { handler: handler('updateMatch'), events: route('PUT', MATCH) },
   advanceMatch: { handler: handler('advanceMatch'), events: route('POST', `${MATCH}/advance`) },
   cancelMatch: { handler: handler('cancelMatch'), events: route('POST', `${MATCH}/cancel`) },
+  startMatch: { handler: handler('startMatch'), events: route('POST', `${MATCH}/start`) },
+  unstartMatch: { handler: handler('unstartMatch'), events: route('POST', `${MATCH}/unstart`) },
+  finishMatch: { handler: handler('finishMatch'), events: route('POST', `${MATCH}/finish`) },
   setMatchAttendance: { handler: handler('setAttendance'), events: route('PUT', `${MATCH}/attendance`) },
   // Convidados (PAR-11–14)
   requestMatchGuest: { handler: handler('requestGuest'), events: route('POST', `${MATCH}/guests`) },
@@ -32,6 +35,11 @@ export const matchesFunctions: AWS['functions'] = {
   saveMatchTeams: { handler: handler('saveMatchTeams'), events: route('PUT', `${MATCH}/teams`) },
   // Resultado e histórico (PAR-31–36). A rota estática `history` vence a `{matchId}` no HTTP API.
   saveMatchResult: { handler: handler('saveMatchResult'), events: route('PUT', `${MATCH}/result`) },
+  // Vale para (PAR-40)
+  setMatchCompetitions: {
+    handler: handler('setMatchCompetitions'),
+    events: route('PUT', `${MATCH}/competitions`),
+  },
   matchHistory: {
     handler: handler('matchHistory'),
     events: route('GET', '/groups/{publicId}/matches/history'),

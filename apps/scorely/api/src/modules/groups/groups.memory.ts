@@ -239,6 +239,18 @@ export function memoryGroups() {
         updatedAt: at.toISOString(),
       });
     },
+    async setModality(groupId, modality, expectedVersion, at) {
+      const group = groups.get(groupId);
+      if (!group || group.version !== expectedVersion) {
+        throw appError('VERSION_CONFLICT', { currentVersion: group?.version ?? 0 });
+      }
+      groups.set(groupId, {
+        ...group,
+        modality,
+        version: group.version + 1,
+        updatedAt: at.toISOString(),
+      });
+    },
     async getRequest(groupId, userId) {
       return requests.get(`${groupId}#${userId}`);
     },

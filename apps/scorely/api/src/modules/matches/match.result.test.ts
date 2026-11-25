@@ -155,6 +155,7 @@ async function started(t: T, over: Partial<Settings> = {}) {
   await go(t, CAIO, m.id);
   await go(t, DUDA, m.id);
   t.at(iso(START, 0.5));
+  await t.service.start(ANA, PUBLIC_ID, m.id);
   return m;
 }
 
@@ -223,9 +224,12 @@ describe('PAR-31: os dois jeitos e a configuração', () => {
       noGuests: false,
       closeHours: 0,
       resultMode: 'games',
+      competitionIds: [],
       expectedVersion: series?.version as number,
     });
     t.at(END);
+    await t.service.start(ANA, PUBLIC_ID, m.id);
+    await t.service.finish(ANA, PUBLIC_ID, m.id);
     const [next] = await t.service.list(BIA, PUBLIC_ID);
     expect((await t.service.get(BIA, PUBLIC_ID, next?.id as string)).resultMode).toBe('games');
     expect((await t.service.get(ANA, PUBLIC_ID, m.id)).resultMode).toBe('day');
@@ -250,20 +254,23 @@ describe('PAR-32: registrar o resultado', () => {
     expect(err?.code).toBe('GROUP_PERMISSION_DENIED');
   });
 
-  it('PAR-32: antes do início, MATCH_NOT_STARTED (409); no instante do início já vale', async () => {
+  it('PAR-32: antes de iniciar, MATCH_NOT_STARTED (409), mesmo passada a hora marcada; iniciada, já vale', async () => {
     const t = setup();
-    const m = await started(t);
-    t.at(iso(START, -0.01));
+    const m = await open(t);
+    await go(t, ANA, m.id);
+    await go(t, BIA, m.id);
     const err = await failure(record(t, ANA, m.id, day([[ref(ANA)], [ref(BIA)]], 1)));
     expect(err).toMatchObject({ code: 'MATCH_NOT_STARTED', status: 409 });
-    t.at(START);
+    t.at(iso(END, 24));
+    const late = await failure(record(t, ANA, m.id, day([[ref(ANA)], [ref(BIA)]], 1)));
+    expect(late).toMatchObject({ code: 'MATCH_NOT_STARTED', status: 409 });
+    await t.service.start(ANA, PUBLIC_ID, m.id);
     expect((await record(t, ANA, m.id, day([[ref(ANA)], [ref(BIA)]], 1))).result?.mode).toBe('day');
   });
 
   it('PAR-32: na partida cancelada, MATCH_CANCELLED', async () => {
     const t = setup();
-    const m = await started(t);
-    t.at(iso(START, -1));
+    const m = await open(t);
     await t.service.cancel(ANA, PUBLIC_ID, m.id);
     t.at(iso(START, 0.5));
     const err = await failure(record(t, ANA, m.id, day([[ref(ANA)], [ref(BIA)]], 1)));
@@ -274,6 +281,16 @@ describe('PAR-32: registrar o resultado', () => {
     const t = setup();
     const m = await started(t);
     t.at(iso(END, 24 * 30));
+    const first = await record(t, ANA, m.id, day([[ref(ANA)], [ref(BIA)]], 1));
+    expect(first.result?.version).toBe(1);
+    const fixed = await record(t, ANA, m.id, day([[ref(ANA)], [ref(BIA)]], 2, 1));
+    expect(fixed.result).toMatchObject({ mode: 'day', winner: 2, version: 2 });
+  });
+
+  it('PAR-32, 43: depois de finalizar ainda se registra e se corrige', async () => {
+    const t = setup();
+    const m = await started(t);
+    await t.service.finish(ANA, PUBLIC_ID, m.id);
     const first = await record(t, ANA, m.id, day([[ref(ANA)], [ref(BIA)]], 1));
     expect(first.result?.version).toBe(1);
     const fixed = await record(t, ANA, m.id, day([[ref(ANA)], [ref(BIA)]], 2, 1));
@@ -299,14 +316,18 @@ describe('PAR-32: registrar o resultado', () => {
     expect(t.sent).toHaveLength(before);
   });
 
-  it('PAR-32, 16: actions.recordResult vale para matches.manage, a partir do início e sem cancelar', async () => {
+  it('PAR-32, 16: actions.recordResult vale para matches.manage, a partir de iniciar e sem cancelar', async () => {
     const t = setup();
     const m = await open(t);
     expect((await t.service.get(ANA, PUBLIC_ID, m.id)).actions.recordResult).toBe(false);
     t.at(START);
+    expect((await t.service.get(ANA, PUBLIC_ID, m.id)).actions.recordResult).toBe(false);
+    await t.service.start(ANA, PUBLIC_ID, m.id);
     expect((await t.service.get(ANA, PUBLIC_ID, m.id)).actions.recordResult).toBe(true);
     expect((await t.service.get(BIA, PUBLIC_ID, m.id)).actions.recordResult).toBe(false);
     t.at(iso(END, 24 * 30));
+    expect((await t.service.get(ANA, PUBLIC_ID, m.id)).actions.recordResult).toBe(true);
+    await t.service.finish(ANA, PUBLIC_ID, m.id);
     expect((await t.service.get(ANA, PUBLIC_ID, m.id)).actions.recordResult).toBe(true);
     const other = await t.service.create(ANA, PUBLIC_ID, {
       startsAt: iso(END, 24 * 31),
@@ -346,6 +367,7 @@ describe('PAR-33: resultado pelo dia', () => {
     await go(t, DUDA, m.id);
     const guestId = await approvedGuest(t, m.id);
     t.at(iso(START, 0.5));
+    await t.service.start(ANA, PUBLIC_ID, m.id);
     const saved = await record(
       t,
       ANA,
@@ -370,6 +392,7 @@ describe('PAR-33: resultado pelo dia', () => {
     await go(t, ANA, m.id);
     await notGoing(t, BIA, m.id);
     t.at(iso(START, 0.5));
+    await t.service.start(ANA, PUBLIC_ID, m.id);
     const err = await failure(record(t, ANA, m.id, day([[ref(ANA), ref(BIA)], [ref(CAIO)]], 1)));
     expect(err).toMatchObject({ code: 'MATCH_TEAM_PLAYER_OUT', status: 409 });
     const players = (err?.details as { players: { id: string; name?: string }[] } | undefined)?.players ?? [];
@@ -468,6 +491,7 @@ describe('PAR-34: resultado por jogo', () => {
     await go(t, CAIO, m.id);
     const guestId = await approvedGuest(t, m.id);
     t.at(iso(START, 0.5));
+    await t.service.start(ANA, PUBLIC_ID, m.id);
     const saved = await record(
       t,
       ANA,
@@ -519,6 +543,7 @@ describe('PAR-34: resultado por jogo', () => {
     await go(t, ANA, m.id);
     await go(t, BIA, m.id);
     t.at(iso(START, 0.5));
+    await t.service.start(ANA, PUBLIC_ID, m.id);
     const err = await failure(record(t, ANA, m.id, games([[[ref(ANA)], [ref(CAIO)], 'a']])));
     expect(err?.code).toBe('MATCH_TEAM_PLAYER_OUT');
   });
@@ -568,7 +593,7 @@ describe('PAR-35: ver o resultado', () => {
 });
 
 describe('PAR-36: o histórico', () => {
-  it('PAR-36: lista as que terminaram, da mais recente para a mais antiga, canceladas incluídas; as próximas ficam de fora', async () => {
+  it('PAR-36: lista as finalizadas e as canceladas que passaram do fim, da mais recente para a mais antiga; as próximas ficam de fora', async () => {
     const t = setup();
     const a = await t.service.create(ANA, PUBLIC_ID, { startsAt: iso(START, 0), endsAt: iso(START, 2) });
     const b = await t.service.create(ANA, PUBLIC_ID, { startsAt: iso(START, 24), endsAt: iso(START, 26) });
@@ -579,6 +604,10 @@ describe('PAR-36: o histórico', () => {
     });
     await t.service.cancel(ANA, PUBLIC_ID, b.id);
     t.at(iso(START, 60));
+    await t.service.start(ANA, PUBLIC_ID, a.id);
+    await t.service.finish(ANA, PUBLIC_ID, a.id);
+    await t.service.start(ANA, PUBLIC_ID, c.id);
+    await t.service.finish(ANA, PUBLIC_ID, c.id);
     const page = await t.service.history(BIA, PUBLIC_ID);
     expect(page.items.map((i) => i.id)).toEqual([c.id, b.id, a.id]);
     expect(page.items.map((i) => i.status)).toEqual(['finished', 'cancelled', 'finished']);
@@ -591,6 +620,7 @@ describe('PAR-36: o histórico', () => {
     const t = setup();
     const m1 = await started(t);
     await record(t, ANA, m1.id, day([[ref(ANA)], [ref(BIA)]], 2));
+    await t.service.finish(ANA, PUBLIC_ID, m1.id);
     t.at(iso(START, -1 + 24 * 7));
     const m2 = await t.service.create(ANA, PUBLIC_ID, {
       startsAt: iso(START, 24 * 7),
@@ -603,7 +633,9 @@ describe('PAR-36: o histórico', () => {
     await go(t, ANA, m2.id);
     await go(t, BIA, m2.id);
     t.at(iso(START, 24 * 7 + 0.5));
+    await t.service.start(ANA, PUBLIC_ID, m2.id);
     await record(t, ANA, m2.id, games([[[ref(ANA)], [ref(BIA)], 'a']]));
+    await t.service.finish(ANA, PUBLIC_ID, m2.id);
     t.at(iso(END, 24 * 8));
     const { items } = await t.service.history(CAIO, PUBLIC_ID);
     expect(items.map((i) => i.id)).toEqual([m2.id, m1.id]);
@@ -616,6 +648,7 @@ describe('PAR-36: o histórico', () => {
   it('PAR-36: a partida sem resultado vem sem resumo', async () => {
     const t = setup();
     const m = await started(t);
+    await t.service.finish(ANA, PUBLIC_ID, m.id);
     t.at(iso(END, 1));
     const { items } = await t.service.history(BIA, PUBLIC_ID);
     expect(items[0]?.id).toBe(m.id);
@@ -626,6 +659,7 @@ describe('PAR-36: o histórico', () => {
     const t = setup();
     const m = await started(t);
     await record(t, ANA, m.id, day([[ref(ANA)], [ref(BIA)]], 1));
+    await t.service.finish(ANA, PUBLIC_ID, m.id);
     t.at(iso(END, 24 * 30));
     await record(t, ANA, m.id, day([[ref(ANA)], [ref(BIA)]], 2, 1));
     expect((await t.service.history(BIA, PUBLIC_ID)).items[0]?.result).toMatchObject({ winner: 2 });
@@ -638,6 +672,10 @@ describe('PAR-36: o histórico', () => {
         t.service.create(ANA, PUBLIC_ID, { startsAt: iso(START, n * 3), endsAt: iso(START, n * 3 + 2) }),
       ),
     );
+    for (const m of first) {
+      await t.service.start(ANA, PUBLIC_ID, m.id);
+      await t.service.finish(ANA, PUBLIC_ID, m.id);
+    }
     t.at(iso(START, 24 * 10));
     const second = await Promise.all(
       Array.from({ length: 2 }, (_, n) =>
@@ -647,6 +685,10 @@ describe('PAR-36: o histórico', () => {
         }),
       ),
     );
+    for (const m of second) {
+      await t.service.start(ANA, PUBLIC_ID, m.id);
+      await t.service.finish(ANA, PUBLIC_ID, m.id);
+    }
     t.at(iso(START, 24 * 20));
     const page1 = await t.service.history(BIA, PUBLIC_ID);
     expect(page1.items).toHaveLength(20);
@@ -665,16 +707,22 @@ describe('PAR-36: o histórico', () => {
     expect((await failure(t.service.history(STRANGER, PUBLIC_ID)))?.code).toBe('GROUP_NOT_FOUND');
   });
 
-  it('PAR-36: mudar o fim da partida (PAR-06) muda onde ela aparece: a editada para o futuro sai do histórico quando ainda não terminou', async () => {
+  it('PAR-36: mudar o fim da partida (PAR-06) muda onde a cancelada aparece: a editada para o futuro sai do histórico até passar do novo fim; a não finalizada nunca entra', async () => {
     const t = setup();
     const m = await t.service.create(ANA, PUBLIC_ID, { startsAt: START, endsAt: END });
     await t.service.update(ANA, PUBLIC_ID, m.id, {
       ...input({ startsAt: iso(START, 24), endsAt: iso(END, 24) }),
       expectedVersion: m.version,
     });
-    t.at(iso(END, 1));
-    expect((await t.service.history(BIA, PUBLIC_ID)).items).toEqual([]);
     t.at(iso(END, 25));
+    expect((await t.service.history(BIA, PUBLIC_ID)).items).toEqual([]);
+    await t.service.cancel(ANA, PUBLIC_ID, m.id);
+    expect((await t.service.history(BIA, PUBLIC_ID)).items.map((i) => i.id)).toEqual([m.id]);
+    const other = await t.service.create(ANA, PUBLIC_ID, {
+      startsAt: iso(START, 24 * 3),
+      endsAt: iso(END, 24 * 3),
+    });
+    await t.service.cancel(ANA, PUBLIC_ID, other.id);
     expect((await t.service.history(BIA, PUBLIC_ID)).items.map((i) => i.id)).toEqual([m.id]);
   });
 });

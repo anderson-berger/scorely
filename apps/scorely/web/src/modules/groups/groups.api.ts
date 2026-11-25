@@ -16,6 +16,7 @@ import {
   MyGroupInviteSchema,
   type OrderGroupRolesInput,
   type SetGroupJoinModeInput,
+  type SetGroupModalityInput,
   type SetMemberRoleInput,
   type TransferGroupInput,
   type UpdateGroupRoleInput,
@@ -105,6 +106,8 @@ export const groupsApi = {
   // Grupo aberto e pedidos (GRV-25–28)
   setJoinMode: (id: string, input: SetGroupJoinModeInput) =>
     request({ url: `/groups/${encodeURIComponent(id)}/join-mode`, method: 'PUT', data: input }, GroupSchema),
+  setModality: (id: string, input: SetGroupModalityInput) =>
+    request({ url: `/groups/${encodeURIComponent(id)}/modality`, method: 'PUT', data: input }, GroupSchema),
   preview: (id: string) => request({ url: `/groups/${encodeURIComponent(id)}/preview` }, GroupPreviewSchema),
   request: (id: string) =>
     request({ url: `/groups/${encodeURIComponent(id)}/requests`, method: 'POST' }, GroupPreviewSchema),

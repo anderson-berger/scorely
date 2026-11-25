@@ -147,6 +147,7 @@ describe('groups cargos: base', () => {
   it('GRV-15: roles.manage é uma permissão do catálogo, e o Dono tem todas', async () => {
     const { service, gid } = await withGroup();
     expect((await service.get(ANA, gid)).myPermissions.sort()).toEqual([
+      'competitions.manage',
       'group.edit',
       'matches.manage',
       'members.invite',

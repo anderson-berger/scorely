@@ -62,6 +62,7 @@ describe('groups (contrato)', () => {
       myRole: { id: 'owner' },
       myPermissions: [],
       joinMode: 'invite',
+      modality: 'mixed',
     };
     expect(GroupSchema.safeParse({ ...base, id: PUBLIC }).success).toBe(true);
     expect(
@@ -86,6 +87,7 @@ describe('groups (contrato)', () => {
       myRole: { id: 'everyone' },
       myPermissions: ['group.edit'],
       joinMode: 'open',
+      modality: 'mixed',
     };
     expect(GroupSchema.parse(full)).toMatchObject({
       myTier: 'reserve',

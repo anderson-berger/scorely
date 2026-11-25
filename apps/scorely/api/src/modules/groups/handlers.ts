@@ -19,6 +19,7 @@ import {
   MediaUploadInputSchema,
   OrderGroupRolesInputSchema,
   SetGroupJoinModeInputSchema,
+  SetGroupModalityInputSchema,
   SetMemberRoleInputSchema,
   TransferGroupInputSchema,
   UpdateGroupRoleInputSchema,
@@ -177,6 +178,14 @@ export async function setJoinMode(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const input = parseBody(event, SetGroupJoinModeInputSchema);
     const group = await groups.setJoinMode(auth.userId, asPublicGroupId(pathParam(event, 'publicId')), input);
+    return group;
+  });
+}
+
+export async function setModality(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
+    const input = parseBody(event, SetGroupModalityInputSchema);
+    const group = await groups.setModality(auth.userId, asPublicGroupId(pathParam(event, 'publicId')), input);
     return group;
   });
 }

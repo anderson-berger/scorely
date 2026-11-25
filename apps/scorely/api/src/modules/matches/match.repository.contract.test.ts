@@ -118,28 +118,52 @@ describe.each([
       expect(await repo.getMatch(newGroup(), match.id, read)).toBeUndefined();
     });
 
-    it('PAR-15: listMatches devolve só as do grupo que não terminaram antes de endsAfter', async () => {
+    it('PAR-15: listMatches devolve só as do grupo que não foram finalizadas; as canceladas só até o fim marcado', async () => {
       const groupId = newGroup();
       const upcoming = newMatch(groupId, {
         startsAt: '2026-11-27T22:00:00.000Z',
         endsAt: '2026-11-28T00:00:00.000Z',
       });
-      const finished = newMatch(groupId, {
+      const stale = newMatch(groupId, {
         startsAt: '2026-11-20T22:00:00.000Z',
         endsAt: '2026-11-21T00:00:00.000Z',
       });
+      const finished = newMatch(groupId, {
+        startsAt: '2026-11-27T20:00:00.000Z',
+        endsAt: '2026-11-27T21:00:00.000Z',
+        startedAt: T0.toISOString(),
+        finishedAt: at(1).toISOString(),
+      });
+      const cancelledAhead = newMatch(groupId, { cancelledAt: T0.toISOString() });
+      const cancelledPast = newMatch(groupId, {
+        startsAt: '2026-11-20T22:00:00.000Z',
+        endsAt: '2026-11-21T00:00:00.000Z',
+        cancelledAt: T0.toISOString(),
+      });
       const other = newMatch(newGroup());
-      await Promise.all([upcoming, finished, other].map((m) => repo.createMatch(m)));
+      await Promise.all(
+        [upcoming, stale, finished, cancelledAhead, cancelledPast, other].map((m) => repo.createMatch(m)),
+      );
       const list = await repo.listMatches(groupId, T0);
-      expect(list.map((m) => m.id)).toEqual([upcoming.id]);
+      expect(list.map((m) => m.id).sort()).toEqual([upcoming.id, stale.id, cancelledAhead.id].sort());
     });
 
-    it('PAR-15: uma partida em andamento ainda está na lista (endsAt depois de endsAfter)', async () => {
+    it('PAR-15: a cancelada sai da lista no instante do fim marcado; um milissegundo antes, ainda está', async () => {
       const groupId = newGroup();
-      const running = newMatch(groupId);
-      await repo.createMatch(running);
-      const list = await repo.listMatches(groupId, new Date('2026-11-27T23:00:00.000Z'));
-      expect(list.map((m) => m.id)).toEqual([running.id]);
+      const cancelled = newMatch(groupId, { cancelledAt: T0.toISOString() });
+      await repo.createMatch(cancelled);
+      const end = Date.parse(cancelled.endsAt);
+      expect((await repo.listMatches(groupId, new Date(end - 1))).map((m) => m.id)).toEqual([cancelled.id]);
+      expect(await repo.listMatches(groupId, new Date(end))).toEqual([]);
+    });
+
+    it('PAR-15: uma partida passada da hora e não finalizada ainda está na lista (iniciada ou não)', async () => {
+      const groupId = newGroup();
+      const waiting = newMatch(groupId);
+      const running = newMatch(groupId, { startedAt: T0.toISOString(), startedBy: newUser() });
+      await Promise.all([waiting, running].map((m) => repo.createMatch(m)));
+      const list = await repo.listMatches(groupId, new Date('2026-12-30T23:00:00.000Z'));
+      expect(list.map((m) => m.id).sort()).toEqual([waiting.id, running.id].sort());
     });
 
     it('PAR-06: updateMatch grava, sobe a version e devolve a partida nova', async () => {
@@ -264,6 +288,125 @@ describe.each([
       const stored = await repo.getMatch(match.groupId, match.id, read);
       expect(stored?.cancelledAt).toBe(at(10).toISOString());
       expect(stored?.teams).toBe(2);
+    });
+
+    it('PAR-07, 41: cancelMatch não cancela a partida iniciada nem a finalizada', async () => {
+      const groupId = newGroup();
+      const started = newMatch(groupId);
+      const finished = newMatch(groupId);
+      await Promise.all([started, finished].map((m) => repo.createMatch(m)));
+      await repo.startMatch(groupId, started.id, newUser(), at(1));
+      await repo.startMatch(groupId, finished.id, newUser(), at(1));
+      await repo.finishMatch(groupId, finished.id, newUser(), at(2));
+      expect(await repo.cancelMatch(groupId, started.id, at(3))).toBe(false);
+      expect(await repo.cancelMatch(groupId, finished.id, at(3))).toBe(false);
+      expect((await repo.getMatch(groupId, started.id, read))?.cancelledAt).toBeUndefined();
+      expect((await repo.getMatch(groupId, finished.id, read))?.cancelledAt).toBeUndefined();
+    });
+
+    it('PAR-41: startMatch grava startedAt e startedBy, soma a version, e a segunda vez é false sem mudar nada', async () => {
+      const match = newMatch(newGroup());
+      const by = newUser();
+      await repo.createMatch(match);
+      expect(await repo.startMatch(match.groupId, match.id, by, at(10))).toBe(true);
+      expect(await repo.startMatch(match.groupId, match.id, newUser(), at(20))).toBe(false);
+      const stored = await repo.getMatch(match.groupId, match.id, read);
+      expect(stored).toMatchObject({
+        startedAt: at(10).toISOString(),
+        startedBy: by,
+        version: 2,
+        updatedAt: at(10).toISOString(),
+        teams: 2,
+      });
+      expect(stored?.finishedAt).toBeUndefined();
+    });
+
+    it('PAR-41: startMatch não inicia a cancelada, a finalizada nem a que não existe', async () => {
+      const groupId = newGroup();
+      const cancelled = newMatch(groupId);
+      const finished = newMatch(groupId);
+      await Promise.all([cancelled, finished].map((m) => repo.createMatch(m)));
+      await repo.cancelMatch(groupId, cancelled.id, at(1));
+      await repo.startMatch(groupId, finished.id, newUser(), at(1));
+      await repo.finishMatch(groupId, finished.id, newUser(), at(2));
+      expect(await repo.startMatch(groupId, cancelled.id, newUser(), at(3))).toBe(false);
+      expect(await repo.startMatch(groupId, finished.id, newUser(), at(3))).toBe(false);
+      expect(await repo.startMatch(groupId, randomUUID(), newUser(), at(3))).toBe(false);
+      expect((await repo.getMatch(groupId, cancelled.id, read))?.startedAt).toBeUndefined();
+      expect(await repo.getMatch(groupId, randomUUID(), read)).toBeUndefined();
+    });
+
+    it('PAR-41: dois startMatch ao mesmo tempo: um inicia, o outro é false', async () => {
+      const match = newMatch(newGroup());
+      await repo.createMatch(match);
+      const results = await Promise.all([
+        repo.startMatch(match.groupId, match.id, newUser(), at(1)),
+        repo.startMatch(match.groupId, match.id, newUser(), at(1)),
+      ]);
+      expect(results.filter(Boolean)).toHaveLength(1);
+      expect((await repo.getMatch(match.groupId, match.id, read))?.version).toBe(2);
+    });
+
+    it('PAR-42: unstartMatch tira startedAt e startedBy e soma a version; sem estar iniciada, false', async () => {
+      const match = newMatch(newGroup());
+      await repo.createMatch(match);
+      expect(await repo.unstartMatch(match.groupId, match.id, at(5))).toBe(false);
+      await repo.startMatch(match.groupId, match.id, newUser(), at(10));
+      expect(await repo.unstartMatch(match.groupId, match.id, at(20))).toBe(true);
+      const stored = await repo.getMatch(match.groupId, match.id, read);
+      expect(stored).toMatchObject({ version: 3, updatedAt: at(20).toISOString(), teams: 2 });
+      expect(stored?.startedAt).toBeUndefined();
+      expect(stored?.startedBy).toBeUndefined();
+      expect(await repo.unstartMatch(match.groupId, match.id, at(30))).toBe(false);
+      expect(await repo.startMatch(match.groupId, match.id, newUser(), at(40))).toBe(true);
+    });
+
+    it('PAR-42: unstartMatch não volta a partida com resultado nem a finalizada', async () => {
+      const groupId = newGroup();
+      const withResult = newMatch(groupId);
+      const finished = newMatch(groupId);
+      await Promise.all([withResult, finished].map((m) => repo.createMatch(m)));
+      await repo.startMatch(groupId, withResult.id, newUser(), at(1));
+      await repo.startMatch(groupId, finished.id, newUser(), at(1));
+      await repo.saveResult({
+        groupId,
+        matchId: withResult.id,
+        result: { mode: 'day', teams: [[], []], winner: 'draw' },
+        by: newUser(),
+        at: at(2),
+        expectedVersion: 0,
+      });
+      await repo.finishMatch(groupId, finished.id, newUser(), at(2));
+      expect(await repo.unstartMatch(groupId, withResult.id, at(3))).toBe(false);
+      expect(await repo.unstartMatch(groupId, finished.id, at(3))).toBe(false);
+      expect((await repo.getMatch(groupId, withResult.id, read))?.startedAt).toBe(at(1).toISOString());
+      expect((await repo.getMatch(groupId, finished.id, read))?.startedAt).toBe(at(1).toISOString());
+    });
+
+    it('PAR-43: finishMatch só finaliza a iniciada: grava finishedAt e finishedBy e soma a version; a segunda vez é false', async () => {
+      const match = newMatch(newGroup());
+      const by = newUser();
+      await repo.createMatch(match);
+      expect(await repo.finishMatch(match.groupId, match.id, by, at(5))).toBe(false);
+      await repo.startMatch(match.groupId, match.id, newUser(), at(10));
+      expect(await repo.finishMatch(match.groupId, match.id, by, at(20))).toBe(true);
+      expect(await repo.finishMatch(match.groupId, match.id, newUser(), at(30))).toBe(false);
+      const stored = await repo.getMatch(match.groupId, match.id, read);
+      expect(stored).toMatchObject({
+        startedAt: at(10).toISOString(),
+        finishedAt: at(20).toISOString(),
+        finishedBy: by,
+        version: 3,
+        updatedAt: at(20).toISOString(),
+      });
+    });
+
+    it('PAR-43: finishMatch não finaliza a cancelada', async () => {
+      const match = newMatch(newGroup());
+      await repo.createMatch(match);
+      await repo.cancelMatch(match.groupId, match.id, at(1));
+      expect(await repo.finishMatch(match.groupId, match.id, newUser(), at(2))).toBe(false);
+      expect((await repo.getMatch(match.groupId, match.id, read))?.finishedAt).toBeUndefined();
     });
   });
 
@@ -649,6 +792,85 @@ describe.each([
       expect(await repo.getMatch(ended.groupId, after.id, read)).toBeUndefined();
     });
 
+    const nextOf = (previous: StoredMatch, series: StoredSeries) => ({
+      match: { ...newMatch(previous.groupId), seriesId: series.id, seriesDate: '2026-12-04' },
+      previousMatchId: previous.id,
+      agenda: [],
+    });
+
+    it('PAR-21, 43: finishMatch com next finaliza a partida e cria a seguinte na mesma gravação, e a repetição aponta para ela', async () => {
+      const match = newMatch(newGroup());
+      const series = newSeries(match);
+      await repo.createMatch(match, { series });
+      await repo.startMatch(match.groupId, match.id, newUser(), at(1));
+      const next = nextOf(match, series);
+      expect(await repo.finishMatch(match.groupId, match.id, newUser(), at(2), next)).toBe(true);
+      expect((await repo.getMatch(match.groupId, match.id, read))?.finishedAt).toBe(at(2).toISOString());
+      expect(await repo.getMatch(match.groupId, next.match.id, read)).toEqual(next.match);
+      expect(await repo.getSeries(match.groupId, series.id, read)).toMatchObject({
+        currentMatchId: next.match.id,
+        currentDate: '2026-12-04',
+      });
+      expect((await repo.listMatches(match.groupId, at(3))).map((m) => m.id)).toEqual([next.match.id]);
+    });
+
+    it('PAR-21, 43: dois finishMatch com next ao mesmo tempo: um finaliza e cria, o outro é false e nada se duplica', async () => {
+      const match = newMatch(newGroup());
+      const series = newSeries(match);
+      await repo.createMatch(match, { series });
+      await repo.startMatch(match.groupId, match.id, newUser(), at(1));
+      const [a, b] = [nextOf(match, series), nextOf(match, series)];
+      const results = await Promise.allSettled([
+        repo.finishMatch(match.groupId, match.id, newUser(), at(2), a),
+        repo.finishMatch(match.groupId, match.id, newUser(), at(2), b),
+      ]);
+      expect(results.filter((r) => r.status === 'fulfilled' && r.value)).toHaveLength(1);
+      const upcoming = await repo.listMatches(match.groupId, at(3));
+      expect(upcoming).toHaveLength(1);
+      expect([a.match.id, b.match.id]).toContain(upcoming[0]?.id);
+    });
+
+    it('PAR-21, 43: finishMatch com next de uma repetição que já aponta para outra partida não grava nada', async () => {
+      const match = newMatch(newGroup());
+      const series = newSeries(match, { currentMatchId: randomUUID() });
+      await repo.createMatch(match, { series });
+      await repo.startMatch(match.groupId, match.id, newUser(), at(1));
+      const next = nextOf(match, series);
+      await expect(repo.finishMatch(match.groupId, match.id, newUser(), at(2), next)).rejects.toThrow();
+      expect((await repo.getMatch(match.groupId, match.id, read))?.finishedAt).toBeUndefined();
+      expect(await repo.getMatch(match.groupId, next.match.id, read)).toBeUndefined();
+    });
+
+    it('PAR-21, 07: cancelMatch com next cancela a partida e cria a seguinte na mesma gravação', async () => {
+      const match = newMatch(newGroup());
+      const series = newSeries(match);
+      await repo.createMatch(match, { series });
+      const next = nextOf(match, series);
+      expect(await repo.cancelMatch(match.groupId, match.id, at(2), next)).toBe(true);
+      expect((await repo.getMatch(match.groupId, match.id, read))?.cancelledAt).toBe(at(2).toISOString());
+      expect(await repo.getMatch(match.groupId, next.match.id, read)).toEqual(next.match);
+      expect((await repo.getSeries(match.groupId, series.id, read))?.currentMatchId).toBe(next.match.id);
+    });
+
+    it('PAR-21, 07: cancelMatch com next numa partida já cancelada ou iniciada é false e não cria a seguinte', async () => {
+      const groupId = newGroup();
+      const cancelled = newMatch(groupId);
+      const started = newMatch(groupId);
+      const cancelledSeries = newSeries(cancelled);
+      const startedSeries = newSeries(started);
+      await repo.createMatch(cancelled, { series: cancelledSeries });
+      await repo.createMatch(started, { series: startedSeries });
+      await repo.cancelMatch(groupId, cancelled.id, at(1));
+      await repo.startMatch(groupId, started.id, newUser(), at(1));
+      const a = nextOf(cancelled, cancelledSeries);
+      const b = nextOf(started, startedSeries);
+      expect(await repo.cancelMatch(groupId, cancelled.id, at(2), a)).toBe(false);
+      expect(await repo.cancelMatch(groupId, started.id, at(2), b)).toBe(false);
+      expect(await repo.getMatch(groupId, a.match.id, read)).toBeUndefined();
+      expect(await repo.getMatch(groupId, b.match.id, read)).toBeUndefined();
+      expect((await repo.getSeries(groupId, cancelledSeries.id, read))?.currentMatchId).toBe(cancelled.id);
+    });
+
     it('PAR-24: markNotified grava só se a onda avisada ainda é a lida, sem somar a version', async () => {
       const match = newMatch(newGroup());
       await repo.createMatch(match);
@@ -758,8 +980,17 @@ describe.each([
       games: [{ teams: [[player()], [player()]], winner: 'a' }],
     });
     const endsAtOf = (day: number) => `2026-11-${String(day).padStart(2, '0')}T12:00:00.000Z`;
+    /** Finalizada (PAR-43): entra no histórico a qualquer hora. */
     const endedMatch = (groupId: GroupId, day: number) =>
-      newMatch(groupId, { startsAt: endsAtOf(day), endsAt: endsAtOf(day) });
+      newMatch(groupId, {
+        startsAt: endsAtOf(day),
+        endsAt: endsAtOf(day),
+        startedAt: endsAtOf(day),
+        finishedAt: endsAtOf(day),
+      });
+    /** Cancelada: entra no histórico só depois do fim marcado (PAR-07, 36). */
+    const cancelledMatch = (groupId: GroupId, day: number) =>
+      newMatch(groupId, { startsAt: endsAtOf(day), endsAt: endsAtOf(day), cancelledAt: T0.toISOString() });
     const END = new Date('2026-11-30T00:00:00.000Z');
 
     it('PAR-32: saveResult com expectedVersion 0 cria (version 1, quem e quando) e getResult devolve igual', async () => {
@@ -891,21 +1122,64 @@ describe.each([
       expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
     });
 
-    it('PAR-36: listHistory devolve só as do grupo que terminaram até endedBy, da mais recente para a mais antiga', async () => {
+    it('PAR-36: listHistory devolve as finalizadas do grupo e as canceladas até endedBy, da mais recente para a mais antiga', async () => {
       const groupId = newGroup();
-      const byDay = new Map([5, 10, 15, 20].map((d) => [d, endedMatch(groupId, d)] as const));
+      const byDay = new Map<number, StoredMatch>([
+        [5, endedMatch(groupId, 5)],
+        [10, cancelledMatch(groupId, 10)],
+        [15, endedMatch(groupId, 15)],
+        [20, endedMatch(groupId, 20)],
+        [25, cancelledMatch(groupId, 25)], // o fim marcado é depois de endedBy: ainda nas próximas
+      ] as const);
+      const notFinished = newMatch(groupId, { startsAt: endsAtOf(12), endsAt: endsAtOf(12) });
+      const started = newMatch(groupId, {
+        startsAt: endsAtOf(13),
+        endsAt: endsAtOf(13),
+        startedAt: endsAtOf(13),
+      });
       const other = endedMatch(newGroup(), 12);
-      await Promise.all([...[...byDay.values()].reverse(), other].map((m) => repo.createMatch(m)));
-      const page = await repo.listHistory(groupId, new Date(endsAtOf(15)), { limit: 20 });
-      const expected = [15, 10, 5].map((d) => byDay.get(d)?.id);
+      await Promise.all(
+        [...[...byDay.values()].reverse(), notFinished, started, other].map((m) => repo.createMatch(m)),
+      );
+      const page = await repo.listHistory(groupId, new Date(endsAtOf(22)), { limit: 20 });
+      const expected = [20, 15, 10, 5].map((d) => byDay.get(d)?.id);
       expect(page.items.map((e) => e.match.id)).toEqual(expected);
       expect(page.nextCursor).toBeUndefined();
       expect((await repo.listHistory(newGroup(), END, { limit: 20 })).items).toEqual([]);
     });
 
-    it('PAR-36: a partida que termina no instante de endedBy entra; um milissegundo antes, não', async () => {
+    it('PAR-36: a finalizada entra mesmo antes do fim marcado', async () => {
       const groupId = newGroup();
-      const match = endedMatch(groupId, 10);
+      const early = newMatch(groupId, {
+        startsAt: endsAtOf(28),
+        endsAt: endsAtOf(29),
+        startedAt: endsAtOf(20),
+        finishedAt: endsAtOf(21),
+      });
+      await repo.createMatch(early);
+      const page = await repo.listHistory(groupId, new Date(endsAtOf(22)), { limit: 20 });
+      expect(page.items.map((e) => e.match.id)).toEqual([early.id]);
+    });
+
+    it('PAR-36: finishMatch e cancelMatch levam a partida para o histórico (a cancelada só depois do fim marcado)', async () => {
+      const groupId = newGroup();
+      const done = newMatch(groupId, { startsAt: endsAtOf(10), endsAt: endsAtOf(10) });
+      const cancelled = newMatch(groupId, { startsAt: endsAtOf(12), endsAt: endsAtOf(12) });
+      await Promise.all([done, cancelled].map((m) => repo.createMatch(m)));
+      await repo.startMatch(groupId, done.id, newUser(), at(1));
+      await repo.finishMatch(groupId, done.id, newUser(), at(2));
+      await repo.cancelMatch(groupId, cancelled.id, at(3));
+      expect(
+        (await repo.listHistory(groupId, new Date(endsAtOf(11)), { limit: 20 })).items.map((e) => e.match.id),
+      ).toEqual([done.id]);
+      expect(
+        (await repo.listHistory(groupId, new Date(endsAtOf(12)), { limit: 20 })).items.map((e) => e.match.id),
+      ).toEqual([cancelled.id, done.id]);
+    });
+
+    it('PAR-36: a cancelada que termina no instante de endedBy entra; um milissegundo antes, não', async () => {
+      const groupId = newGroup();
+      const match = cancelledMatch(groupId, 10);
       await repo.createMatch(match);
       const exact = await repo.listHistory(groupId, new Date(match.endsAt), { limit: 20 });
       expect(exact.items.map((e) => e.match.id)).toEqual([match.id]);
@@ -978,10 +1252,10 @@ describe.each([
       expect(page.items.map((e) => e.match.id)).toEqual([next.id, first.id]);
     });
 
-    it('PAR-36: updateMatch com previousEndsAt diferente muda onde a partida aparece e a antiga posição some', async () => {
+    it('PAR-36: updateMatch com previousEndsAt diferente muda onde a cancelada aparece e a antiga posição some', async () => {
       const groupId = newGroup();
-      const moved = endedMatch(groupId, 10);
-      const fixed = endedMatch(groupId, 15);
+      const moved = cancelledMatch(groupId, 10);
+      const fixed = cancelledMatch(groupId, 15);
       await Promise.all([moved, fixed].map((m) => repo.createMatch(m)));
       await repo.updateMatch({ ...moved, endsAt: endsAtOf(20) }, 1, at(1), {
         previousEndsAt: moved.endsAt,

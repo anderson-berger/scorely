@@ -42,6 +42,7 @@ function match(over: Partial<Match> = {}): Match {
     noGuests: false,
     closeHours: 0,
     resultMode: 'day',
+    competitions: [],
     waves: {
       members: '2026-11-24T22:00:00.000Z',
       reserves: '2026-11-26T22:00:00.000Z',
@@ -58,6 +59,10 @@ function match(over: Partial<Match> = {}): Match {
       manage: false,
       manageTeams: false,
       recordResult: false,
+      manageCompetitions: false,
+      start: false,
+      unstart: false,
+      finish: false,
     },
     ...over,
   };

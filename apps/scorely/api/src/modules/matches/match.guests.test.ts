@@ -488,6 +488,7 @@ describe('PAR-14: tirar o convidado', () => {
     const m = await open(t);
     const id = await pending(t, m.id);
     t.at(START);
+    await t.service.start(ANA, PUBLIC_ID, m.id);
     expect((await failure(remove(t, BIA, m.id, id)))?.code).toBe('MATCH_STARTED');
   });
 

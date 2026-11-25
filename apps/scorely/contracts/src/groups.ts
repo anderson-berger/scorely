@@ -48,12 +48,17 @@ export const GroupPermissionSchema = z.enum([
   'members.remove',
   'roles.manage',
   'matches.manage',
+  'competitions.manage',
 ]);
 export type GroupPermission = z.infer<typeof GroupPermissionSchema>;
 
 /** Modo de entrada (GRV-25): só por convite (o padrão) ou também por pedido aceito. */
 export const GroupJoinModeSchema = z.enum(['invite', 'open']);
 export type GroupJoinMode = z.infer<typeof GroupJoinModeSchema>;
+
+/** Modalidade (GRV-52): masculino, feminino ou misto (o padrão ao criar). Só informa, não barra ninguém. */
+export const GroupModalitySchema = z.enum(['male', 'female', 'mixed']);
+export type GroupModality = z.infer<typeof GroupModalitySchema>;
 
 /** Corpo do `POST /groups` (GRV-01): só o nome. */
 export const CreateGroupInputSchema = z.object({ name: GroupNameSchema });
@@ -71,6 +76,8 @@ export const GroupSchema = z.object({
   myPermissions: z.array(GroupPermissionSchema),
   /** O modo de entrada (GRV-25), para a tela mostrar o atual (GRV-38). */
   joinMode: GroupJoinModeSchema,
+  /** A modalidade (GRV-52), para a tela mostrar a atual (GRV-53) e as abas do ranking só no misto (COM-13). */
+  modality: GroupModalitySchema,
   /** Logo e capa (GRV-09, GRV-10): URLs públicas das mídias `group.logo` e `group.cover`, só quando existem. */
   logoUrl: z.url().optional(),
   coverUrl: z.url().optional(),
@@ -176,6 +183,13 @@ export const SetGroupJoinModeInputSchema = z.object({
   expectedVersion: VersionSchema,
 });
 export type SetGroupJoinModeInput = z.infer<typeof SetGroupJoinModeInputSchema>;
+
+/** Corpo do `PUT /groups/{publicId}/modality` (GRV-52), com a `version` conferida (ADR 0016). */
+export const SetGroupModalityInputSchema = z.object({
+  modality: GroupModalitySchema,
+  expectedVersion: VersionSchema,
+});
+export type SetGroupModalityInput = z.infer<typeof SetGroupModalityInputSchema>;
 
 /** Apresentação do grupo aberto pelo código (GRV-26) e resposta do pedido (GRV-27). */
 export const GroupPreviewSchema = z.object({

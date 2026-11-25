@@ -1,6 +1,6 @@
 # Módulo Grupos
 
-> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-24.
+> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-25.
 
 Código: `apps/scorely/api/src/modules/groups/`, `apps/scorely/web/src/modules/groups/`. Contrato: `apps/scorely/contracts/src/groups.ts`.
 
@@ -26,6 +26,7 @@ Caso de referência: a Ana cria a "Pelada de sexta" e é a dona dela. Ela manda 
 | Permissão       | uma ação de administração, como `members.invite` (GRV-15)                                                       |
 | Convite         | um link `/join/<token>` com regras: validade, limite de usos, para quem e como entra (GRV-18)                   |
 | Modo de entrada | `invite` (só por convite, o padrão) ou `open` (também por pedido) (GRV-25)                                      |
+| Modalidade      | `male` (masculino), `female` (feminino) ou `mixed` (misto, o padrão). Só informa, não barra ninguém (GRV-52)    |
 | Pedido          | o pedido de alguém de fora para entrar num grupo aberto (GRV-27)                                                |
 | Id público      | o código curto do grupo (ex.: `K3X9PQ2A`), o único que vai na URL e na api (GRV-08)                             |
 | Logo            | a imagem quadrada que identifica o grupo (512×512, GRV-09)                                                      |
@@ -37,10 +38,16 @@ Caso de referência: a Ana cria a "Pelada de sexta" e é a dona dela. Ela manda 
 
 - **GRV-01. Criar o grupo pede só o nome** (`POST /groups` `{ name }`): de 1 a 80 caracteres, sem os espaços das pontas. Vazio ou maior que 80 responde `VALIDATION_ERROR` (422). O grupo não tem esporte, horário, lugar nem fuso. Ele nasce sem logo e sem capa, que entram depois, pelas Configurações do grupo (GRV-09, 12). _(Alterada em 2026-11-20: antes, o grupo não tinha logo nem capa.)_
   - _Por quê:_ o grupo serve para qualquer atividade do mesmo jeito. O esporte vai ser só um filtro, quando houver um marketplace, e o que é do jogo (dia, hora, lugar, vagas) fica na agenda. A imagem fica fora da criação para criar continuar sendo um campo só: o envio tem dois passos (MID-04, 05) e pode falhar sem impedir o grupo de existir.
-- **GRV-02. Quem cria é o dono e participa do grupo.** O grupo nasce com uma participação só, a de quem criou, como membro e com o cargo Dono. Ele nasce com os dois cargos fixos, Dono e Todos (este sem nenhuma permissão), sem cargo criado, e no modo de convite (GRV-25). _(Alterada em 2026-11-21: entraram a participação de membro e o modo de entrada. Alterada em 2026-11-22: entraram os cargos fixos.)_
+- **GRV-02. Quem cria é o dono e participa do grupo.** O grupo nasce com uma participação só, a de quem criou, como membro e com o cargo Dono. Ele nasce com os dois cargos fixos, Dono e Todos (este sem nenhuma permissão), sem cargo criado, no modo de convite (GRV-25) e na modalidade mista (GRV-52). _(Alterada em 2026-11-21: entraram a participação de membro e o modo de entrada. Alterada em 2026-11-22: entraram os cargos fixos. Alterada em 2026-11-25: entrou a modalidade.)_
   - _Por quê:_ alguém responde pelo grupo desde o primeiro instante, e é a partir da participação que vêm os membros e o gerenciamento deles.
 - **GRV-03. O nome pode repetir,** inclusive entre os grupos da mesma pessoa. Quem identifica o grupo é o `id`.
   - _Por quê:_ "Pelada de sexta" é comum, e barrar o nome repetido não protege nada.
+
+### Modalidade
+
+- **GRV-52. O grupo tem uma modalidade:** `male` (masculino), `female` (feminino) ou `mixed` (misto). Ela **só informa**: não barra ninguém de entrar nem de jogar (uma mulher entra e joga num grupo masculino como qualquer pessoa), e não depende do gênero de quem participa (USR). O grupo vem com ela (`modality`) nas respostas que trazem o grupo (GRV-04, 05). Quem tem `group.edit` muda (`PUT /groups/{publicId}/modality` `{ modality, expectedVersion }`), com a `version` conferida ([ADR 0016](../decisions/0016-version-confere-nas-edicoes.md)), como o modo de entrada (GRV-25). _(Nova em 2026-11-25.)_
+  - Hoje, o que muda com ela é o ranking: só o grupo misto separa o geral, o masculino e o feminino (COM-13 em [competicao.md](competicao.md)).
+  - _Por quê:_ o grupo diz que tipo de grupo é, sem a tela adivinhar pelas pessoas que estão nele. Num grupo só de homens, o ranking masculino repetia o geral e o feminino ficava vazio. Barrar pelo gênero seria uma regra que ninguém pediu e travaria o grupo masculino que recebe uma convidada. Ela fica fora da criação para criar continuar sendo um campo só (GRV-01). O grupo nasce **misto** porque, sem ninguém mudar, é o único valor que não esconde nada (as três abas do ranking aparecem) e não rotula errado um grupo feminino ou misto como masculino; quem tem um grupo só de homens ou só de mulheres troca nas Configurações (GRV-53). Mostrar as abas só quando o ranking tem os dois gêneros foi recusado (2026-11-25): resolve o ranking e não serve para mais nada, enquanto a modalidade vai servir para o cartão do grupo, a busca e o sorteio dos times (seção 5).
 
 ### Identificação
 
@@ -59,14 +66,15 @@ Caso de referência: a Ana cria a "Pelada de sexta" e é a dona dela. Ela manda 
 
 - **GRV-15. Toda ação de administração é conferida por uma permissão, numa função só** ("pode X neste grupo?"). O catálogo de hoje:
 
-  | Permissão        | Libera                                                                                                                                                 |
-  | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-  | `group.edit`     | logo e capa (GRV-09) e o modo de entrada (GRV-25)                                                                                                      |
-  | `members.invite` | criar, ver e cancelar os convites do grupo (GRV-18–20, 23) e aceitar ou recusar pedidos (GRV-28)                                                       |
-  | `members.remove` | remover alguém do grupo (GRV-31)                                                                                                                       |
-  | `roles.manage`   | criar, editar, ordenar e apagar cargos e mudar o cargo das pessoas (GRV-42–48)                                                                         |
-  | `matches.manage` | criar, editar e cancelar partidas, abrir a próxima onda, liberar convidados e dividir os times ([partidas.md](partidas.md), PAR-01, 05–07, 13, 14, 25) |
-  - A resposta da função vem do cargo da pessoa (GRV-41). _(Alterada em 2026-11-22: antes, o Dono tinha todas e o cargo base, nenhuma, fixo. Entrou o `roles.manage`. Alterada em 2026-11-23: entrou o `matches.manage`.)_
+  | Permissão             | Libera                                                                                                                                                 |
+  | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+  | `group.edit`          | logo e capa (GRV-09), o modo de entrada (GRV-25) e a modalidade (GRV-52)                                                                               |
+  | `members.invite`      | criar, ver e cancelar os convites do grupo (GRV-18–20, 23) e aceitar ou recusar pedidos (GRV-28)                                                       |
+  | `members.remove`      | remover alguém do grupo (GRV-31)                                                                                                                       |
+  | `roles.manage`        | criar, editar, ordenar e apagar cargos e mudar o cargo das pessoas (GRV-42–48)                                                                         |
+  | `matches.manage`      | criar, editar e cancelar partidas, abrir a próxima onda, liberar convidados e dividir os times ([partidas.md](partidas.md), PAR-01, 05–07, 13, 14, 25) |
+  | `competitions.manage` | abrir, editar e encerrar competições ([competicao.md](competicao.md), COM-01, 04, 10)                                                                  |
+  - A resposta da função vem do cargo da pessoa (GRV-41). _(Alterada em 2026-11-22: antes, o Dono tinha todas e o cargo base, nenhuma, fixo. Entrou o `roles.manage`. Alterada em 2026-11-23: entrou o `matches.manage`. Alterada em 2026-11-25: entrou o `competitions.manage`, e o `group.edit` passou a liberar a modalidade.)_
   - A reserva pode ter qualquer cargo, como o membro: participação e cargo são coisas diferentes.
   - Quem participa e não tem a permissão recebe `GROUP_PERMISSION_DENIED` (403 com corpo, `details.permission`). Quem não participa recebe `GROUP_NOT_FOUND` antes, como em GRV-04.
   - O que não é administração não é permissão: ver o grupo e os membros, entrar e sair. Ninguém tira isso de quem participa.
@@ -239,10 +247,11 @@ Caso de referência: a Ana cria a "Pelada de sexta" e é a dona dela. Ela manda 
   - **Membros** (`/groups/{publicId}/members`): para todos que participam (GRV-32). _(Nova em 2026-11-21.)_
   - **Configurações** (`/groups/{publicId}/settings`): só para quem tem `group.edit` ou `roles.manage` (GRV-14, 16). Para os outros, a área não aparece, e a rota leva ao Início. _(Alterada em 2026-11-21: antes, só para o dono. Alterada em 2026-11-22: entrou o `roles.manage`.)_
   - **Partidas** (`/groups/{publicId}/matches`): para todos que participam (PAR-17 em [partidas.md](partidas.md)), entre o Início e os Membros. _(Nova em 2026-11-23.)_
+  - **Competição** (`/groups/{publicId}/competitions`): para todos que participam (COM-12 em [competicao.md](competicao.md)), entre as Partidas e os Membros. _(Nova em 2026-11-25.)_
   - Trocar de área troca a tela sem empilhar no histórico: o voltar do navegador sai do grupo, e não volta para a área anterior. Fora do Início, o topo é compacto: o logo pequeno e o nome.
   - _Por quê:_ abas no topo, como no primeiro grupo, ficam apertadas no celular e somem ao rolar. A barra de baixo fica no alcance do polegar e sempre à vista, o padrão dos apps no celular (até 5 áreas); no PC, a coluna usa a largura que sobra. A área sem conteúdo fica fora para a tela não prometer o que ainda não existe. Sem empilhar, o voltar faz o que se espera de uma barra de app.
   - _(Alterada em 2026-11-21: saiu "com uma área só, a barra não aparece", que deixou de acontecer com os Membros para todos.)_
-- **GRV-14. Configurações é uma lista agrupada:** cada linha tem ícone, nome, o valor atual quando há (ex.: o nome do grupo) e a seta, e tocar abre o painel de baixo da configuração. Por enquanto há três grupos: **Identidade**, com a linha "Logo e capa" (GRV-12), **Entrada**, com a linha "Quem pode entrar" (GRV-38), os dois para quem tem `group.edit`, e **Pessoas**, com a linha "Cargos" e o número de cargos criados (GRV-50), para quem tem `roles.manage`. Um grupo sem nenhuma linha que a pessoa possa usar não aparece. As próximas (nome, arquivar) entram na lista quando existirem. _(Alterada em 2026-11-21: entrou o grupo Entrada. Alterada em 2026-11-22: entrou o grupo Pessoas.)_
+- **GRV-14. Configurações é uma lista agrupada:** cada linha tem ícone, nome, o valor atual quando há (ex.: o nome do grupo) e a seta, e tocar abre o painel de baixo da configuração. Por enquanto há três grupos: **Identidade**, com as linhas "Logo e capa" (GRV-12) e "Modalidade" (GRV-53), **Entrada**, com a linha "Quem pode entrar" (GRV-38), os dois para quem tem `group.edit`, e **Pessoas**, com a linha "Cargos" e o número de cargos criados (GRV-50), para quem tem `roles.manage`. Um grupo sem nenhuma linha que a pessoa possa usar não aparece. As próximas (nome, arquivar) entram na lista quando existirem. _(Alterada em 2026-11-21: entrou o grupo Entrada. Alterada em 2026-11-22: entrou o grupo Pessoas. Alterada em 2026-11-25: entrou a Modalidade.)_
   - _Por quê:_ a lista cresce sem mudar a tela, e cada edição segue o padrão de painel de baixo do app.
 - **GRV-32. A tela Membros** (GRV-29) tem duas seções, **Membros** e **Reservas** (esta só quando há reserva). Cada linha mostra a foto, o apelido, a marca do cargo ("Dono" ou o nome do cargo criado; o Todos não tem marca), a data de entrada e "convidado por" quem trouxe a pessoa. _(Alterada em 2026-11-22: antes, só a marca "Dono".)_
   - Para quem tem `members.invite`: no topo, o botão **Convidar** (GRV-33) e a linha **Convites**, com o número de ativos, que abre a lista (GRV-34); quando há pedidos, a seção **Pedidos** antes das outras, com Aceitar (escolhendo membro ou reserva) e Recusar (GRV-28); e, no menu da linha de cada reserva, **Convidar para membro**, que cria um convite pessoal de membro para ela, com o padrão de validade (GRV-23).
@@ -260,6 +269,7 @@ Caso de referência: a Ana cria a "Pelada de sexta" e é a dona dela. Ela manda 
 - **GRV-37. Depois de remover alguém que entrou por um convite que ainda vale,** a tela avisa ("Fulano entrou pelo convite de Sicrano, que continua ativo") e oferece **Cancelar convite** no próprio aviso (GRV-20, 31), para quem tem `members.invite`. O convite é o da participação (GRV-29), o último pelo qual a pessoa entrou ou subiu, e não outro em que ela aparece. _(Alterada em 2026-11-21: antes, a tela escolhia qualquer convite ativo pelo qual a pessoa tinha passado.)_
   - _Por quê:_ a decisão de fechar a porta fica com quem remove, na hora em que ela importa, e só para o convite que a pessoa usou.
 - **GRV-38. Em Configurações, "Quem pode entrar"** (GRV-25) mostra o modo atual ("Só com convite" ou "Aberto, com pedido") e abre um painel de baixo com as duas opções, cada uma com uma linha explicando o que muda.
+- **GRV-53. Em Configurações, "Modalidade"** (GRV-52) mostra a atual ("Masculino", "Feminino" ou "Misto") e abre um painel de baixo com as três opções, a atual marcada, e uma linha explicando que a modalidade não barra ninguém e que, no misto, o ranking separa o geral, o masculino e o feminino. Com `VERSION_CONFLICT`, a tela relê o grupo, fecha o painel e avisa, como no modo de entrada (GRV-38). _(Nova em 2026-11-25.)_
 - **GRV-39. No grupo aberto, quem é de fora e abre `/groups/{publicId}`** vê a apresentação (GRV-26) com **Pedir para entrar**. Com o pedido esperando, vê "Pedido enviado" e **Cancelar pedido** (GRV-27). No grupo de convite, a página mostra que o grupo não foi encontrado.
 - **GRV-50. A tela Cargos** (`/groups/{publicId}/roles`, aberta pela linha "Cargos" das Configurações) mostra os cargos na ordem (GRV-42): o Dono, com um cadeado; os criados; e o Todos, com a explicação "o que todo mundo do grupo pode". Cada linha tem o nome, o número de pessoas e quantas permissões tem.
   - No topo, **Criar cargo** (GRV-51).
@@ -276,7 +286,7 @@ Caso de referência: a Ana cria a "Pelada de sexta" e é a dona dela. Ela manda 
 
 | Item                     | Chave                                             | Para quê                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | ------------------------ | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Grupo                    | `GROUP#<id>` / `META`                             | `id` (uuid, o do sistema), `publicId` (GRV-08), `name`, `joinMode` (GRV-25), `logoMediaId` e `coverMediaId` (GRV-09, só quando há imagem; as URLs são montadas na resposta, MID-12), `createdAt`, `updatedAt`, `version` (ADR 0013)                                                                                                                                                                                                  |
+| Grupo                    | `GROUP#<id>` / `META`                             | `id` (uuid, o do sistema), `publicId` (GRV-08), `name`, `joinMode` (GRV-25), `modality` (GRV-52), `logoMediaId` e `coverMediaId` (GRV-09, só quando há imagem; as URLs são montadas na resposta, MID-12), `createdAt`, `updatedAt`, `version` (ADR 0013)                                                                                                                                                                             |
 | Id público → grupo       | `LOOKUP#GROUP#PUBLIC#<publicId>` / `META`         | `{ id }`, com `attribute_not_exists` ao criar (GRV-08). Toda rota com o grupo na URL lê este lookup primeiro                                                                                                                                                                                                                                                                                                                         |
 | Cargos                   | `GROUP#<id>` / `ROLES`                            | a lista dos cargos criados, na ordem (`{ id, name, permissions }`), e as permissões do Todos (GRV-40–47). Um item só, com `version`: a ordem e as permissões mudam juntas, e conferir uma permissão é um GetItem a mais. Nasce com o grupo                                                                                                                                                                                           |
 | Participação             | `GROUP#<id>` / `MEMBER#<userId>`                  | `tier` (`member` ou `reserve`), `role` (`owner`, `everyone` ou o id de um cargo criado; um id que não está mais nos cargos conta como `everyone`, GRV-47), `createdAt` (a data de entrada), `inviteId` e `invitedBy` (o convite pelo qual entrou ou subiu e quem o criou, quando houver, GRV-29). Os participantes são uma Query `begins_with(SK, "MEMBER#")`; o número de participantes (GRV-21), a mesma Query com `Select: COUNT` |
@@ -319,6 +329,7 @@ Caso de referência: a Ana cria a "Pelada de sexta" e é a dona dela. Ela manda 
 | `GET /me/group-invites`                                   | logado                | GRV-24                  |
 | `DELETE /me/group-invites/{inviteId}`                     | para quem é           | GRV-24                  |
 | `PUT /groups/{publicId}/join-mode`                        | `group.edit`          | GRV-25                  |
+| `PUT /groups/{publicId}/modality`                         | `group.edit`          | GRV-52                  |
 | `GET /groups/{publicId}/preview`                          | logado (grupo aberto) | GRV-26                  |
 | `POST /groups/{publicId}/requests`                        | logado (grupo aberto) | GRV-27                  |
 | `DELETE /groups/{publicId}/requests/me`                   | logado                | GRV-27                  |
@@ -360,3 +371,4 @@ Erros: `VALIDATION_ERROR`, `GROUP_NOT_FOUND`, `GROUP_PERMISSION_DENIED` (403), `
 - **Mandar o convite por email**, quando o SES tiver domínio verificado.
 - **Bloqueio:** impedir que uma pessoa removida volte, se cancelar o convite não bastar.
 - **Esporte:** só como filtro do marketplace, fora do grupo.
+- **Modalidade além do ranking** (GRV-52): aparecer no cartão do grupo e na apresentação, filtrar a busca de grupos (marketplace) e, no sorteio dos times, espalhar homens e mulheres só no grupo misto.

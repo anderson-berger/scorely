@@ -151,6 +151,7 @@ describe('repetição (PAR-20, 22)', () => {
     noGuests: false,
     closeHours: 0,
     resultMode: 'day',
+    competitions: [],
     version: 3,
   };
 
@@ -184,7 +185,14 @@ describe('repetição (PAR-20, 22)', () => {
       noGuests: false,
       closeHours: 0,
       resultMode: 'day',
+      competitionIds: [],
       expectedVersion: 3,
     });
+  });
+
+  it('PAR-22, 40: withSeriesSettings manda as competições da repetição pelos ids, ou as do patch', () => {
+    const tagged = { ...series, competitions: [{ id: '00000000-0000-4000-8000-0000000000c1', number: 1 }] };
+    expect(withSeriesSettings(tagged, {}).competitionIds).toEqual(['00000000-0000-4000-8000-0000000000c1']);
+    expect(withSeriesSettings(tagged, { competitionIds: [] }).competitionIds).toEqual([]);
   });
 });

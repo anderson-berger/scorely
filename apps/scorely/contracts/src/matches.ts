@@ -1,3 +1,4 @@
+import { CompetitionIdsSchema, CompetitionRefSchema } from '@scorely/contracts/src/competitions';
 import { VersionSchema } from '@scorely/contracts/src/entity';
 import { GroupTierSchema } from '@scorely/contracts/src/groups';
 import { PublicUserIdSchema, TimeZoneSchema, UserSchema } from '@scorely/contracts/src/users';
@@ -200,8 +201,12 @@ const MatchSeriesFieldsSchema = MatchFieldsSchema.omit({ startsAt: true, endsAt:
     .max(MATCH_LIMITS.durationMaxHours * 60),
 });
 
-/** Corpo do `PUT /groups/{publicId}/match-series/{seriesId}` (PAR-22): tudo, menos o fuso, e a `version` (ADR 0016). */
+/**
+ * Corpo do `PUT /groups/{publicId}/match-series/{seriesId}` (PAR-22): tudo, menos o fuso, as competições (PAR-40) e a
+ * `version` (ADR 0016).
+ */
 export const UpdateMatchSeriesInputSchema = MatchSeriesFieldsSchema.extend({
+  competitionIds: CompetitionIdsSchema,
   expectedVersion: VersionSchema,
 }).superRefine(checkMatchSetup);
 export type UpdateMatchSeriesInput = z.infer<typeof UpdateMatchSeriesInputSchema>;
@@ -213,6 +218,8 @@ export const MatchSeriesSchema = MatchSeriesFieldsSchema.extend({
   timeZone: z.string(),
   /** Encerrada (PAR-23); ausente = ativa. */
   endedAt: z.iso.datetime().optional(),
+  /** As competições para que as próximas partidas valem (PAR-40). */
+  competitions: z.array(CompetitionRefSchema),
   version: VersionSchema,
 });
 export type MatchSeries = z.infer<typeof MatchSeriesSchema>;
@@ -559,6 +566,14 @@ export const MatchActionsSchema = z.object({
   manageTeams: z.boolean(),
   /** Tem `matches.manage`, a partir do início e sem prazo, na partida não cancelada: registrar ou corrigir o resultado (PAR-32). */
   recordResult: z.boolean(),
+  /** Tem `matches.manage`, na partida não cancelada, também depois do início e do fim: mudar o "Vale para" (PAR-40). */
+  manageCompetitions: z.boolean(),
+  /** Tem `matches.manage`, na partida ainda não iniciada, finalizada nem cancelada: iniciar (PAR-41). */
+  start: z.boolean(),
+  /** Tem `matches.manage`, na partida iniciada, sem resultado e não finalizada: voltar para a lista (PAR-42). */
+  unstart: z.boolean(),
+  /** Tem `matches.manage`, na partida iniciada e não finalizada: finalizar (PAR-43). */
+  finish: z.boolean(),
 });
 export type MatchActions = z.infer<typeof MatchActionsSchema>;
 
@@ -575,6 +590,10 @@ export const MatchSchema = MatchSummarySchema.extend({
   /** As horas em que cada onda abre, já calculadas (a sem hora configurada abre com a anterior, ou na criação). */
   waves: MatchWavesSchema,
   cancelledAt: z.iso.datetime().optional(),
+  /** Quando a partida foi iniciada à mão (PAR-41); ausente antes de iniciar e ao voltar para a lista (PAR-42). */
+  startedAt: z.iso.datetime().optional(),
+  /** Quando a partida foi finalizada à mão (PAR-43). */
+  finishedAt: z.iso.datetime().optional(),
   /** Dentro, na ordem (PAR-09). */
   in: z.array(MatchEntrySchema),
   /** A fila, na ordem (PAR-09). */
@@ -591,6 +610,8 @@ export const MatchSchema = MatchSummarySchema.extend({
   resultMode: MatchResultModeSchema,
   /** O resultado (PAR-35); ausente sem resultado. */
   result: MatchResultSchema.optional(),
+  /** Para que competições ela vale (PAR-16, 40). */
+  competitions: z.array(CompetitionRefSchema),
 });
 export type Match = z.infer<typeof MatchSchema>;
 

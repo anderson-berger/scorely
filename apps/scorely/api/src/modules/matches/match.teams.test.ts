@@ -264,11 +264,22 @@ describe('PAR-25: salvar os times', () => {
     const t = setup();
     const m = await everyoneIn(t);
     t.at(iso(START, 1));
+    await t.service.start(ANA, PUBLIC_ID, m.id);
     const playing = await save(t, ANA, m.id, [[ref(ANA)], [ref(BIA)]]);
     expect(playing.lineup?.version).toBe(1);
     t.at(iso(END, 1));
+    await save(t, ANA, m.id, [[ref(BIA)], [ref(ANA)]], 1);
+    await t.service.finish(ANA, PUBLIC_ID, m.id);
     const err = await failure(save(t, ANA, m.id, [[ref(BIA)], [ref(ANA)]], 1));
     expect(err).toMatchObject({ code: 'MATCH_FINISHED', status: 409 });
+  });
+
+  it('PAR-25: passada a hora do fim, sem finalizar, ainda se salvam os times', async () => {
+    const t = setup();
+    const m = await everyoneIn(t);
+    t.at(iso(END, 5));
+    const saved = await save(t, ANA, m.id, [[ref(ANA)], [ref(BIA)]]);
+    expect(saved.lineup?.version).toBe(1);
   });
 
   it('PAR-25: partida cancelada responde MATCH_CANCELLED', async () => {
@@ -292,8 +303,11 @@ describe('PAR-25: salvar os times', () => {
     expect((await t.service.get(ANA, PUBLIC_ID, m.id)).actions.manageTeams).toBe(true);
     expect((await t.service.get(BIA, PUBLIC_ID, m.id)).actions.manageTeams).toBe(false);
     t.at(iso(START, 1));
+    await t.service.start(ANA, PUBLIC_ID, m.id);
     expect((await t.service.get(ANA, PUBLIC_ID, m.id)).actions.manageTeams).toBe(true);
     t.at(iso(END, 1));
+    expect((await t.service.get(ANA, PUBLIC_ID, m.id)).actions.manageTeams).toBe(true);
+    await t.service.finish(ANA, PUBLIC_ID, m.id);
     expect((await t.service.get(ANA, PUBLIC_ID, m.id)).actions.manageTeams).toBe(false);
   });
 });

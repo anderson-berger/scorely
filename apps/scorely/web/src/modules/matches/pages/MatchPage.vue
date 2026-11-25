@@ -2,6 +2,7 @@
 import type {
   AdvanceMatchWave,
   AttendanceStatus,
+  CompetitionRef,
   Group,
   Match,
   MatchEntry,
@@ -18,7 +19,9 @@ import StatusChip from '@scorely/web/src/components/StatusChip.vue';
 import { errorMessage } from '@scorely/web/src/i18n/errors';
 import { currentTimeZone, formatDateTime } from '@scorely/web/src/lib/datetime';
 import { useAuthStore } from '@scorely/web/src/modules/auth/auth.store';
+import { competitionName } from '@scorely/web/src/modules/competitions/competition.display';
 import { canShare } from '@scorely/web/src/modules/groups/invite-link';
+import MatchCompetitionsSheet from '@scorely/web/src/modules/matches/components/MatchCompetitionsSheet.vue';
 import MatchGuestSheet from '@scorely/web/src/modules/matches/components/MatchGuestSheet.vue';
 import MatchSeriesSheet from '@scorely/web/src/modules/matches/components/MatchSeriesSheet.vue';
 import MatchSettingSheet, {
@@ -44,12 +47,14 @@ const WAVES: readonly MatchWave[] = ['members', 'reserves', 'guests'];
  * as listas; e, para quem tem `matches.manage`, os pedidos de convidado, abrir a próxima onda, as configurações da
  * partida (PAR-06) e cancelar.
  * PAR-19: Copiar para o WhatsApp.
- * PAR-38: a partir do início, a seção Resultado, antes dos Times; PAR-39: Registrar (ou Corrigir) resultado.
+ * PAR-38: a partir do início, a seção Resultado, antes dos Times, com o Vale para (PAR-40); PAR-39: Registrar (ou
+ * Corrigir) resultado.
  */
 export default defineComponent({
   name: 'MatchPage',
 
   components: {
+    MatchCompetitionsSheet,
     MatchGuestSheet,
     MatchSeriesSheet,
     MatchSettingSheet,
@@ -76,6 +81,7 @@ export default defineComponent({
       section: 'format' as MatchSettingSection,
       guestOpen: false,
       seriesOpen: false,
+      competitionsOpen: false,
     };
   },
 
@@ -115,6 +121,9 @@ export default defineComponent({
     waveLine(): string {
       const m = this.match;
       if (!m) return '';
+      // PAR-18: passada a hora marcada sem iniciar, a partida espera.
+      if (m.status === 'closed' && Date.parse(m.startsAt) <= Date.now())
+        return this.$t('matches.status.awaiting');
       if (m.status !== 'open' && m.status !== 'scheduled') return this.$t(`matches.status.${m.status}`);
       if (this.unconfigured) {
         return m.closeHours > 0
@@ -286,8 +295,47 @@ export default defineComponent({
         });
     },
 
+    /** PAR-41: iniciar à mão, a qualquer hora. */
+    confirmStart() {
+      this.$q
+        .dialog({
+          title: this.$t('matches.startTitle'),
+          message: this.$t('matches.startConfirm'),
+          cancel: { label: this.$t('matches.keep'), flat: true },
+          ok: { label: this.$t('matches.start'), flat: true },
+        })
+        .onOk(() => this.run(() => matchesApi.start(this.group.id, this.matchId)));
+    },
+
+    /** PAR-42: voltar para a lista, antes de finalizar e sem resultado. */
+    confirmUnstart() {
+      this.$q
+        .dialog({
+          title: this.$t('matches.unstartTitle'),
+          message: this.$t('matches.unstartConfirm'),
+          cancel: { label: this.$t('matches.keep'), flat: true },
+          ok: { label: this.$t('matches.unstart'), flat: true },
+        })
+        .onOk(() => this.run(() => matchesApi.unstart(this.group.id, this.matchId)));
+    },
+
+    /** PAR-43: finalizar não se desfaz; numa repetição, a da semana seguinte já é criada. */
+    confirmFinish() {
+      const series = this.match?.series?.endedAt === undefined && this.match?.series !== undefined;
+      this.$q
+        .dialog({
+          title: this.$t('matches.finishTitle'),
+          message: series
+            ? `${this.$t('matches.finishConfirm')} ${this.$t('matches.finishSeries')}`
+            : this.$t('matches.finishConfirm'),
+          cancel: { label: this.$t('matches.keep'), flat: true },
+          ok: { label: this.$t('matches.finish'), color: 'negative', flat: true },
+        })
+        .onOk(() => this.run(() => matchesApi.finish(this.group.id, this.matchId)));
+    },
+
     /** PAR-18: o resumo de cada linha das configurações. */
-    summaryOf(section: MatchSettingSection | 'when' | 'series'): string {
+    summaryOf(section: MatchSettingSection | 'when' | 'series' | 'competitions'): string {
       const m = this.match;
       if (!m) return '';
       if (section === 'when') {
@@ -298,6 +346,11 @@ export default defineComponent({
         });
       }
       if (section === 'series') return m.series ? seriesSummary(m.series) : '';
+      if (section === 'competitions') {
+        return m.competitions.length > 0
+          ? m.competitions.map((c) => competitionName(c)).join(', ')
+          : this.$t('competitions.match.none');
+      }
       if (section === 'result') {
         return this.$t(m.resultMode === 'day' ? 'matches.result.modeDay' : 'matches.result.modeGames');
       }
@@ -313,6 +366,7 @@ export default defineComponent({
       this.match = match;
       this.whenOpen = false;
       this.settingOpen = false;
+      this.competitionsOpen = false;
     },
 
     /** PAR-23: encerrada, a partida mostra a repetição com a data de encerramento. */
@@ -408,6 +462,22 @@ export default defineComponent({
       return result.mode === 'games' ? result.games : [];
     },
 
+    /** PAR-38, 40: "Vale para Temporada 2027.1". */
+    competitionNameOf(c: CompetitionRef): string {
+      return competitionName(c);
+    },
+
+    competitionsLine(): string {
+      const list = this.match?.competitions ?? [];
+      return list.length > 0
+        ? this.$t('competitions.match.line', { names: list.map((c) => competitionName(c)).join(', ') })
+        : this.$t('competitions.match.notCounting');
+    },
+
+    openCompetition(id: string) {
+      this.$router.push({ name: 'group-competition', params: { id: this.group.id, competitionId: id } });
+    },
+
     /** PAR-39: a tela do resultado. */
     recordResult() {
       this.$router.push({ name: 'group-match-result', params: { id: this.group.id, matchId: this.matchId } });
@@ -440,7 +510,7 @@ export default defineComponent({
         <div class="sc-caption wave">{{ waveLine }}</div>
       </header>
 
-      <div v-if="match.status !== 'cancelled'" class="answer">
+      <div v-if="!['cancelled', 'in_progress', 'finished'].includes(match.status)" class="answer">
         <q-btn
           :unelevated="answer === 'going'"
           :outline="answer !== 'going'"
@@ -479,6 +549,25 @@ export default defineComponent({
 
       <section v-if="showResult" class="lineup">
         <h2 class="sc-section">{{ $t('matches.result.title') }}</h2>
+        <div v-if="match.competitions.length > 0 || match.actions.manageCompetitions" class="counts">
+          <span class="sc-caption grow">
+            <template v-if="match.competitions.length === 0">{{ competitionsLine() }}</template>
+            <template v-else>
+              {{ $t('competitions.match.title') }}
+              <a v-for="(c, i) in match.competitions" :key="c.id" href="#" class="link" @click.prevent="openCompetition(c.id)"
+                >{{ i > 0 ? ', ' : '' }}{{ competitionNameOf(c) }}</a
+              >
+            </template>
+          </span>
+          <q-btn
+            v-if="match.actions.manageCompetitions"
+            flat
+            no-caps
+            dense
+            :label="$t('competitions.match.change')"
+            @click="competitionsOpen = true"
+          />
+        </div>
         <div v-if="!match.result" class="sc-caption empty">{{ $t('matches.result.none') }}</div>
         <template v-else>
           <div class="sc-card headline">
@@ -689,6 +778,39 @@ export default defineComponent({
         />
       </div>
 
+      <div v-if="match.actions.start || match.actions.finish || match.actions.unstart" class="tools">
+        <q-btn
+          v-if="match.actions.start"
+          unelevated
+          no-caps
+          color="primary"
+          icon="play_arrow"
+          :label="$t('matches.start')"
+          :disable="busy"
+          @click="confirmStart"
+        />
+        <q-btn
+          v-if="match.actions.finish"
+          unelevated
+          no-caps
+          color="primary"
+          icon="flag"
+          :label="$t('matches.finish')"
+          :disable="busy"
+          @click="confirmFinish"
+        />
+        <q-btn
+          v-if="match.actions.unstart"
+          flat
+          no-caps
+          class="sc-btn-outline"
+          icon="undo"
+          :label="$t('matches.unstart')"
+          :disable="busy"
+          @click="confirmUnstart"
+        />
+      </div>
+
       <div v-if="match.actions.manage" class="tools">
         <q-btn
           v-for="w in advanceable"
@@ -716,6 +838,12 @@ export default defineComponent({
             @open="openSetting(s)"
           />
           <SettingsRow
+            icon="emoji_events"
+            :title="$t('competitions.match.title')"
+            :summary="summaryOf('competitions')"
+            @open="competitionsOpen = true"
+          />
+          <SettingsRow
             v-if="match.series"
             icon="event_repeat"
             :title="$t('matches.series.title')"
@@ -728,6 +856,7 @@ export default defineComponent({
       <MatchWhenSheet v-model="whenOpen" :group-id="group.id" :match="match" @saved="edited" />
       <MatchSettingSheet v-model="settingOpen" :group-id="group.id" :match="match" :section="section" @saved="edited" />
       <MatchSeriesSheet v-if="match.series" v-model="seriesOpen" :group-id="group.id" :match="match" @ended="seriesEnded" />
+      <MatchCompetitionsSheet v-model="competitionsOpen" :group-id="group.id" :match="match" @saved="edited" />
       <MatchGuestSheet v-model="guestOpen" :group-id="group.id" :match-id="match.id" @saved="guestSaved" />
     </template>
   </div>
@@ -736,6 +865,21 @@ export default defineComponent({
 <style scoped>
 .back {
   margin-bottom: 8px;
+}
+
+.counts {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.counts .grow {
+  flex: 1;
+}
+
+.counts .link {
+  color: var(--q-primary);
 }
 
 .head {
