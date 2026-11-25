@@ -75,3 +75,18 @@ export const MATCH_TEAMS_ENTITY = 'MatchTeams';
 export function matchTeamsKey(groupId: GroupId, matchId: string) {
   return { PK: pk(groupId), SK: `MATCHTEAMS#${matchId}` };
 }
+
+export const MATCH_RESULT_ENTITY = 'MatchResult';
+
+/** O resultado da partida (PAR-31–35): `GROUP#<g> / MATCHRESULT#<matchId>`. Chave natural pela partida (ADR 0009). */
+export function matchResultKey(groupId: GroupId, matchId: string) {
+  return { PK: pk(groupId), SK: `MATCHRESULT#${matchId}` };
+}
+
+/** Prefixo do índice do histórico (PAR-36): Query `MATCHEND#` de trás para a frente. */
+export const MATCH_END_PREFIX = 'MATCHEND#';
+
+/** O fim da partida (PAR-36): `GROUP#<g> / MATCHEND#<endsAt>#<matchId>`, `{ matchId }`. Ponteiro (`LOOKUP_ENTITY`). */
+export function matchEndKey(groupId: GroupId, endsAt: string, matchId: string) {
+  return { PK: pk(groupId), SK: `${MATCH_END_PREFIX}${endsAt}#${matchId}` };
+}

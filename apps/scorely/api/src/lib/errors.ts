@@ -55,6 +55,7 @@ const CATALOG = {
   MATCH_NOT_OPEN_FOR_YOU: { status: 409, message: 'The match list is not open for you yet' },
   MATCH_CLOSED: { status: 409, message: 'The match list is closed' },
   MATCH_STARTED: { status: 409, message: 'The match has already started' },
+  MATCH_NOT_STARTED: { status: 409, message: 'The match has not started yet' },
   MATCH_FINISHED: { status: 409, message: 'The match has already finished' },
   MATCH_CANCELLED: { status: 409, message: 'The match was cancelled' },
   MATCH_TEAM_PLAYER_OUT: { status: 409, message: 'Someone in the teams is not in the match list' },

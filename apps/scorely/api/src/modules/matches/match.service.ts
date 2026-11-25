@@ -12,6 +12,8 @@ import type {
   StoredAttendance,
   StoredGuest,
   StoredMatch,
+  StoredResult,
+  StoredResultData,
   StoredSeries,
   StoredTeamPlayer,
   StoredTeams,
@@ -22,16 +24,23 @@ import type { UserDirectory } from '@scorely/api/src/modules/users/user.reposito
 import {
   type AdvanceMatchInput,
   type CreateMatchInput,
+  dayWinners,
   type GroupPermission,
   type GroupTier,
   MATCH_GUEST_MAX,
+  MATCH_HISTORY_PAGE_SIZE,
   MATCH_LIMITS,
   MATCH_MAX_UPCOMING,
   MATCH_SERIES_MAX_ACTIVE,
   type Match,
   type MatchEntry,
   type MatchGuestStatus,
+  type MatchHistoryItem,
+  type MatchHistoryPage,
+  type MatchHistoryResult,
   type MatchLineup,
+  type MatchResult,
+  type MatchResultMember,
   type MatchSeries,
   type MatchStatus,
   type MatchSummary,
@@ -44,6 +53,9 @@ import {
   type PublicGroupId,
   type PublicUserId,
   type RequestMatchGuestInput,
+  resultStandings,
+  type SaveMatchResultInput,
+  SaveMatchResultInputSchema,
   type SaveMatchTeamsInput,
   SaveMatchTeamsInputSchema,
   type SetAttendanceInput,
@@ -52,6 +64,7 @@ import {
   type UpdateMatchSeriesInput,
   type User,
 } from '@scorely/contracts';
+import type { z } from 'zod';
 
 export interface MatchesDeps {
   matches: MatchRepository;
@@ -236,13 +249,121 @@ function myAttendanceOf(list: Lineup, userId: UserId): MyAttendance | undefined 
   return undefined;
 }
 
-/** PAR-27: de quem os times salvos precisam do perfil: quem tem conta e quem trouxe cada convidado. */
-function teamPeople(saved: StoredTeams | undefined, guests: readonly StoredGuest[]): UserId[] {
+/** PAR-27, 35: de quem as pessoas precisam do perfil: quem tem conta e quem trouxe cada convidado. */
+function playersPeople(players: readonly StoredTeamPlayer[], guests: readonly StoredGuest[]): UserId[] {
   const byId = new Map(guests.map((g) => [g.id, g]));
-  return (saved?.teams.flat() ?? []).flatMap((p) => {
+  return players.flatMap((p) => {
     if (p.kind === 'user') return [p.id as UserId];
     const guest = byId.get(p.id);
     return guest ? [guest.requestedBy] : [];
+  });
+}
+
+/** PAR-27: de quem os times salvos precisam do perfil. */
+const teamPeople = (saved: StoredTeams | undefined, guests: readonly StoredGuest[]) =>
+  playersPeople(saved?.teams.flat() ?? [], guests);
+
+/** PAR-33, 34: todas as pessoas do resultado (repetidas quando jogaram mais de um jogo). */
+function resultPlayers(result: StoredResultData): StoredTeamPlayer[] {
+  return result.mode === 'day' ? result.teams.flat() : result.games.flatMap((g) => g.teams.flat());
+}
+
+const playerKey = (p: { kind: string; id: string }) => `${p.kind}:${p.id}`;
+
+/** PAR-35: o resultado como a página mostra, com a contagem e quem venceu o dia (PAR-33, 34). */
+function resultView(result: StoredResult, member: (p: StoredTeamPlayer) => MatchResultMember): MatchResult {
+  const winners = dayWinners(result, playerKey).map(member);
+  if (result.mode === 'day') {
+    return {
+      mode: 'day',
+      teams: result.teams.map((team) => team.map(member)),
+      winner: result.winner,
+      dayWinners: winners,
+      version: result.version,
+    };
+  }
+  return {
+    mode: 'games',
+    games: result.games.map((g) => ({
+      teams: [g.teams[0].map(member), g.teams[1].map(member)],
+      winner: g.winner,
+    })),
+    standings: resultStandings(result.games, playerKey).map((s) => ({ ...s, member: member(s.member) })),
+    dayWinners: winners,
+    version: result.version,
+  };
+}
+
+/** PAR-36: o resumo do resultado no histórico: pelo dia, o time que venceu; por jogo, quem venceu o dia. */
+function historyResult(
+  result: StoredResult,
+  member: (p: StoredTeamPlayer) => MatchResultMember,
+): MatchHistoryResult {
+  return result.mode === 'day'
+    ? { mode: 'day', winner: result.winner }
+    : { mode: 'games', dayWinners: dayWinners(result, playerKey).map(member) };
+}
+
+/**
+ * PAR-35: uma pessoa do resultado, com o perfil, sem a marca de quem saiu da lista (quem está no resultado jogou). A
+ * participação some para quem saiu do grupo. Sem perfil, o convidado que não existe ou o de quem não tem mais
+ * perfil: `gone` (PAR-28).
+ */
+function resultMember(
+  guests: readonly StoredGuest[],
+  participants: Map<UserId, GroupTier>,
+  people: Map<UserId, User>,
+): (p: StoredTeamPlayer) => MatchResultMember {
+  const byId = new Map(guests.map((g) => [g.id, g]));
+  return (p) => {
+    if (p.kind === 'user') {
+      const user = people.get(p.id as UserId);
+      const tier = participants.get(p.id as UserId);
+      return user ? { kind: 'player', user, ...(tier !== undefined && { tier }) } : { kind: 'gone' };
+    }
+    const guest = byId.get(p.id);
+    const by = guest && people.get(guest.requestedBy);
+    return guest && by
+      ? { kind: 'guest', guestId: guest.id, name: guest.name, requestedBy: by }
+      : { kind: 'gone' };
+  };
+}
+
+/**
+ * PAR-25, 33, 34: traduz as pessoas da entrada (id público) para as do banco (`UserId`), aceitando só quem está em
+ * `allowed`. Quem não está vai em `out` (sem repetir).
+ */
+function refResolver(allowed: readonly LineupItem[], people: Map<UserId, User>) {
+  const users = new Map(
+    allowed.flatMap((i) => {
+      const user = i.kind === 'player' ? people.get(i.userId) : undefined;
+      return i.kind === 'player' && user ? [[user.id as string, i.userId] as const] : [];
+    }),
+  );
+  const guests = new Set(allowed.flatMap((i) => (i.kind === 'guest' ? [i.id] : [])));
+  const isAllowed = (p: MatchTeamPlayerRef) => (p.kind === 'user' ? users.has(p.id) : guests.has(p.id));
+  return {
+    stored: (p: MatchTeamPlayerRef): StoredTeamPlayer => ({
+      kind: p.kind,
+      id: p.kind === 'user' ? (users.get(p.id) ?? p.id) : p.id,
+    }),
+    out: (refs: readonly MatchTeamPlayerRef[]): MatchTeamPlayerRef[] => {
+      const seen = new Map(refs.filter((p) => !isAllowed(p)).map((p) => [playerKey(p), p]));
+      return [...seen.values()];
+    },
+  };
+}
+
+/** VALIDATION_ERROR com os issues do Zod, para a entrada que o service confere de novo. */
+function parseOrFail<T>(schema: z.ZodType<T>, input: unknown): T {
+  const parsed = schema.safeParse(input);
+  if (parsed.success) return parsed.data;
+  throw appError('VALIDATION_ERROR', {
+    issues: parsed.error.issues.map((i) => ({
+      code: i.code,
+      path: i.path.map((p) => (typeof p === 'number' ? p : String(p))),
+      message: i.message,
+    })),
   });
 }
 
@@ -251,11 +372,18 @@ type Access = Awaited<ReturnType<GroupAccess['access']>>;
 /** O que o aviso precisa do grupo: o id público (o link) e o nome. A rotina tira da agenda; a requisição, do acesso. */
 type GroupInfo = Pick<Access, 'groupId' | 'publicId' | 'name'>;
 
-/** O formato e a abertura (PAR-02–04), iguais na partida e na repetição. */
+/** O formato, a abertura e o jeito do resultado (PAR-02–04, 31), iguais na partida e na repetição. */
 function setupOf(
   source: Pick<
     StoredMatch,
-    'teams' | 'playersPerTeam' | 'membersHours' | 'reservesHours' | 'guestsHours' | 'noGuests' | 'closeHours'
+    | 'teams'
+    | 'playersPerTeam'
+    | 'membersHours'
+    | 'reservesHours'
+    | 'guestsHours'
+    | 'noGuests'
+    | 'closeHours'
+    | 'resultMode'
   >,
 ) {
   return {
@@ -266,6 +394,7 @@ function setupOf(
     guestsHours: source.guestsHours,
     noGuests: source.noGuests,
     closeHours: source.closeHours,
+    resultMode: source.resultMode,
   };
 }
 
@@ -284,6 +413,7 @@ function seriesView(series: StoredSeries): MatchSeries {
     ...(series.guestsHours !== undefined && { guestsHours: series.guestsHours }),
     noGuests: series.noGuests,
     closeHours: series.closeHours,
+    resultMode: series.resultMode,
     ...(series.endedAt !== undefined && { endedAt: series.endedAt }),
     version: series.version,
   };
@@ -384,12 +514,13 @@ export function createMatchService(deps: MatchesDeps) {
 
   /** PAR-16: a partida para quem pede. */
   async function view(ctx: Access, userId: UserId, match: StoredMatch, consistent = false): Promise<Match> {
-    const [state, series, saved] = await Promise.all([
+    const [state, series, saved, result] = await Promise.all([
       stateOf(match, consistent),
       match.seriesId === undefined
         ? undefined
         : deps.matches.getSeries(match.groupId, match.seriesId, { consistent }),
       deps.matches.getTeams(match.groupId, match.id, { consistent }),
+      deps.matches.getResult(match.groupId, match.id, { consistent }),
     ]);
     const at = now();
     const manage = canManage(ctx);
@@ -406,6 +537,7 @@ export function createMatchService(deps: MatchesDeps) {
       ...state.list.notGoing.map((a) => a.userId),
       ...requests.map((g) => g.requestedBy),
       ...teamPeople(saved, state.guests),
+      ...(result ? playersPeople(resultPlayers(result), state.guests) : []),
     ]);
     const entry = (item: LineupItem): MatchEntry =>
       item.kind === 'player'
@@ -426,6 +558,7 @@ export function createMatchService(deps: MatchesDeps) {
       ...(match.guestsHours !== undefined && { guestsHours: match.guestsHours }),
       noGuests: match.noGuests,
       closeHours: match.closeHours,
+      resultMode: match.resultMode,
       waves: wavesView(match),
       ...(match.cancelledAt !== undefined && { cancelledAt: match.cancelledAt }),
       in: state.list.in.map(entry),
@@ -448,9 +581,13 @@ export function createMatchService(deps: MatchesDeps) {
         requestGuest: open && wave === 'guests',
         manage: manage && live,
         manageTeams: manage && match.cancelledAt === undefined && at < new Date(match.endsAt),
+        recordResult: manage && match.cancelledAt === undefined && at >= new Date(match.startsAt),
       },
       ...(series !== undefined && { series: seriesView(series) }),
       ...(saved !== undefined && { lineup: lineupView(saved, state, people, entry) }),
+      ...(result !== undefined && {
+        result: resultView(result, resultMember(state.guests, state.participants, people)),
+      }),
     };
   }
 
@@ -509,22 +646,6 @@ export function createMatchService(deps: MatchesDeps) {
     });
   }
 
-  /** PAR-25: os times da entrada, com o `UserId` de quem está dentro; quem não está dentro vai em `out`. */
-  function resolveTeams(input: SaveMatchTeamsInput, list: Lineup, people: Map<UserId, User>) {
-    const users = new Map(
-      list.in.flatMap((i) => {
-        const user = i.kind === 'player' ? people.get(i.userId) : undefined;
-        return i.kind === 'player' && user ? [[user.id as string, i.userId] as const] : [];
-      }),
-    );
-    const guests = new Set(list.in.flatMap((i) => (i.kind === 'guest' ? [i.id] : [])));
-    const out = input.teams.flat().filter((p) => (p.kind === 'user' ? !users.has(p.id) : !guests.has(p.id)));
-    const teams: StoredTeamPlayer[][] = input.teams.map((team) =>
-      team.map((p) => ({ kind: p.kind, id: p.kind === 'user' ? (users.get(p.id) ?? p.id) : p.id })),
-    );
-    return { teams, out };
-  }
-
   /** PAR-25, 28, 29: salvar os times (troca a divisão inteira). O primeiro salvar avisa quem está num time. */
   async function saveTeams(
     userId: UserId,
@@ -538,28 +659,22 @@ export function createMatchService(deps: MatchesDeps) {
     const at = now();
     if (match.cancelledAt !== undefined) throw appError('MATCH_CANCELLED');
     if (at >= new Date(match.endsAt)) throw appError('MATCH_FINISHED');
-    const parsed = SaveMatchTeamsInputSchema.safeParse(input);
-    if (!parsed.success) {
-      throw appError('VALIDATION_ERROR', {
-        issues: parsed.error.issues.map((i) => ({
-          code: i.code,
-          path: i.path.map((p) => (typeof p === 'number' ? p : String(p))),
-          message: i.message,
-        })),
-      });
-    }
+    const parsed = parseOrFail(SaveMatchTeamsInputSchema, input);
     const state = await stateOf(match, true);
+    // PAR-25: só quem está dentro.
     const people = await profiles(state.list.in.flatMap((i) => (i.kind === 'player' ? [i.userId] : [])));
-    const { teams, out } = resolveTeams(parsed.data, state.list, people);
+    const resolver = refResolver(state.list.in, people);
+    const out = resolver.out(parsed.teams.flat());
     if (out.length > 0)
       throw appError('MATCH_TEAM_PLAYER_OUT', { players: await namedOut(out, state.guests) });
+    const teams = parsed.teams.map((team) => team.map(resolver.stored));
     const result = await deps.matches.saveTeams({
       groupId: ctx.groupId,
       matchId,
       teams,
       by: userId,
       at,
-      expectedVersion: parsed.data.expectedVersion,
+      expectedVersion: parsed.expectedVersion,
     });
     if (result.created) {
       const placed = teams
@@ -577,6 +692,96 @@ export function createMatchService(deps: MatchesDeps) {
       );
     }
     return view(ctx, userId, match, true);
+  }
+
+  /**
+   * PAR-31–34: registrar o resultado (troca o anterior inteiro, inclusive o jeito), a partir do início e sem prazo.
+   * Entra quem está na lista, dentro ou na fila. Ninguém é avisado.
+   */
+  async function saveResult(
+    userId: UserId,
+    publicId: PublicGroupId,
+    matchId: string,
+    input: SaveMatchResultInput,
+  ): Promise<Match> {
+    const ctx = await deps.groups.access(userId, publicId);
+    requireManage(ctx);
+    const match = await load(ctx.groupId, matchId);
+    const at = now();
+    if (match.cancelledAt !== undefined) throw appError('MATCH_CANCELLED');
+    if (at < new Date(match.startsAt)) throw appError('MATCH_NOT_STARTED');
+    const parsed = parseOrFail(SaveMatchResultInputSchema, input);
+    const state = await stateOf(match, true);
+    const allowed = [...state.list.in, ...state.list.queue];
+    const people = await profiles(allowed.flatMap((i) => (i.kind === 'player' ? [i.userId] : [])));
+    const resolver = refResolver(allowed, people);
+    const refs =
+      parsed.mode === 'day'
+        ? parsed.teams.flat()
+        : parsed.games.flatMap((g) => [...g.teams[0], ...g.teams[1]]);
+    const out = resolver.out(refs);
+    if (out.length > 0)
+      throw appError('MATCH_TEAM_PLAYER_OUT', { players: await namedOut(out, state.guests) });
+    const team = (list: readonly MatchTeamPlayerRef[]) => list.map(resolver.stored);
+    const result: StoredResultData =
+      parsed.mode === 'day'
+        ? { mode: 'day', teams: parsed.teams.map(team), winner: parsed.winner }
+        : {
+            mode: 'games',
+            games: parsed.games.map((g) => ({
+              teams: [team(g.teams[0]), team(g.teams[1])],
+              winner: g.winner,
+            })),
+          };
+    await deps.matches.saveResult({
+      groupId: ctx.groupId,
+      matchId,
+      result,
+      by: userId,
+      at,
+      expectedVersion: parsed.expectedVersion,
+    });
+    return view(ctx, userId, match, true);
+  }
+
+  /** PAR-36: as partidas que terminaram, da mais recente para a mais antiga, em páginas de 20. */
+  async function history(
+    userId: UserId,
+    publicId: PublicGroupId,
+    cursor?: string,
+  ): Promise<MatchHistoryPage> {
+    const ctx = await deps.groups.access(userId, publicId);
+    const page = await deps.matches.listHistory(ctx.groupId, now(), {
+      limit: MATCH_HISTORY_PAGE_SIZE,
+      cursor,
+    });
+    const participants = await deps.groups.participants(ctx.groupId);
+    const loaded = await Promise.all(
+      page.items.map(async (entry) => {
+        const [attendances, guests] = await Promise.all([
+          deps.matches.listAttendances(ctx.groupId, entry.match.id),
+          deps.matches.listGuests(ctx.groupId, entry.match.id),
+        ]);
+        return { ...entry, guests, list: lineup(entry.match, attendances, guests, participants) };
+      }),
+    );
+    // Só quem venceu o dia, por jogo, precisa do perfil.
+    const people = await profiles(
+      loaded.flatMap(({ result, guests }) =>
+        result?.mode === 'games' ? playersPeople(dayWinners(result, playerKey), guests) : [],
+      ),
+    );
+    const items: MatchHistoryItem[] = loaded.map(({ match, result, guests, list }) => ({
+      id: match.id,
+      startsAt: match.startsAt,
+      endsAt: match.endsAt,
+      status: match.cancelledAt !== undefined ? 'cancelled' : 'finished',
+      confirmed: list.in.length,
+      ...(result !== undefined && {
+        result: historyResult(result, resultMember(guests, participants, people)),
+      }),
+    }));
+    return { items, ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor }) };
   }
 
   /**
@@ -713,6 +918,7 @@ export function createMatchService(deps: MatchesDeps) {
     guestsHours: input.guestsHours,
     noGuests: input.noGuests,
     closeHours: input.closeHours,
+    resultMode: input.resultMode,
   });
 
   /** PAR-01–04: só o início e o fim; a partida nasce limpa (sem formato, lista aberta a todos, fecha no início). */
@@ -749,6 +955,7 @@ export function createMatchService(deps: MatchesDeps) {
               timeZone: timeZone.data,
               noGuests: false,
               closeHours: 0,
+              resultMode: 'day',
               currentDate: local.date,
               createdBy: userId,
             },
@@ -762,6 +969,7 @@ export function createMatchService(deps: MatchesDeps) {
         ...times,
         noGuests: false,
         closeHours: 0,
+        resultMode: 'day',
         ...(seriesId !== undefined &&
           seriesBase !== undefined && { seriesId, seriesDate: seriesBase.currentDate }),
         createdBy: userId,
@@ -863,7 +1071,7 @@ export function createMatchService(deps: MatchesDeps) {
       { ...next, notifiedWave: firstSetup ? currentWave(next, at) : match.notifiedWave },
       input.expectedVersion,
       at,
-      { resetNotified: firstSetup, agenda: agendaFor(next, ctx, at) },
+      { resetNotified: firstSetup, agenda: agendaFor(next, ctx, at), previousEndsAt: match.endsAt },
     );
     const after = lineup(saved, before.attendances, before.guests, before.participants);
     await notifyPromoted(ctx, saved, before.list, after);
@@ -1219,6 +1427,8 @@ export function createMatchService(deps: MatchesDeps) {
     declineGuest,
     removeGuest,
     saveTeams,
+    saveResult,
+    history,
   };
 }
 

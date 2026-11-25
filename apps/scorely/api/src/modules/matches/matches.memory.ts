@@ -1,3 +1,4 @@
+import { decodeCursor, encodeCursor } from '@scorely/api/src/lib/db';
 import { appError } from '@scorely/api/src/lib/errors';
 import type {
   AgendaEntry,
@@ -5,9 +6,11 @@ import type {
   StoredAttendance,
   StoredGuest,
   StoredMatch,
+  StoredResult,
   StoredSeries,
   StoredTeams,
 } from '@scorely/api/src/modules/matches/match.repository';
+import { matchEndKey } from '@scorely/api/src/modules/matches/match.table';
 
 /** O repositório de partidas em memória, com o mesmo contrato do Dynamo (suíte de contrato, ADR 0019). */
 export function memoryMatches() {
@@ -19,6 +22,7 @@ export function memoryMatches() {
   const series = new Map<string, StoredSeries>();
   const agenda = new Map<string, AgendaEntry & { createdAt: string }>();
   const teamsByMatch = new Map<string, StoredTeams>();
+  const results = new Map<string, StoredResult>();
   const cursor = { lastRunAt: undefined as string | undefined };
   const key = (...parts: string[]) => parts.join('#');
   const copy = <T extends object>(value: T): T => ({ ...value });
@@ -258,6 +262,50 @@ export function memoryMatches() {
       };
       teamsByMatch.set(k, next);
       return { teams: structuredClone(next), created: current === undefined };
+    },
+    async getResult(groupId, matchId) {
+      const current = results.get(key(groupId, matchId));
+      return current && structuredClone(current);
+    },
+    async saveResult({ groupId, matchId, result, by, at, expectedVersion }) {
+      const k = key(groupId, matchId);
+      const current = results.get(k);
+      if ((current?.version ?? 0) !== expectedVersion) {
+        throw appError('VERSION_CONFLICT', { currentVersion: current?.version ?? 0 });
+      }
+      const iso = at.toISOString();
+      const next: StoredResult = {
+        ...structuredClone(result),
+        groupId,
+        matchId,
+        createdAt: current?.createdAt ?? iso,
+        createdBy: current?.createdBy ?? by,
+        updatedAt: iso,
+        updatedBy: by,
+        version: expectedVersion + 1,
+      };
+      results.set(k, next);
+      return structuredClone(next);
+    },
+    async listHistory(groupId, endedBy, { limit, cursor }) {
+      // A mesma ordem e o mesmo cursor do índice `MATCHEND#` do Dynamo.
+      const pk = matchEndKey(groupId, '', '').PK;
+      const after = cursor === undefined ? undefined : decodeCursor(cursor, pk).SK;
+      const until = endedBy.toISOString();
+      const ended = [...matches.values()]
+        .filter((m) => m.groupId === groupId && m.endsAt <= until)
+        .map((m) => ({ m, sk: matchEndKey(groupId, m.endsAt, m.id).SK }))
+        .sort((a, b) => (a.sk < b.sk ? 1 : a.sk > b.sk ? -1 : 0))
+        .filter((x) => after === undefined || x.sk < after);
+      const page = ended.slice(0, limit);
+      const last = page[page.length - 1];
+      return {
+        items: page.map(({ m }) => {
+          const result = results.get(key(groupId, m.id));
+          return { match: copy(m), result: result && structuredClone(result) };
+        }),
+        ...(ended.length > limit && last && { nextCursor: encodeCursor({ PK: pk, SK: last.sk }) }),
+      };
     },
   };
   return { repo, counters, agenda };

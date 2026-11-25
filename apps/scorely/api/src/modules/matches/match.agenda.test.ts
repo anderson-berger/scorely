@@ -96,6 +96,7 @@ const configured = async (t: ReturnType<typeof setup>, startsAt: string) => {
     guestsHours: 6,
     noGuests: false,
     closeHours: 0,
+    resultMode: 'day',
     expectedVersion: first.version,
   });
 };
@@ -162,6 +163,7 @@ describe('PAR-06, 24: a edição grava a agenda na mesma gravação da partida',
     guestsHours: 6,
     noGuests: false,
     closeHours: 0,
+    resultMode: 'day' as const,
     expectedVersion,
   });
 

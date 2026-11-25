@@ -150,6 +150,7 @@ describe('repetição (PAR-20, 22)', () => {
     membersHours: 72,
     noGuests: false,
     closeHours: 0,
+    resultMode: 'day',
     version: 3,
   };
 
@@ -182,6 +183,7 @@ describe('repetição (PAR-20, 22)', () => {
       reservesHours: 24,
       noGuests: false,
       closeHours: 0,
+      resultMode: 'day',
       expectedVersion: 3,
     });
   });

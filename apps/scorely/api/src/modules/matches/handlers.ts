@@ -13,6 +13,7 @@ import {
   AdvanceMatchInputSchema,
   CreateMatchInputSchema,
   RequestMatchGuestInputSchema,
+  SaveMatchResultInputSchema,
   SaveMatchTeamsInputSchema,
   SetAttendanceInputSchema,
   UpdateMatchInputSchema,
@@ -118,6 +119,21 @@ export async function saveMatchTeams(event: HttpEvent) {
     const input = parseBody(event, SaveMatchTeamsInputSchema);
     const match = await matches.saveTeams(auth.userId, groupOf(event), matchOf(event), input);
     return match;
+  });
+}
+
+export async function saveMatchResult(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
+    const input = parseBody(event, SaveMatchResultInputSchema);
+    const match = await matches.saveResult(auth.userId, groupOf(event), matchOf(event), input);
+    return match;
+  });
+}
+
+export async function matchHistory(event: HttpEvent) {
+  return authRoute(event, async (auth) => {
+    const page = await matches.history(auth.userId, groupOf(event), event.queryStringParameters?.cursor);
+    return page;
   });
 }
 

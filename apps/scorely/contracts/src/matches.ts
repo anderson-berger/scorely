@@ -70,6 +70,10 @@ export type MyAttendance = z.infer<typeof MyAttendanceSchema>;
 export const MatchGuestStatusSchema = z.enum(['pending', 'approved', 'declined', 'cancelled', 'removed']);
 export type MatchGuestStatus = z.infer<typeof MatchGuestStatusSchema>;
 
+/** O jeito do resultado (PAR-31): pelo dia ou por jogo. A partida e a repetição nascem `day`. */
+export const MatchResultModeSchema = z.enum(['day', 'games']);
+export type MatchResultMode = z.infer<typeof MatchResultModeSchema>;
+
 const hours = z.number().int().min(0).max(MATCH_LIMITS.waveMaxHours);
 
 /** O início e o fim (PAR-01): o que criar recebe. */
@@ -80,7 +84,8 @@ const MatchTimesSchema = z.object({
 type MatchTimes = z.infer<typeof MatchTimesSchema>;
 
 /**
- * As configurações da partida (PAR-06): o início e o fim, o formato e a abertura da lista. Tudo nasce vazio (PAR-01):
+ * As configurações da partida (PAR-06): o início e o fim, o formato, a abertura da lista e o jeito do resultado
+ * (PAR-31, nasce `day`). O resto nasce vazio (PAR-01):
  * sem formato = sem limite (PAR-02); sem a hora de uma onda, ela abre com a anterior, e a dos membros desde a
  * criação (PAR-03).
  */
@@ -99,6 +104,8 @@ const MatchFieldsSchema = MatchTimesSchema.extend({
   /** "Sem convidados" (PAR-03, 12). */
   noGuests: z.boolean(),
   closeHours: hours,
+  /** Como a tela do resultado abre (PAR-31). */
+  resultMode: MatchResultModeSchema,
 });
 type MatchFields = z.infer<typeof MatchFieldsSchema>;
 
@@ -181,7 +188,7 @@ export type MatchWeekday = z.infer<typeof MatchWeekdaySchema>;
 /** A hora da repetição (PAR-20), `HH:mm`, no fuso dela. */
 export const MatchSeriesTimeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Invalid time');
 
-/** O que a repetição configura (PAR-20, 22): o dia da semana, a hora, a duração, o formato e a abertura. */
+/** O que a repetição configura (PAR-20, 22): o dia da semana, a hora, a duração, o formato, a abertura e o jeito do resultado. */
 const MatchSeriesFieldsSchema = MatchFieldsSchema.omit({ startsAt: true, endsAt: true }).extend({
   weekday: MatchWeekdaySchema,
   time: MatchSeriesTimeSchema,
@@ -325,6 +332,190 @@ export const MatchLineupSchema = z.object({
 });
 export type MatchLineup = z.infer<typeof MatchLineupSchema>;
 
+// Resultado (PAR-31–35).
+
+/** Limites do resultado por jogo (PAR-34). */
+export const MATCH_RESULT_LIMITS = { games: { min: 1, max: 30 } } as const;
+
+/** Pelo dia (PAR-33): o número do time que venceu (1 = Time 1) ou empate. */
+export const MatchDayWinnerSchema = z.union([
+  z.number().int().min(1).max(MATCH_TEAMS_LIMITS.max),
+  z.literal('draw'),
+]);
+export type MatchDayWinner = z.infer<typeof MatchDayWinnerSchema>;
+
+/** Por jogo (PAR-34): quem venceu o jogo, o Time A, o Time B ou empate. */
+export const MatchGameWinnerSchema = z.enum(['a', 'b', 'draw']);
+export type MatchGameWinner = z.infer<typeof MatchGameWinnerSchema>;
+
+const personKey = (p: MatchTeamPlayerRef): string => `${p.kind}:${p.id}`;
+
+const hasRepeated = (people: readonly MatchTeamPlayerRef[]): boolean =>
+  new Set(people.map(personKey)).size !== people.length;
+
+/** Um jogo, como vai ao salvar (PAR-34): o Time A e o Time B, com pelo menos 1 pessoa cada, e quem venceu. */
+const MatchGameInputSchema = z.object({
+  teams: z.tuple([z.array(MatchTeamPlayerRefSchema).min(1), z.array(MatchTeamPlayerRefSchema).min(1)]),
+  winner: MatchGameWinnerSchema,
+});
+
+/**
+ * Corpo do `PUT .../result` (PAR-32–34), pelo `mode`, com a `version` do resultado que a tela mostrou (0 sem
+ * resultado, ADR 0016).
+ * - `day`: de 2 a 10 times, cada pessoa num time só, `winner` até o número de times, e o time vencedor não vazio.
+ * - `games`: de 1 a 30 jogos; em cada jogo, ninguém nos dois times (nem repetido no mesmo).
+ */
+export const SaveMatchResultInputSchema = z
+  .discriminatedUnion('mode', [
+    z.object({
+      mode: z.literal('day'),
+      teams: z
+        .array(z.array(MatchTeamPlayerRefSchema))
+        .min(MATCH_TEAMS_LIMITS.min)
+        .max(MATCH_TEAMS_LIMITS.max),
+      winner: MatchDayWinnerSchema,
+      expectedVersion: VersionSchema,
+    }),
+    z.object({
+      mode: z.literal('games'),
+      games: z
+        .array(MatchGameInputSchema)
+        .min(MATCH_RESULT_LIMITS.games.min)
+        .max(MATCH_RESULT_LIMITS.games.max),
+      expectedVersion: VersionSchema,
+    }),
+  ])
+  .superRefine((value, ctx) => {
+    if (value.mode === 'day') {
+      if (hasRepeated(value.teams.flat())) {
+        ctx.addIssue({ code: 'custom', path: ['teams'], message: 'A person can be in one team only' });
+      }
+      if (value.winner !== 'draw') {
+        const team = value.teams[value.winner - 1];
+        if (team === undefined) {
+          ctx.addIssue({ code: 'custom', path: ['winner'], message: 'Winner must be one of the teams' });
+        } else if (team.length === 0) {
+          ctx.addIssue({ code: 'custom', path: ['winner'], message: 'The winning team cannot be empty' });
+        }
+      }
+      return;
+    }
+    value.games.forEach((game, index) => {
+      if (hasRepeated(game.teams.flat())) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['games', index, 'teams'],
+          message: 'A person can be in one team only',
+        });
+      }
+    });
+  });
+export type SaveMatchResultInput = z.infer<typeof SaveMatchResultInputSchema>;
+
+/**
+ * Uma pessoa do resultado (PAR-35), com o perfil, como nos times (PAR-27), mas sem a marca de quem saiu da lista:
+ * quem está no resultado jogou. A participação (`tier`) fica ausente para quem saiu do grupo. `gone` é a "Pessoa
+ * removida" (PAR-28).
+ */
+export const MatchResultMemberSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('gone') }),
+  z.object({ kind: z.literal('player'), user: UserSchema, tier: GroupTierSchema.optional() }),
+  z.object({ kind: z.literal('guest'), guestId: z.uuid(), name: z.string(), requestedBy: UserSchema }),
+]);
+export type MatchResultMember = z.infer<typeof MatchResultMemberSchema>;
+
+/** A contagem de uma pessoa no resultado por jogo (PAR-34). */
+export const MatchStandingSchema = z.object({
+  member: MatchResultMemberSchema,
+  played: z.number().int().positive(),
+  wins: z.number().int().nonnegative(),
+  draws: z.number().int().nonnegative(),
+  losses: z.number().int().nonnegative(),
+});
+export type MatchStanding = z.infer<typeof MatchStandingSchema>;
+
+/** O resultado da partida (PAR-35). `dayWinners` é quem venceu o dia (PAR-33, 34); vazio no empate. */
+export const MatchResultSchema = z.discriminatedUnion('mode', [
+  z.object({
+    mode: z.literal('day'),
+    /** Os times do resultado, na ordem ("Time 1", "Time 2"...). */
+    teams: z.array(z.array(MatchResultMemberSchema)),
+    winner: MatchDayWinnerSchema,
+    dayWinners: z.array(MatchResultMemberSchema),
+    version: VersionSchema,
+  }),
+  z.object({
+    mode: z.literal('games'),
+    /** Os jogos, na ordem (Jogo 1, Jogo 2...). */
+    games: z.array(
+      z.object({
+        teams: z.tuple([z.array(MatchResultMemberSchema), z.array(MatchResultMemberSchema)]),
+        winner: MatchGameWinnerSchema,
+      }),
+    ),
+    /** A contagem, de quem mais venceu para quem menos venceu; no empate, na ordem em que apareceu nos jogos. */
+    standings: z.array(MatchStandingSchema),
+    dayWinners: z.array(MatchResultMemberSchema),
+    version: VersionSchema,
+  }),
+]);
+export type MatchResult = z.infer<typeof MatchResultSchema>;
+
+/** Um jogo do resultado, em qualquer forma da pessoa (a ref da entrada, a gravada, a da saída). */
+export type ResultGame<T> = { teams: readonly [readonly T[], readonly T[]]; winner: MatchGameWinner };
+
+/** A contagem de uma pessoa, em qualquer forma da pessoa. */
+export type ResultStanding<T> = { member: T; played: number; wins: number; draws: number; losses: number };
+
+/**
+ * PAR-34: a contagem de cada pessoa que jogou, a partir dos jogos. `key` identifica a pessoa (ex.: `kind:id`). A
+ * ordem: mais vitórias primeiro; no empate, na ordem em que a pessoa apareceu nos jogos (a tela desempata pelo
+ * apelido, PAR-38).
+ */
+export function resultStandings<T>(
+  games: readonly ResultGame<T>[],
+  key: (person: T) => string,
+): ResultStanding<T>[] {
+  const tally = new Map<string, ResultStanding<T>>();
+  for (const game of games) {
+    for (const [side, team] of [
+      ['a', game.teams[0]],
+      ['b', game.teams[1]],
+    ] as const) {
+      for (const person of team) {
+        const k = key(person);
+        const current = tally.get(k) ?? { member: person, played: 0, wins: 0, draws: 0, losses: 0 };
+        tally.set(k, {
+          ...current,
+          played: current.played + 1,
+          wins: current.wins + (game.winner === side ? 1 : 0),
+          draws: current.draws + (game.winner === 'draw' ? 1 : 0),
+          losses: current.losses + (game.winner !== side && game.winner !== 'draw' ? 1 : 0),
+        });
+      }
+    }
+  }
+  return [...tally.values()].sort((x, y) => y.wins - x.wins);
+}
+
+/** O resultado de que `dayWinners` precisa, em qualquer forma da pessoa. */
+export type ResultForWinners<T> =
+  | { mode: 'day'; teams: readonly (readonly T[])[]; winner: MatchDayWinner }
+  | { mode: 'games'; games: readonly ResultGame<T>[] };
+
+/**
+ * PAR-33, 34: quem venceu o dia. Pelo dia, as pessoas do time vencedor (no empate, ninguém). Por jogo, quem tem mais
+ * vitórias, se tiver pelo menos uma; com empate nas vitórias, todos os empatados, na ordem da contagem.
+ */
+export function dayWinners<T>(result: ResultForWinners<T>, key: (person: T) => string): T[] {
+  if (result.mode === 'day') {
+    return result.winner === 'draw' ? [] : [...(result.teams[result.winner - 1] ?? [])];
+  }
+  const standings = resultStandings(result.games, key);
+  const best = standings[0]?.wins ?? 0;
+  return best === 0 ? [] : standings.filter((s) => s.wins === best).map((s) => s.member);
+}
+
 /** A hora em que cada onda abre e a lista fecha (PAR-03, 04), já com o que foi aberto à mão (PAR-05). */
 export const MatchWavesSchema = z.object({
   members: z.iso.datetime(),
@@ -366,6 +557,8 @@ export const MatchActionsSchema = z.object({
   manage: z.boolean(),
   /** Tem `matches.manage`, com a partida não terminada nem cancelada: dividir ou mudar os times (PAR-25, 30). */
   manageTeams: z.boolean(),
+  /** Tem `matches.manage`, a partir do início e sem prazo, na partida não cancelada: registrar ou corrigir o resultado (PAR-32). */
+  recordResult: z.boolean(),
 });
 export type MatchActions = z.infer<typeof MatchActionsSchema>;
 
@@ -394,5 +587,42 @@ export const MatchSchema = MatchSummarySchema.extend({
   series: MatchSeriesSchema.optional(),
   /** Os times salvos (PAR-27); ausente sem times. */
   lineup: MatchLineupSchema.optional(),
+  /** O jeito do resultado configurado (PAR-31). */
+  resultMode: MatchResultModeSchema,
+  /** O resultado (PAR-35); ausente sem resultado. */
+  result: MatchResultSchema.optional(),
 });
 export type Match = z.infer<typeof MatchSchema>;
+
+// Histórico (PAR-36).
+
+/** Tamanho da página do histórico (PAR-36). */
+export const MATCH_HISTORY_PAGE_SIZE = 20;
+
+/** O resumo do resultado no histórico (PAR-36, 37): pelo dia, o time que venceu; por jogo, quem venceu o dia. */
+export const MatchHistoryResultSchema = z.discriminatedUnion('mode', [
+  z.object({ mode: z.literal('day'), winner: MatchDayWinnerSchema }),
+  z.object({ mode: z.literal('games'), dayWinners: z.array(MatchResultMemberSchema) }),
+]);
+export type MatchHistoryResult = z.infer<typeof MatchHistoryResultSchema>;
+
+/** Uma partida que terminou (PAR-36). */
+export const MatchHistoryItemSchema = z.object({
+  id: z.uuid(),
+  startsAt: z.iso.datetime(),
+  endsAt: z.iso.datetime(),
+  status: z.enum(['finished', 'cancelled']),
+  /** Quantos estão dentro (PAR-09), pela lista de agora. */
+  confirmed: z.number().int().nonnegative(),
+  /** Ausente sem resultado. */
+  result: MatchHistoryResultSchema.optional(),
+});
+export type MatchHistoryItem = z.infer<typeof MatchHistoryItemSchema>;
+
+/** Resposta do `GET /groups/{publicId}/matches/history?cursor=` (PAR-36): da mais recente para a mais antiga. */
+export const MatchHistoryPageSchema = z.object({
+  items: z.array(MatchHistoryItemSchema),
+  /** Ausente na última página. */
+  nextCursor: z.string().optional(),
+});
+export type MatchHistoryPage = z.infer<typeof MatchHistoryPageSchema>;

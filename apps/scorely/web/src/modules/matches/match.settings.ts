@@ -24,6 +24,7 @@ export function settingsOf(match: Match): UpdateMatchInput {
     ...(match.guestsHours !== undefined && { guestsHours: match.guestsHours }),
     noGuests: match.noGuests,
     closeHours: match.closeHours,
+    resultMode: match.resultMode,
     expectedVersion: match.version,
   };
 }
@@ -65,11 +66,18 @@ export function slotsOf(match: Pick<Match, 'teams' | 'playersPerTeam'>): number 
     : undefined;
 }
 
-/** O que dá para mudar na repetição sem mexer nas horas: o formato e a abertura (PAR-22). */
+/** O que dá para mudar na repetição sem mexer nas horas: o formato, a abertura e o jeito do resultado (PAR-22, 31). */
 type SetupPatch = Partial<
   Pick<
     UpdateMatchSeriesInput,
-    'teams' | 'playersPerTeam' | 'membersHours' | 'reservesHours' | 'guestsHours' | 'noGuests' | 'closeHours'
+    | 'teams'
+    | 'playersPerTeam'
+    | 'membersHours'
+    | 'reservesHours'
+    | 'guestsHours'
+    | 'noGuests'
+    | 'closeHours'
+    | 'resultMode'
   >
 >;
 

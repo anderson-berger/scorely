@@ -121,6 +121,7 @@ const settings = (over: Partial<Settings> = {}): Settings => ({
   guestsHours: 6,
   noGuests: false,
   closeHours: 0,
+  resultMode: 'day',
   ...over,
 });
 
@@ -176,6 +177,7 @@ const seriesInput = (version: number, over: Record<string, unknown> = {}) => ({
   durationMinutes: 120,
   noGuests: false,
   closeHours: 0,
+  resultMode: 'day' as const,
   expectedVersion: version,
   ...over,
 });

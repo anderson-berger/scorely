@@ -1,5 +1,11 @@
 <script lang="ts">
-import { MATCH_LIMITS, type Match, type MatchSeries, UpdateMatchInputSchema } from '@scorely/contracts';
+import {
+  MATCH_LIMITS,
+  type Match,
+  type MatchResultMode,
+  type MatchSeries,
+  UpdateMatchInputSchema,
+} from '@scorely/contracts';
 import BottomSheet from '@scorely/web/src/components/BottomSheet.vue';
 import { errorMessage, issueMessage } from '@scorely/web/src/i18n/errors';
 import { saveSeries } from '@scorely/web/src/modules/matches/match.series';
@@ -8,7 +14,7 @@ import { matchesApi } from '@scorely/web/src/modules/matches/matches.api';
 import { defineComponent, type PropType } from 'vue';
 
 /** Qual linha das configurações (PAR-18). O "Dia e hora" é o `MatchWhenSheet`. */
-export type MatchSettingSection = 'format' | 'opening';
+export type MatchSettingSection = 'format' | 'opening' | 'result';
 
 /** Campo de número vazio (ou limpo pelo X) = hora não configurada (PAR-03). */
 type HoursField = number | '' | null;
@@ -28,13 +34,15 @@ function formOf(match: Match) {
     guestsHours: hoursOf(match.guestsHours),
     acceptGuests: !match.noGuests,
     closeHours: match.closeHours,
+    resultMode: match.resultMode as MatchResultMode,
   };
 }
 
 /**
  * PAR-02, 03, 06, 18: o painel de uma linha das configurações da partida. **Formato**: com limite (times × pessoas)
  * ou sem limite. **Abertura da lista**: a hora de cada um, em horas antes do início (vazio = desde já, ou junto com
- * o anterior), aceitar convidados e o fechamento. Manda o resto como está, com a `version`.
+ * o anterior), aceitar convidados e o fechamento. **Resultado**: pelo dia ou por jogo (PAR-31). Manda o resto como
+ * está, com a `version`.
  * PAR-18, 22: na partida de uma repetição ativa, **Também nas próximas semanas** (ligado) muda também a repetição.
  */
 export default defineComponent({
@@ -82,6 +90,7 @@ export default defineComponent({
           ? { teams: Number(f.teams), playersPerTeam: Number(f.playersPerTeam) }
           : { teams: undefined, playersPerTeam: undefined };
       }
+      if (this.section === 'result') return { resultMode: f.resultMode };
       return {
         membersHours: hoursFrom(f.membersHours),
         reservesHours: hoursFrom(f.reservesHours),
@@ -152,6 +161,20 @@ export default defineComponent({
           />
         </div>
       </template>
+
+      <q-list v-else-if="section === 'result'" class="modes">
+        <q-item v-for="mode in (['day', 'games'] as const)" :key="mode" tag="label" clickable>
+          <q-item-section avatar>
+            <q-radio v-model="form.resultMode" :val="mode" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label>{{ $t(mode === 'day' ? 'matches.result.modeDay' : 'matches.result.modeGames') }}</q-item-label>
+            <q-item-label caption>
+              {{ $t(mode === 'day' ? 'matches.result.modeDayHint' : 'matches.result.modeGamesHint') }}
+            </q-item-label>
+          </q-item-section>
+        </q-item>
+      </q-list>
 
       <template v-else>
         <q-input

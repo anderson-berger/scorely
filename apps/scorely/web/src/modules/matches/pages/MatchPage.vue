@@ -6,7 +6,10 @@ import type {
   Match,
   MatchEntry,
   MatchGuestRequest,
+  MatchResult,
+  MatchResultMember,
   MatchSeries,
+  MatchStanding,
   MatchTeamMember,
   MatchWave,
 } from '@scorely/contracts';
@@ -23,6 +26,11 @@ import MatchSettingSheet, {
 } from '@scorely/web/src/modules/matches/components/MatchSettingSheet.vue';
 import MatchWhenSheet from '@scorely/web/src/modules/matches/components/MatchWhenSheet.vue';
 import { matchMessage, teamsMessage } from '@scorely/web/src/modules/matches/match.message';
+import {
+  resultHeadline,
+  resultMemberName,
+  sortedStandings,
+} from '@scorely/web/src/modules/matches/match.result';
 import { durationLabel, durationOf, slotsOf } from '@scorely/web/src/modules/matches/match.settings';
 import { formatSummary, openingSummary, seriesSummary } from '@scorely/web/src/modules/matches/match.summary';
 import { matchesApi } from '@scorely/web/src/modules/matches/matches.api';
@@ -36,6 +44,7 @@ const WAVES: readonly MatchWave[] = ['members', 'reserves', 'guests'];
  * as listas; e, para quem tem `matches.manage`, os pedidos de convidado, abrir a próxima onda, as configurações da
  * partida (PAR-06) e cancelar.
  * PAR-19: Copiar para o WhatsApp.
+ * PAR-38: a partir do início, a seção Resultado, antes dos Times; PAR-39: Registrar (ou Corrigir) resultado.
  */
 export default defineComponent({
   name: 'MatchPage',
@@ -130,6 +139,31 @@ export default defineComponent({
       if (!m?.actions.manage || m.status === 'closed') return [];
       const current = m.wave ? WAVES.indexOf(m.wave) : -1;
       return (['reserves', 'guests'] as const).filter((w) => WAVES.indexOf(w) > current);
+    },
+
+    /** PAR-38: a seção Resultado aparece a partir do início, menos na cancelada. */
+    showResult(): boolean {
+      const status = this.match?.status;
+      return status === 'in_progress' || status === 'finished';
+    },
+
+    /** PAR-38: quem venceu, numa linha. */
+    headline(): string {
+      const r = this.match?.result;
+      if (!r) return '';
+      return resultHeadline(r.mode === 'day' ? { mode: 'day', winner: r.winner } : r);
+    },
+
+    /** PAR-38: "Você venceu" para quem venceu o dia. */
+    iWon(): boolean {
+      const me = this.auth.user?.id;
+      return !!this.match?.result?.dayWinners.some((p) => p.kind === 'player' && p.user.id === me);
+    },
+
+    /** PAR-38: a contagem, de quem mais venceu para quem menos venceu; no empate, pelo apelido. */
+    standings(): MatchStanding[] {
+      const r = this.match?.result;
+      return r?.mode === 'games' ? sortedStandings(r.standings, (x) => resultMemberName(x.member)) : [];
     },
 
     shareable(): boolean {
@@ -264,6 +298,9 @@ export default defineComponent({
         });
       }
       if (section === 'series') return m.series ? seriesSummary(m.series) : '';
+      if (section === 'result') {
+        return this.$t(m.resultMode === 'day' ? 'matches.result.modeDay' : 'matches.result.modeGames');
+      }
       return section === 'format' ? formatSummary(m) : openingSummary(m);
     },
 
@@ -340,6 +377,42 @@ export default defineComponent({
       }
     },
 
+    resultName(member: MatchResultMember): string {
+      return resultMemberName(member);
+    },
+
+    resultKey(member: MatchResultMember, index: number): string {
+      if (member.kind === 'gone') return `gone:${index}`;
+      return member.kind === 'player' ? member.user.id : member.guestId;
+    },
+
+    /** PAR-38: "4 V · 1 D em 5 jogos" (os empates e as derrotas só quando há). */
+    standingText(x: MatchStanding): string {
+      return [
+        this.$t('matches.result.standingWins', { n: x.wins }),
+        ...(x.draws > 0 ? [this.$t('matches.result.standingDraws', { n: x.draws })] : []),
+        ...(x.losses > 0 ? [this.$t('matches.result.standingLosses', { n: x.losses })] : []),
+      ]
+        .join(' · ')
+        .concat(' ', this.$t('matches.result.standingPlayed', x.played));
+    },
+
+    /** PAR-38: quem venceu o jogo, no cabeçalho fechado. */
+    gameWinner(winner: 'a' | 'b' | 'draw'): string {
+      if (winner === 'draw') return this.$t('matches.result.draw');
+      const team = this.$t(winner === 'a' ? 'matches.result.teamA' : 'matches.result.teamB');
+      return `${team} ${this.$t('matches.result.winner')}`;
+    },
+
+    gamesOf(result: MatchResult) {
+      return result.mode === 'games' ? result.games : [];
+    },
+
+    /** PAR-39: a tela do resultado. */
+    recordResult() {
+      this.$router.push({ name: 'group-match-result', params: { id: this.group.id, matchId: this.matchId } });
+    },
+
     /** PAR-30: a tela de dividir. */
     splitTeams() {
       this.$router.push({ name: 'group-match-teams', params: { id: this.group.id, matchId: this.matchId } });
@@ -403,6 +476,67 @@ export default defineComponent({
           @click="guestOpen = true"
         />
       </div>
+
+      <section v-if="showResult" class="lineup">
+        <h2 class="sc-section">{{ $t('matches.result.title') }}</h2>
+        <div v-if="!match.result" class="sc-caption empty">{{ $t('matches.result.none') }}</div>
+        <template v-else>
+          <div class="sc-card headline">
+            <q-icon name="emoji_events" size="sm" color="primary" />
+            <span class="name grow">{{ headline }}</span>
+            <q-badge v-if="iWon" color="primary" :label="$t('matches.result.youWon')" />
+          </div>
+
+          <template v-if="match.result.mode === 'day'">
+            <div
+              v-for="(team, t) in match.result.teams"
+              :key="t"
+              class="sc-card team"
+              :class="{ mine: match.result.winner === t + 1 }"
+            >
+              <div class="team-head">
+                <span class="name">{{ $t('matches.lineup.team', { n: t + 1 }) }}</span>
+                <span class="sc-caption">{{ team.length }}</span>
+                <q-icon v-if="match.result.winner === t + 1" name="emoji_events" color="primary" />
+              </div>
+              <ol v-if="team.length > 0" class="list">
+                <li v-for="(p, i) in team" :key="resultKey(p, i)" class="row">
+                  <span class="sc-number pos">{{ i + 1 }}</span>
+                  <span class="name">{{ resultName(p) }}</span>
+                  <q-badge v-if="p.kind === 'guest'" color="grey" :label="$t('matches.lineup.guest')" />
+                </li>
+              </ol>
+              <div v-else class="sc-caption team-empty">{{ $t('matches.lineup.empty') }}</div>
+            </div>
+          </template>
+
+          <template v-else>
+            <ol class="sc-card list">
+              <li v-for="(x, i) in standings" :key="resultKey(x.member, i)" class="row">
+                <span class="sc-number pos">{{ i + 1 }}</span>
+                <span class="name grow">{{ resultName(x.member) }}</span>
+                <span class="sc-caption">{{ standingText(x) }}</span>
+              </li>
+            </ol>
+            <q-list class="sc-card games">
+              <q-expansion-item
+                v-for="(g, n) in gamesOf(match.result)"
+                :key="n"
+                dense
+                :label="$t('matches.result.game', { n: n + 1 })"
+                :caption="gameWinner(g.winner)"
+              >
+                <div class="game">
+                  <div v-for="(side, s) in g.teams" :key="s" class="side" :class="{ won: g.winner === (s === 0 ? 'a' : 'b') }">
+                    <div class="sc-caption">{{ $t(s === 0 ? 'matches.result.teamA' : 'matches.result.teamB') }}</div>
+                    <div v-for="(p, i) in side" :key="resultKey(p, i)" class="name">{{ resultName(p) }}</div>
+                  </div>
+                </div>
+              </q-expansion-item>
+            </q-list>
+          </template>
+        </template>
+      </section>
 
       <section v-if="match.lineup" class="lineup">
         <h2 class="sc-section">{{ $t('matches.lineup.title') }}</h2>
@@ -532,8 +666,19 @@ export default defineComponent({
         </template>
       </div>
 
-      <div v-if="match.actions.manageTeams" class="tools">
+      <div v-if="match.actions.manageTeams || match.actions.recordResult" class="tools">
         <q-btn
+          v-if="match.actions.recordResult"
+          flat
+          no-caps
+          class="sc-btn-outline"
+          icon="emoji_events"
+          :label="match.result ? $t('matches.result.fix') : $t('matches.result.record')"
+          :disable="busy"
+          @click="recordResult"
+        />
+        <q-btn
+          v-if="match.actions.manageTeams"
           flat
           no-caps
           class="sc-btn-outline"
@@ -563,9 +708,9 @@ export default defineComponent({
         <div class="sc-card settings">
           <SettingsRow icon="event" :title="$t('matches.settings.when')" :summary="summaryOf('when')" @open="whenOpen = true" />
           <SettingsRow
-            v-for="s in (['format', 'opening'] as const)"
+            v-for="s in (['format', 'opening', 'result'] as const)"
             :key="s"
-            :icon="s === 'format' ? 'groups' : 'schedule'"
+            :icon="s === 'format' ? 'groups' : s === 'opening' ? 'schedule' : 'emoji_events'"
             :title="$t(`matches.settings.${s}`)"
             :summary="summaryOf(s)"
             @open="openSetting(s)"
@@ -652,6 +797,29 @@ export default defineComponent({
 
 .settings {
   overflow: hidden;
+}
+
+.headline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+}
+
+.games {
+  overflow: hidden;
+}
+
+.game {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  padding: 8px 16px 12px;
+}
+
+.side.won .sc-caption {
+  color: var(--q-primary);
+  font-weight: 600;
 }
 
 .lineup {

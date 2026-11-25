@@ -117,6 +117,7 @@ function input(over: Partial<Settings> = {}): Settings {
     guestsHours: 6,
     noGuests: false,
     closeHours: 0,
+    resultMode: 'day',
     ...over,
   };
 }
@@ -249,10 +250,19 @@ describe('PAR-01: criar a partida', () => {
     expect(UpdateMatchInputSchema.safeParse({ ...onlyPlayers, expectedVersion: 1 }).success).toBe(false);
     const { playersPerTeam: _p2, ...onlyTeams } = input();
     expect(UpdateMatchInputSchema.safeParse({ ...onlyTeams, expectedVersion: 1 }).success).toBe(false);
-    const clean = { startsAt: START, endsAt: END, noGuests: false, closeHours: 0, expectedVersion: 1 };
+    const clean = {
+      startsAt: START,
+      endsAt: END,
+      noGuests: false,
+      closeHours: 0,
+      resultMode: 'day',
+      expectedVersion: 1,
+    };
     expect(UpdateMatchInputSchema.safeParse(clean).success).toBe(true);
     const { closeHours: _c, ...noClose } = clean;
     expect(UpdateMatchInputSchema.safeParse(noClose).success).toBe(false);
+    const { resultMode: _r, ...noMode } = clean;
+    expect(UpdateMatchInputSchema.safeParse(noMode).success).toBe(false);
   });
 
   it('PAR-01: a 21ª partida por vir responde MATCH_LIMIT com details.limit = 20', async () => {
@@ -417,6 +427,7 @@ describe('PAR-02, 03, 04: vagas e ondas', () => {
       endsAt: END,
       noGuests: false,
       closeHours: 2,
+      resultMode: 'day',
       expectedVersion: m.version,
     });
     expect(edited.waves.close).toBe(iso(START, -2));
@@ -1117,13 +1128,21 @@ describe('PAR-16: ver a partida', () => {
       requestGuest: false,
       manage: false,
       manageTeams: false,
+      recordResult: false,
     });
   });
 
   it('PAR-16: na partida limpa, o membro e a reserva podem confirmar e pedir convidado desde a criação', async () => {
     const t = setup();
     const m = await t.service.create(ANA, PUBLIC_ID, { startsAt: START, endsAt: END });
-    const expected = { going: true, notGoing: true, requestGuest: true, manage: false, manageTeams: false };
+    const expected = {
+      going: true,
+      notGoing: true,
+      requestGuest: true,
+      manage: false,
+      manageTeams: false,
+      recordResult: false,
+    };
     expect((await get(t, BIA, m.id)).actions).toEqual(expected);
     expect((await get(t, DUDA, m.id)).actions).toEqual(expected);
   });
@@ -1175,6 +1194,7 @@ describe('PAR-16: ver a partida', () => {
       requestGuest: false,
       manage: false,
       manageTeams: true,
+      recordResult: true,
     });
   });
 

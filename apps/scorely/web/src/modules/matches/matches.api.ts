@@ -1,10 +1,12 @@
 import {
   type AdvanceMatchInput,
   type CreateMatchInput,
+  MatchHistoryPageSchema,
   MatchSchema,
   MatchSeriesSchema,
   MatchSummarySchema,
   type RequestMatchGuestInput,
+  type SaveMatchResultInput,
   type SaveMatchTeamsInput,
   type SetAttendanceInput,
   type UpdateMatchInput,
@@ -47,6 +49,15 @@ export const matchesApi = {
   // Times (PAR-25)
   saveTeams: (groupId: string, matchId: string, input: SaveMatchTeamsInput) =>
     request({ url: `${one(groupId, matchId)}/teams`, method: 'PUT', data: input }, MatchSchema),
+
+  // Resultado e histórico (PAR-32, 36)
+  saveResult: (groupId: string, matchId: string, input: SaveMatchResultInput) =>
+    request({ url: `${one(groupId, matchId)}/result`, method: 'PUT', data: input }, MatchSchema),
+  history: (groupId: string, cursor?: string) =>
+    request(
+      { url: `${base(groupId)}/history`, params: cursor ? { cursor } : undefined },
+      MatchHistoryPageSchema,
+    ),
 
   // Repetição (PAR-22, 23): responde a repetição.
   updateSeries: (groupId: string, seriesId: string, input: UpdateMatchSeriesInput) =>

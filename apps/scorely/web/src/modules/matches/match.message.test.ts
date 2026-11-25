@@ -41,6 +41,7 @@ function match(over: Partial<Match> = {}): Match {
     reservesHours: 24,
     noGuests: false,
     closeHours: 0,
+    resultMode: 'day',
     waves: {
       members: '2026-11-24T22:00:00.000Z',
       reserves: '2026-11-26T22:00:00.000Z',
@@ -50,7 +51,14 @@ function match(over: Partial<Match> = {}): Match {
     queue: [player('Bia', '3CCCCCCC')],
     notGoing: [{ user: user('Janice', '4DDDDDDD'), tier: 'member' }],
     guestRequests: [],
-    actions: { going: true, notGoing: true, requestGuest: false, manage: false, manageTeams: false },
+    actions: {
+      going: true,
+      notGoing: true,
+      requestGuest: false,
+      manage: false,
+      manageTeams: false,
+      recordResult: false,
+    },
     ...over,
   };
 }

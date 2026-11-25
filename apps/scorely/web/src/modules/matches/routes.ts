@@ -19,4 +19,10 @@ export const matchesGroupRoutes: RouteRecordRaw[] = [
     name: 'group-match-teams',
     component: () => import('@scorely/web/src/modules/matches/pages/MatchTeamsPage.vue'),
   },
+  // PAR-39: a tela do resultado, só para quem tem `matches.manage`, a partir do início (a página leva os outros à partida).
+  {
+    path: 'matches/:matchId/result',
+    name: 'group-match-result',
+    component: () => import('@scorely/web/src/modules/matches/pages/MatchResultPage.vue'),
+  },
 ];

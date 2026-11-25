@@ -1,10 +1,11 @@
 <script lang="ts">
-import type { Group, Match, MatchSummary } from '@scorely/contracts';
+import type { Group, Match, MatchHistoryItem, MatchSummary } from '@scorely/contracts';
 import StatusChip from '@scorely/web/src/components/StatusChip.vue';
 import { errorMessage } from '@scorely/web/src/i18n/errors';
 import { formatDateTime } from '@scorely/web/src/lib/datetime';
 import { can } from '@scorely/web/src/modules/groups/nav';
 import MatchWhenSheet from '@scorely/web/src/modules/matches/components/MatchWhenSheet.vue';
+import { resultHeadline } from '@scorely/web/src/modules/matches/match.result';
 import { slotsOf } from '@scorely/web/src/modules/matches/match.settings';
 import { everyLabel } from '@scorely/web/src/modules/matches/match.summary';
 import { matchesApi } from '@scorely/web/src/modules/matches/matches.api';
@@ -14,6 +15,7 @@ import { defineComponent, type PropType } from 'vue';
  * PAR-17: a área Partidas. As próximas partidas em cartões (dia e hora, "10 de 12" e a resposta de quem vê);
  * quem tem `matches.manage` vê Criar partida, que abre o painel de baixo. A partida de uma repetição ativa tem a
  * marca "Toda sexta".
+ * PAR-37: no topo, Próximas e Anteriores (o histórico, PAR-36, em páginas, com Carregar mais).
  */
 export default defineComponent({
   name: 'MatchListPage',
@@ -30,6 +32,12 @@ export default defineComponent({
       loaded: false,
       error: '',
       formOpen: false,
+      tab: 'upcoming' as 'upcoming' | 'past',
+      past: [] as MatchHistoryItem[],
+      pastCursor: undefined as string | undefined,
+      pastLoaded: false,
+      pastBusy: false,
+      pastError: '',
     };
   },
 
@@ -41,7 +49,13 @@ export default defineComponent({
 
   watch: {
     'group.id'() {
+      this.past = [];
+      this.pastLoaded = false;
       this.load();
+    },
+
+    tab(tab: 'upcoming' | 'past') {
+      if (tab === 'past' && !this.pastLoaded) this.loadPast();
     },
   },
 
@@ -80,6 +94,28 @@ export default defineComponent({
       }
     },
 
+    /** PAR-36, 37: a próxima página do histórico (a primeira, sem cursor). */
+    async loadPast(more = false) {
+      this.pastBusy = true;
+      this.pastError = '';
+      try {
+        const page = await matchesApi.history(this.group.id, more ? this.pastCursor : undefined);
+        this.past = more ? [...this.past, ...page.items] : page.items;
+        this.pastCursor = page.nextCursor;
+      } catch (err) {
+        this.pastError = errorMessage(err);
+      } finally {
+        this.pastLoaded = true;
+        this.pastBusy = false;
+      }
+    },
+
+    /** PAR-37: "Cancelada", "Sem resultado", "Time 2 venceu", "Empate" ou quem venceu o dia. */
+    pastLine(item: MatchHistoryItem): string {
+      if (item.status === 'cancelled') return this.$t('matches.status.cancelled');
+      return item.result ? resultHeadline(item.result) : this.$t('matches.history.noResult');
+    },
+
     open(m: { id: string }) {
       this.$router.push({ name: 'group-match', params: { id: this.group.id, matchId: m.id } });
     },
@@ -108,7 +144,31 @@ export default defineComponent({
       />
     </div>
 
-    <div v-if="error" class="sc-caption error">{{ error }}</div>
+    <q-tabs v-model="tab" dense no-caps align="left" class="tabs" active-color="primary" indicator-color="primary">
+      <q-tab name="upcoming" :label="$t('matches.tabs.upcoming')" />
+      <q-tab name="past" :label="$t('matches.tabs.past')" />
+    </q-tabs>
+
+    <template v-if="tab === 'past'">
+      <div v-if="pastError" class="sc-caption error">{{ pastError }}</div>
+      <div v-else-if="!pastLoaded" class="loading"><q-spinner color="primary" size="md" /></div>
+      <div v-else-if="past.length === 0" class="sc-caption empty">{{ $t('matches.history.empty') }}</div>
+      <template v-else>
+        <ul class="cards">
+          <li v-for="m in past" :key="m.id">
+            <button type="button" class="sc-card card" @click="open(m)">
+              <span class="sc-display when">{{ when(m.startsAt) }}</span>
+              <span class="sc-caption" :class="{ cancelled: m.status === 'cancelled' }">{{ pastLine(m) }}</span>
+            </button>
+          </li>
+        </ul>
+        <div v-if="pastCursor" class="more">
+          <q-btn flat no-caps class="sc-btn-outline" :label="$t('matches.history.more')" :loading="pastBusy" @click="loadPast(true)" />
+        </div>
+      </template>
+    </template>
+
+    <div v-else-if="error" class="sc-caption error">{{ error }}</div>
     <div v-else-if="!loaded" class="loading"><q-spinner color="primary" size="md" /></div>
     <div v-else-if="matches.length === 0" class="sc-caption empty">{{ $t('matches.empty') }}</div>
     <ul v-else class="cards">
@@ -190,6 +250,20 @@ export default defineComponent({
 
 .mine {
   font-weight: 600;
+}
+
+.tabs {
+  margin-bottom: 12px;
+}
+
+.cancelled {
+  color: var(--q-negative);
+}
+
+.more {
+  display: flex;
+  justify-content: center;
+  margin: 16px 0;
 }
 
 .error,

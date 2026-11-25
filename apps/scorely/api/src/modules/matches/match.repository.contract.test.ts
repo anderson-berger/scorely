@@ -7,6 +7,7 @@ import {
   type MatchRepository,
   type StoredGuest,
   type StoredMatch,
+  type StoredResultData,
   type StoredSeries,
   type StoredTeamPlayer,
 } from '@scorely/api/src/modules/matches/match.repository';
@@ -38,6 +39,7 @@ function newMatch(groupId: GroupId, overrides: Partial<StoredMatch> = {}): Store
     guestsHours: 6,
     noGuests: false,
     closeHours: 0,
+    resultMode: 'day',
     createdBy: newUser(),
     ...overrides,
   };
@@ -73,6 +75,7 @@ function newSeries(match: StoredMatch, overrides: Partial<StoredSeries> = {}): S
     timeZone: 'America/Sao_Paulo',
     noGuests: false,
     closeHours: 0,
+    resultMode: 'day',
     currentMatchId: match.id,
     currentDate: '2026-11-27',
     createdBy: match.createdBy,
@@ -740,6 +743,262 @@ describe.each([
     it('PAR-21, 24: o cursor da rotina guarda a última leitura', async () => {
       await repo.setAgendaCursor(at(5));
       expect(await repo.getAgendaCursor()).toBe(at(5).toISOString());
+    });
+  });
+
+  describe('resultado e histórico', () => {
+    const player = (): StoredTeamPlayer => ({ kind: 'user', id: randomUUID() });
+    const dayData = (): StoredResultData => ({
+      mode: 'day',
+      teams: [[player()], [player(), player()]],
+      winner: 2,
+    });
+    const gamesData = (): StoredResultData => ({
+      mode: 'games',
+      games: [{ teams: [[player()], [player()]], winner: 'a' }],
+    });
+    const endsAtOf = (day: number) => `2026-11-${String(day).padStart(2, '0')}T12:00:00.000Z`;
+    const endedMatch = (groupId: GroupId, day: number) =>
+      newMatch(groupId, { startsAt: endsAtOf(day), endsAt: endsAtOf(day) });
+    const END = new Date('2026-11-30T00:00:00.000Z');
+
+    it('PAR-32: saveResult com expectedVersion 0 cria (version 1, quem e quando) e getResult devolve igual', async () => {
+      const match = newMatch(newGroup());
+      const by = newUser();
+      const data = dayData();
+      const saved = await repo.saveResult({
+        groupId: match.groupId,
+        matchId: match.id,
+        result: data,
+        by,
+        at: at(1),
+        expectedVersion: 0,
+      });
+      expect(saved).toMatchObject({
+        ...data,
+        groupId: match.groupId,
+        matchId: match.id,
+        version: 1,
+        createdBy: by,
+        updatedBy: by,
+        createdAt: at(1).toISOString(),
+        updatedAt: at(1).toISOString(),
+      });
+      expect(await repo.getResult(match.groupId, match.id, read)).toEqual(saved);
+      expect(await repo.getResult(match.groupId, randomUUID(), read)).toBeUndefined();
+    });
+
+    it('PAR-32: criar com 0 onde já há resultado responde VERSION_CONFLICT e não troca', async () => {
+      const match = newMatch(newGroup());
+      const base = {
+        groupId: match.groupId,
+        matchId: match.id,
+        by: newUser(),
+        at: at(1),
+        expectedVersion: 0,
+      };
+      const first = dayData();
+      await repo.saveResult({ ...base, result: first });
+      await expect(repo.saveResult({ ...base, result: dayData() })).rejects.toMatchObject({
+        code: 'VERSION_CONFLICT',
+      });
+      expect(await repo.getResult(match.groupId, match.id, read)).toMatchObject({ ...first, version: 1 });
+    });
+
+    it('PAR-32: version esperada onde não há resultado responde VERSION_CONFLICT e não grava', async () => {
+      const match = newMatch(newGroup());
+      await expect(
+        repo.saveResult({
+          groupId: match.groupId,
+          matchId: match.id,
+          result: dayData(),
+          by: newUser(),
+          at: at(1),
+          expectedVersion: 3,
+        }),
+      ).rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
+      expect(await repo.getResult(match.groupId, match.id, read)).toBeUndefined();
+    });
+
+    it('PAR-32: version certa troca o resultado, sobe a version e mantém createdAt e createdBy', async () => {
+      const match = newMatch(newGroup());
+      const creator = newUser();
+      const editor = newUser();
+      const base = { groupId: match.groupId, matchId: match.id };
+      await repo.saveResult({ ...base, result: dayData(), by: creator, at: at(1), expectedVersion: 0 });
+      const next: StoredResultData = { mode: 'day', teams: [[player()], [player()]], winner: 'draw' };
+      const saved = await repo.saveResult({
+        ...base,
+        result: next,
+        by: editor,
+        at: at(9),
+        expectedVersion: 1,
+      });
+      expect(saved).toMatchObject({
+        ...next,
+        version: 2,
+        createdBy: creator,
+        createdAt: at(1).toISOString(),
+        updatedBy: editor,
+        updatedAt: at(9).toISOString(),
+      });
+      expect(await repo.getResult(match.groupId, match.id, read)).toEqual(saved);
+    });
+
+    it('PAR-32: version velha responde VERSION_CONFLICT e não grava', async () => {
+      const match = newMatch(newGroup());
+      const base = { groupId: match.groupId, matchId: match.id, by: newUser(), at: at(1) };
+      await repo.saveResult({ ...base, result: dayData(), expectedVersion: 0 });
+      await repo.saveResult({ ...base, result: dayData(), expectedVersion: 1 });
+      await expect(repo.saveResult({ ...base, result: dayData(), expectedVersion: 1 })).rejects.toMatchObject(
+        {
+          code: 'VERSION_CONFLICT',
+        },
+      );
+      expect((await repo.getResult(match.groupId, match.id, read))?.version).toBe(2);
+    });
+
+    it('PAR-31: trocar de pelo dia para por jogo apaga teams e winner; e de volta apaga games', async () => {
+      const match = newMatch(newGroup());
+      const base = { groupId: match.groupId, matchId: match.id, by: newUser(), at: at(1) };
+      await repo.saveResult({ ...base, result: dayData(), expectedVersion: 0 });
+      const games = gamesData();
+      const toGames = await repo.saveResult({ ...base, result: games, expectedVersion: 1 });
+      expect(toGames).toMatchObject({ ...games, version: 2 });
+      expect(toGames).not.toHaveProperty('teams');
+      expect(toGames).not.toHaveProperty('winner');
+      expect(await repo.getResult(match.groupId, match.id, read)).toEqual(toGames);
+      const day = dayData();
+      const toDay = await repo.saveResult({ ...base, result: day, expectedVersion: 2 });
+      expect(toDay).toMatchObject({ ...day, version: 3 });
+      expect(toDay).not.toHaveProperty('games');
+      expect(await repo.getResult(match.groupId, match.id, read)).toEqual(toDay);
+    });
+
+    it('PAR-32: dois primeiros registros ao mesmo tempo: um cria, o outro é VERSION_CONFLICT', async () => {
+      const match = newMatch(newGroup());
+      const base = {
+        groupId: match.groupId,
+        matchId: match.id,
+        by: newUser(),
+        at: at(1),
+        expectedVersion: 0,
+      };
+      const results = await Promise.allSettled([
+        repo.saveResult({ ...base, result: dayData() }),
+        repo.saveResult({ ...base, result: gamesData() }),
+      ]);
+      expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    });
+
+    it('PAR-36: listHistory devolve só as do grupo que terminaram até endedBy, da mais recente para a mais antiga', async () => {
+      const groupId = newGroup();
+      const byDay = new Map([5, 10, 15, 20].map((d) => [d, endedMatch(groupId, d)] as const));
+      const other = endedMatch(newGroup(), 12);
+      await Promise.all([...[...byDay.values()].reverse(), other].map((m) => repo.createMatch(m)));
+      const page = await repo.listHistory(groupId, new Date(endsAtOf(15)), { limit: 20 });
+      const expected = [15, 10, 5].map((d) => byDay.get(d)?.id);
+      expect(page.items.map((e) => e.match.id)).toEqual(expected);
+      expect(page.nextCursor).toBeUndefined();
+      expect((await repo.listHistory(newGroup(), END, { limit: 20 })).items).toEqual([]);
+    });
+
+    it('PAR-36: a partida que termina no instante de endedBy entra; um milissegundo antes, não', async () => {
+      const groupId = newGroup();
+      const match = endedMatch(groupId, 10);
+      await repo.createMatch(match);
+      const exact = await repo.listHistory(groupId, new Date(match.endsAt), { limit: 20 });
+      expect(exact.items.map((e) => e.match.id)).toEqual([match.id]);
+      const before = await repo.listHistory(groupId, new Date(Date.parse(match.endsAt) - 1), { limit: 20 });
+      expect(before.items).toEqual([]);
+    });
+
+    it('PAR-36: páginas de limit com nextCursor só quando há mais, sem repetir entre as páginas', async () => {
+      const groupId = newGroup();
+      const matches = [1, 2, 3, 4, 5].map((d) => endedMatch(groupId, d));
+      await Promise.all(matches.map((m) => repo.createMatch(m)));
+      const expected = [...matches].reverse().map((m) => m.id);
+      const one = await repo.listHistory(groupId, END, { limit: 2 });
+      expect(one.items.map((e) => e.match.id)).toEqual(expected.slice(0, 2));
+      expect(one.nextCursor).toEqual(expect.any(String));
+      const two = await repo.listHistory(groupId, END, { limit: 2, cursor: one.nextCursor });
+      expect(two.items.map((e) => e.match.id)).toEqual(expected.slice(2, 4));
+      expect(two.nextCursor).toEqual(expect.any(String));
+      const three = await repo.listHistory(groupId, END, { limit: 2, cursor: two.nextCursor });
+      expect(three.items.map((e) => e.match.id)).toEqual(expected.slice(4));
+      expect(three.nextCursor).toBeUndefined();
+    });
+
+    it('PAR-36: quando o total é exatamente o limit, não há nextCursor', async () => {
+      const groupId = newGroup();
+      await Promise.all([1, 2].map((d) => repo.createMatch(endedMatch(groupId, d))));
+      const page = await repo.listHistory(groupId, END, { limit: 2 });
+      expect(page.items).toHaveLength(2);
+      expect(page.nextCursor).toBeUndefined();
+    });
+
+    it('PAR-36: cursor inválido responde INVALID_CURSOR', async () => {
+      await expect(
+        repo.listHistory(newGroup(), END, { limit: 2, cursor: 'isto-nao-e-um-cursor' }),
+      ).rejects.toMatchObject({ code: 'INVALID_CURSOR' });
+    });
+
+    it('PAR-36: cada partida vem com o resultado dela; sem resultado, fica sem', async () => {
+      const groupId = newGroup();
+      const done = endedMatch(groupId, 10);
+      const none = endedMatch(groupId, 5);
+      await Promise.all([done, none].map((m) => repo.createMatch(m)));
+      const saved = await repo.saveResult({
+        groupId,
+        matchId: done.id,
+        result: gamesData(),
+        by: newUser(),
+        at: at(1),
+        expectedVersion: 0,
+      });
+      const page = await repo.listHistory(groupId, END, { limit: 20 });
+      expect(page.items.map((e) => e.match.id)).toEqual([done.id, none.id]);
+      expect(page.items[0]?.result).toEqual(saved);
+      expect(page.items[1]?.result).toBeUndefined();
+    });
+
+    it('PAR-36: createNextMatch coloca a partida nova no histórico', async () => {
+      const first = endedMatch(newGroup(), 3);
+      const series = newSeries(first);
+      await repo.createMatch(first, { series });
+      const next = {
+        ...endedMatch(first.groupId, 10),
+        seriesId: series.id,
+        seriesDate: '2026-11-10',
+      };
+      expect(
+        await repo.createNextMatch({ match: next, previousMatchId: first.id, agenda: [], at: at(1) }),
+      ).toBe(true);
+      const page = await repo.listHistory(first.groupId, END, { limit: 20 });
+      expect(page.items.map((e) => e.match.id)).toEqual([next.id, first.id]);
+    });
+
+    it('PAR-36: updateMatch com previousEndsAt diferente muda onde a partida aparece e a antiga posição some', async () => {
+      const groupId = newGroup();
+      const moved = endedMatch(groupId, 10);
+      const fixed = endedMatch(groupId, 15);
+      await Promise.all([moved, fixed].map((m) => repo.createMatch(m)));
+      await repo.updateMatch({ ...moved, endsAt: endsAtOf(20) }, 1, at(1), {
+        previousEndsAt: moved.endsAt,
+      });
+      const all = await repo.listHistory(groupId, END, { limit: 20 });
+      expect(all.items.map((e) => e.match.id)).toEqual([moved.id, fixed.id]);
+      const old = await repo.listHistory(groupId, new Date(endsAtOf(12)), { limit: 20 });
+      expect(old.items).toEqual([]);
+    });
+
+    it('PAR-36: updateMatch com o mesmo previousEndsAt mantém a partida onde estava, uma vez só', async () => {
+      const groupId = newGroup();
+      const match = endedMatch(groupId, 10);
+      await repo.createMatch(match);
+      await repo.updateMatch({ ...match, closeHours: 2 }, 1, at(1), { previousEndsAt: match.endsAt });
+      const page = await repo.listHistory(groupId, END, { limit: 20 });
+      expect(page.items.map((e) => e.match.id)).toEqual([match.id]);
     });
   });
 });

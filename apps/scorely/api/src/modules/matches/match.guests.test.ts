@@ -101,6 +101,7 @@ function input(over: Partial<Settings> = {}): Settings {
     guestsHours: 6,
     noGuests: false,
     closeHours: 0,
+    resultMode: 'day',
     ...over,
   };
 }

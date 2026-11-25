@@ -259,7 +259,8 @@ export interface Page<T> {
 
 const CursorSchema = z.object({ PK: z.string(), SK: z.string() });
 
-function decodeCursor(cursor: string, pk: string): Key {
+/** O cursor opaco de uma página: a última chave lida, só para a mesma partição (`INVALID_CURSOR` se não for). */
+export function decodeCursor(cursor: string, pk: string): Key {
   try {
     const key = CursorSchema.parse(JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')));
     if (key.PK === pk) return key;
@@ -267,6 +268,11 @@ function decodeCursor(cursor: string, pk: string): Key {
     // cai no erro abaixo
   }
   throw appError('INVALID_CURSOR');
+}
+
+/** O cursor opaco de uma chave (o par de `decodeCursor`). */
+export function encodeCursor(key: Record<string, unknown>): string {
+  return Buffer.from(JSON.stringify(key)).toString('base64url');
 }
 
 /**
@@ -295,7 +301,7 @@ export async function queryLookupIds(
   return {
     items: Items.map((row) => row.id as string),
     ...(LastEvaluatedKey && {
-      nextCursor: Buffer.from(JSON.stringify(LastEvaluatedKey)).toString('base64url'),
+      nextCursor: encodeCursor(LastEvaluatedKey),
     }),
   };
 }

@@ -54,6 +54,7 @@ export const ErrorCodeSchema = z.enum([
   'MATCH_NOT_OPEN_FOR_YOU',
   'MATCH_CLOSED',
   'MATCH_STARTED',
+  'MATCH_NOT_STARTED',
   'MATCH_FINISHED',
   'MATCH_CANCELLED',
   'MATCH_TEAM_PLAYER_OUT',
