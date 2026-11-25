@@ -62,6 +62,11 @@ export const groupsFunctions: AWS['functions'] = {
     handler: handler('setJoinMode'),
     events: route('PUT', '/groups/{publicId}/join-mode'),
   },
+  // Modalidade (GRV-52)
+  setGroupModality: {
+    handler: handler('setModality'),
+    events: route('PUT', '/groups/{publicId}/modality'),
+  },
   previewGroup: {
     handler: handler('previewGroup'),
     events: route('GET', '/groups/{publicId}/preview'),

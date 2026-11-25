@@ -51,6 +51,7 @@ import {
   type PublicGroupId,
   type PublicUserId,
   type SetGroupJoinModeInput,
+  type SetGroupModalityInput,
   type SetMemberRoleInput,
   type TransferGroupInput,
   type UpdateGroupRoleInput,
@@ -141,6 +142,7 @@ export function forViewer(
     myRole: roleRefOf(membership, roles),
     myPermissions: permissionsOf(membership, roles),
     joinMode: group.joinMode,
+    modality: group.modality,
     ...(group.logoMediaId !== undefined && { logoUrl: urlOf('group.logo', group.logoMediaId) }),
     ...(group.coverMediaId !== undefined && { coverUrl: urlOf('group.cover', group.coverMediaId) }),
   };
@@ -154,7 +156,7 @@ export function createGroupService(deps: GroupsDeps) {
   async function create(userId: UserId, input: CreateGroupInput, attempt = 1): Promise<Group> {
     // `newEntity` gera o id do sistema (uuid) e o `createdAt`; o `updatedAt` nasce igual (ADR 0013).
     const entity = newEntity<Omit<StoredGroup, 'updatedAt'>>(
-      { publicId: newPublicId(), name: input.name, joinMode: 'invite', version: 1 },
+      { publicId: newPublicId(), name: input.name, joinMode: 'invite', modality: 'mixed', version: 1 },
       now(),
     );
     const group: StoredGroup = { ...entity, updatedAt: entity.createdAt };
@@ -562,6 +564,20 @@ export function createGroupService(deps: GroupsDeps) {
     const { id, membership, roles } = await access(userId, publicId);
     requirePermission(membership, roles, 'group.edit');
     await deps.groups.setJoinMode(id, input.mode, input.expectedVersion, now());
+    const group = await deps.groups.get(id, { consistent: true });
+    if (!group) throw appError('GROUP_NOT_FOUND');
+    return forViewer(group, membership, roles, deps.media?.urlOf);
+  }
+
+  /** GRV-52: quem tem `group.edit` muda a modalidade, com a `version` conferida (ADR 0016). Só informa. */
+  async function setModality(
+    userId: UserId,
+    publicId: PublicGroupId,
+    input: SetGroupModalityInput,
+  ): Promise<Group> {
+    const { id, membership, roles } = await access(userId, publicId);
+    requirePermission(membership, roles, 'group.edit');
+    await deps.groups.setModality(id, input.modality, input.expectedVersion, now());
     const group = await deps.groups.get(id, { consistent: true });
     if (!group) throw appError('GROUP_NOT_FOUND');
     return forViewer(group, membership, roles, deps.media?.urlOf);
@@ -1009,6 +1025,7 @@ export function createGroupService(deps: GroupsDeps) {
     leave,
     removeMember,
     setJoinMode,
+    setModality,
     preview,
     request,
     cancelRequest,

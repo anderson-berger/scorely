@@ -352,6 +352,16 @@ export const en: MessageSchema = {
       saved: 'Joining mode saved',
       conflict: 'The group changed while you were editing. Check and try again',
     },
+    modality: {
+      title: 'Category',
+      hint: "The category doesn't stop anyone from joining or playing. In mixed groups, the ranking splits overall, men and women.",
+      male: 'Men',
+      female: 'Women',
+      mixed: 'Mixed',
+      save: 'Save',
+      saved: 'Category saved',
+      conflict: 'The group changed while you were editing. Check and try again',
+    },
     requests: {
       title: 'Requests',
       since: 'asked on {date}',

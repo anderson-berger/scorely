@@ -49,14 +49,14 @@ export function groupNavItems(group: Group): GroupNavItem[] {
 /** Uma seção de Configurações (GRV-14) e as linhas que a pessoa pode usar nela. */
 export type SettingsSection = {
   key: 'identity' | 'entry' | 'people';
-  rows: ('images' | 'joinMode' | 'roles')[];
+  rows: ('images' | 'modality' | 'joinMode' | 'roles')[];
 };
 
 /** GRV-14: as seções de Configurações, na ordem; a seção sem linha para a pessoa não aparece. */
 export function settingsSections(group: Pick<Group, 'myPermissions'>): SettingsSection[] {
   const sections: SettingsSection[] = [];
   if (can(group, 'group.edit')) {
-    sections.push({ key: 'identity', rows: ['images'] }, { key: 'entry', rows: ['joinMode'] });
+    sections.push({ key: 'identity', rows: ['images', 'modality'] }, { key: 'entry', rows: ['joinMode'] });
   }
   if (can(group, 'roles.manage')) sections.push({ key: 'people', rows: ['roles'] });
   return sections;

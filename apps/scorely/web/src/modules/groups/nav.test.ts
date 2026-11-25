@@ -74,9 +74,9 @@ describe('groupNavItems com roles.manage', () => {
 });
 
 describe('settingsSections', () => {
-  it('GRV-14: group.edit mostra Identidade (imagens) e Entrada (quem pode entrar), sem Pessoas', () => {
+  it('GRV-14: group.edit mostra Identidade (imagens e modalidade) e Entrada (quem pode entrar), sem Pessoas', () => {
     expect(settingsSections(group(['group.edit']))).toEqual([
-      { key: 'identity', rows: ['images'] },
+      { key: 'identity', rows: ['images', 'modality'] },
       { key: 'entry', rows: ['joinMode'] },
     ]);
   });

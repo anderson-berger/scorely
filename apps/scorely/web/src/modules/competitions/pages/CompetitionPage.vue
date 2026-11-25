@@ -16,8 +16,8 @@ import { defineComponent, type PropType } from 'vue';
 const CUTS: readonly CompetitionCut[] = ['all', 'male', 'female'];
 
 /**
- * COM-13: a página da competição. O nome, as datas, a situação e os pontos; Geral, Masculino e Feminino no topo; e o
- * ranking (posição, foto e apelido, pontos e a linha dos jogos), com a linha de quem vê marcada. Para quem tem
+ * COM-13: a página da competição. O nome, as datas, a situação e os pontos; no grupo misto (GRV-52), Geral, Masculino e
+ * Feminino no topo (nos outros, sem abas, só o geral); e o ranking (posição, foto e apelido, pontos e a linha dos jogos), com a linha de quem vê marcada. Para quem tem
  * `competitions.manage`, até travar: Editar e Encerrar agora.
  */
 export default defineComponent({
@@ -56,6 +56,11 @@ export default defineComponent({
     dates(): string {
       const c = this.competition;
       return c ? `${dayLabel(c.startDate)} – ${dayLabel(c.endDate)} · ${periodLine(c)}` : '';
+    },
+
+    /** COM-13: as abas só no grupo misto; nos outros, o `cut` fica `all`. */
+    showCuts(): boolean {
+      return this.group.modality === 'mixed';
     },
 
     pointsLine(): string {
@@ -155,7 +160,10 @@ export default defineComponent({
         <div class="sc-caption">{{ pointsLine }}</div>
       </header>
 
-      <q-tabs v-model="cut" dense no-caps align="left" class="tabs" active-color="primary" indicator-color="primary">
+      <q-tabs
+        v-if="showCuts"
+        v-model="cut"
+        dense no-caps align="left" class="tabs" active-color="primary" indicator-color="primary">
         <q-tab v-for="c in cuts" :key="c" :name="c" :label="$t(`competitions.cuts.${c}`)" />
       </q-tabs>
 

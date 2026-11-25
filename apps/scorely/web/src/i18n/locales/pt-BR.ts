@@ -362,6 +362,16 @@ export const ptBR = {
       saved: 'Modo de entrada salvo',
       conflict: 'O grupo mudou enquanto você editava. Confira e tente de novo',
     },
+    modality: {
+      title: 'Modalidade',
+      hint: 'A modalidade não barra ninguém de entrar nem de jogar. No misto, o ranking separa o geral, o masculino e o feminino.',
+      male: 'Masculino',
+      female: 'Feminino',
+      mixed: 'Misto',
+      save: 'Salvar',
+      saved: 'Modalidade salva',
+      conflict: 'O grupo mudou enquanto você editava. Confira e tente de novo',
+    },
     requests: {
       title: 'Pedidos',
       since: 'pediu em {date}',

@@ -3,19 +3,20 @@ import type { Group } from '@scorely/contracts';
 import SettingsRow from '@scorely/web/src/components/SettingsRow.vue';
 import GroupImagesSheet from '@scorely/web/src/modules/groups/components/GroupImagesSheet.vue';
 import GroupJoinModeSheet from '@scorely/web/src/modules/groups/components/GroupJoinModeSheet.vue';
+import GroupModalitySheet from '@scorely/web/src/modules/groups/components/GroupModalitySheet.vue';
 import { groupsApi } from '@scorely/web/src/modules/groups/groups.api';
 import { type SettingsSection, settingsSections } from '@scorely/web/src/modules/groups/nav';
 import { defineComponent, type PropType } from 'vue';
 
 /**
- * GRV-14: Configurações do grupo, uma lista agrupada: Identidade › Logo e capa (GRV-12), Entrada › Quem pode entrar
- * (GRV-38) e Pessoas › Cargos (GRV-50). Cada seção só aparece para quem pode usar uma linha dela (GRV-16): sem nenhuma,
- * a rota leva ao Início (GRV-13).
+ * GRV-14: Configurações do grupo, uma lista agrupada: Identidade › Logo e capa (GRV-12) e Modalidade (GRV-53),
+ * Entrada › Quem pode entrar (GRV-38) e Pessoas › Cargos (GRV-50). Cada seção só aparece para quem pode usar uma linha
+ * dela (GRV-16): sem nenhuma, a rota leva ao Início (GRV-13).
  */
 export default defineComponent({
   name: 'GroupSettingsPage',
 
-  components: { GroupImagesSheet, GroupJoinModeSheet, SettingsRow },
+  components: { GroupImagesSheet, GroupJoinModeSheet, GroupModalitySheet, SettingsRow },
 
   props: {
     group: { type: Object as PropType<Group>, required: true },
@@ -30,6 +31,7 @@ export default defineComponent({
     return {
       imagesOpen: false,
       joinModeOpen: false,
+      modalityOpen: false,
       roleCount: null as number | null,
     };
   },
@@ -76,6 +78,13 @@ export default defineComponent({
             <img v-if="group.coverUrl" :src="group.coverUrl" alt="" class="thumb cover" />
           </SettingsRow>
           <SettingsRow
+            v-else-if="row === 'modality'"
+            icon="wc"
+            :title="$t('groups.modality.title')"
+            :summary="$t(`groups.modality.${group.modality}`)"
+            @open="modalityOpen = true"
+          />
+          <SettingsRow
             v-else-if="row === 'joinMode'"
             icon="door_front"
             :title="$t('groups.joinMode.title')"
@@ -94,6 +103,7 @@ export default defineComponent({
     </template>
     <GroupImagesSheet v-model="imagesOpen" :group="group" @saved="$emit('saved', $event)" />
     <GroupJoinModeSheet v-model="joinModeOpen" :group="group" @saved="$emit('saved', $event)" />
+    <GroupModalitySheet v-model="modalityOpen" :group="group" @saved="$emit('saved', $event)" />
   </div>
 </template>
 
