@@ -190,12 +190,27 @@ function buttonViolations(f: Source): string[] {
 
 const BOTTOM_SHEET = `${WEB}/src/components/BottomSheet.vue`;
 
-/** Painéis: `<q-dialog>` e `QDialog` só dentro do `BottomSheet`. A confirmação pelo plugin (`$q.dialog`) não é painel. */
+const CONFIRM = `${WEB}/src/lib/confirm.ts`;
+
+/**
+ * Painéis: `<q-dialog>` e `QDialog` só dentro do `BottomSheet`. Confirmação: o plugin Dialog
+ * (`$q.dialog`, `useQuasar().dialog`, `Dialog.create`) só dentro do `confirmAction`.
+ */
 function dialogViolations(f: Source): string[] {
-  if (f.path === BOTTOM_SHEET) return [];
-  return [...f.text.matchAll(/<q-dialog\b|\bQDialog\b/g)].map(
-    (m) => `${f.path}:${lineAt(f.text, m.index)}: painel fora do BottomSheet`,
-  );
+  const panels =
+    f.path === BOTTOM_SHEET
+      ? []
+      : [...f.text.matchAll(/<q-dialog\b|\bQDialog\b/g)].map(
+          (m) => `${f.path}:${lineAt(f.text, m.index)}: painel fora do BottomSheet`,
+        );
+  const confirms =
+    f.path === CONFIRM
+      ? []
+      : [...f.text.matchAll(/\.dialog\(|\bDialog\.create\(/g)].map(
+          (m) =>
+            `${f.path}:${lineAt(f.text, m.index)}: confirmação fora do confirmAction (src/lib/confirm.ts)`,
+        );
+  return [...panels, ...confirms];
 }
 
 /** Toques: abas sem `dense`; sem altura local de campo ou chave. */
@@ -287,8 +302,19 @@ describe('web-visual: layout', () => {
   it('painéis: q-dialog ou QDialog fora do BottomSheet falham', () => {
     expect(one('<q-dialog v-model="open"><div /></q-dialog>')).toHaveLength(1);
     expect(one('<script>import { QDialog } from "quasar";</script>')).toHaveLength(1);
-    expect(one('<script>this.$q\n  .dialog({ title: "x", cancel: true })</script>')).toEqual([]);
     expect(layoutViolations([{ path: BOTTOM_SHEET, text: '<q-dialog v-model="m" />' }])).toEqual([]);
+  });
+
+  it('confirmação: o plugin Dialog fora do confirm.ts falha', () => {
+    for (const text of [
+      '<script>this.$q\n  .dialog({ title: "x", cancel: true })</script>',
+      '<script>useQuasar().dialog({ title: "x" })</script>',
+      '<script>Dialog.create({ title: "x" })</script>',
+    ]) {
+      expect(one(text), text).toHaveLength(1);
+    }
+    expect(layoutViolations([{ path: CONFIRM, text: 'Dialog.create({ title: "x" })' }])).toEqual([]);
+    expect(one('<script>await confirmAction({ title: "x", ok: "a", cancel: "b" })</script>')).toEqual([]);
   });
 
   it('toques: abas dense e estilo de campo ou chave falham', () => {

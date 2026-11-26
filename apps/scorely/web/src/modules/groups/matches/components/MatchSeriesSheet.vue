@@ -2,6 +2,7 @@
 import type { Match, MatchSeries } from '@scorely/contracts';
 import BottomSheet from '@scorely/web/src/components/BottomSheet.vue';
 import { errorMessage } from '@scorely/web/src/i18n/errors';
+import { confirmAction } from '@scorely/web/src/lib/confirm';
 import { formatDateTime } from '@scorely/web/src/lib/datetime';
 import {
   formatSummary,
@@ -53,19 +54,20 @@ export default defineComponent({
   },
 
   methods: {
-    confirmEnd() {
+    async confirmEnd() {
       const s = this.series;
       if (!s) return;
       const at = this.match.startsAt;
       const day = `${formatDateTime(at, 'weekdayShort').replace(/\.$/, '')}, ${formatDateTime(at, 'dayMonth')}`;
-      this.$q
-        .dialog({
-          title: this.$t('matches.series.endTitle'),
-          message: this.$t('matches.series.endConfirm', { day }),
-          cancel: { label: this.$t('matches.keep'), flat: true },
-          ok: { label: this.$t('matches.series.end'), color: 'negative', flat: true },
-        })
-        .onOk(() => this.end(s.id));
+      const confirmed = await confirmAction({
+        title: this.$t('matches.series.endTitle'),
+        message: this.$t('matches.series.endConfirm', { day }),
+        ok: this.$t('matches.series.end'),
+        cancel: this.$t('matches.keep'),
+        danger: true,
+      });
+      if (!confirmed) return;
+      await this.end(s.id);
     },
 
     async end(seriesId: string) {

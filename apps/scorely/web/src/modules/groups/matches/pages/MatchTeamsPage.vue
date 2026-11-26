@@ -9,6 +9,7 @@ import {
 } from '@scorely/contracts';
 import BottomSheet from '@scorely/web/src/components/BottomSheet.vue';
 import { errorMessage } from '@scorely/web/src/i18n/errors';
+import { confirmAction } from '@scorely/web/src/lib/confirm';
 import { ApiRequestError, isVersionConflict } from '@scorely/web/src/lib/http';
 import {
   draftFromLineup,
@@ -113,15 +114,13 @@ export default defineComponent({
       next();
       return;
     }
-    this.$q
-      .dialog({
-        title: this.$t('matches.lineup.discardTitle'),
-        message: this.$t('matches.lineup.discardMessage'),
-        cancel: { label: this.$t('matches.lineup.stay'), flat: true },
-        ok: { label: this.$t('matches.lineup.discard'), color: 'negative', flat: true },
-      })
-      .onOk(() => next())
-      .onCancel(() => next(false));
+    void confirmAction({
+      title: this.$t('matches.lineup.discardTitle'),
+      message: this.$t('matches.lineup.discardMessage'),
+      ok: this.$t('matches.lineup.discard'),
+      cancel: this.$t('matches.lineup.stay'),
+      danger: true,
+    }).then((ok) => (ok ? next() : next(false)));
   },
 
   methods: {

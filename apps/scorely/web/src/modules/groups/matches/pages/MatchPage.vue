@@ -17,6 +17,7 @@ import type {
 import SettingsRow from '@scorely/web/src/components/SettingsRow.vue';
 import StatusChip from '@scorely/web/src/components/StatusChip.vue';
 import { errorMessage } from '@scorely/web/src/i18n/errors';
+import { confirmAction } from '@scorely/web/src/lib/confirm';
 import { currentTimeZone, formatDateTime } from '@scorely/web/src/lib/datetime';
 import { useAuthStore } from '@scorely/web/src/modules/auth/auth.store';
 import { competitionName } from '@scorely/web/src/modules/groups/competitions/competition.display';
@@ -283,68 +284,69 @@ export default defineComponent({
       this.run(() => matchesApi.removeGuest(this.group.id, this.matchId, r.id));
     },
 
-    confirmRemoveGuest(entry: MatchEntry) {
+    async confirmRemoveGuest(entry: MatchEntry) {
       if (entry.kind !== 'guest') return;
-      this.$q
-        .dialog({
-          title: this.$t('matches.removeGuestConfirm', { name: entry.name }),
-          cancel: { label: this.$t('matches.keep'), flat: true },
-          ok: { label: this.$t('matches.removeGuest', { name: entry.name }), color: 'negative', flat: true },
-        })
-        .onOk(() => this.run(() => matchesApi.removeGuest(this.group.id, this.matchId, entry.guestId)));
+      const confirmed = await confirmAction({
+        title: this.$t('matches.removeGuestConfirm', { name: entry.name }),
+        ok: this.$t('matches.removeGuest', { name: entry.name }),
+        cancel: this.$t('matches.keep'),
+        danger: true,
+      });
+      if (!confirmed) return;
+      await this.run(() => matchesApi.removeGuest(this.group.id, this.matchId, entry.guestId));
     },
 
-    confirmCancel() {
-      this.$q
-        .dialog({
-          title: this.$t('matches.cancelTitle'),
-          message: this.$t('matches.cancelConfirm'),
-          cancel: { label: this.$t('matches.keep'), flat: true },
-          ok: { label: this.$t('matches.cancelMatch'), color: 'negative', flat: true },
-        })
-        .onOk(async () => {
-          await this.run(() => matchesApi.cancel(this.group.id, this.matchId));
-          this.$q.notify({ type: 'positive', message: this.$t('matches.cancelled') });
-        });
+    async confirmCancel() {
+      const confirmed = await confirmAction({
+        title: this.$t('matches.cancelTitle'),
+        message: this.$t('matches.cancelConfirm'),
+        ok: this.$t('matches.cancelMatch'),
+        cancel: this.$t('matches.keep'),
+        danger: true,
+      });
+      if (!confirmed) return;
+      await this.run(() => matchesApi.cancel(this.group.id, this.matchId));
+      this.$q.notify({ type: 'positive', message: this.$t('matches.cancelled') });
     },
 
     /** PAR-41: iniciar à mão, a qualquer hora. */
-    confirmStart() {
-      this.$q
-        .dialog({
-          title: this.$t('matches.startTitle'),
-          message: this.$t('matches.startConfirm'),
-          cancel: { label: this.$t('matches.keep'), flat: true },
-          ok: { label: this.$t('matches.start'), flat: true },
-        })
-        .onOk(() => this.run(() => matchesApi.start(this.group.id, this.matchId)));
+    async confirmStart() {
+      const confirmed = await confirmAction({
+        title: this.$t('matches.startTitle'),
+        message: this.$t('matches.startConfirm'),
+        ok: this.$t('matches.start'),
+        cancel: this.$t('matches.keep'),
+      });
+      if (!confirmed) return;
+      await this.run(() => matchesApi.start(this.group.id, this.matchId));
     },
 
     /** PAR-42: voltar para a lista, antes de finalizar e sem resultado. */
-    confirmUnstart() {
-      this.$q
-        .dialog({
-          title: this.$t('matches.unstartTitle'),
-          message: this.$t('matches.unstartConfirm'),
-          cancel: { label: this.$t('matches.keep'), flat: true },
-          ok: { label: this.$t('matches.unstart'), flat: true },
-        })
-        .onOk(() => this.run(() => matchesApi.unstart(this.group.id, this.matchId)));
+    async confirmUnstart() {
+      const confirmed = await confirmAction({
+        title: this.$t('matches.unstartTitle'),
+        message: this.$t('matches.unstartConfirm'),
+        ok: this.$t('matches.unstart'),
+        cancel: this.$t('matches.keep'),
+      });
+      if (!confirmed) return;
+      await this.run(() => matchesApi.unstart(this.group.id, this.matchId));
     },
 
     /** PAR-43: finalizar não se desfaz; numa repetição, a da semana seguinte já é criada. */
-    confirmFinish() {
+    async confirmFinish() {
       const series = this.match?.series?.endedAt === undefined && this.match?.series !== undefined;
-      this.$q
-        .dialog({
-          title: this.$t('matches.finishTitle'),
-          message: series
-            ? `${this.$t('matches.finishConfirm')} ${this.$t('matches.finishSeries')}`
-            : this.$t('matches.finishConfirm'),
-          cancel: { label: this.$t('matches.keep'), flat: true },
-          ok: { label: this.$t('matches.finish'), color: 'negative', flat: true },
-        })
-        .onOk(() => this.run(() => matchesApi.finish(this.group.id, this.matchId)));
+      const confirmed = await confirmAction({
+        title: this.$t('matches.finishTitle'),
+        message: series
+          ? `${this.$t('matches.finishConfirm')} ${this.$t('matches.finishSeries')}`
+          : this.$t('matches.finishConfirm'),
+        ok: this.$t('matches.finish'),
+        cancel: this.$t('matches.keep'),
+        danger: true,
+      });
+      if (!confirmed) return;
+      await this.run(() => matchesApi.finish(this.group.id, this.matchId));
     },
 
     /** PAR-18: o resumo de cada linha das configurações. */

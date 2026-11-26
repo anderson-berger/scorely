@@ -12,6 +12,7 @@ import {
 } from '@scorely/contracts';
 import BottomSheet from '@scorely/web/src/components/BottomSheet.vue';
 import { errorMessage } from '@scorely/web/src/i18n/errors';
+import { confirmAction } from '@scorely/web/src/lib/confirm';
 import { ApiRequestError, isVersionConflict } from '@scorely/web/src/lib/http';
 import {
   type DayDraft,
@@ -181,15 +182,13 @@ export default defineComponent({
       next();
       return;
     }
-    this.$q
-      .dialog({
-        title: this.$t('matches.result.discardTitle'),
-        message: this.$t('matches.result.discardMessage'),
-        cancel: { label: this.$t('matches.lineup.stay'), flat: true },
-        ok: { label: this.$t('matches.lineup.discard'), color: 'negative', flat: true },
-      })
-      .onOk(() => next())
-      .onCancel(() => next(false));
+    void confirmAction({
+      title: this.$t('matches.result.discardTitle'),
+      message: this.$t('matches.result.discardMessage'),
+      ok: this.$t('matches.lineup.discard'),
+      cancel: this.$t('matches.lineup.stay'),
+      danger: true,
+    }).then((ok) => (ok ? next() : next(false)));
   },
 
   methods: {
@@ -257,22 +256,20 @@ export default defineComponent({
     },
 
     /** PAR-39: trocar de jeito com algo preenchido pede confirmação. */
-    switchMode(next: MatchResultMode) {
+    async switchMode(next: MatchResultMode) {
       if (next === this.mode) return;
       if (!hasContent(this.mode, this.day, this.games)) {
         this.mode = next;
         return;
       }
-      this.$q
-        .dialog({
-          title: this.$t('matches.result.switchTitle'),
-          message: this.$t('matches.result.switchMessage'),
-          cancel: { label: this.$t('matches.lineup.stay'), flat: true },
-          ok: { label: this.$t('matches.result.switch'), flat: true },
-        })
-        .onOk(() => {
-          this.mode = next;
-        });
+      const confirmed = await confirmAction({
+        title: this.$t('matches.result.switchTitle'),
+        message: this.$t('matches.result.switchMessage'),
+        ok: this.$t('matches.result.switch'),
+        cancel: this.$t('matches.lineup.stay'),
+      });
+      if (!confirmed) return;
+      this.mode = next;
     },
 
     resize(delta: number) {
@@ -341,20 +338,19 @@ export default defineComponent({
     },
 
     /** PAR-39: apagar o jogo, com confirmação; os seguintes são renumerados. */
-    deleteGame() {
+    async deleteGame() {
       const index = this.editing?.index;
       if (index === undefined) return;
-      this.$q
-        .dialog({
-          title: this.$t('matches.result.deleteGameTitle', { n: index + 1 }),
-          message: this.$t('matches.result.deleteGameMessage'),
-          cancel: { label: this.$t('matches.lineup.stay'), flat: true },
-          ok: { label: this.$t('matches.result.deleteGame'), color: 'negative', flat: true },
-        })
-        .onOk(() => {
-          this.games = this.games.filter((_, i) => i !== index);
-          this.editing = undefined;
-        });
+      const confirmed = await confirmAction({
+        title: this.$t('matches.result.deleteGameTitle', { n: index + 1 }),
+        message: this.$t('matches.result.deleteGameMessage'),
+        ok: this.$t('matches.result.deleteGame'),
+        cancel: this.$t('matches.lineup.stay'),
+        danger: true,
+      });
+      if (!confirmed) return;
+      this.games = this.games.filter((_, i) => i !== index);
+      this.editing = undefined;
     },
 
     async save() {

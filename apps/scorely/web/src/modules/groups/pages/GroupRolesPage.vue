@@ -1,6 +1,7 @@
 <script lang="ts">
 import type { Group, GroupRoleItem, GroupRoles } from '@scorely/contracts';
 import { errorMessage } from '@scorely/web/src/i18n/errors';
+import { confirmAction } from '@scorely/web/src/lib/confirm';
 import { isVersionConflict } from '@scorely/web/src/lib/http';
 import GroupRoleSheet from '@scorely/web/src/modules/groups/components/GroupRoleSheet.vue';
 import { groupsApi } from '@scorely/web/src/modules/groups/groups.api';
@@ -88,15 +89,16 @@ export default defineComponent({
     },
 
     /** GRV-47: a confirmação diz quantas pessoas voltam para o Todos. */
-    confirmDelete(role: GroupRoleItem) {
-      this.$q
-        .dialog({
-          title: this.$t('groups.roles.deleteTitle', { name: this.label(role) }),
-          message: this.$t('groups.roles.deleteConfirm', { count: role.members }),
-          cancel: { label: this.$t('groups.cancel'), flat: true },
-          ok: { label: this.$t('groups.roles.delete'), color: 'negative', flat: true },
-        })
-        .onOk(() => this.remove(role));
+    async confirmDelete(role: GroupRoleItem) {
+      const confirmed = await confirmAction({
+        title: this.$t('groups.roles.deleteTitle', { name: this.label(role) }),
+        message: this.$t('groups.roles.deleteConfirm', { count: role.members }),
+        ok: this.$t('groups.roles.delete'),
+        cancel: this.$t('groups.cancel'),
+        danger: true,
+      });
+      if (!confirmed) return;
+      await this.remove(role);
     },
 
     async remove(role: GroupRoleItem) {

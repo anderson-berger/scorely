@@ -2,6 +2,7 @@
 import type { Competition, CompetitionCut, CompetitionRankingRow, Group } from '@scorely/contracts';
 import StatusChip from '@scorely/web/src/components/StatusChip.vue';
 import { errorMessage } from '@scorely/web/src/i18n/errors';
+import { confirmAction } from '@scorely/web/src/lib/confirm';
 import { useAuthStore } from '@scorely/web/src/modules/auth/auth.store';
 import {
   competitionName,
@@ -113,26 +114,25 @@ export default defineComponent({
       this.load();
     },
 
-    confirmClose() {
-      this.$q
-        .dialog({
-          title: this.$t('competitions.closeTitle'),
-          message: this.$t('competitions.closeConfirm'),
-          cancel: { label: this.$t('competitions.keep'), flat: true },
-          ok: { label: this.$t('competitions.close'), color: 'negative', flat: true },
-        })
-        .onOk(async () => {
-          this.busy = true;
-          try {
-            await competitionsApi.close(this.group.id, this.competitionId);
-            await this.load();
-            this.$q.notify({ type: 'positive', message: this.$t('competitions.closed') });
-          } catch (err) {
-            this.$q.notify({ type: 'negative', message: errorMessage(err) });
-          } finally {
-            this.busy = false;
-          }
-        });
+    async confirmClose() {
+      const confirmed = await confirmAction({
+        title: this.$t('competitions.closeTitle'),
+        message: this.$t('competitions.closeConfirm'),
+        ok: this.$t('competitions.close'),
+        cancel: this.$t('competitions.keep'),
+        danger: true,
+      });
+      if (!confirmed) return;
+      this.busy = true;
+      try {
+        await competitionsApi.close(this.group.id, this.competitionId);
+        await this.load();
+        this.$q.notify({ type: 'positive', message: this.$t('competitions.closed') });
+      } catch (err) {
+        this.$q.notify({ type: 'negative', message: errorMessage(err) });
+      } finally {
+        this.busy = false;
+      }
     },
 
     back() {

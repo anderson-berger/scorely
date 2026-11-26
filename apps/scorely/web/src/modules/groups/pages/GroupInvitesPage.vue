@@ -1,6 +1,7 @@
 <script lang="ts">
 import type { Group, GroupInvite } from '@scorely/contracts';
 import { errorMessage } from '@scorely/web/src/i18n/errors';
+import { confirmAction } from '@scorely/web/src/lib/confirm';
 import { formatDateTime } from '@scorely/web/src/lib/datetime';
 import { groupsApi } from '@scorely/web/src/modules/groups/groups.api';
 import { canShare, inviteUrl } from '@scorely/web/src/modules/groups/invite-link';
@@ -103,15 +104,16 @@ export default defineComponent({
       }
     },
 
-    confirmRevoke(invite: GroupInvite) {
-      this.$q
-        .dialog({
-          title: this.$t('groups.invites.revokeTitle'),
-          message: this.$t('groups.invites.revokeConfirm'),
-          cancel: { label: this.$t('groups.cancel'), flat: true },
-          ok: { label: this.$t('groups.invites.revoke'), color: 'negative', flat: true },
-        })
-        .onOk(() => this.revoke(invite));
+    async confirmRevoke(invite: GroupInvite) {
+      const confirmed = await confirmAction({
+        title: this.$t('groups.invites.revokeTitle'),
+        message: this.$t('groups.invites.revokeConfirm'),
+        ok: this.$t('groups.invites.revoke'),
+        cancel: this.$t('groups.cancel'),
+        danger: true,
+      });
+      if (!confirmed) return;
+      await this.revoke(invite);
     },
 
     async revoke(invite: GroupInvite) {

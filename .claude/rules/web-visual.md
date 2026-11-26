@@ -63,7 +63,18 @@ Todo painel é o `BottomSheet` (`src/components/BottomSheet.vue`); a forma por f
 - `persistent` (salvando, boas-vindas) tira o X e impede fechar por fora ou pelo Esc.
 - O slot `action` fica ao lado do X; título longo quebra linha, não passa por baixo dele.
 - Não crie posição, largura ou alça no `.vue` que usa o painel.
-- Check (`checks/web-visual.test.ts`): `<q-dialog>` e `QDialog` só em `components/BottomSheet.vue`. A confirmação pelo plugin (`this.$q.dialog({ ... cancel: true })`) não é painel e fica fora.
+- Check (`checks/web-visual.test.ts`): `<q-dialog>` e `QDialog` só em `components/BottomSheet.vue`.
+
+## Confirmação
+
+Pergunta de sim/não antes de uma ação (cancelar a partida, sair do grupo, descartar mudanças). Não é painel: não tem campo nem lista.
+
+- Sempre por `confirmAction({ title, message?, ok, cancel, danger? })` de `src/lib/confirm.ts`, que devolve `true` no ok e `false` no cancelar, no Esc ou no clique fora.
+- Fica centralizada em todas as larguras, também no celular. O cartão segue a base (`--sc-surface` e borda, em `css/app.scss`).
+- Os dois botões são de texto: quem desiste à esquerda, a ação à direita. A ação é vermelha (`danger: true`) quando apaga, tira alguém, sai, cancela ou não se desfaz; senão, sem cor.
+- O `ok` diz a ação ("Cancelar partida", "Remover"), nunca "Ok" ou "Sim".
+- No método: `const confirmed = await confirmAction({...}); if (!confirmed) return;`. Na guarda de rota: `confirmAction({...}).then((ok) => (ok ? next() : next(false)))`.
+- Check (`checks/web-visual.test.ts`): `.dialog(` e `Dialog.create(` só em `src/lib/confirm.ts`.
 
 ## Login
 
