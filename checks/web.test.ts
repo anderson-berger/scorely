@@ -146,9 +146,15 @@ describe('web: o check de cores pega a violação plantada', () => {
 type CompileError = { message: string };
 type Compile = (source: string, options: { onError: (e: CompileError) => void }) => unknown;
 
+/**
+ * O compilador que o próprio vue-i18n do web usa (vue-i18n → @intlify/core-base → message-compiler),
+ * para o check testar a mesma versão da tela sem declarar o pacote à parte.
+ */
 function messageCompiler(): Compile {
-  const require = createRequire(join(ROOT, 'apps/scorely/web/package.json'));
-  return (require('@intlify/message-compiler') as { baseCompile: Compile }).baseCompile;
+  const fromWeb = createRequire(join(ROOT, 'apps/scorely/web/package.json'));
+  const fromVueI18n = createRequire(fromWeb.resolve('vue-i18n'));
+  const fromCore = createRequire(fromVueI18n.resolve('@intlify/core-base'));
+  return (fromCore('@intlify/message-compiler') as { baseCompile: Compile }).baseCompile;
 }
 
 /** Folhas de texto do locale: `[ 'groups.invites.forUser', 'para ...' ]`. */
