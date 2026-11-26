@@ -30,75 +30,43 @@ export default defineComponent({
   <q-layout view="hHh lpR fFf">
     <q-page-container>
       <q-page class="login">
-        <div class="court" aria-hidden="true"><span class="mid" /><span class="circle" /></div>
+        <section class="brand-side">
+          <div class="brand-inner">
+            <div class="court" aria-hidden="true"><span class="mid" /><span class="circle" /></div>
+            <h1 class="sc-display brand">score<span class="sc-accent">ly</span></h1>
+            <div class="tagline">{{ $t('login.tagline') }}</div>
+          </div>
+        </section>
 
-        <div class="hero">
-          <h1 class="sc-display brand">score<span class="sc-accent">ly</span></h1>
-          <div class="tagline">{{ $t('login.tagline') }}</div>
-        </div>
-
-        <div class="form">
-          <login-email-step v-if="step === 'email'" :initial-email="email" @sent="onSent" />
-          <login-code-step
-            v-else
-            :email="email"
-            :resend-in-seconds="resendInSeconds"
-            @change-email="step = 'email'"
-          />
-        </div>
+        <section class="form-side">
+          <div class="form">
+            <login-email-step v-if="step === 'email'" :initial-email="email" @sent="onSent" />
+            <login-code-step
+              v-else
+              :email="email"
+              :resend-in-seconds="resendInSeconds"
+              @change-email="step = 'email'"
+            />
+          </div>
+        </section>
       </q-page>
     </q-page-container>
   </q-layout>
 </template>
 
 <style scoped>
+/* Login (web-visual.md): uma coluna até 1023px; tela dividida (marca | form) a partir de 1024px. */
 .login {
-  max-width: 480px;
-  margin: 0 auto;
-  padding: 0 16px 28px;
   display: flex;
   flex-direction: column;
-  position: relative;
-  overflow: hidden;
-}
-
-.court {
-  position: absolute;
-  left: -60px;
-  right: -60px;
-  top: 120px;
-  height: 300px;
-  border: 2px solid var(--sc-surface-2);
-  border-radius: 4px;
-  pointer-events: none;
-}
-
-.mid {
-  position: absolute;
-  left: 50%;
-  top: 0;
-  bottom: 0;
-  width: 2px;
-  background: var(--sc-surface-2);
-}
-
-.circle {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 120px;
-  height: 120px;
-  margin: -60px 0 0 -60px;
-  border: 2px solid var(--sc-surface-2);
-  border-radius: 50%;
-}
-
-.hero {
-  flex-grow: 1;
-  display: flex;
-  flex-direction: column;
+  align-items: center;
   justify-content: center;
-  position: relative;
+  gap: 32px;
+  padding: 32px 16px;
+}
+
+.brand-side {
+  text-align: center;
 }
 
 .brand {
@@ -115,7 +83,92 @@ export default defineComponent({
   margin-top: 10px;
 }
 
+.court {
+  display: none;
+}
+
+.form-side {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
 .form {
-  position: relative;
+  width: 100%;
+  max-width: 400px;
+}
+
+@media (min-width: 1024px) {
+  .login {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    padding: 0;
+  }
+
+  .brand-side {
+    align-self: stretch;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 64px;
+    text-align: left;
+    background: var(--sc-surface);
+    border-right: 1px solid var(--sc-line);
+  }
+
+  .brand-inner {
+    width: 100%;
+    max-width: 440px;
+  }
+
+  /* Quadra inteira, proporção 2:1, acima da marca. */
+  .court {
+    display: block;
+    position: relative;
+    width: 100%;
+    aspect-ratio: 2 / 1;
+    margin-bottom: 40px;
+    border: 2px solid var(--sc-line-strong);
+    border-radius: 4px;
+  }
+
+  .mid {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    margin-left: -1px;
+    background: var(--sc-line-strong);
+  }
+
+  .circle {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 30%;
+    aspect-ratio: 1;
+    transform: translate(-50%, -50%);
+    border: 2px solid var(--sc-line-strong);
+    border-radius: 50%;
+  }
+
+  .brand {
+    font-size: 96px;
+  }
+
+  .tagline {
+    font-size: 18px;
+    margin-top: 14px;
+  }
+
+  .form-side {
+    padding: 64px;
+  }
+
+  .form {
+    max-width: 360px;
+  }
 }
 </style>

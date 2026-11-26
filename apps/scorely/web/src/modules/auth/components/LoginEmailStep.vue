@@ -50,6 +50,7 @@ export default defineComponent({
       for="login-email"
       type="email"
       autocomplete="email"
+      :placeholder="$t('login.emailPlaceholder')"
       outlined
       autofocus
       :disable="loading"

@@ -101,6 +101,7 @@ export const en: MessageSchema = {
   login: {
     tagline: "Organize your group's games",
     email: 'Your email',
+    emailPlaceholder: "you{'@'}email.com",
     sendCode: 'Get code',
     codeSent: 'We sent a 6-digit code to',
     code: 'Code',

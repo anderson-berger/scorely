@@ -61,3 +61,17 @@ Todo painel é o `BottomSheet` (`src/components/BottomSheet.vue`); a forma por f
 - `persistent` (salvando, boas-vindas) tira o X e impede fechar por fora ou pelo Esc.
 - O slot `action` fica ao lado do X; título longo quebra linha, não passa por baixo dele.
 - Não crie posição, largura ou alça no `.vue` que usa o painel.
+
+## Login
+
+A tela de login (`modules/auth/pages/LoginPage.vue`) fica fora do layout do app, sem barra nem cabeçalho.
+
+| Faixa       | Forma                                                                                                         |
+| ----------- | ------------------------------------------------------------------------------------------------------------- |
+| até 1023px  | uma coluna centrada: marca e slogan centrados, 32px até o form, form até 400px; sem quadra e sem cartão        |
+| 1024px ou + | tela dividida em duas metades: à esquerda o painel da marca (`--sc-surface`, borda à direita), com a quadra inteira e a marca abaixo dela, alinhadas à esquerda; à direita o form, até 360px, centrado |
+
+- A quadra só aparece inteira, no painel da marca. Nunca atrás do form nem cortada.
+- O form não fica em cartão: o painel da marca já separa as duas áreas.
+- O botão principal ocupa a largura do form. Os links do passo do código ("Trocar email", "Reenviar") são botões de texto a 16px do botão (`q-mt-md`).
+- Texto com `@` no i18n (como o exemplo do email) escapa o `@` como `{'@'}`: sem isso o vue-i18n quebra a tela.

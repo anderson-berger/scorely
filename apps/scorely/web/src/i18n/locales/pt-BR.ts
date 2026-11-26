@@ -110,6 +110,7 @@ export const ptBR = {
   login: {
     tagline: 'Organize os jogos do seu grupo',
     email: 'Seu email',
+    emailPlaceholder: "voce{'@'}email.com",
     sendCode: 'Receber código',
     codeSent: 'Enviamos um código de 6 dígitos para',
     code: 'Código',
