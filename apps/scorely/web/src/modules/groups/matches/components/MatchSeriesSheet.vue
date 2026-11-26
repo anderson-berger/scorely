@@ -115,7 +115,6 @@ export default defineComponent({
         <q-btn
           flat
           no-caps
-          class="sc-btn-outline"
           :label="$t('matches.series.close')"
           :disable="ending"
           @click="$emit('update:modelValue', false)"

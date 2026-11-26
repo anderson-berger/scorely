@@ -116,6 +116,7 @@ export const en: MessageSchema = {
     you: 'You',
     preferences: 'Preferences',
     preferencesHint: 'The app language and the time zone for game times.',
+    edit: 'Edit',
     editYou: 'Your details',
     cancel: 'Cancel',
     genderUnset: 'Not set',

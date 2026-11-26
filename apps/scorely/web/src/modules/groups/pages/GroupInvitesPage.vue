@@ -149,9 +149,10 @@ export default defineComponent({
           {{ $t('groups.invites.usedBy', { names: invite.usedBy.map((u) => u.nickname).join(', ') }) }}
         </div>
         <div v-if="invite.status === 'active'" class="actions">
-          <q-btn flat no-caps dense icon="content_copy" :label="$t('groups.invite.copy')" @click="copy(invite)" />
+          <q-btn class="sc-btn-outline" flat no-caps dense icon="content_copy" :label="$t('groups.invite.copy')" @click="copy(invite)" />
           <q-btn
             v-if="shareable"
+            class="sc-btn-outline"
             flat
             no-caps
             dense

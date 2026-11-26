@@ -68,7 +68,6 @@ export default defineComponent({
         <q-btn
           flat
           no-caps
-          class="sc-btn-outline"
           :label="$t('groups.cancel')"
           :disable="saving"
           @click="open = false"

@@ -520,7 +520,6 @@ export default defineComponent({
           :outline="answer !== 'going'"
           color="primary"
           no-caps
-          class="sc-btn-main"
           icon="check"
           :label="$t('matches.going')"
           :disable="busy || (answer !== 'going' && !match.actions.going)"
@@ -532,7 +531,6 @@ export default defineComponent({
           :outline="answer !== 'not_going'"
           color="negative"
           no-caps
-          class="sc-btn-main"
           icon="close"
           :label="$t('matches.notGoing')"
           :disable="busy || (answer !== 'not_going' && !match.actions.notGoing)"
@@ -785,6 +783,7 @@ export default defineComponent({
       <div v-if="match.actions.start || match.actions.finish || match.actions.unstart" class="tools">
         <q-btn
           v-if="match.actions.start"
+          class="sc-btn-main"
           unelevated
           no-caps
           color="primary"
@@ -795,6 +794,7 @@ export default defineComponent({
         />
         <q-btn
           v-if="match.actions.finish"
+          class="sc-btn-main"
           unelevated
           no-caps
           color="primary"

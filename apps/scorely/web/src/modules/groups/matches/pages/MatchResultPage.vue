@@ -632,7 +632,7 @@ export default defineComponent({
               @click="deleteGame"
             />
             <span class="grow" />
-            <q-btn flat no-caps class="sc-btn-outline" :label="$t('matches.form.cancel')" @click="editing = undefined" />
+            <q-btn flat no-caps :label="$t('matches.form.cancel')" @click="editing = undefined" />
             <q-btn color="primary" unelevated no-caps class="sc-btn-main" :label="$t('matches.form.save')" @click="saveGame" />
           </div>
         </template>

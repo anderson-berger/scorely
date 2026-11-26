@@ -246,7 +246,6 @@ export default defineComponent({
         <q-btn
           flat
           no-caps
-          class="sc-btn-outline"
           :label="$t('competitions.form.cancel')"
           :disable="saving"
           @click="$emit('update:modelValue', false)"

@@ -138,25 +138,57 @@ a {
   }
 }
 
-// Botões: texto escuro sobre o verde-limão; principal em Barlow.
+// Botões (.claude/rules/web-visual.md): duas alturas, normal e compacta (`dense`), nas duas faixas.
+// Com texto é `--rectangle`; só com ícone é `--round`.
+.q-btn.q-btn--rectangle {
+  min-height: 48px;
+  border-radius: 12px;
+}
+
+.q-btn.q-btn--rectangle.q-btn--dense {
+  min-height: 44px;
+}
+
+.q-btn.q-btn--round {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.q-btn .q-icon {
+  font-size: 20px;
+}
+
+// Texto escuro sobre o verde-limão.
 .q-btn.bg-primary {
   color: var(--sc-on-accent) !important;
 }
 
-.sc-btn-main {
-  min-height: 56px;
+// Principal: o único em Barlow.
+.q-btn.sc-btn-main {
   font-family: var(--sc-font-display);
   font-weight: 700;
-  font-size: 20px;
+  font-size: 18px;
   letter-spacing: 1px;
-  border-radius: 14px;
 }
 
+// Secundário: contorno cinza. Usar com `flat`.
 .sc-btn-outline {
-  min-height: 48px;
-  border-radius: 12px;
   border: 1px solid var(--sc-line-strong);
   color: var(--sc-text);
+}
+
+@media (min-width: 600px) {
+  .q-btn.q-btn--rectangle {
+    min-height: 40px;
+  }
+
+  .q-btn.q-btn--rectangle.q-btn--dense {
+    min-height: 36px;
+  }
+
+  .q-btn.sc-btn-main {
+    font-size: 16px;
+  }
 }
 
 .sc-icon-btn {

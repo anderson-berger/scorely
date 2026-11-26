@@ -125,6 +125,7 @@ export const ptBR = {
     you: 'Você',
     preferences: 'Preferências',
     preferencesHint: 'O idioma da tela e o fuso dos horários dos jogos.',
+    edit: 'Editar',
     editYou: 'Seus dados',
     cancel: 'Cancelar',
     genderUnset: 'Não informado',

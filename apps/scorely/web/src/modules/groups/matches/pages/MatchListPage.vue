@@ -163,7 +163,7 @@ export default defineComponent({
           </li>
         </ul>
         <div v-if="pastCursor" class="more">
-          <q-btn flat no-caps class="sc-btn-outline" :label="$t('matches.history.more')" :loading="pastBusy" @click="loadPast(true)" />
+          <q-btn flat no-caps :label="$t('matches.history.more')" :loading="pastBusy" @click="loadPast(true)" />
         </div>
       </template>
     </template>

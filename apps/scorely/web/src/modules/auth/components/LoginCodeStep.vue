@@ -169,7 +169,6 @@ export default defineComponent({
 }
 
 .link {
-  min-height: 44px;
   color: var(--sc-text-2);
 }
 </style>

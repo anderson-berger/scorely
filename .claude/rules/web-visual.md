@@ -26,3 +26,24 @@ O guia visual cresce uma correção por vez, cada uma validada pelo dono. Para c
 - Menu que abre da barra (sino, conta) abre para o lado (`side="right"`).
 - No celular, o drawer do ☰ sempre abre por cima da tela, sem empurrar o conteúdo.
 - Item de navegação só com ícone tem o nome no `aria-label` e num tooltip, com alvo de 44px ou mais.
+
+## Botões
+
+A base fica em `css/app.scss`. No `.vue`, escolha só o tamanho e o tipo: **sem altura, raio ou fonte de botão em estilo local**.
+
+| Tamanho  | Até 599px | 600px ou + | Como    | Onde                                          |
+| -------- | --------- | ---------- | ------- | --------------------------------------------- |
+| normal   | 48px      | 40px       | padrão  | rodapé de painel, ação da tela, topo da lista |
+| compacto | 44px      | 36px       | `dense` | linhas de lista, voltar, "Editar"             |
+
+| Tipo       | Aparência        | No `q-btn`                                          | Uso                                   |
+| ---------- | ---------------- | --------------------------------------------------- | ------------------------------------- |
+| principal  | verde preenchido | `unelevated color="primary" class="sc-btn-main"`    | no máximo um por tela ou painel       |
+| secundário | contorno cinza   | `flat class="sc-btn-outline"`                       | as outras ações                       |
+| texto      | sem contorno     | `flat`                                              | cancelar a edição, voltar, "ver mais" |
+| perigo     | texto vermelho   | `flat color="negative"`                             | apagar, sair, cancelar partida        |
+
+- Barlow só no principal (18px até 599, 16px a partir de 600); os outros, Inter 14px. Ícone de 20px.
+- Botão só de ícone (`round`) tem pelo menos 44px nas duas faixas e o nome no `aria-label`.
+- No celular o botão pode ocupar a largura toda (`:class="{ 'full-width': $q.screen.xs }"`). A partir de 600px ele fica do tamanho do texto, menos no login. Cuidado com o pai em coluna flex ou grade, que estica.
+- Botão de escolha (como "Vou" e "Não vou") não é o principal: não leva `sc-btn-main`.

@@ -182,6 +182,7 @@ export default defineComponent({
         <q-btn flat no-caps :label="$t('groups.cancel')" :disable="saving" @click="close" />
         <q-btn
           v-if="!readonly"
+          class="sc-btn-main"
           color="primary"
           unelevated
           no-caps

@@ -285,7 +285,7 @@ export default defineComponent({
         unelevated
         no-caps
         icon="person_add"
-        class="sc-btn-main"
+        class="sc-btn-main invite"
         :label="$t('groups.members.invite')"
         @click="inviteOpen = true"
       />
@@ -401,6 +401,13 @@ export default defineComponent({
   flex-direction: column;
   gap: 12px;
   margin-bottom: 8px;
+}
+
+/* A partir de 600px, "Convidar" fica no topo à direita, do tamanho do texto. */
+@media (min-width: 600px) {
+  .invite {
+    align-self: flex-end;
+  }
 }
 
 .invites-row {

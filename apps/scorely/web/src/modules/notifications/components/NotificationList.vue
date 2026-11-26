@@ -65,15 +65,16 @@ export default defineComponent({
 
     <div v-if="store.items.length === 0" class="empty sc-muted">{{ $t('notifications.empty') }}</div>
 
-    <q-btn
-      v-if="store.nextCursor"
-      flat
-      no-caps
-      color="primary"
-      class="full-width more"
-      :label="$t('notifications.more')"
-      @click="store.loadMore()"
-    />
+    <div v-if="store.nextCursor" class="more">
+      <q-btn
+        flat
+        no-caps
+        color="primary"
+        :class="{ 'full-width': $q.screen.xs }"
+        :label="$t('notifications.more')"
+        @click="store.loadMore()"
+      />
+    </div>
   </div>
 </template>
 
@@ -155,6 +156,6 @@ export default defineComponent({
 
 .more {
   border-top: 1px solid var(--sc-line);
-  min-height: 48px;
+  text-align: center;
 }
 </style>
