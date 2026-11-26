@@ -97,7 +97,7 @@ export const en: MessageSchema = {
     too_big: 'Value is too long',
     custom: 'Invalid data',
   },
-  app: { name: 'scorely' },
+  app: { name: 'scorely', close: 'Close' },
   login: {
     tagline: "Organize your group's games",
     email: 'Your email',

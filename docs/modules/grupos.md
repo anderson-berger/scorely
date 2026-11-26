@@ -237,7 +237,13 @@ Caso de referência: a Ana cria a "Pelada de sexta" e é a dona dela. Ela manda 
 ### Telas (web)
 
 - **GRV-06. A tela `/groups` lista os meus grupos** (GRV-05) em cards de capa: a capa em cima, o logo sobreposto na borda de baixo dela e o nome embaixo. Um card por linha no celular e em grade no desktop. Acima dos grupos, quando há, vem a seção **Convites para você** (GRV-36). Sem grupo e sem convite, mostra só o botão "Criar grupo". _(Alterada em 2026-11-20: antes, o card tinha só o nome. Alterada em 2026-11-21: entraram os convites para você.)_
-- **GRV-07. Criar grupo é um painel de baixo, por cima da lista,** só com o campo do nome. Ao criar, o painel fecha e a pessoa vai para a página do grupo (`/groups/{publicId}`), que mostra a capa, o logo e o nome no topo. _(Alterada em 2026-11-20: antes, a página mostrava só o nome.)_
+- **GRV-07. Criar grupo é um painel de baixo, por cima da lista,** só com o campo do nome. Ao criar, o painel fecha e a pessoa vai para a página do grupo (`/groups/{publicId}`), que mostra a capa, o logo e o nome no topo. _(Alterada em 2026-11-20: antes, a página mostrava só o nome. Alterada em 2026-11-26: entrou a forma do painel a partir de 600 px.)_
+  - **O que é um "painel de baixo"**, neste doc e nos outros, em todo o app:
+    - **até 599 px**, ele sobe do pé da tela, com uma alça no topo;
+    - **a partir de 600 px**, ele é um diálogo no centro da tela, com até 480 px de largura, sem a alça e com um **X** no canto superior direito. O X fecha o painel, assim como tocar fora e a tecla Esc;
+    - quando o painel não pode ser fechado (salvando ou enviando, e nas boas-vindas do perfil), o X não aparece, e tocar fora e o Esc não fecham;
+    - nas duas formas, o painel ocupa no máximo 85% da altura da tela, e o que não cabe rola dentro dele.
+  - _Por quê:_ no celular, o pé da tela fica ao alcance do polegar. Numa tela larga, um painel estreito colado no pé parece o layout do celular e fica longe de onde a pessoa estava olhando. Sem a alça, o X deixa a saída à vista.
 - **GRV-11. Sem logo ou sem capa, o lugar da imagem usa uma cor fixa calculada do id público do grupo,** e o logo mostra as iniciais do nome (a primeira letra da primeira e da última palavra).
   - _Por quê:_ o grupo recém-criado não tem imagem, e a tela não pode parecer quebrada. A cor do id é a mesma em todo lugar e diferencia grupos de nome parecido.
 - **GRV-12. Quem tem `group.edit` troca as imagens em Configurações** (GRV-14). A linha "Logo e capa" abre um painel de baixo com a miniatura de cada uma e os botões Trocar e Remover (Remover só quando há imagem). Escolhido o arquivo, o navegador prepara a imagem (MID-03) e envia; ao confirmar, a miniatura e o topo do grupo já mostram a imagem nova. Uma imagem reprovada mostra a mensagem do `MEDIA_INVALID`. _(Alterada em 2026-11-20: antes, o botão "Logo e capa" ficava no topo da página do grupo. Alterada em 2026-11-21: antes, só o dono.)_

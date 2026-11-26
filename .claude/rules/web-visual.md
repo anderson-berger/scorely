@@ -47,3 +47,17 @@ A base fica em `css/app.scss`. No `.vue`, escolha só o tamanho e o tipo: **sem 
 - Botão só de ícone (`round`) tem pelo menos 44px nas duas faixas e o nome no `aria-label`.
 - No celular o botão pode ocupar a largura toda (`:class="{ 'full-width': $q.screen.xs }"`). A partir de 600px ele fica do tamanho do texto, menos no login. Cuidado com o pai em coluna flex ou grade, que estica.
 - Botão de escolha (como "Vou" e "Não vou") não é o principal: não leva `sc-btn-main`.
+
+## Painéis (GRV-07)
+
+Todo painel é o `BottomSheet` (`src/components/BottomSheet.vue`); a forma por faixa fica nele, não no uso.
+
+| Faixa      | Posição          | Forma                                                   | Fechar                |
+| ---------- | ---------------- | ------------------------------------------------------- | --------------------- |
+| até 599px  | pé da tela       | alça no topo, cantos só em cima, largura toda           | arrastar, tocar fora  |
+| 600px ou + | centro da tela   | sem alça, borda e cantos nos quatro lados, até 480px    | X, Esc, clique fora   |
+
+- Nas duas faixas, no máximo 85vh; o que não cabe rola dentro do painel.
+- `persistent` (salvando, boas-vindas) tira o X e impede fechar por fora ou pelo Esc.
+- O slot `action` fica ao lado do X; título longo quebra linha, não passa por baixo dele.
+- Não crie posição, largura ou alça no `.vue` que usa o painel.

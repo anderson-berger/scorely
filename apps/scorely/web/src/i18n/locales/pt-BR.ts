@@ -106,7 +106,7 @@ export const ptBR = {
     too_big: 'Valor muito longo',
     custom: 'Dados inválidos',
   },
-  app: { name: 'scorely' },
+  app: { name: 'scorely', close: 'Fechar' },
   login: {
     tagline: 'Organize os jogos do seu grupo',
     email: 'Seu email',
