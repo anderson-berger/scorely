@@ -1,5 +1,5 @@
-import { competitionsGroupRoutes } from '@scorely/web/src/modules/competitions/routes';
-import { matchesGroupRoutes } from '@scorely/web/src/modules/matches/routes';
+import { competitionsGroupRoutes } from '@scorely/web/src/modules/groups/competitions/routes';
+import { matchesGroupRoutes } from '@scorely/web/src/modules/groups/matches/routes';
 import type { RouteRecordRaw } from 'vue-router';
 
 /** Grupo (docs/modules/grupos.md). */
@@ -17,7 +17,7 @@ export const groupsRoutes: RouteRecordRaw[] = [
       },
     ],
   },
-  // GRV-13: o casco carrega o grupo e mostra a barra; cada área é uma rota filha.
+  // GRV-13: o casco carrega o grupo e mostra as abas; cada área é uma rota filha.
   {
     path: 'groups/:id',
     component: () => import('@scorely/web/src/modules/groups/pages/GroupPage.vue'),

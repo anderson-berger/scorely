@@ -91,7 +91,7 @@ export default defineComponent({
           color="primary"
           unelevated
           icon="add"
-          class="sc-btn-main new"
+          class="sc-btn-main"
           :label="$q.screen.xs ? undefined : $t('groups.create')"
           :aria-label="$t('groups.create')"
           :to="{ name: 'group-create' }"
@@ -145,7 +145,8 @@ export default defineComponent({
           color="primary"
           unelevated
           icon="add"
-          class="full-width sc-btn-main"
+          class="sc-btn-main"
+          :class="{ 'full-width': $q.screen.xs }"
           :label="$t('groups.create')"
           :to="{ name: 'group-create' }"
         />
@@ -181,11 +182,6 @@ export default defineComponent({
 
 .title {
   margin: 0;
-}
-
-.new {
-  min-height: 44px;
-  min-width: 44px;
 }
 
 .invite-list {
@@ -257,6 +253,7 @@ export default defineComponent({
   max-width: 480px;
   margin: 0 auto;
   padding: 40px 0;
+  text-align: center;
 }
 
 .loading {

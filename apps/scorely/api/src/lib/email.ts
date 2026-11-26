@@ -1,3 +1,6 @@
+import { mkdir, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2';
 import { env } from '@scorely/api/src/lib/env';
 import { lazy } from '@scorely/api/src/lib/fn';
@@ -17,10 +20,19 @@ export interface Mailer {
   send(message: EmailMessage): Promise<void>;
 }
 
-/** Dev: só loga. O código de login aparece no terminal do serverless offline. */
+/** Só no serverless offline: o último email de cada destinatário num arquivo, que o `/screens` lê (ADR 0023). */
+async function writeToOutbox(message: EmailMessage) {
+  const dir = join(tmpdir(), 'scorely-outbox');
+  await mkdir(dir, { recursive: true });
+  const content = JSON.stringify({ ...message, sentAt: new Date().toISOString() });
+  await writeFile(join(dir, `${message.to.replaceAll('/', '_')}.json`), content);
+}
+
+/** Dev: loga, e o código de login aparece no terminal do serverless offline. */
 export const consoleMailer: Mailer = {
   async send({ to, subject, text }) {
     console.log(`\n📧 [email] to ${to} — ${subject}\n${text}\n`);
+    if (process.env.IS_OFFLINE === 'true') await writeToOutbox({ to, subject, text });
   },
 };
 

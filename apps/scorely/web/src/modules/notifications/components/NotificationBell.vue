@@ -2,13 +2,18 @@
 import BottomSheet from '@scorely/web/src/components/BottomSheet.vue';
 import NotificationList from '@scorely/web/src/modules/notifications/components/NotificationList.vue';
 import { useNotificationsStore } from '@scorely/web/src/modules/notifications/notifications.store';
-import { defineComponent } from 'vue';
+import { defineComponent, type PropType } from 'vue';
 
 /** Sino: painel de baixo no celular, menu no resto (plano 008, D10). */
 export default defineComponent({
   name: 'NotificationBell',
 
   components: { BottomSheet, NotificationList },
+
+  props: {
+    /** No cabeçalho o menu abre para baixo; na barra lateral (GRV-13), para o lado. */
+    side: { type: String as PropType<'bottom' | 'right'>, default: 'bottom' },
+  },
 
   setup() {
     return { store: useNotificationsStore() };
@@ -46,7 +51,15 @@ export default defineComponent({
     <span v-if="store.unreadCount > 0" class="badge">{{ badge }}</span>
 
     <!-- O menu é teleportado: largura via style inline (CSS scoped não alcança). -->
-    <q-menu v-if="!$q.screen.xs" anchor="bottom right" self="top right" style="width: 380px; max-width: calc(100vw - 32px)">
+    <q-tooltip v-if="side === 'right'" anchor="center right" self="center left" :offset="[8, 0]">
+      {{ $t('notifications.label') }}
+    </q-tooltip>
+    <q-menu
+      v-if="!$q.screen.xs"
+      :anchor="side === 'right' ? 'top right' : 'bottom right'"
+      :self="side === 'right' ? 'top left' : 'top right'"
+      :offset="side === 'right' ? [8, 0] : [0, 0]"
+      style="width: 380px; max-width: calc(100vw - 32px)">
       <div class="menu-head">
         <span class="sc-display menu-title">{{ $t('notifications.title') }}</span>
         <q-btn

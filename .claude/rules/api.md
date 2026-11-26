@@ -54,3 +54,5 @@ Motivo: [docs/decisions/0016-version-confere-nas-edicoes.md](../../docs/decision
 ## Módulo novo
 
 `api/src/modules/<mod>/` (functions.ts, handlers, service, repository, testes) → spread do `<mod>Functions` em `functions` no `serverless.ts`.
+
+Submódulo ([ADR 0022](../../docs/decisions/0022-submodulos-do-grupo.md)): assunto que só existe dentro de outro módulo vai em `api/src/modules/<mod>/<sub>/`, com o próprio `functions.ts` (handler `src/modules/<mod>/<sub>/handlers.<nome>`) e doc próprio, listado no índice como `projeto/<mod>/<sub>`. Ex.: `groups/matches`, `groups/competitions`.

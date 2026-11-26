@@ -44,6 +44,7 @@ Os dados da pessoa ficam em três partes, cada uma com quem pode ler:
 - **USR-02. A conta nasce com o apelido igual ao código de amigo** (USR-15) e sem nome. Enquanto o apelido for igual ao código, o web leva a pessoa para o perfil (AUTH-13).
   - _Por quê:_ o apelido nunca fica vazio, então nenhuma lista precisa de um "sem nome". O código já é público, é único e não depende de idioma; um apelido gerado ("Craque Azul") ninguém trocaria, e um tirado do email vazaria o email (USR-13).
   - _Alterada em 2026-11-14:_ antes a conta nascia sem nome, e o web cobrava o nome.
+  - Nessa ida ao perfil (as boas-vindas), o web já abre o painel de editar o apelido, e esse painel não fecha até salvar: sem o X, e tocar fora e o Esc não fecham. A forma do painel em cada largura está na GRV-07 de [grupos.md](grupos.md). _(Nova em 2026-11-26.)_
 
 ### Perfil
 

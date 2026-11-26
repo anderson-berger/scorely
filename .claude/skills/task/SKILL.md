@@ -58,6 +58,7 @@ Marque no Status.
 
 ## 5. Revisão
 
+- Se o diff toca `apps/scorely/web`, rode antes a skill `/screens` (ADR 0023). Grave no arquivo de trabalho, na seção `## Telas`, o caminho do relatório, as rotas que a tarefa toca e as violações novas (as que não existiam antes da tarefa). Sem a api ou o web no ar, peça ao dono para subir; se não der, registre ali que as telas não foram conferidas.
 - Chame o subagente `reviewer` passando só o caminho do arquivo de trabalho.
 - Grave a resposta dele na seção `## Revisão` desse arquivo.
 - Com ❌: corrija e chame o reviewer de novo **em modo re-revisão**. Passe o caminho do arquivo de trabalho, a palavra "re-revisão", a lista dos ❌ anteriores e os arquivos que você mexeu. Ele confere só isso.

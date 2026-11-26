@@ -4,8 +4,11 @@
 // Regra de datas na web (ADR 0006, `.claude/rules/web.md`): toda data mostrada passa por
 // `src/lib/datetime.ts`. Nenhum `toLocale*String` nem `Intl.DateTimeFormat` fora dele.
 import { existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { filesUnder, ROOT, read } from '@checks/lib';
+import { en } from '@scorely/web/src/i18n/locales/en';
+import { ptBR } from '@scorely/web/src/i18n/locales/pt-BR';
 import { describe, expect, it } from 'vitest';
 
 const HELPER = 'src/lib/datetime.ts';
@@ -134,5 +137,58 @@ describe('web: o check de cores pega a violação plantada', () => {
     ]) {
       expect(colorViolations([{ path: page, text }])).toEqual([]);
     }
+  });
+});
+
+// Regra do i18n (`.claude/rules/web.md`): todo texto dos locales compila no vue-i18n. Um `@` solto
+// (como `para @{name}`) vira "linked message" e quebra a tela; escape como `{'@'}`.
+
+type CompileError = { message: string };
+type Compile = (source: string, options: { onError: (e: CompileError) => void }) => unknown;
+
+/**
+ * O compilador que o próprio vue-i18n do web usa (vue-i18n → @intlify/core-base → message-compiler),
+ * para o check testar a mesma versão da tela sem declarar o pacote à parte.
+ */
+function messageCompiler(): Compile {
+  const fromWeb = createRequire(join(ROOT, 'apps/scorely/web/package.json'));
+  const fromVueI18n = createRequire(fromWeb.resolve('vue-i18n'));
+  const fromCore = createRequire(fromVueI18n.resolve('@intlify/core-base'));
+  return (fromCore('@intlify/message-compiler') as { baseCompile: Compile }).baseCompile;
+}
+
+/** Folhas de texto do locale: `[ 'groups.invites.forUser', 'para ...' ]`. */
+function messages(tree: unknown, prefix = ''): [string, string][] {
+  if (typeof tree === 'string') return [[prefix, tree]];
+  if (tree === null || typeof tree !== 'object') return [];
+  return Object.entries(tree).flatMap(([k, v]) => messages(v, prefix ? `${prefix}.${k}` : k));
+}
+
+function i18nViolations(locale: string, tree: unknown, compile: Compile): string[] {
+  return messages(tree).flatMap(([key, text]) => {
+    const errors: string[] = [];
+    compile(text, { onError: (e) => errors.push(e.message) });
+    return errors.length ? [`${locale}: ${key} não compila (${errors[0]}): ${JSON.stringify(text)}`] : [];
+  });
+}
+
+describe('web: i18n compila', () => {
+  const compile = messageCompiler();
+
+  it.each([
+    ['pt-BR', ptBR],
+    ['en', en],
+  ])('todo texto de %s compila no vue-i18n', (locale, tree) => {
+    expect(i18nViolations(locale, tree, compile)).toEqual([]);
+  });
+
+  it('o check pega o @ solto e aceita o escapado', () => {
+    const tree = {
+      a: { bad: 'para @{name}', email: 'voce@email.com', ok: "para {'@'}{name}", n: '{count} jogos' },
+    };
+    const found = i18nViolations('pt-BR', tree, compile);
+    expect(found).toHaveLength(2);
+    expect(found[0]).toContain('a.bad');
+    expect(found[1]).toContain('a.email');
   });
 });

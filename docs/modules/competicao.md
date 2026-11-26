@@ -2,7 +2,7 @@
 
 > **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-25.
 
-Código: `apps/scorely/api/src/modules/competitions/`, `apps/scorely/web/src/modules/competitions/`. Contrato: `apps/scorely/contracts/src/competitions.ts`.
+Código: `apps/scorely/api/src/modules/groups/competitions/`, `apps/scorely/web/src/modules/groups/competitions/`. Contrato: `apps/scorely/contracts/src/competitions.ts`.
 
 ## 1. Para que serve
 

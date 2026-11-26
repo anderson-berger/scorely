@@ -1,6 +1,7 @@
 <script lang="ts">
 import type { Group, GroupInvite, GroupJoinRequest, GroupMember, GroupTier } from '@scorely/contracts';
 import { errorMessage } from '@scorely/web/src/i18n/errors';
+import { confirmAction } from '@scorely/web/src/lib/confirm';
 import { formatDateTime } from '@scorely/web/src/lib/datetime';
 import { useAuthStore } from '@scorely/web/src/modules/auth/auth.store';
 import GroupInviteSheet from '@scorely/web/src/modules/groups/components/GroupInviteSheet.vue';
@@ -116,15 +117,16 @@ export default defineComponent({
       return canTransfer(this.group, member);
     },
 
-    confirmTransfer(member: GroupMember) {
-      this.$q
-        .dialog({
-          title: this.$t('groups.members.transferTitle', { name: member.user.nickname }),
-          message: this.$t('groups.members.transferConfirm', { name: member.user.nickname }),
-          cancel: { label: this.$t('groups.cancel'), flat: true },
-          ok: { label: this.$t('groups.members.transfer'), color: 'negative', flat: true },
-        })
-        .onOk(() => this.transfer(member));
+    async confirmTransfer(member: GroupMember) {
+      const confirmed = await confirmAction({
+        title: this.$t('groups.members.transferTitle', { name: member.user.nickname }),
+        message: this.$t('groups.members.transferConfirm', { name: member.user.nickname }),
+        ok: this.$t('groups.members.transfer'),
+        cancel: this.$t('groups.cancel'),
+        danger: true,
+      });
+      if (!confirmed) return;
+      await this.transfer(member);
     },
 
     /** GRV-49: passa o grupo e relê o grupo (o `myRole` e as permissões mudaram) e a lista. */
@@ -176,15 +178,16 @@ export default defineComponent({
       await this.load();
     },
 
-    confirmDecline(request: GroupJoinRequest) {
-      this.$q
-        .dialog({
-          title: this.$t('groups.requests.declineTitle', { name: request.user.nickname }),
-          message: this.$t('groups.requests.declineConfirm', { name: request.user.nickname }),
-          cancel: { label: this.$t('groups.cancel'), flat: true },
-          ok: { label: this.$t('groups.requests.decline'), color: 'negative', flat: true },
-        })
-        .onOk(() => this.decline(request));
+    async confirmDecline(request: GroupJoinRequest) {
+      const confirmed = await confirmAction({
+        title: this.$t('groups.requests.declineTitle', { name: request.user.nickname }),
+        message: this.$t('groups.requests.declineConfirm', { name: request.user.nickname }),
+        ok: this.$t('groups.requests.decline'),
+        cancel: this.$t('groups.cancel'),
+        danger: true,
+      });
+      if (!confirmed) return;
+      await this.decline(request);
     },
 
     /** GRV-28: recusar, sem aviso para a pessoa. */
@@ -202,15 +205,16 @@ export default defineComponent({
       this.$router.push({ name: 'group-invites', params: { id: this.group.id } });
     },
 
-    confirmRemove(member: GroupMember) {
-      this.$q
-        .dialog({
-          title: this.$t('groups.members.removeTitle', { name: member.user.nickname }),
-          message: this.$t('groups.members.removeConfirm', { name: member.user.nickname }),
-          cancel: { label: this.$t('groups.cancel'), flat: true },
-          ok: { label: this.$t('groups.members.remove'), color: 'negative', flat: true },
-        })
-        .onOk(() => this.remove(member));
+    async confirmRemove(member: GroupMember) {
+      const confirmed = await confirmAction({
+        title: this.$t('groups.members.removeTitle', { name: member.user.nickname }),
+        message: this.$t('groups.members.removeConfirm', { name: member.user.nickname }),
+        ok: this.$t('groups.members.remove'),
+        cancel: this.$t('groups.cancel'),
+        danger: true,
+      });
+      if (!confirmed) return;
+      await this.remove(member);
     },
 
     async remove(member: GroupMember) {
@@ -254,15 +258,16 @@ export default defineComponent({
       }
     },
 
-    confirmLeave() {
-      this.$q
-        .dialog({
-          title: this.$t('groups.members.leaveTitle'),
-          message: this.$t('groups.members.leaveConfirm', { name: this.group.name }),
-          cancel: { label: this.$t('groups.cancel'), flat: true },
-          ok: { label: this.$t('groups.members.leave'), color: 'negative', flat: true },
-        })
-        .onOk(() => this.leave());
+    async confirmLeave() {
+      const confirmed = await confirmAction({
+        title: this.$t('groups.members.leaveTitle'),
+        message: this.$t('groups.members.leaveConfirm', { name: this.group.name }),
+        ok: this.$t('groups.members.leave'),
+        cancel: this.$t('groups.cancel'),
+        danger: true,
+      });
+      if (!confirmed) return;
+      await this.leave();
     },
 
     async leave() {
@@ -285,7 +290,7 @@ export default defineComponent({
         unelevated
         no-caps
         icon="person_add"
-        class="sc-btn-main"
+        class="sc-btn-main invite"
         :label="$t('groups.members.invite')"
         @click="inviteOpen = true"
       />
@@ -401,6 +406,13 @@ export default defineComponent({
   flex-direction: column;
   gap: 12px;
   margin-bottom: 8px;
+}
+
+/* A partir de 600px, "Convidar" fica no topo à direita, do tamanho do texto. */
+@media (min-width: 600px) {
+  .invite {
+    align-self: flex-end;
+  }
 }
 
 .invites-row {

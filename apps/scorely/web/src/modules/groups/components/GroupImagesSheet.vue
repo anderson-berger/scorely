@@ -105,15 +105,17 @@ export default defineComponent({
         </div>
         <div class="actions">
           <q-btn
-            outline
+            dense
+            class="sc-btn-outline"
+            flat
             no-caps
-            color="primary"
             :label="$t(urlOf(slot) ? 'groups.imageChange' : 'groups.imageUpload')"
             :disable="busy !== undefined"
             @click="pick(slot)"
           />
           <q-btn
             v-if="urlOf(slot)"
+            dense
             flat
             no-caps
             color="negative"

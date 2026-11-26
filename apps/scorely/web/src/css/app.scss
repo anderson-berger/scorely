@@ -39,15 +39,15 @@ a {
   color: var(--sc-accent);
 }
 
-// Coluna única no celular (plano 008, D13). No desktop, a área toda ao lado do menu, alinhada à esquerda
-// (plano 016, D1); formulários até 640px de conteúdo (D2).
+// Coluna única no celular (plano 008, D13). A partir de 600px, a área toda, alinhada à esquerda (GRV-13;
+// plano 016, D1); formulários até 640px de conteúdo (D2).
 .sc-page {
   max-width: 480px;
   margin: 0 auto;
   padding: 16px 16px 32px;
 }
 
-@media (min-width: 1024px) {
+@media (min-width: 600px) {
   .sc-page {
     max-width: none;
     margin: 0;
@@ -138,25 +138,57 @@ a {
   }
 }
 
-// Botões: texto escuro sobre o verde-limão; principal em Barlow.
+// Botões (.claude/rules/web-visual.md): duas alturas, normal e compacta (`dense`), nas duas faixas.
+// Com texto é `--rectangle`; só com ícone é `--round`.
+.q-btn.q-btn--rectangle {
+  min-height: 48px;
+  border-radius: 12px;
+}
+
+.q-btn.q-btn--rectangle.q-btn--dense {
+  min-height: 44px;
+}
+
+.q-btn.q-btn--round {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.q-btn .q-icon {
+  font-size: 20px;
+}
+
+// Texto escuro sobre o verde-limão.
 .q-btn.bg-primary {
   color: var(--sc-on-accent) !important;
 }
 
-.sc-btn-main {
-  min-height: 56px;
+// Principal: o único em Barlow.
+.q-btn.sc-btn-main {
   font-family: var(--sc-font-display);
   font-weight: 700;
-  font-size: 20px;
+  font-size: 18px;
   letter-spacing: 1px;
-  border-radius: 14px;
 }
 
+// Secundário: contorno cinza. Usar com `flat`.
 .sc-btn-outline {
-  min-height: 48px;
-  border-radius: 12px;
   border: 1px solid var(--sc-line-strong);
   color: var(--sc-text);
+}
+
+@media (min-width: 600px) {
+  .q-btn.q-btn--rectangle {
+    min-height: 40px;
+  }
+
+  .q-btn.q-btn--rectangle.q-btn--dense {
+    min-height: 36px;
+  }
+
+  .q-btn.sc-btn-main {
+    font-size: 16px;
+  }
 }
 
 .sc-icon-btn {
@@ -175,6 +207,28 @@ a {
 
   &::before {
     border-color: var(--sc-line-strong);
+  }
+}
+
+// Toques (web-visual.md, "Toques"): até 599px, campo compacto e chave de ligar com 44px de alvo;
+// a partir de 600px, o campo compacto volta aos 40px do Quasar.
+.q-field--dense .q-field__control,
+.q-field--dense .q-field__marginal {
+  height: 44px;
+}
+
+.q-toggle {
+  min-height: 44px;
+}
+
+@media (min-width: 600px) {
+  .q-field--dense .q-field__control,
+  .q-field--dense .q-field__marginal {
+    height: 40px;
+  }
+
+  .q-toggle {
+    min-height: 0;
   }
 }
 

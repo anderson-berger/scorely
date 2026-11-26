@@ -89,6 +89,7 @@ export default defineComponent({
     <div class="footer">
       <q-btn flat no-caps :label="$t('groups.cancel')" :disable="saving" @click="close" />
       <q-btn
+        class="sc-btn-main"
         color="primary"
         unelevated
         no-caps

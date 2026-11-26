@@ -24,11 +24,13 @@ Referência: `apps/scorely/web/src/modules/users/pages/ProfilePage.vue`.
 
 ## Forms no painel de baixo
 
-Todo form abre no `BottomSheet` (`src/components/BottomSheet.vue`), no padrão do painel de convite (`modules/groups/components/GroupInviteSheet.vue`): título, uma dica curta, os campos e, no rodapé, Cancelar e a ação principal. Não crie uma tela própria nem um drawer para um form.
+Todo form abre no `BottomSheet` (`src/components/BottomSheet.vue`), no padrão do painel de convite (`modules/groups/components/GroupInviteSheet.vue`): título, uma dica curta, os campos e, no rodapé, Cancelar e a ação principal. Não crie uma tela própria nem um drawer para um form. A forma do painel por largura está em `web-visual.md` ("Painéis").
 
 ## Módulo novo
 
 `web/src/modules/<mod>/` (routes, api, store, pages) → registre as rotas em `src/app/router.ts`.
+
+Submódulo ([ADR 0022](../../docs/decisions/0022-submodulos-do-grupo.md)): `web/src/modules/<mod>/<sub>/`, com as rotas juntadas no `routes.ts` do módulo pai (ex.: `groups/matches`, `groups/competitions` em `groups/routes.ts`).
 
 ## Datas e preferências (scorely)
 
@@ -41,6 +43,7 @@ Motivo: [docs/decisions/0006-datas-utc-fuso-do-perfil.md](../../docs/decisions/0
 ## i18n e erros (scorely)
 
 - `vue-i18n` (Composition mode, `legacy: false`), em `apps/scorely/web/src/i18n/`. `pt-BR` é o idioma base e define as chaves; os outros locales são tipados como `MessageSchema` e precisam ter as mesmas chaves. Nos componentes use `this.$t`; fora deles, `t` de `@scorely/web/src/i18n`.
+- Todo texto dos locales compila no vue-i18n: `@` solto vira "linked message" e quebra a tela; escape como `{'@'}`. Check: `checks/web.test.ts`.
 - O usuário nunca vê texto do back. Traduza o erro pelo `code` com `errorMessage(err)` e os issues de validação com `issueMessage(issue, field?)` (`src/i18n/errors.ts`). Nunca mostre `err.message` nem `issue.message`.
 - Validação: `validation.<campo>.<código do Zod>`, com fallback em `validation.<código do Zod>`.
 - O `src/lib/http.ts` renova a sessão no 401 e no 403 sem `{ error }`.

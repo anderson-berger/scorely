@@ -1,111 +1,91 @@
 <script lang="ts">
+import type { Group } from '@scorely/contracts';
 import { type GroupNavItem } from '@scorely/web/src/modules/groups/nav';
 import { defineComponent, type PropType } from 'vue';
 
 /**
- * GRV-13: a barra das áreas do grupo. Embaixo da tela no celular e numa coluna à esquerda a partir de 1024px.
- * Trocar de área usa `replace`: o voltar do navegador sai do grupo.
+ * GRV-13: as áreas do grupo em abas, só com o nome, logo abaixo do topo do grupo. As que não cabem rolam para o lado.
+ * Trocar de aba usa `replace`: o voltar do navegador sai do grupo.
  */
 export default defineComponent({
   name: 'GroupNav',
 
   props: {
     items: { type: Array as PropType<GroupNavItem[]>, required: true },
-    groupId: { type: String, required: true },
+    group: { type: Object as PropType<Group>, required: true },
+  },
+
+  watch: {
+    async '$route.name'() {
+      await this.$nextTick();
+      this.showActive();
+    },
+  },
+
+  mounted() {
+    this.showActive();
   },
 
   methods: {
     isActive(item: GroupNavItem): boolean {
       return item.active.includes(String(this.$route.name));
     },
+
+    /** Na tela estreita, a aba aberta não pode ficar fora da vista. */
+    showActive() {
+      const root = this.$el as HTMLElement;
+      root.querySelector('.tab.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    },
   },
 });
 </script>
 
 <template>
-  <nav class="group-nav" :aria-label="$t('groups.nav.label')">
+  <nav class="tabs" :aria-label="$t('groups.nav.label')">
     <router-link
       v-for="item in items"
       :key="item.key"
-      :to="{ name: item.to.name, params: { id: groupId } }"
+      :to="{ name: item.to.name, params: { id: group.id } }"
       replace
-      :class="['nav-item', { active: isActive(item) }]"
+      :class="['sc-display', 'tab', { active: isActive(item) }]"
       :aria-current="isActive(item) ? 'page' : undefined"
     >
-      <q-icon :name="item.icon" size="24px" aria-hidden="true" />
-      <span class="sc-display label">{{ $t(`groups.nav.${item.key}`) }}</span>
+      {{ $t(`groups.nav.${item.key}`) }}
     </router-link>
   </nav>
 </template>
 
 <style scoped>
-.group-nav {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 100;
+.tabs {
   display: flex;
-  justify-content: space-around;
-  background: var(--sc-surface);
-  border-top: 1px solid var(--sc-line);
-  padding-bottom: env(safe-area-inset-bottom);
+  gap: 4px;
+  margin-bottom: 20px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  border-bottom: 1px solid var(--sc-line);
 }
 
-.nav-item {
-  flex: 1;
-  max-width: 120px;
-  min-height: 56px;
+.tab {
+  flex-shrink: 0;
+  min-height: 48px;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 4px;
+  padding: 0 12px;
+  font-size: 18px;
+  letter-spacing: 1px;
+  white-space: nowrap;
   color: var(--sc-muted);
   text-decoration: none;
+  border-bottom: 2px solid transparent;
 }
 
-.label {
-  font-size: 14px;
-  letter-spacing: 1px;
-}
-
-.nav-item.active {
+.tab.active {
   color: var(--sc-accent);
+  border-bottom-color: var(--sc-accent);
 }
 
-@media (min-width: 1024px) {
-  .group-nav {
-    position: sticky;
-    top: 24px;
-    flex-direction: column;
-    justify-content: flex-start;
-    gap: 4px;
-    width: 200px;
-    flex-shrink: 0;
-    align-self: flex-start;
-    padding: 0;
-    background: transparent;
-    border-top: 0;
-  }
-
-  .nav-item {
-    max-width: none;
-    flex: none;
-    min-height: 48px;
-    flex-direction: row;
-    justify-content: flex-start;
-    gap: 12px;
-    padding: 0 12px;
-    border-radius: 12px;
-  }
-
-  .label {
-    font-size: 18px;
-  }
-
-  .nav-item.active {
-    background: var(--sc-line);
-  }
+/* O contorno do foco fica dentro da aba: a rolagem cortaria o de fora. */
+.tab:focus-visible {
+  outline-offset: -2px;
 }
 </style>

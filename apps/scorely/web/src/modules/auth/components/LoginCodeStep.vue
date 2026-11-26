@@ -129,7 +129,7 @@ export default defineComponent({
         :loading="loading"
       />
     </q-form>
-    <div class="row justify-between q-mt-xs">
+    <div class="row justify-between q-mt-md">
       <q-btn flat no-caps class="link" :label="$t('login.changeEmail')" @click="$emit('change-email')" />
       <q-btn
         flat
@@ -169,7 +169,6 @@ export default defineComponent({
 }
 
 .link {
-  min-height: 44px;
   color: var(--sc-text-2);
 }
 </style>

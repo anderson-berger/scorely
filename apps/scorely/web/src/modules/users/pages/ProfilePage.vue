@@ -264,7 +264,7 @@ export default defineComponent({
         <section class="sc-card card" :aria-label="$t('profile.you')">
           <div class="card-head">
             <h2 class="sc-section">{{ $t('profile.you') }}</h2>
-            <q-btn flat no-caps color="primary" class="edit" :label="$t('profile.edit')" @click="edit('you')" />
+            <q-btn dense flat no-caps color="primary" :label="$t('profile.edit')" @click="edit('you')" />
           </div>
 
           <div class="who">
@@ -281,7 +281,7 @@ export default defineComponent({
           </div>
 
           <div class="photo-actions">
-            <q-btn outline no-caps color="primary" :label="$t('profile.changePhoto')" :disable="photoBusy" @click="pickPhoto" />
+            <q-btn class="sc-btn-outline" flat no-caps :label="$t('profile.changePhoto')" :disable="photoBusy" @click="pickPhoto" />
             <q-btn
               v-if="auth.user.avatarUrl"
               flat
@@ -316,7 +316,7 @@ export default defineComponent({
         <section class="sc-card card" :aria-label="$t('profile.preferences')">
           <div class="card-head">
             <h2 class="sc-section">{{ $t('profile.preferences') }}</h2>
-            <q-btn flat no-caps color="primary" class="edit" :label="$t('profile.edit')" @click="edit('prefs')" />
+            <q-btn dense flat no-caps color="primary" :label="$t('profile.edit')" @click="edit('prefs')" />
           </div>
           <dl class="rows">
             <div class="row">
@@ -375,7 +375,7 @@ export default defineComponent({
           <div class="sc-caption q-mt-xs">{{ $t('profile.genderHint') }}</div>
         </fieldset>
         <div class="actions" :class="{ 'actions--one': welcome }">
-          <q-btn v-if="!welcome" flat no-caps class="sc-btn-outline" :label="$t('profile.cancel')" :disable="saving" @click="editor = ''" />
+          <q-btn v-if="!welcome" flat no-caps :label="$t('profile.cancel')" :disable="saving" @click="editor = ''" />
           <q-btn
             type="submit"
             color="primary"
@@ -411,7 +411,7 @@ export default defineComponent({
           <div class="sc-caption q-mt-xs">{{ $t('profile.timeZoneHint') }}</div>
         </div>
         <div class="actions">
-          <q-btn flat no-caps class="sc-btn-outline" :label="$t('profile.cancel')" :disable="saving" @click="editor = ''" />
+          <q-btn flat no-caps :label="$t('profile.cancel')" :disable="saving" @click="editor = ''" />
           <q-btn type="submit" color="primary" unelevated class="sc-btn-main" :label="$t('profile.save')" :loading="saving" />
         </div>
       </q-form>
@@ -466,10 +466,6 @@ export default defineComponent({
 
 .card-head .sc-section {
   margin: 0;
-}
-
-.edit {
-  min-height: 44px;
 }
 
 .who {
@@ -541,6 +537,14 @@ export default defineComponent({
 
 .actions--one {
   grid-template-columns: 1fr;
+}
+
+/* A partir de 600px, os botões ficam do tamanho do texto. */
+@media (min-width: 600px) {
+  .actions {
+    display: flex;
+    justify-content: flex-end;
+  }
 }
 
 .photo-actions {

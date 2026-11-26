@@ -1,6 +1,6 @@
 # Módulo Grupos
 
-> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-25.
+> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-26.
 
 Código: `apps/scorely/api/src/modules/groups/`, `apps/scorely/web/src/modules/groups/`. Contrato: `apps/scorely/contracts/src/groups.ts`.
 
@@ -237,20 +237,38 @@ Caso de referência: a Ana cria a "Pelada de sexta" e é a dona dela. Ela manda 
 ### Telas (web)
 
 - **GRV-06. A tela `/groups` lista os meus grupos** (GRV-05) em cards de capa: a capa em cima, o logo sobreposto na borda de baixo dela e o nome embaixo. Um card por linha no celular e em grade no desktop. Acima dos grupos, quando há, vem a seção **Convites para você** (GRV-36). Sem grupo e sem convite, mostra só o botão "Criar grupo". _(Alterada em 2026-11-20: antes, o card tinha só o nome. Alterada em 2026-11-21: entraram os convites para você.)_
-- **GRV-07. Criar grupo é um painel de baixo, por cima da lista,** só com o campo do nome. Ao criar, o painel fecha e a pessoa vai para a página do grupo (`/groups/{publicId}`), que mostra a capa, o logo e o nome no topo. _(Alterada em 2026-11-20: antes, a página mostrava só o nome.)_
+- **GRV-07. Criar grupo é um painel de baixo, por cima da lista,** só com o campo do nome. Ao criar, o painel fecha e a pessoa vai para a página do grupo (`/groups/{publicId}`), que mostra a capa, o logo e o nome no topo. _(Alterada em 2026-11-20: antes, a página mostrava só o nome. Alterada em 2026-11-26: entrou a forma do painel a partir de 600 px.)_
+  - **O que é um "painel de baixo"**, neste doc e nos outros, em todo o app:
+    - **até 599 px**, ele sobe do pé da tela, com uma alça no topo;
+    - **a partir de 600 px**, ele é um diálogo no centro da tela, com até 480 px de largura, sem a alça e com um **X** no canto superior direito. O X fecha o painel, assim como tocar fora e a tecla Esc;
+    - quando o painel não pode ser fechado (salvando ou enviando, e nas boas-vindas do perfil), o X não aparece, e tocar fora e o Esc não fecham;
+    - nas duas formas, o painel ocupa no máximo 85% da altura da tela, e o que não cabe rola dentro dele.
+  - _Por quê:_ no celular, o pé da tela fica ao alcance do polegar. Numa tela larga, um painel estreito colado no pé parece o layout do celular e fica longe de onde a pessoa estava olhando. Sem a alça, o X deixa a saída à vista.
 - **GRV-11. Sem logo ou sem capa, o lugar da imagem usa uma cor fixa calculada do id público do grupo,** e o logo mostra as iniciais do nome (a primeira letra da primeira e da última palavra).
   - _Por quê:_ o grupo recém-criado não tem imagem, e a tela não pode parecer quebrada. A cor do id é a mesma em todo lugar e diferencia grupos de nome parecido.
 - **GRV-12. Quem tem `group.edit` troca as imagens em Configurações** (GRV-14). A linha "Logo e capa" abre um painel de baixo com a miniatura de cada uma e os botões Trocar e Remover (Remover só quando há imagem). Escolhido o arquivo, o navegador prepara a imagem (MID-03) e envia; ao confirmar, a miniatura e o topo do grupo já mostram a imagem nova. Uma imagem reprovada mostra a mensagem do `MEDIA_INVALID`. _(Alterada em 2026-11-20: antes, o botão "Logo e capa" ficava no topo da página do grupo. Alterada em 2026-11-21: antes, só o dono.)_
   - _Por quê:_ trocar a imagem é configurar o grupo, coisa rara. No topo, o botão disputava espaço com o nome e aparecia para quem só quer ver o grupo.
-- **GRV-13. Dentro do grupo, as áreas ficam numa barra de navegação:** embaixo da tela no celular e numa coluna à esquerda do conteúdo no PC (a partir de 1024 px, o mesmo ponto em que o menu do app fica fixo). Cada área tem ícone e nome e a sua rota:
+- **GRV-13. A área logada tem uma barra lateral, igual em todas as telas, e as áreas do grupo ficam em abas dentro da página do grupo** ([ADR 0024](../decisions/0024-tres-areas-e-navegacao.md)). A barra muda com a largura da tela:
+  - **A partir de 1024 px**, a barra fica fixa à esquerda, com 240 px:
+    - no topo, numa linha só: o logo do scorely, que leva a **Meus grupos** (GRV-06), o sino dos avisos e a foto da pessoa, que abre a conta (Perfil, Sair);
+    - a seção **Meus**, com **Grupos** (GRV-06). Times e Campeonatos entram nela quando existirem;
+    - a seção **Atalhos**, com os grupos de que a pessoa participa (logo e nome, GRV-10, 11), na ordem de GRV-05, o grupo aberto destacado. Um toque abre o Início do grupo. Com muitos grupos, a barra rola.
+  - **De 600 a 1023 px**, a mesma barra só com ícones, em 72 px: o logo, o sino e a foto, um embaixo do outro; o ícone de Grupos; e o logo de cada grupo. Cada item tem o nome no leitor de tela e ao passar o mouse.
+  - **Até 599 px**, um cabeçalho com o ☰, o logo do scorely, o sino e a foto. O ☰ abre por cima da tela o mesmo conteúdo da barra: Meus grupos e a lista dos grupos (logo e nome, o aberto destacado).
+  - Criar grupo continua no botão da tela Meus grupos (GRV-07), e não na barra.
+  - **Dentro de um grupo**, em qualquer largura, as áreas (lista abaixo) ficam em **abas** logo abaixo do topo do grupo, só com o nome. No Início, o topo é a capa, o logo e o nome em destaque (GRV-07); nas outras áreas, o topo é compacto: o logo pequeno e o nome. As abas que não cabem rolam para o lado.
+  - A partir de 600 px, o conteúdo usa a largura que sobra ao lado da barra.
+
+  As áreas do grupo, cada uma com a sua rota:
   - **Início** (`/groups/{publicId}`): a capa, o logo e o nome em destaque (GRV-07). É a área que abre ao entrar no grupo.
+  - **Partidas** (`/groups/{publicId}/matches`): para todos que participam (PAR-17 em [partidas.md](partidas.md)), entre o Início e a Competição. _(Nova em 2026-11-23.)_
+  - **Competição** (`/groups/{publicId}/competitions`): para todos que participam (COM-12 em [competicao.md](competicao.md)), entre as Partidas e os Membros. _(Nova em 2026-11-25.)_
   - **Membros** (`/groups/{publicId}/members`): para todos que participam (GRV-32). _(Nova em 2026-11-21.)_
   - **Configurações** (`/groups/{publicId}/settings`): só para quem tem `group.edit` ou `roles.manage` (GRV-14, 16). Para os outros, a área não aparece, e a rota leva ao Início. _(Alterada em 2026-11-21: antes, só para o dono. Alterada em 2026-11-22: entrou o `roles.manage`.)_
-  - **Partidas** (`/groups/{publicId}/matches`): para todos que participam (PAR-17 em [partidas.md](partidas.md)), entre o Início e os Membros. _(Nova em 2026-11-23.)_
-  - **Competição** (`/groups/{publicId}/competitions`): para todos que participam (COM-12 em [competicao.md](competicao.md)), entre as Partidas e os Membros. _(Nova em 2026-11-25.)_
-  - Trocar de área troca a tela sem empilhar no histórico: o voltar do navegador sai do grupo, e não volta para a área anterior. Fora do Início, o topo é compacto: o logo pequeno e o nome.
-  - _Por quê:_ abas no topo, como no primeiro grupo, ficam apertadas no celular e somem ao rolar. A barra de baixo fica no alcance do polegar e sempre à vista, o padrão dos apps no celular (até 5 áreas); no PC, a coluna usa a largura que sobra. A área sem conteúdo fica fora para a tela não prometer o que ainda não existe. Sem empilhar, o voltar faz o que se espera de uma barra de app.
-  - _(Alterada em 2026-11-21: saiu "com uma área só, a barra não aparece", que deixou de acontecer com os Membros para todos.)_
+  - Trocar de área (aba) troca a tela sem empilhar no histórico: o voltar do navegador sai do grupo, e não volta para a área anterior. Trocar de grupo pelos atalhos ou pelo ☰ empilha, como entrar num grupo pela lista.
+  - _Por quê:_ o scorely vai além dos grupos: a pessoa terá times, campeonatos e a vitrine ([ADR 0024](../decisions/0024-tres-areas-e-navegacao.md)). Uma barra só, organizada pelo que é dela ("Meus") e com atalhos para os grupos, cresce com cada área nova sem mudar de forma. As áreas do grupo em abas deixam uma coluna só à esquerda, em vez de duas disputando o espaço, e são iguais no celular e no computador. O sino e a foto no topo da barra liberam o rodapé para a lista de atalhos crescer. Criar grupo fica na tela dos grupos para a barra não ganhar um botão por tipo de coisa que dá para criar. A área sem conteúdo fica fora para a tela não prometer o que ainda não existe. Sem empilhar, o voltar faz o que se espera de abas.
+  - _(Alterada em 2026-11-21: saiu "com uma área só, a barra não aparece", que deixou de acontecer com os Membros para todos. Alterada em 2026-11-26: antes, um cabeçalho com o ☰ e um menu do app só com "Grupos", e as áreas do grupo numa coluna à esquerda a partir de 600 px e numa barra embaixo até 599 px. No mesmo dia, um trilho de logos no modelo do Discord foi proposto e trocado por esta barra, quando o produto passou a ter vitrine e áreas além dos grupos.)_
+
 - **GRV-14. Configurações é uma lista agrupada:** cada linha tem ícone, nome, o valor atual quando há (ex.: o nome do grupo) e a seta, e tocar abre o painel de baixo da configuração. Por enquanto há três grupos: **Identidade**, com as linhas "Logo e capa" (GRV-12) e "Modalidade" (GRV-53), **Entrada**, com a linha "Quem pode entrar" (GRV-38), os dois para quem tem `group.edit`, e **Pessoas**, com a linha "Cargos" e o número de cargos criados (GRV-50), para quem tem `roles.manage`. Um grupo sem nenhuma linha que a pessoa possa usar não aparece. As próximas (nome, arquivar) entram na lista quando existirem. _(Alterada em 2026-11-21: entrou o grupo Entrada. Alterada em 2026-11-22: entrou o grupo Pessoas. Alterada em 2026-11-25: entrou a Modalidade.)_
   - _Por quê:_ a lista cresce sem mudar a tela, e cada edição segue o padrão de painel de baixo do app.
 - **GRV-32. A tela Membros** (GRV-29) tem duas seções, **Membros** e **Reservas** (esta só quando há reserva). Cada linha mostra a foto, o apelido, a marca do cargo ("Dono" ou o nome do cargo criado; o Todos não tem marca), a data de entrada e "convidado por" quem trouxe a pessoa. _(Alterada em 2026-11-22: antes, só a marca "Dono".)_
@@ -360,6 +378,7 @@ Erros: `VALIDATION_ERROR`, `GROUP_NOT_FOUND`, `GROUP_PERMISSION_DENIED` (403), `
 - Quem está no Todos não remove ninguém nem gerencia cargos, mesmo que quisessem liberar: não há ninguém abaixo dele (GRV-45).
 - O dono que passou o grupo não tem como desfazer: quem recebeu precisa passar de volta.
 - O grupo não muda de nome, não é arquivado nem apagado. Por isso, as mídias de um grupo nunca ficam sem dono. Quando a troca do nome entrar, ela precisa levar junto o nome copiado na agenda das partidas ([partidas.md](partidas.md) §3).
+- Os atalhos da barra (GRV-13) mostram todos os grupos da pessoa, sem pasta nem ordem própria: com muitos grupos, a barra rola.
 - A cor sem imagem (GRV-11) vem do id público: se um dia o código mudar (GRV-08), a cor muda junto.
 
 ## 5. Em discussão (ainda não é regra)
@@ -371,4 +390,5 @@ Erros: `VALIDATION_ERROR`, `GROUP_NOT_FOUND`, `GROUP_PERMISSION_DENIED` (403), `
 - **Mandar o convite por email**, quando o SES tiver domínio verificado.
 - **Bloqueio:** impedir que uma pessoa removida volte, se cancelar o convite não bastar.
 - **Esporte:** só como filtro do marketplace, fora do grupo.
+- **Navegação (GRV-13):** uma bolinha no atalho do grupo com novidade (partida nova, pedido para entrar), quando houver o que contar por grupo. Quando existirem o Início da pessoa e a vitrine (Explorar, o mapa), eles entram no topo da barra, acima de "Meus", e o logo passa a levar ao Início; no celular, entra uma barra de baixo do app (Início, Explorar, Meus, Você) e as abas do grupo continuam no topo. A área deslogada (a vitrine) é de outro módulo ([ADR 0024](../decisions/0024-tres-areas-e-navegacao.md)).
 - **Modalidade além do ranking** (GRV-52): aparecer no cartão do grupo e na apresentação, filtrar a busca de grupos (marketplace) e, no sorteio dos times, espalhar homens e mulheres só no grupo misto.
