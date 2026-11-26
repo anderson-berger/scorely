@@ -144,7 +144,7 @@ export default defineComponent({
       />
     </div>
 
-    <q-tabs v-model="tab" dense no-caps align="left" class="tabs" active-color="primary" indicator-color="primary">
+    <q-tabs v-model="tab" no-caps align="left" class="tabs" active-color="primary" indicator-color="primary">
       <q-tab name="upcoming" :label="$t('matches.tabs.upcoming')" />
       <q-tab name="past" :label="$t('matches.tabs.past')" />
     </q-tabs>

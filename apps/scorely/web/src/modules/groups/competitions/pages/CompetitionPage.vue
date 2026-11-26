@@ -163,7 +163,7 @@ export default defineComponent({
       <q-tabs
         v-if="showCuts"
         v-model="cut"
-        dense no-caps align="left" class="tabs" active-color="primary" indicator-color="primary">
+        no-caps align="left" class="tabs" active-color="primary" indicator-color="primary">
         <q-tab v-for="c in cuts" :key="c" :name="c" :label="$t(`competitions.cuts.${c}`)" />
       </q-tabs>
 

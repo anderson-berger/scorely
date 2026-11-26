@@ -85,3 +85,10 @@ A referência é a página da partida (`modules/groups/matches/pages/MatchPage.v
 - O bloco de quem organiza só aparece se houver alguma ação nele; nenhum bloco vazio.
 - Até 599px, os botões de escolha dividem a linha meio a meio, e a ação ao lado deles (como "Trazer convidado") vira botão de texto embaixo. A partir de 600px, ficam na mesma linha.
 - A partir de 600px, a página fica em até 720px, alinhada à esquerda: lista de configurações não estica até a borda.
+
+## Toques
+
+- Até 599px, todo alvo de toque (link, aba, campo, chave de ligar) tem 44px ou mais de altura. O `/screens` mede isso (`touchTargetMin`).
+- A altura de campo e de chave fica na base (`css/app.scss`): campo `dense` e `q-toggle` com 44px até 599px; a partir de 600px, o campo compacto volta aos 40px. Sem altura de campo ou de chave em estilo local.
+- Abas dentro da página (`q-tabs`, como Próximas/Anteriores) não usam `dense`.
+- Link só de texto que funciona como botão (como o logo do cabeçalho) ganha `min-height: 44px` com `display: inline-flex` e centro na vertical.

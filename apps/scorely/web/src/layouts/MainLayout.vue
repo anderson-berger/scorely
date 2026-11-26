@@ -111,6 +111,9 @@ export default defineComponent({
 }
 
 .brand {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
   font-size: 26px;
   font-weight: 800;
   letter-spacing: 1px;

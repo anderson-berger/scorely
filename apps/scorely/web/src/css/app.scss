@@ -210,6 +210,28 @@ a {
   }
 }
 
+// Toques (web-visual.md, "Toques"): até 599px, campo compacto e chave de ligar com 44px de alvo;
+// a partir de 600px, o campo compacto volta aos 40px do Quasar.
+.q-field--dense .q-field__control,
+.q-field--dense .q-field__marginal {
+  height: 44px;
+}
+
+.q-toggle {
+  min-height: 44px;
+}
+
+@media (min-width: 600px) {
+  .q-field--dense .q-field__control,
+  .q-field--dense .q-field__marginal {
+    height: 40px;
+  }
+
+  .q-toggle {
+    min-height: 0;
+  }
+}
+
 .q-dialog .q-card,
 .q-menu {
   background: var(--sc-surface);
