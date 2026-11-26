@@ -43,6 +43,7 @@ Motivo: [docs/decisions/0006-datas-utc-fuso-do-perfil.md](../../docs/decisions/0
 ## i18n e erros (scorely)
 
 - `vue-i18n` (Composition mode, `legacy: false`), em `apps/scorely/web/src/i18n/`. `pt-BR` é o idioma base e define as chaves; os outros locales são tipados como `MessageSchema` e precisam ter as mesmas chaves. Nos componentes use `this.$t`; fora deles, `t` de `@scorely/web/src/i18n`.
+- Todo texto dos locales compila no vue-i18n: `@` solto vira "linked message" e quebra a tela; escape como `{'@'}`. Check: `checks/web.test.ts`.
 - O usuário nunca vê texto do back. Traduza o erro pelo `code` com `errorMessage(err)` e os issues de validação com `issueMessage(issue, field?)` (`src/i18n/errors.ts`). Nunca mostre `err.message` nem `issue.message`.
 - Validação: `validation.<campo>.<código do Zod>`, com fallback em `validation.<código do Zod>`.
 - O `src/lib/http.ts` renova a sessão no 401 e no 403 sem `{ error }`.

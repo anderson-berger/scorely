@@ -235,7 +235,7 @@ export const en: MessageSchema = {
       uses: '{count} uses',
       oneUse: '1 use',
       usesOf: '{uses} of {max} uses',
-      forUser: 'for @{name}',
+      forUser: "for {'@'}{name}",
       forEmail: 'for {email}',
       createdBy: 'Created by {name} on {date}',
       usedBy: 'Joined: {names}',

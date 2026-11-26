@@ -17,6 +17,7 @@ O guia visual cresce uma correção por vez, cada uma validada pelo dono. Para c
 
 - Os cortes são só `min-width: 600px` e `min-width: 1024px`. Não crie outro.
 - A partir de 600px o layout **não é o do celular**: o conteúdo (`.sc-page`) usa a largura que sobra. Formulário não estica: limite a largura dele.
+- Check (`checks/web-visual.test.ts`): `@media` só com `(min-width: 600px)` ou `(min-width: 1024px)`; `$q.screen` (e `Screen` importado) só `xs`, `sm`, `gt.xs`, `gt.sm`, `lt.sm`, `lt.md` e `width`.
 
 ## Menus (GRV-13, ADR 0024)
 
@@ -47,6 +48,7 @@ A base fica em `css/app.scss`. No `.vue`, escolha só o tamanho e o tipo: **sem 
 - Botão só de ícone (`round`) tem pelo menos 44px nas duas faixas e o nome no `aria-label`.
 - No celular o botão pode ocupar a largura toda (`:class="{ 'full-width': $q.screen.xs }"`). A partir de 600px ele fica do tamanho do texto, menos no login. Cuidado com o pai em coluna flex ou grade, que estica.
 - Botão de escolha (como "Vou" e "Não vou") não é o principal: não leva `sc-btn-main`.
+- Check (`checks/web-visual.test.ts`): nenhum seletor `.q-btn` (fora `.q-btn-group`, `-dropdown` e `-toggle`) nem `.sc-btn-*` no `<style>` de `.vue`; nenhum `size` em `q-btn`; `round` ou só ícone (sem `label` e sem texto no slot; `q-tooltip` não conta) exige `aria-label`.
 
 ## Painéis (GRV-07)
 
@@ -61,6 +63,7 @@ Todo painel é o `BottomSheet` (`src/components/BottomSheet.vue`); a forma por f
 - `persistent` (salvando, boas-vindas) tira o X e impede fechar por fora ou pelo Esc.
 - O slot `action` fica ao lado do X; título longo quebra linha, não passa por baixo dele.
 - Não crie posição, largura ou alça no `.vue` que usa o painel.
+- Check (`checks/web-visual.test.ts`): `<q-dialog>` e `QDialog` só em `components/BottomSheet.vue`. A confirmação pelo plugin (`this.$q.dialog({ ... cancel: true })`) não é painel e fica fora.
 
 ## Login
 
@@ -75,6 +78,7 @@ A tela de login (`modules/auth/pages/LoginPage.vue`) fica fora do layout do app,
 - O form não fica em cartão: o painel da marca já separa as duas áreas.
 - O botão principal ocupa a largura do form. Os links do passo do código ("Trocar email", "Reenviar") são botões de texto a 16px do botão (`q-mt-md`).
 - Texto com `@` no i18n (como o exemplo do email) escapa o `@` como `{'@'}`: sem isso o vue-i18n quebra a tela.
+  Check: `checks/web.test.ts` compila todo texto de `pt-BR` e `en` com o compilador do vue-i18n.
 
 ## Página com ações
 
@@ -91,6 +95,7 @@ A referência é a página da partida (`modules/groups/matches/pages/MatchPage.v
 - Até 599px, todo alvo de toque (link, aba, campo, chave de ligar) tem 44px ou mais de altura. O `/screens` mede isso (`touchTargetMin`).
 - A altura de campo e de chave fica na base (`css/app.scss`): campo `dense` e `q-toggle` com 44px até 599px; a partir de 600px, o campo compacto volta aos 40px. Sem altura de campo ou de chave em estilo local.
 - Abas dentro da página (`q-tabs`, como Próximas/Anteriores) não usam `dense`.
+- Check (`checks/web-visual.test.ts`): `q-tabs` sem `dense`; nenhum seletor `.q-field`, `.q-toggle` ou `.q-input` no `<style>` de `.vue`.
 - Link só de texto que funciona como botão (como o logo do cabeçalho) ganha `min-height: 44px` com `display: inline-flex` e centro na vertical.
 
 ## Ícones

@@ -245,7 +245,7 @@ export const ptBR = {
       uses: '{count} usos',
       oneUse: '1 uso',
       usesOf: '{uses} de {max} usos',
-      forUser: 'para @{name}',
+      forUser: "para {'@'}{name}",
       forEmail: 'para {email}',
       createdBy: 'Criado por {name} em {date}',
       usedBy: 'Entraram: {names}',
