@@ -183,6 +183,15 @@ export default defineComponent({
       return canShare();
     },
 
+    /** PAR-18: o bloco das ações de quem organiza aparece quando há alguma. */
+    organize(): boolean {
+      const a = this.match?.actions;
+      if (!a) return false;
+      return (
+        a.start || a.finish || a.unstart || a.manageTeams || a.recordResult || this.advanceable.length > 0
+      );
+    },
+
     /** PAR-18: o time de quem vê ("Seu time"), ou -1. */
     myTeam(): number {
       const me = this.auth.user?.id;
@@ -500,7 +509,7 @@ export default defineComponent({
 </script>
 
 <template>
-  <div>
+  <div class="match">
     <q-btn flat no-caps dense icon="chevron_left" :label="$t('matches.back')" class="back" @click="back" />
 
     <div v-if="error" class="sc-caption error">{{ error }}</div>
@@ -515,37 +524,108 @@ export default defineComponent({
       </header>
 
       <div v-if="!['cancelled', 'in_progress', 'finished'].includes(match.status)" class="answer">
-        <q-btn
-          :unelevated="answer === 'going'"
-          :outline="answer !== 'going'"
-          color="primary"
-          no-caps
-          icon="check"
-          :label="$t('matches.going')"
-          :disable="busy || (answer !== 'going' && !match.actions.going)"
-          :aria-pressed="answer === 'going'"
-          @click="respond('going')"
-        />
-        <q-btn
-          :unelevated="answer === 'not_going'"
-          :outline="answer !== 'not_going'"
-          color="negative"
-          no-caps
-          icon="close"
-          :label="$t('matches.notGoing')"
-          :disable="busy || (answer !== 'not_going' && !match.actions.notGoing)"
-          :aria-pressed="answer === 'not_going'"
-          @click="respond('not_going')"
-        />
+        <div class="choice">
+          <q-btn
+            :unelevated="answer === 'going'"
+            :outline="answer !== 'going'"
+            color="primary"
+            no-caps
+            icon="check"
+            :label="$t('matches.going')"
+            :disable="busy || (answer !== 'going' && !match.actions.going)"
+            :aria-pressed="answer === 'going'"
+            @click="respond('going')"
+          />
+          <q-btn
+            :unelevated="answer === 'not_going'"
+            :outline="answer !== 'not_going'"
+            color="negative"
+            no-caps
+            icon="close"
+            :label="$t('matches.notGoing')"
+            :disable="busy || (answer !== 'not_going' && !match.actions.notGoing)"
+            :aria-pressed="answer === 'not_going'"
+            @click="respond('not_going')"
+          />
+        </div>
         <q-btn
           v-if="match.actions.requestGuest"
           flat
           no-caps
-          class="sc-btn-outline"
+          :class="{ 'sc-btn-outline': !$q.screen.xs }"
           icon="person_add"
           :label="$t('matches.bringGuest')"
           :disable="busy"
           @click="guestOpen = true"
+        />
+      </div>
+
+      <div v-if="organize" class="organize">
+        <q-btn
+          v-if="match.actions.start"
+          class="sc-btn-main"
+          :class="{ 'full-width': $q.screen.xs }"
+          unelevated
+          no-caps
+          color="primary"
+          icon="play_arrow"
+          :label="$t('matches.start')"
+          :disable="busy"
+          @click="confirmStart"
+        />
+        <q-btn
+          v-if="match.actions.finish"
+          class="sc-btn-main"
+          :class="{ 'full-width': $q.screen.xs }"
+          unelevated
+          no-caps
+          color="primary"
+          icon="flag"
+          :label="$t('matches.finish')"
+          :disable="busy"
+          @click="confirmFinish"
+        />
+        <q-btn
+          v-if="match.actions.manageTeams"
+          flat
+          no-caps
+          class="sc-btn-outline"
+          icon="groups"
+          :label="match.lineup ? $t('matches.lineup.change') : $t('matches.lineup.split')"
+          :disable="busy"
+          @click="splitTeams"
+        />
+        <q-btn
+          v-if="match.actions.recordResult"
+          flat
+          no-caps
+          class="sc-btn-outline"
+          icon="emoji_events"
+          :label="match.result ? $t('matches.result.fix') : $t('matches.result.record')"
+          :disable="busy"
+          @click="recordResult"
+        />
+        <template v-if="match.actions.manage">
+          <q-btn
+            v-for="w in advanceable"
+            :key="w"
+            flat
+            no-caps
+            class="sc-btn-outline"
+            :label="$t(`matches.advance.${w}`)"
+            :disable="busy"
+            @click="advance(w)"
+          />
+        </template>
+        <q-btn
+          v-if="match.actions.unstart"
+          flat
+          no-caps
+          class="sc-btn-outline"
+          icon="undo"
+          :label="$t('matches.unstart')"
+          :disable="busy"
+          @click="confirmUnstart"
         />
       </div>
 
@@ -757,78 +837,6 @@ export default defineComponent({
         </template>
       </div>
 
-      <div v-if="match.actions.manageTeams || match.actions.recordResult" class="tools">
-        <q-btn
-          v-if="match.actions.recordResult"
-          flat
-          no-caps
-          class="sc-btn-outline"
-          icon="emoji_events"
-          :label="match.result ? $t('matches.result.fix') : $t('matches.result.record')"
-          :disable="busy"
-          @click="recordResult"
-        />
-        <q-btn
-          v-if="match.actions.manageTeams"
-          flat
-          no-caps
-          class="sc-btn-outline"
-          icon="groups"
-          :label="match.lineup ? $t('matches.lineup.change') : $t('matches.lineup.split')"
-          :disable="busy"
-          @click="splitTeams"
-        />
-      </div>
-
-      <div v-if="match.actions.start || match.actions.finish || match.actions.unstart" class="tools">
-        <q-btn
-          v-if="match.actions.start"
-          class="sc-btn-main"
-          unelevated
-          no-caps
-          color="primary"
-          icon="play_arrow"
-          :label="$t('matches.start')"
-          :disable="busy"
-          @click="confirmStart"
-        />
-        <q-btn
-          v-if="match.actions.finish"
-          class="sc-btn-main"
-          unelevated
-          no-caps
-          color="primary"
-          icon="flag"
-          :label="$t('matches.finish')"
-          :disable="busy"
-          @click="confirmFinish"
-        />
-        <q-btn
-          v-if="match.actions.unstart"
-          flat
-          no-caps
-          class="sc-btn-outline"
-          icon="undo"
-          :label="$t('matches.unstart')"
-          :disable="busy"
-          @click="confirmUnstart"
-        />
-      </div>
-
-      <div v-if="match.actions.manage" class="tools">
-        <q-btn
-          v-for="w in advanceable"
-          :key="w"
-          flat
-          no-caps
-          class="sc-btn-outline"
-          :label="$t(`matches.advance.${w}`)"
-          :disable="busy"
-          @click="advance(w)"
-        />
-        <q-btn flat no-caps color="negative" icon="event_busy" :label="$t('matches.cancelMatch')" :disable="busy" @click="confirmCancel" />
-      </div>
-
       <section v-if="match.actions.manage">
         <h2 class="sc-section">{{ $t('matches.settings.title') }}</h2>
         <div class="sc-card settings">
@@ -854,6 +862,9 @@ export default defineComponent({
             :summary="summaryOf('series')"
             @open="seriesOpen = true"
           />
+        </div>
+        <div class="danger">
+          <q-btn flat no-caps color="negative" icon="event_busy" :label="$t('matches.cancelMatch')" :disable="busy" @click="confirmCancel" />
         </div>
       </section>
 
@@ -908,12 +919,57 @@ export default defineComponent({
   margin-top: 4px;
 }
 
+@media (min-width: 600px) {
+  .match {
+    max-width: 720px;
+  }
+}
+
 .answer,
+.choice,
+.organize,
 .tools {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.answer,
+.organize,
+.tools {
   margin: 16px 0;
+}
+
+.answer {
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.choice {
+  align-self: stretch;
+}
+
+.choice > * {
+  flex: 1;
+}
+
+@media (min-width: 600px) {
+  .answer {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .choice {
+    align-self: auto;
+  }
+
+  .choice > * {
+    flex: none;
+  }
+}
+
+.danger {
+  margin-top: 24px;
 }
 
 .list {

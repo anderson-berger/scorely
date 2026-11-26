@@ -75,3 +75,13 @@ A tela de login (`modules/auth/pages/LoginPage.vue`) fica fora do layout do app,
 - O form não fica em cartão: o painel da marca já separa as duas áreas.
 - O botão principal ocupa a largura do form. Os links do passo do código ("Trocar email", "Reenviar") são botões de texto a 16px do botão (`q-mt-md`).
 - Texto com `@` no i18n (como o exemplo do email) escapa o `@` como `{'@'}`: sem isso o vue-i18n quebra a tela.
+
+## Página com ações
+
+A referência é a página da partida (`modules/groups/matches/pages/MatchPage.vue`).
+
+- A ordem, de cima para baixo: a resposta de quem vê (como "Vou" e "Não vou") → as ações de quem organiza, num bloco só, com o principal primeiro → o conteúdo (resultado, times, listas) → copiar e compartilhar, numa linha → as configurações → a ação de perigo por último, 24px abaixo das configurações.
+- As ações do mesmo papel ficam **num bloco só** (uma linha que quebra), nunca um bloco por botão.
+- O bloco de quem organiza só aparece se houver alguma ação nele; nenhum bloco vazio.
+- Até 599px, os botões de escolha dividem a linha meio a meio, e a ação ao lado deles (como "Trazer convidado") vira botão de texto embaixo. A partir de 600px, ficam na mesma linha.
+- A partir de 600px, a página fica em até 720px, alinhada à esquerda: lista de configurações não estica até a borda.
