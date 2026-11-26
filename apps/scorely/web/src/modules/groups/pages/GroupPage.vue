@@ -2,6 +2,7 @@
 import type { Group, GroupPreview } from '@scorely/contracts';
 import { errorMessage } from '@scorely/web/src/i18n/errors';
 import { ApiRequestError } from '@scorely/web/src/lib/http';
+import GroupCover from '@scorely/web/src/modules/groups/components/GroupCover.vue';
 import GroupNav from '@scorely/web/src/modules/groups/components/GroupNav.vue';
 import GroupRequestCard from '@scorely/web/src/modules/groups/components/GroupRequestCard.vue';
 import { groupColor, initials } from '@scorely/web/src/modules/groups/group-display';
@@ -10,14 +11,14 @@ import { type GroupNavItem, groupNavItems } from '@scorely/web/src/modules/group
 import { defineComponent } from 'vue';
 
 /**
- * GRV-13: o casco do grupo, pelo id público (GRV-08). Carrega o grupo, passa para a área (rota filha) e mostra a barra
- * das áreas. Fora do Início, o topo é compacto: o logo pequeno e o nome. Quem é de fora de um grupo aberto vê a
- * apresentação com o pedido (GRV-39).
+ * GRV-13: o casco do grupo, pelo id público (GRV-08). Carrega o grupo, mostra o topo e as abas das áreas e passa o
+ * grupo para a área (rota filha). No Início, o topo é a capa, o logo e o nome em destaque (GRV-07); nas outras áreas, é
+ * compacto: o logo pequeno e o nome. Quem é de fora de um grupo aberto vê a apresentação com o pedido (GRV-39).
  */
 export default defineComponent({
   name: 'GroupPage',
 
-  components: { GroupNav, GroupRequestCard },
+  components: { GroupCover, GroupNav, GroupRequestCard },
 
   data() {
     return {
@@ -30,11 +31,6 @@ export default defineComponent({
   computed: {
     items(): GroupNavItem[] {
       return this.group ? groupNavItems(this.group) : [];
-    },
-
-    /** GRV-13: com uma área só, a barra não aparece (hoje todos têm Início e Membros). */
-    showNav(): boolean {
-      return this.items.length >= 2;
     },
 
     compact(): boolean {
@@ -95,19 +91,21 @@ export default defineComponent({
 
 <template>
   <q-page>
-    <div :class="['sc-page', 'page', { 'with-nav': showNav }]">
+    <div class="sc-page">
       <template v-if="group">
-        <GroupNav v-if="showNav" :items="items" :group-id="group.id" />
-        <div class="content">
-          <div v-if="compact" class="compact" :style="{ '--group-color': color }">
-            <div class="sc-display logo" aria-hidden="true">
-              <img v-if="group.logoUrl" :src="group.logoUrl" alt="" />
-              <template v-else>{{ initials(group.name) }}</template>
-            </div>
-            <span class="sc-display name">{{ group.name }}</span>
+        <div v-if="compact" class="compact" :style="{ '--group-color': color }">
+          <div class="sc-display logo" aria-hidden="true">
+            <img v-if="group.logoUrl" :src="group.logoUrl" alt="" />
+            <template v-else>{{ initials(group.name) }}</template>
           </div>
-          <router-view :group="group" @saved="group = $event" />
+          <span class="sc-display name">{{ group.name }}</span>
         </div>
+        <div v-else class="hero">
+          <GroupCover :group="group" large />
+          <h1 class="sc-title">{{ group.name }}</h1>
+        </div>
+        <GroupNav :items="items" :group="group" />
+        <router-view :group="group" @saved="group = $event" />
       </template>
       <GroupRequestCard v-else-if="preview" :preview="preview" @changed="preview = $event" @open="load" />
       <div v-else-if="error" class="sc-caption error">{{ error }}</div>
@@ -117,20 +115,15 @@ export default defineComponent({
 </template>
 
 <style scoped>
-/* A barra fixa embaixo no celular: o fim da página não fica atrás dela. */
-.with-nav {
-  padding-bottom: calc(88px + env(safe-area-inset-bottom));
-}
-
-.content {
-  min-width: 0;
+.hero {
+  margin-bottom: 16px;
 }
 
 .compact {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 20px;
+  margin-bottom: 12px;
 }
 
 .logo {
@@ -169,18 +162,5 @@ export default defineComponent({
 .loading {
   margin-top: 48px;
   text-align: center;
-}
-
-/* GRV-13: no PC, a coluna das áreas à esquerda do conteúdo. */
-@media (min-width: 1024px) {
-  .with-nav {
-    display: flex;
-    gap: 32px;
-    padding-bottom: 40px;
-  }
-
-  .content {
-    flex: 1;
-  }
 }
 </style>

@@ -148,6 +148,9 @@ export const en: MessageSchema = {
     save: 'Save',
   },
   nav: {
+    menu: 'App menu',
+    mine: 'Mine',
+    shortcuts: 'Shortcuts',
     groups: 'Groups',
     profile: 'Profile',
     logout: 'Sign out',

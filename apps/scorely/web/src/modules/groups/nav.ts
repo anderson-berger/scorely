@@ -1,6 +1,6 @@
 import type { Group, GroupPermission } from '@scorely/contracts';
 
-/** Uma área da barra de navegação do grupo (GRV-13). */
+/** Uma área do grupo, mostrada como aba (GRV-13). */
 export type GroupNavItem = {
   key: 'home' | 'matches' | 'competitions' | 'members' | 'settings';
   icon: string;

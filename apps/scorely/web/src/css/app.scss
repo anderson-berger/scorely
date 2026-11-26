@@ -39,15 +39,15 @@ a {
   color: var(--sc-accent);
 }
 
-// Coluna única no celular (plano 008, D13). No desktop, a área toda ao lado do menu, alinhada à esquerda
-// (plano 016, D1); formulários até 640px de conteúdo (D2).
+// Coluna única no celular (plano 008, D13). A partir de 600px, a área toda, alinhada à esquerda (GRV-13;
+// plano 016, D1); formulários até 640px de conteúdo (D2).
 .sc-page {
   max-width: 480px;
   margin: 0 auto;
   padding: 16px 16px 32px;
 }
 
-@media (min-width: 1024px) {
+@media (min-width: 600px) {
   .sc-page {
     max-width: none;
     margin: 0;

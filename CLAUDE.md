@@ -32,6 +32,7 @@ As regras de cada área ficam em `.claude/rules/` e carregam sozinhas ao tocar o
 | `scorely-api.md` | erros por código do catálogo, back em inglês, authorizer, notificações    |
 | `contracts.md`   | contrato só em `@scorely/contracts`; no `base`, cópias idênticas          |
 | `web.md`         | Vue em Options API, i18n e tradução de erros                              |
+| `web-visual.md`  | faixas de largura e menus                                                 |
 | `code.md`        | nunca `let`/`var`; imports só pelo alias do pacote (sem `./`/`../`)       |
 | `modulos.md`     | ler o doc do módulo antes de mudar; regra muda primeiro no doc            |
 

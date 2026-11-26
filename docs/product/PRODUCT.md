@@ -4,10 +4,20 @@
 
 ## Por que existe
 
-| Projeto   | Para quê                                                                                |
-| --------- | --------------------------------------------------------------------------------------- |
-| `scorely` | gerenciar grupos esportivos recorrentes ("pelada"): quem joga, lista de presença, times |
-| `base`    | template de referência para novos projetos do monorepo (não é produto; a confirmar: P8) |
+| Projeto   | Para quê                                                                                                                                                                   |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `scorely` | unir quem joga e onde se joga: gerenciar grupos esportivos recorrentes ("pelada") e, depois, uma vitrine (mapa) de lugares, jogos abertos, times, campeonatos e escolinhas |
+| `base`    | template de referência para novos projetos do monorepo (não é produto; a confirmar: P8)                                                                                    |
+
+## Três áreas ([ADR 0024](../decisions/0024-tres-areas-e-navegacao.md))
+
+| Área           | Para quem                      | Onde                                | Estado                     |
+| -------------- | ------------------------------ | ----------------------------------- | -------------------------- |
+| Vitrine        | qualquer pessoa, sem login     | `scorely.com` (mapa + lista)        | futura                     |
+| Área logada    | o jogador: meus grupos, times… | `scorely.com`, mesmos endereços     | existe (grupos e partidas) |
+| Área esportiva | a quadra, a escola (tenant)    | `tenant.scorely.com`, login próprio | futura                     |
+
+Na vitrine, o **lugar** é a âncora do mapa. Nele aparecem os jogos abertos ("só chegar e jogar"), o "tenho horário, quero jogar", os times procurando adversário, os campeonatos, as promoções da quadra e o rei da quadra (ranking por lugar e esporte). O destaque pago (pino, topo da lista, Início) é previsto desde o começo, sempre marcado como patrocinado. Ordem sugerida: lugares → jogos abertos e "quero jogar" → desafios e campeonatos → rei da quadra → promoções e destaque pago.
 
 ## Público
 
@@ -45,13 +55,13 @@ Resultado esperado: **"O jogo da semana acontece sem confusão de lista e com ti
 
 ## Perguntas abertas
 
-| #   | Pergunta                                                          |
-| --- | ----------------------------------------------------------------- |
-| P1  | Escopo e ordem do MVP do scorely além da E2                       |
-| P2  | Multi-tenant (subdomínio por grupo/organização) ou app único?     |
-| P3  | Usuários de plataforma (admin) separados dos usuários do produto? |
-| P4  | Onde o front vai ser hospedado e com quais domínios?              |
-| P5  | Quais stages (dev/stage/prod) e em quais contas AWS?              |
-| P6  | Quando entra o CI/CD e qual o fluxo de branches?                  |
-| P7  | Qual domínio vai ser verificado no SES?                           |
-| P8  | O `base` continua só como template ou vira um produto?            |
+| #   | Pergunta                                                                                                                                 |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| P1  | Escopo e ordem do MVP do scorely além da E2                                                                                              |
+| P2  | ~~Multi-tenant ou app único?~~ Respondida em 2026-11-26 (ADR 0024): app único para jogadores; `tenant.scorely.com` para a área esportiva |
+| P3  | Usuários de plataforma (admin) separados dos usuários do produto?                                                                        |
+| P4  | Onde o front vai ser hospedado e com quais domínios?                                                                                     |
+| P5  | Quais stages (dev/stage/prod) e em quais contas AWS?                                                                                     |
+| P6  | Quando entra o CI/CD e qual o fluxo de branches?                                                                                         |
+| P7  | Qual domínio vai ser verificado no SES?                                                                                                  |
+| P8  | O `base` continua só como template ou vira um produto?                                                                                   |

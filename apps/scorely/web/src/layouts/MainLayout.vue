@@ -1,92 +1,36 @@
 <script lang="ts">
-import type { Me } from '@scorely/contracts';
-import { type NavItem, navItems } from '@scorely/web/src/layouts/nav';
-import { useAuthStore } from '@scorely/web/src/modules/auth/auth.store';
+import AccountMenu from '@scorely/web/src/layouts/AccountMenu.vue';
+import AppSidebar from '@scorely/web/src/layouts/AppSidebar.vue';
+import SidebarLinks from '@scorely/web/src/layouts/SidebarLinks.vue';
 import NotificationBell from '@scorely/web/src/modules/notifications/components/NotificationBell.vue';
-import { useNotificationsStore } from '@scorely/web/src/modules/notifications/notifications.store';
-import { displayName } from '@scorely/web/src/modules/users/user.display';
 import { defineComponent } from 'vue';
 
-/** Rotas em que o item Grupos fica destacado: a tela de Grupos e tudo que é de um grupo (plano 013, D2). */
-const GROUP_ROUTES = [
-  'groups',
-  'group-create',
-  'group',
-  'group-members',
-  'group-invites',
-  'group-settings',
-  'group-join',
-];
-
 /**
- * Cabeçalho de largura total e menu lateral (plano 013, D9–D11): no celular o drawer abre sobre a tela;
- * a partir de 1024px é um trilho de ícones que o ☰ expande empurrando o conteúdo. O menu é fixo e tem
- * rolagem própria (`L` no `view`), separada da página (plano 015, correção do D18). A conta (Perfil, Sair) fica no avatar.
+ * GRV-13: a partir de 600px, sem cabeçalho, com a barra lateral fixa. Abaixo disso, o cabeçalho com o ☰, que abre por
+ * cima da tela o mesmo conteúdo da barra.
  */
 export default defineComponent({
   name: 'MainLayout',
 
-  components: { NotificationBell },
-
-  setup() {
-    return { auth: useAuthStore(), notifications: useNotificationsStore() };
-  },
+  components: { AccountMenu, AppSidebar, NotificationBell, SidebarLinks },
 
   data() {
     return {
       drawer: false,
-      expanded: false,
     };
   },
 
   computed: {
-    items(): NavItem[] {
-      return navItems();
-    },
-
-    /** A partir de 1024px o drawer fica fixo do lado (trilho). */
-    fixed(): boolean {
-      return this.$q.screen.gt.sm;
-    },
-
-    /** No celular (< 600px) o menu ocupa a tela toda; no resto, 240px (plano 015, correção do D18). */
-    drawerWidth(): number {
-      return this.$q.screen.xs ? this.$q.screen.width : 240;
-    },
-
-    mini(): boolean {
-      return this.fixed && !this.expanded;
+    /** Até 599px: cabeçalho e ☰; a partir de 600px, a barra lateral. */
+    phone(): boolean {
+      return this.$q.screen.xs;
     },
   },
 
-  methods: {
-    displayName(user: Me): string {
-      return displayName(user);
-    },
-
-    initial(s: string): string {
-      return s.trim().charAt(0).toUpperCase();
-    },
-
-    isActive(item: NavItem): boolean {
-      return item.key === 'groups' && GROUP_ROUTES.includes(String(this.$route.name ?? ''));
-    },
-
-    /** No desktop expande/recolhe o trilho (empurrando o conteúdo); no celular abre/fecha o drawer. */
-    toggleMenu() {
-      if (this.fixed) this.expanded = !this.expanded;
-      else this.drawer = !this.drawer;
-    },
-
-    /** No celular, escolher um item fecha o drawer; no desktop o menu fica como a pessoa deixou. */
-    navigated() {
-      if (!this.fixed) this.drawer = false;
-    },
-
-    async logout() {
-      this.notifications.reset();
-      await this.auth.logout().catch(() => undefined);
-      await this.$router.replace({ name: 'login' });
+  watch: {
+    /** Ao alargar com o menu aberto, ele não volta aberto quando a janela estreitar. */
+    phone(value: boolean) {
+      if (!value) this.drawer = false;
     },
   },
 });
@@ -94,10 +38,16 @@ export default defineComponent({
 
 <template>
   <q-layout view="hHh LpR fFf">
-    <q-header class="header">
+    <q-header v-if="phone" class="header">
       <div class="bar">
         <div class="start">
-          <button type="button" class="sc-icon-btn menu" :aria-label="$t('nav.open')" @click="toggleMenu">
+          <button
+            type="button"
+            class="sc-icon-btn menu"
+            :aria-label="$t('nav.open')"
+            :aria-expanded="drawer"
+            @click="drawer = !drawer"
+          >
             <q-icon name="menu" size="22px" />
           </button>
           <router-link :to="{ name: 'groups' }" class="brand sc-display" :aria-label="$t('app.name')">
@@ -106,45 +56,17 @@ export default defineComponent({
         </div>
         <div class="actions">
           <NotificationBell />
-          <button v-if="auth.user" type="button" class="sc-icon-btn avatar" :aria-label="$t('nav.account')">
-            {{ initial(displayName(auth.user)) }}
-            <q-menu anchor="bottom right" self="top right">
-              <q-list style="min-width: 220px">
-                <q-item>
-                  <q-item-section>
-                    <q-item-label>{{ displayName(auth.user) }}</q-item-label>
-                    <q-item-label caption>{{ auth.user.private.email }}</q-item-label>
-                  </q-item-section>
-                </q-item>
-                <q-separator />
-                <q-item v-close-popup clickable :to="{ name: 'profile' }">
-                  <q-item-section avatar><q-icon name="person_outline" /></q-item-section>
-                  <q-item-section>{{ $t('nav.profile') }}</q-item-section>
-                </q-item>
-                <q-item v-close-popup clickable @click="logout">
-                  <q-item-section avatar><q-icon name="logout" /></q-item-section>
-                  <q-item-section>{{ $t('nav.logout') }}</q-item-section>
-                </q-item>
-              </q-list>
-            </q-menu>
-          </button>
+          <AccountMenu />
         </div>
       </div>
     </q-header>
 
-    <q-drawer
-      v-model="drawer"
-      side="left"
-      show-if-above
-      :breakpoint="1023"
-      :width="drawerWidth"
-      :mini="mini"
-      :mini-width="64"
-      class="sc-drawer"
-    >
-      <!-- No celular o drawer cobre o cabeçalho (e o ☰): a saída fica dentro dele. -->
-      <div v-if="!fixed" class="drawer-head">
-        <router-link :to="{ name: 'groups' }" class="brand sc-display" @click="navigated">
+    <AppSidebar v-else />
+
+    <q-drawer v-if="phone" v-model="drawer" side="left" behavior="mobile" :width="$q.screen.width" class="sc-drawer">
+      <!-- O drawer cobre o cabeçalho (e o ☰): a saída fica dentro dele. -->
+      <div class="drawer-head">
+        <router-link :to="{ name: 'groups' }" class="brand sc-display" @click="drawer = false">
           score<span class="sc-accent">ly</span>
         </router-link>
         <button type="button" class="sc-icon-btn menu" :aria-label="$t('nav.close')" @click="drawer = false">
@@ -152,27 +74,10 @@ export default defineComponent({
         </button>
       </div>
 
-      <q-list class="nav">
-        <q-item
-          v-for="item in items"
-          :key="item.key"
-          clickable
-          :to="item.to"
-          :active="isActive(item)"
-          active-class="nav-item--active"
-          class="nav-item"
-          @click="navigated"
-        >
-          <q-item-section avatar><q-icon :name="item.icon" /></q-item-section>
-          <q-item-section class="sc-display nav-label">{{ $t(`nav.${item.key}`) }}</q-item-section>
-          <q-tooltip v-if="mini" anchor="center right" self="center left" :offset="[8, 0]">
-            {{ $t(`nav.${item.key}`) }}
-          </q-tooltip>
-        </q-item>
-      </q-list>
+      <SidebarLinks class="drawer-links" @navigate="drawer = false" />
     </q-drawer>
 
-    <q-page-container>
+    <q-page-container :class="{ 'with-sidebar': !phone }">
       <router-view />
     </q-page-container>
   </q-layout>
@@ -190,12 +95,6 @@ export default defineComponent({
   display: flex;
   align-items: center;
   justify-content: space-between;
-}
-
-@media (min-width: 1024px) {
-  .bar {
-    padding: 10px 24px 10px 10px;
-  }
 }
 
 .start {
@@ -224,11 +123,15 @@ export default defineComponent({
   gap: 8px;
 }
 
-.avatar {
-  font-family: var(--sc-font-display);
-  font-weight: 700;
-  font-size: 18px;
-  cursor: pointer;
+/* A barra é fixa: o conteúdo começa depois dela. */
+.with-sidebar {
+  padding-left: 72px;
+}
+
+@media (min-width: 1024px) {
+  .with-sidebar {
+    padding-left: 240px;
+  }
 }
 
 .drawer-head {
@@ -239,25 +142,8 @@ export default defineComponent({
   border-bottom: 1px solid var(--sc-line);
 }
 
-.nav {
+.drawer-links {
   padding: 8px;
-}
-
-.nav-item {
-  min-height: 48px;
-  border-radius: 12px;
-  color: var(--sc-text-2);
-  margin-bottom: 4px;
-}
-
-.nav-label {
-  font-size: 18px;
-  letter-spacing: 1px;
-}
-
-.nav-item--active {
-  color: var(--sc-accent);
-  background: var(--sc-line);
 }
 </style>
 

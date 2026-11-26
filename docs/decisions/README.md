@@ -25,3 +25,4 @@ Uma linha por decisão. Abra só a que importa. Nova decisão: copie [`_template
 | 0019 | [Testes de repositório rodam também contra o DynamoDB Local](0019-testes-de-repositorio-no-dynamodb-local.md)           | aceita                      |
 | 0022 | [Partidas e competição como submódulos do grupo](0022-submodulos-do-grupo.md)                                           | aceita                      |
 | 0023 | [Revisão visual por prints, fora do check](0023-revisao-visual-por-prints.md)                                           | aceita                      |
+| 0024 | [Três áreas do produto e a navegação da área logada](0024-tres-areas-e-navegacao.md)                                    | aceita                      |

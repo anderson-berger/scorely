@@ -158,6 +158,9 @@ export const ptBR = {
     save: 'Salvar',
   },
   nav: {
+    menu: 'Menu do app',
+    mine: 'Meus',
+    shortcuts: 'Atalhos',
     groups: 'Grupos',
     profile: 'Perfil',
     logout: 'Sair',
