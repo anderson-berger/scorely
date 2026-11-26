@@ -93,7 +93,7 @@ export default defineComponent({
           />
           <SettingsRow
             v-else
-            icon="shield_person"
+            icon="admin_panel_settings"
             :title="$t('groups.roles.title')"
             :summary="roleCount === null ? '' : $t('groups.roles.count', { count: roleCount })"
             @open="openRoles"

@@ -92,3 +92,9 @@ A referência é a página da partida (`modules/groups/matches/pages/MatchPage.v
 - A altura de campo e de chave fica na base (`css/app.scss`): campo `dense` e `q-toggle` com 44px até 599px; a partir de 600px, o campo compacto volta aos 40px. Sem altura de campo ou de chave em estilo local.
 - Abas dentro da página (`q-tabs`, como Próximas/Anteriores) não usam `dense`.
 - Link só de texto que funciona como botão (como o logo do cabeçalho) ganha `min-height: 44px` com `display: inline-flex` e centro na vertical.
+
+## Ícones
+
+- Só ícones do **Material Icons**, a única fonte carregada (`src/main.ts`). Nome só do Material Symbols (como `shield_person`) aparece como texto cru.
+- Antes de usar um nome, confira em `@quasar/extras/material-icons/icons.json` (`matAdminPanelSettings` = `admin_panel_settings`). O nome é só minúscula, número e `_`.
+- Check: `checks/web-visual.test.ts` lê `icon="..."`, `*-icon="..."`, `icon-*="..."`, `<q-icon name="...">`, os literais de `:icon`/`:name`, `icon: '...'` no script e os valores dos mapas `*.icons.ts`.
