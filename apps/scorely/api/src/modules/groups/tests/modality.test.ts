@@ -1,4 +1,6 @@
 import type { GroupsDeps } from '@scorely/api/src/modules/groups/groups.service';
+import { createGroup, getGroup, setGroupModality } from '@scorely/api/src/modules/groups/rules/groups';
+import { createInvite, joinByInvite } from '@scorely/api/src/modules/groups/rules/invites';
 import { ANA, BIA, errorOf, setupGroups } from '@scorely/api/src/modules/groups/tests/fixtures';
 import { describe, expect, it } from 'vitest';
 
@@ -26,49 +28,51 @@ function setup() {
 
 async function withGroup() {
   const ctx = setup();
-  const group = await ctx.service.create(ANA, { name: 'Pelada' });
+  const group = await createGroup(ctx.deps, ANA, { name: 'Pelada' });
   return { ...ctx, gid: group.id, version: group.version };
 }
 
 describe('groups modalidade', () => {
   it('GRV-02: o grupo nasce misto e a resposta traz a modality', async () => {
-    const { service, gid } = await withGroup();
-    expect(await service.get(ANA, gid)).toMatchObject({ modality: 'mixed' });
+    const { gid, deps } = await withGroup();
+    expect(await getGroup(deps, ANA, gid)).toMatchObject({ modality: 'mixed' });
   });
 
   it('GRV-52: quem tem group.edit muda a modalidade, com a version conferida (sobe a version)', async () => {
-    const { service, gid, version } = await withGroup();
-    await service.setModality(ANA, gid, { modality: 'male', expectedVersion: version });
-    const after = await service.get(ANA, gid);
+    const { gid, version, deps } = await withGroup();
+    await setGroupModality(deps, ANA, gid, { modality: 'male', expectedVersion: version });
+    const after = await getGroup(deps, ANA, gid);
     expect(after.modality).toBe('male');
     expect(after.version).toBeGreaterThan(version);
   });
 
   it('GRV-52: version velha → VERSION_CONFLICT (409) e a modalidade não muda', async () => {
-    const { service, gid, version } = await withGroup();
+    const { gid, version, deps } = await withGroup();
     const err = await errorOf(
-      service.setModality(ANA, gid, { modality: 'female', expectedVersion: version + 5 }),
+      setGroupModality(deps, ANA, gid, { modality: 'female', expectedVersion: version + 5 }),
     );
     expect(err?.code).toBe('VERSION_CONFLICT');
     expect(err?.status).toBe(409);
-    expect((await service.get(ANA, gid)).modality).toBe('mixed');
+    expect((await getGroup(deps, ANA, gid)).modality).toBe('mixed');
   });
 
   it('GRV-52: quem não tem group.edit → GROUP_PERMISSION_DENIED (403)', async () => {
-    const { service, gid, version } = await withGroup();
-    const invite = await service.createInvite(ANA, gid, { tier: 'member', validityDays: 7, maxUses: null });
-    await service.joinByInvite(BIA, invite.token);
-    const err = await errorOf(service.setModality(BIA, gid, { modality: 'male', expectedVersion: version }));
+    const { gid, version, deps } = await withGroup();
+    const invite = await createInvite(deps, ANA, gid, { tier: 'member', validityDays: 7, maxUses: null });
+    await joinByInvite(deps, BIA, invite.token);
+    const err = await errorOf(
+      setGroupModality(deps, BIA, gid, { modality: 'male', expectedVersion: version }),
+    );
     expect(err?.code).toBe('GROUP_PERMISSION_DENIED');
     expect(err?.status).toBe(403);
-    expect((await service.get(ANA, gid)).modality).toBe('mixed');
+    expect((await getGroup(deps, ANA, gid)).modality).toBe('mixed');
   });
 
   it('GRV-52: a modalidade só informa, não barra ninguém de entrar num grupo masculino', async () => {
-    const { service, gid, version } = await withGroup();
-    await service.setModality(ANA, gid, { modality: 'male', expectedVersion: version });
-    const invite = await service.createInvite(ANA, gid, { tier: 'member', validityDays: 7, maxUses: null });
-    await service.joinByInvite(BIA, invite.token);
-    expect(await service.get(BIA, gid)).toMatchObject({ modality: 'male' });
+    const { gid, version, deps } = await withGroup();
+    await setGroupModality(deps, ANA, gid, { modality: 'male', expectedVersion: version });
+    const invite = await createInvite(deps, ANA, gid, { tier: 'member', validityDays: 7, maxUses: null });
+    await joinByInvite(deps, BIA, invite.token);
+    expect(await getGroup(deps, BIA, gid)).toMatchObject({ modality: 'male' });
   });
 });

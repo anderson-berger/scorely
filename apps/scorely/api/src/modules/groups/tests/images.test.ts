@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { memoryGroups } from '@scorely/api/src/modules/groups/data/groups.memory';
-import { createGroupService } from '@scorely/api/src/modules/groups/groups.service';
-import { createGroupImages } from '@scorely/api/src/modules/groups/rules/images';
+import type { GroupImagesDeps, GroupsDeps } from '@scorely/api/src/modules/groups/groups.service';
+import { createGroup, getGroup, listMyGroups } from '@scorely/api/src/modules/groups/rules/groups';
+import { attach, detach, requestUpload } from '@scorely/api/src/modules/groups/rules/images';
 import {
   ANA,
   BIA,
@@ -73,7 +74,7 @@ async function setup() {
       if (current) link(input.target.key, input.target.field, null);
     },
   };
-  const service = createGroupService({
+  const deps: GroupsDeps = {
     groups: mem.repo,
     emails: noEmails,
     notifications: noNotifications,
@@ -81,12 +82,12 @@ async function setup() {
     now: () => clock.now,
     newPublicId: () => pid(CODE),
     media,
-  });
-  const images = createGroupImages({ groups: mem.repo, media, now: () => clock.now });
-  const group = await service.create(ANA, { name: 'Pelada' });
+  };
+  const imageDeps: GroupImagesDeps = { groups: mem.repo, media, now: () => clock.now };
+  const group = await createGroup(deps, ANA, { name: 'Pelada' });
   const uuid = [...mem.groups.keys()][0] as string;
   const mediaCalls = () => calls.requestUpload.length + calls.attach.length + calls.detach.length;
-  return { ...mem, service, images, group, uuid, calls, mediaCalls, clock };
+  return { ...mem, deps, imageDeps, group, uuid, calls, mediaCalls, clock };
 }
 
 describe('groups: logo e capa', () => {
@@ -94,7 +95,7 @@ describe('groups: logo e capa', () => {
     'GRV-09: o dono pede o envio do %s → mídia da finalidade, com o uuid do grupo como dono',
     async (slot) => {
       const t = await setup();
-      const upload = await t.images.requestUpload(ANA, pid(CODE), slot, { contentType: 'image/webp' });
+      const upload = await requestUpload(t.imageDeps, ANA, pid(CODE), slot, { contentType: 'image/webp' });
       expect(t.calls.requestUpload).toEqual([
         { purpose: PURPOSE[slot], ownerId: t.uuid, uploadedBy: ANA, contentType: 'image/webp' },
       ]);
@@ -104,8 +105,8 @@ describe('groups: logo e capa', () => {
 
   it('GRV-09: o logo é 512×512 e a capa 1600×600', async () => {
     const t = await setup();
-    const logo = await t.images.requestUpload(ANA, pid(CODE), 'logo', { contentType: 'image/webp' });
-    const cover = await t.images.requestUpload(ANA, pid(CODE), 'cover', { contentType: 'image/webp' });
+    const logo = await requestUpload(t.imageDeps, ANA, pid(CODE), 'logo', { contentType: 'image/webp' });
+    const cover = await requestUpload(t.imageDeps, ANA, pid(CODE), 'cover', { contentType: 'image/webp' });
     expect(logo).toMatchObject({ width: 512, height: 512 });
     expect(cover).toMatchObject({ width: 1600, height: 600 });
   });
@@ -113,7 +114,7 @@ describe('groups: logo e capa', () => {
   it.each(SLOTS)('GRV-09: o dono confirma o %s → ligado no META do grupo (GROUP#<uuid>)', async (slot) => {
     const t = await setup();
     const mediaId = randomUUID();
-    await t.images.attach(ANA, pid(CODE), slot, { mediaId });
+    await attach(t.imageDeps, ANA, pid(CODE), slot, { mediaId });
     expect(t.calls.attach[0]).toMatchObject({ mediaId, purpose: PURPOSE[slot], ownerId: t.uuid });
     expect(t.calls.attach[0]?.target).toMatchObject({
       key: { PK: `GROUP#${t.uuid}`, SK: 'META' },
@@ -125,19 +126,19 @@ describe('groups: logo e capa', () => {
   it('GRV-09: trocar e remover somam 1 na version e gravam o updatedAt, sem a pessoa mandar a version', async () => {
     const t = await setup();
     t.clock.now = LATER;
-    const attached = await t.images.attach(ANA, pid(CODE), 'logo', { mediaId: randomUUID() });
+    const attached = await attach(t.imageDeps, ANA, pid(CODE), 'logo', { mediaId: randomUUID() });
     expect(attached.version).toBe(2);
     expect(t.groups.get(t.uuid)).toMatchObject({ version: 2, updatedAt: LATER.toISOString() });
-    const removed = await t.images.detach(ANA, pid(CODE), 'logo');
+    const removed = await detach(t.imageDeps, ANA, pid(CODE), 'logo');
     expect(removed.version).toBe(3);
   });
 
   it('GRV-09: trocar o logo → a mídia recebe o id do logo atual e a capa fica como está', async () => {
     const t = await setup();
     const first = randomUUID();
-    await t.images.attach(ANA, pid(CODE), 'logo', { mediaId: first });
-    const withCover = await t.images.attach(ANA, pid(CODE), 'cover', { mediaId: randomUUID() });
-    const group = await t.images.attach(ANA, pid(CODE), 'logo', { mediaId: randomUUID() });
+    await attach(t.imageDeps, ANA, pid(CODE), 'logo', { mediaId: first });
+    const withCover = await attach(t.imageDeps, ANA, pid(CODE), 'cover', { mediaId: randomUUID() });
+    const group = await attach(t.imageDeps, ANA, pid(CODE), 'logo', { mediaId: randomUUID() });
     expect(t.calls.attach.map((c) => c.current)).toEqual([undefined, undefined, first]);
     expect(group.coverUrl).toBe(withCover.coverUrl);
   });
@@ -145,16 +146,16 @@ describe('groups: logo e capa', () => {
   it('GRV-09: confirmar de novo a mesma imagem não muda nada', async () => {
     const t = await setup();
     const mediaId = randomUUID();
-    const first = await t.images.attach(ANA, pid(CODE), 'logo', { mediaId });
-    const again = await t.images.attach(ANA, pid(CODE), 'logo', { mediaId });
+    const first = await attach(t.imageDeps, ANA, pid(CODE), 'logo', { mediaId });
+    const again = await attach(t.imageDeps, ANA, pid(CODE), 'logo', { mediaId });
     expect(again).toEqual(first);
   });
 
   it.each(SLOTS)('GRV-09: o dono remove o %s → a mídia desliga e o grupo volta sem a URL', async (slot) => {
     const t = await setup();
     const mediaId = randomUUID();
-    await t.images.attach(ANA, pid(CODE), slot, { mediaId });
-    const group = await t.images.detach(ANA, pid(CODE), slot);
+    await attach(t.imageDeps, ANA, pid(CODE), slot, { mediaId });
+    const group = await detach(t.imageDeps, ANA, pid(CODE), slot);
     expect(t.calls.detach[0]).toMatchObject({ purpose: PURPOSE[slot], ownerId: t.uuid, current: mediaId });
     expect(group).not.toHaveProperty(`${slot}Url`);
     expect(t.groups.get(t.uuid)).not.toHaveProperty(`${slot}MediaId`);
@@ -162,9 +163,11 @@ describe('groups: logo e capa', () => {
 
   it('GRV-09: quem não participa, ou código que não existe → GROUP_NOT_FOUND (404), sem chamar a mídia', async () => {
     const t = await setup();
-    const a = await errorOf(t.images.requestUpload(BIA, pid(CODE), 'logo', { contentType: 'image/webp' }));
-    const b = await errorOf(t.images.attach(BIA, pid(CODE), 'logo', { mediaId: randomUUID() }));
-    const c = await errorOf(t.images.detach(ANA, pid('00000000'), 'cover'));
+    const a = await errorOf(
+      requestUpload(t.imageDeps, BIA, pid(CODE), 'logo', { contentType: 'image/webp' }),
+    );
+    const b = await errorOf(attach(t.imageDeps, BIA, pid(CODE), 'logo', { mediaId: randomUUID() }));
+    const c = await errorOf(detach(t.imageDeps, ANA, pid('00000000'), 'cover'));
     for (const err of [a, b, c]) expect(err).toMatchObject({ code: 'GROUP_NOT_FOUND', status: 404 });
     expect(t.mediaCalls()).toBe(0);
   });
@@ -179,9 +182,9 @@ describe('groups: logo e capa', () => {
       createdAt: NOW.toISOString(),
     });
     const errs = [
-      await errorOf(t.images.requestUpload(BIA, pid(CODE), 'logo', { contentType: 'image/webp' })),
-      await errorOf(t.images.attach(BIA, pid(CODE), 'cover', { mediaId: randomUUID() })),
-      await errorOf(t.images.detach(BIA, pid(CODE), 'logo')),
+      await errorOf(requestUpload(t.imageDeps, BIA, pid(CODE), 'logo', { contentType: 'image/webp' })),
+      await errorOf(attach(t.imageDeps, BIA, pid(CODE), 'cover', { mediaId: randomUUID() })),
+      await errorOf(detach(t.imageDeps, BIA, pid(CODE), 'logo')),
     ];
     for (const err of errs) expect(err).toMatchObject({ code: 'GROUP_PERMISSION_DENIED', status: 403 });
     expect(t.mediaCalls()).toBe(0);
@@ -189,7 +192,7 @@ describe('groups: logo e capa', () => {
 
   it('MID-01: o dono é conferido de novo ao confirmar: quem deixou de ser o dono no meio do envio é barrado', async () => {
     const t = await setup();
-    const upload = await t.images.requestUpload(ANA, pid(CODE), 'logo', { contentType: 'image/webp' });
+    const upload = await requestUpload(t.imageDeps, ANA, pid(CODE), 'logo', { contentType: 'image/webp' });
     t.members.set(`${t.uuid}#${ANA}`, {
       groupId: t.uuid as never,
       userId: ANA,
@@ -197,7 +200,7 @@ describe('groups: logo e capa', () => {
       role: 'member',
       createdAt: NOW.toISOString(),
     });
-    const err = await errorOf(t.images.attach(ANA, pid(CODE), 'logo', { mediaId: upload.mediaId }));
+    const err = await errorOf(attach(t.imageDeps, ANA, pid(CODE), 'logo', { mediaId: upload.mediaId }));
     expect(err).toMatchObject({ code: 'GROUP_PERMISSION_DENIED', status: 403 });
     expect(t.calls.attach).toEqual([]);
   });
@@ -206,20 +209,20 @@ describe('groups: logo e capa', () => {
     const t = await setup();
     const logo = randomUUID();
     const cover = randomUUID();
-    await t.images.attach(ANA, pid(CODE), 'logo', { mediaId: logo });
-    await t.images.attach(ANA, pid(CODE), 'cover', { mediaId: cover });
+    await attach(t.imageDeps, ANA, pid(CODE), 'logo', { mediaId: logo });
+    await attach(t.imageDeps, ANA, pid(CODE), 'cover', { mediaId: cover });
     const logoUrl = `${BASE}/public/group.logo/${logo}`;
     const coverUrl = `${BASE}/public/group.cover/${cover}`;
-    expect(await t.service.get(ANA, pid(CODE))).toMatchObject({ logoUrl, coverUrl });
-    expect(await t.service.mine(ANA)).toMatchObject([{ logoUrl, coverUrl }]);
-    const json = JSON.stringify(await t.service.get(ANA, pid(CODE)));
+    expect(await getGroup(t.deps, ANA, pid(CODE))).toMatchObject({ logoUrl, coverUrl });
+    expect(await listMyGroups(t.deps, ANA)).toMatchObject([{ logoUrl, coverUrl }]);
+    const json = JSON.stringify(await getGroup(t.deps, ANA, pid(CODE)));
     expect(json).not.toContain(t.uuid);
     expect(json).not.toContain('MediaId');
   });
 
   it('GRV-10: sem imagem, o grupo vem sem logoUrl e sem coverUrl', async () => {
     const t = await setup();
-    const group = await t.service.get(ANA, pid(CODE));
+    const group = await getGroup(t.deps, ANA, pid(CODE));
     expect(group).not.toHaveProperty('logoUrl');
     expect(group).not.toHaveProperty('coverUrl');
   });
@@ -227,7 +230,7 @@ describe('groups: logo e capa', () => {
   it('GRV-10: as respostas das rotas de imagem trazem as URLs (confirmar devolve o grupo com a URL nova)', async () => {
     const t = await setup();
     const mediaId = randomUUID();
-    const group = await t.images.attach(ANA, pid(CODE), 'cover', { mediaId });
+    const group = await attach(t.imageDeps, ANA, pid(CODE), 'cover', { mediaId });
     expect(group).toMatchObject({ id: CODE, coverUrl: `${BASE}/public/group.cover/${mediaId}` });
   });
 });

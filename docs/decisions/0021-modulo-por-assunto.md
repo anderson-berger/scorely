@@ -1,7 +1,7 @@
 # 0021: módulo da api organizado por assunto, com dados e testes à parte
 
 - Data: 2026-11-27
-- Estado: aceita
+- Estado: aceita (o service e a forma das regras mudaram no [ADR 0025](0025-regras-como-funcoes.md))
 
 ## Contexto
 

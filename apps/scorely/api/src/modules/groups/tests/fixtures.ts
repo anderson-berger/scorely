@@ -1,9 +1,9 @@
-// O setup dos testes do grupo (ADR 0021): as pessoas, os fakes das deps, o relógio e o service pronto em memória.
+// O setup dos testes do grupo (ADR 0021): as pessoas, os fakes das deps, o relógio, e as deps prontas em memória.
 import type { AppError } from '@scorely/api/src/lib/errors';
 import { asPublicUserId, asUserId, type UserId } from '@scorely/api/src/lib/ids';
 import { memoryGroups } from '@scorely/api/src/modules/groups/data/groups.memory';
 import type { GroupRepository } from '@scorely/api/src/modules/groups/data/groups.repository';
-import { createGroupService, type GroupsDeps } from '@scorely/api/src/modules/groups/groups.service';
+import type { GroupsDeps } from '@scorely/api/src/modules/groups/groups.service';
 import type { UserRecord } from '@scorely/api/src/modules/users/users.access';
 import type { PublicGroupId } from '@scorely/contracts';
 
@@ -90,13 +90,13 @@ export interface SetupOptions {
   newToken?: () => string;
 }
 
-/** Memória, relógio, avisos gravados em `notified` e o service do grupo com o código `K3X9PQ2A`. */
+/** Memória, relógio, avisos gravados em `notified` e as deps do grupo com o código `K3X9PQ2A`. */
 export function setupGroups(opts: SetupOptions) {
   const mem = memoryGroups();
   const clock = { now: opts.now };
   const seq = { n: 0 };
   const notified: Notified[] = [];
-  const service = createGroupService({
+  const deps: GroupsDeps = {
     groups: opts.wrap ? opts.wrap(mem.repo) : mem.repo,
     users: opts.users ?? knownUsers(),
     emails: opts.emails ?? noEmails,
@@ -113,6 +113,6 @@ export function setupGroups(opts: SetupOptions) {
         seq.n += 1;
         return `token-${seq.n}`;
       }),
-  });
-  return { ...mem, clock, service, notified };
+  };
+  return { ...mem, clock, deps, notified };
 }

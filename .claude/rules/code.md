@@ -14,7 +14,8 @@ paths:
 - Valor criado sob demanda (cliente, env, service): `const x = lazy(() => ...)`, de `src/lib/fn.ts` da api.
 - Loop: `for (const x of ...)`. Para lotes, `chunk(items, size)`; para repetir N vezes, `range(n)` (ambos em `src/lib/fn.ts`). Ou `map`/`reduce`. Sem `for (let i...)`.
 - Valor que depende de try/catch ou de `if`: extraia uma função que devolve o valor (veja `parseJson` em `src/lib/http.ts`).
-- Retry/paginação: função recursiva (veja `batchGetAll` em `apps/scorely/api/src/lib/db.ts`).
+- Retry (tentar de novo até N vezes): loop `for (const _ of range(N))` que devolve no sucesso, com o `throw` depois do loop (veja `insertGroup` em `apps/scorely/api/src/modules/groups/rules/groups.ts`). Nada de recursão para repetir: o loop é mais fácil de ler.
+- Paginação: função recursiva (veja `batchGetAll` em `apps/scorely/api/src/lib/db.ts`).
 - Estado que muda de verdade (timer, promise em andamento, sessão em memória): campo de um objeto `const` (`const state = { current: read() }`) ou estado da store, nunca uma variável reatribuída.
 - Testes: cada teste monta o próprio contexto (`const t = await loggedIn()`), sem `let` no `beforeEach`. Relógio fake é objeto: `const clock = { now: new Date(...) }`.
 

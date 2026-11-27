@@ -1,6 +1,7 @@
 import { randomInt } from 'node:crypto';
 import { newEntity } from '@scorely/api/src/lib/entity';
 import { appError } from '@scorely/api/src/lib/errors';
+import { range } from '@scorely/api/src/lib/fn';
 import type { UserId } from '@scorely/api/src/lib/ids';
 import type { MediaTarget } from '@scorely/api/src/modules/media/media.access';
 import { type MediaService, mediaService } from '@scorely/api/src/modules/media/media.service';
@@ -63,25 +64,27 @@ export function createUserService(
   const show = (record: MeRecord): Me => toMe(record, media.urlOf);
   const get = async (id: UserId, opts?: ReadOptions): Promise<Me> => show(await getRecord(id, opts));
 
-  /** Cria a conta; código de amigo em uso → sorteia outro (até `PUBLIC_ID_ATTEMPTS` no total). */
-  async function create(email: string, attempt = 1): Promise<{ userId: UserId; me: Me; created: boolean }> {
-    // USR-13: o email vai à parte, nunca no perfil. USR-15: o código nasce aqui e não muda mais.
-    // USR-02: o apelido nasce igual ao código. `newEntity` gera o id do sistema (uuid) e o `createdAt`.
-    const publicId = newId();
-    const user = newEntity<UserRecord>({ publicId, nickname: publicId, version: 1 }, now());
-    const result = await repo.create(user, email);
-    if (result === 'created') {
-      return { userId: user.id, me: show({ ...user, private: { email }, preferences: {} }), created: true };
+  /** Cria a conta; código de amigo em uso → sorteia outro, até `PUBLIC_ID_ATTEMPTS` vezes. */
+  async function create(email: string): Promise<{ userId: UserId; me: Me; created: boolean }> {
+    for (const _ of range(PUBLIC_ID_ATTEMPTS)) {
+      // USR-13: o email vai à parte, nunca no perfil. USR-15: o código nasce aqui e não muda mais.
+      // USR-02: o apelido nasce igual ao código. `newEntity` gera o id do sistema (uuid) e o `createdAt`.
+      const publicId = newId();
+      const user = newEntity<UserRecord>({ publicId, nickname: publicId, version: 1 }, now());
+      const result = await repo.create(user, email);
+      if (result === 'created') {
+        return { userId: user.id, me: show({ ...user, private: { email }, preferences: {} }), created: true };
+      }
+      if (result !== 'public_id_taken') {
+        // Outro login criou o mesmo email ao mesmo tempo: relê o vencedor com leitura consistente,
+        // senão a leitura eventual pode ainda não enxergar o item recém-gravado.
+        const winner = await repo.getByEmail(email, { consistent: true });
+        if (!winner) throw appError('USER_CREATE_CONFLICT');
+        return { userId: winner.id, me: show(winner), created: false };
+      }
+      // Código de amigo em uso: sorteia outro.
     }
-    if (result === 'public_id_taken') {
-      if (attempt >= PUBLIC_ID_ATTEMPTS) throw appError('USER_CREATE_CONFLICT');
-      return create(email, attempt + 1);
-    }
-    // Outro login criou o mesmo email ao mesmo tempo: relê o vencedor com leitura consistente,
-    // senão a leitura eventual pode ainda não enxergar o item recém-gravado.
-    const winner = await repo.getByEmail(email, { consistent: true });
-    if (!winner) throw appError('USER_CREATE_CONFLICT');
-    return { userId: winner.id, me: show(winner), created: false };
+    throw appError('USER_CREATE_CONFLICT');
   }
 
   /** Onde a foto da pessoa fica ligada (MID-08): só o `avatarMediaId` no item dela (MID-12). */

@@ -1,5 +1,6 @@
 import { newEntity } from '@scorely/api/src/lib/entity';
 import { appError } from '@scorely/api/src/lib/errors';
+import { range } from '@scorely/api/src/lib/fn';
 import { MEDIA_PREFIXES, type MediaStorage, s3MediaStorage } from '@scorely/api/src/lib/storage';
 import {
   dynamoMediaRepository,
@@ -91,34 +92,35 @@ export function createMediaService({ repo, storage, now = () => new Date() }: Me
   async function link(
     ready: MediaRecord,
     target: MediaTarget,
-    attempt: number,
   ): Promise<{ already: true } | { already: false; previous: MediaRecord | undefined }> {
-    const currentId = await target.readCurrent();
-    if (currentId === ready.id) return { already: true };
-    const previous = currentId ? await repo.get(currentId) : undefined;
-    const result = await repo.attach({
-      ready,
-      target: { key: target.key, field: target.field },
-      ...(previous && { previous }),
-    });
-    if (result === 'attached') return { already: false, previous };
-    if (attempt >= ATTEMPTS) throw new Error('Media attach kept conflicting with other writes');
-    return link(ready, target, attempt + 1);
+    for (const _ of range(ATTEMPTS)) {
+      const currentId = await target.readCurrent();
+      if (currentId === ready.id) return { already: true };
+      const previous = currentId ? await repo.get(currentId) : undefined;
+      const result = await repo.attach({
+        ready,
+        target: { key: target.key, field: target.field },
+        ...(previous && { previous }),
+      });
+      if (result === 'attached') return { already: false, previous };
+    }
+    throw new Error('Media attach kept conflicting with other writes');
   }
 
-  async function unlink(target: MediaTarget, attempt: number): Promise<MediaRecord | undefined> {
-    const currentId = await target.readCurrent();
-    if (!currentId) return undefined;
-    const previous = await repo.get(currentId);
-    // Outra remoção apagou a mídia no meio: relê a área, que deve estar vazia (MID-10)
-    if (!previous) {
-      if (attempt >= ATTEMPTS) throw new Error('Linked media record is missing');
-      return unlink(target, attempt + 1);
+  async function unlink(target: MediaTarget): Promise<MediaRecord | undefined> {
+    for (const attempt of range(ATTEMPTS)) {
+      const currentId = await target.readCurrent();
+      if (!currentId) return undefined;
+      const previous = await repo.get(currentId);
+      // Outra remoção apagou a mídia no meio: relê a área, que deve estar vazia (MID-10)
+      if (!previous) {
+        if (attempt === ATTEMPTS - 1) throw new Error('Linked media record is missing');
+        continue;
+      }
+      const result = await repo.detach({ target: { key: target.key, field: target.field }, previous });
+      if (result === 'detached') return previous;
     }
-    const result = await repo.detach({ target: { key: target.key, field: target.field }, previous });
-    if (result === 'detached') return previous;
-    if (attempt >= ATTEMPTS) throw new Error('Media detach kept conflicting with other writes');
-    return unlink(target, attempt + 1);
+    throw new Error('Media detach kept conflicting with other writes');
   }
 
   return {
@@ -186,7 +188,7 @@ export function createMediaService({ repo, storage, now = () => new Date() }: Me
       const ready: MediaRecord = { ...rest, ...file, status: 'ready', key: finalKey };
       const url = storage.publicUrl(finalKey);
 
-      const linked = await link(ready, input.target, 1).catch(async (err: unknown) => {
+      const linked = await link(ready, input.target).catch(async (err: unknown) => {
         // A cópia em public/ não pode sobrar, a menos que outra confirmação já a tenha ligado (MID-07)
         const current = await input.target.readCurrent().catch(() => ready.id);
         if (current !== ready.id) await removeQuietly(finalKey);
@@ -201,7 +203,7 @@ export function createMediaService({ repo, storage, now = () => new Date() }: Me
 
     /** MID-10, MID-11. Sem mídia ligada → nada a fazer. */
     async detach(input: { purpose: MediaPurpose; ownerId: string; target: MediaTarget }): Promise<void> {
-      const removed = await unlink(input.target, 1);
+      const removed = await unlink(input.target);
       if (removed) await removeQuietly(removed.key);
     },
   };

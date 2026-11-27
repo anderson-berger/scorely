@@ -1,9 +1,15 @@
 import { authRoute } from '@scorely/api/src/lib/auth';
+import { systemNow } from '@scorely/api/src/lib/clock';
 import { created, type HttpEvent, parseBody, pathParam } from '@scorely/api/src/lib/http';
 import { asPublicGroupId, asPublicUserId } from '@scorely/api/src/lib/ids';
 import { dynamoGroupRepository } from '@scorely/api/src/modules/groups/data/groups.repository';
-import { createGroupService } from '@scorely/api/src/modules/groups/groups.service';
-import { createGroupImages } from '@scorely/api/src/modules/groups/rules/images';
+import type { GroupImagesDeps, GroupsDeps } from '@scorely/api/src/modules/groups/groups.service';
+import * as groupRules from '@scorely/api/src/modules/groups/rules/groups';
+import * as imageRules from '@scorely/api/src/modules/groups/rules/images';
+import * as inviteRules from '@scorely/api/src/modules/groups/rules/invites';
+import * as memberRules from '@scorely/api/src/modules/groups/rules/members';
+import * as openRules from '@scorely/api/src/modules/groups/rules/open';
+import * as roleRules from '@scorely/api/src/modules/groups/rules/roles';
 import { mediaService } from '@scorely/api/src/modules/media/media.service';
 import { dynamoNotificationRepository } from '@scorely/api/src/modules/notifications/data/notifications.repository';
 import { createNotificationService } from '@scorely/api/src/modules/notifications/notifications.service';
@@ -50,18 +56,19 @@ import {
   UpdateGroupRoleInputSchema,
 } from '@scorely/contracts';
 
-const groups = createGroupService({
+const deps: GroupsDeps = {
   groups: dynamoGroupRepository,
   media: mediaService,
   users: dynamoUserDirectory,
   notifications: createNotificationService(dynamoNotificationRepository),
+  now: systemNow,
   // GRV-23: o email só da parte privada (USR-13) e a conta de um email, pelo lookup do login.
   emails: {
     emailOf: async (userId) => (await dynamoUserRepository.getMe(userId))?.private.email,
     userIdOf: async (email) => (await dynamoUserRepository.getByEmail(email))?.id,
   },
-});
-const images = createGroupImages({ groups: dynamoGroupRepository, media: mediaService });
+};
+const imageDeps: GroupImagesDeps = { groups: dynamoGroupRepository, media: mediaService, now: systemNow };
 
 /** `slot` da rota das imagens (GRV-09): `logo` ou `cover`; outro valor → 422. */
 const slotOf = (event: HttpEvent) => GroupImageSlotSchema.parse(pathParam(event, 'slot'));
@@ -69,22 +76,24 @@ const slotOf = (event: HttpEvent) => GroupImageSlotSchema.parse(pathParam(event,
 export async function createGroup(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const input: CreateGroupInput = parseBody(event, CreateGroupInputSchema);
-    const group: Group = await groups.create(auth.userId, input);
+    const group: Group = await groupRules.createGroup(deps, auth.userId, input);
     return created(group);
   });
 }
 
 export async function getGroup(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    const publicId = asPublicGroupId(pathParam(event, 'publicId'));
-    const group: Group = await groups.get(auth.userId, publicId);
+    const publicId = pathParam(event, 'publicId');
+    const groupId = asPublicGroupId(publicId);
+    const userId = auth.userId;
+    const group: Group = await groupRules.getGroup(deps, userId, groupId);
     return group;
   });
 }
 
 export async function myGroups(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    const list: Group[] = await groups.mine(auth.userId);
+    const list: Group[] = await groupRules.listMyGroups(deps, auth.userId);
     return list;
   });
 }
@@ -94,7 +103,7 @@ export async function requestImageUpload(event: HttpEvent) {
     const input: MediaUploadInput = parseBody(event, MediaUploadInputSchema);
     const publicId = asPublicGroupId(pathParam(event, 'publicId'));
     const slot = slotOf(event);
-    const upload: MediaUpload = await images.requestUpload(auth.userId, publicId, slot, input);
+    const upload: MediaUpload = await imageRules.requestUpload(imageDeps, auth.userId, publicId, slot, input);
     return upload;
   });
 }
@@ -104,7 +113,7 @@ export async function attachImage(event: HttpEvent) {
     const input: AttachMediaInput = parseBody(event, AttachMediaInputSchema);
     const publicId = asPublicGroupId(pathParam(event, 'publicId'));
     const slot = slotOf(event);
-    const group: Group = await images.attach(auth.userId, publicId, slot, input);
+    const group: Group = await imageRules.attach(imageDeps, auth.userId, publicId, slot, input);
     return group;
   });
 }
@@ -113,7 +122,7 @@ export async function detachImage(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const publicId = asPublicGroupId(pathParam(event, 'publicId'));
     const slot = slotOf(event);
-    const group: Group = await images.detach(auth.userId, publicId, slot);
+    const group: Group = await imageRules.detach(imageDeps, auth.userId, publicId, slot);
     return group;
   });
 }
@@ -122,7 +131,7 @@ export async function createInvite(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const input: CreateGroupInviteInput = parseBody(event, CreateGroupInviteInputSchema);
     const publicId = asPublicGroupId(pathParam(event, 'publicId'));
-    const invite: GroupInvite = await groups.createInvite(auth.userId, publicId, input);
+    const invite: GroupInvite = await inviteRules.createInvite(deps, auth.userId, publicId, input);
     return created(invite);
   });
 }
@@ -130,7 +139,7 @@ export async function createInvite(event: HttpEvent) {
 export async function listInvites(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const publicId = asPublicGroupId(pathParam(event, 'publicId'));
-    const list: GroupInvite[] = await groups.listInvites(auth.userId, publicId);
+    const list: GroupInvite[] = await inviteRules.listInvites(deps, auth.userId, publicId);
     return list;
   });
 }
@@ -139,14 +148,14 @@ export async function revokeInvite(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const publicId = asPublicGroupId(pathParam(event, 'publicId'));
     const inviteId = pathParam(event, 'inviteId');
-    await groups.revokeInvite(auth.userId, publicId, inviteId);
+    await inviteRules.revokeInvite(deps, auth.userId, publicId, inviteId);
   });
 }
 
 export async function previewInvite(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const token = pathParam(event, 'token');
-    const preview: GroupInvitePreview = await groups.previewInvite(auth.userId, token);
+    const preview: GroupInvitePreview = await inviteRules.previewInvite(deps, auth.userId, token);
     return preview;
   });
 }
@@ -154,7 +163,7 @@ export async function previewInvite(event: HttpEvent) {
 export async function joinInvite(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const token = pathParam(event, 'token');
-    const group: Group = await groups.joinByInvite(auth.userId, token);
+    const group: Group = await inviteRules.joinByInvite(deps, auth.userId, token);
     return group;
   });
 }
@@ -162,7 +171,7 @@ export async function joinInvite(event: HttpEvent) {
 export async function listMembers(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const publicId = asPublicGroupId(pathParam(event, 'publicId'));
-    const list: GroupMember[] = await groups.members(auth.userId, publicId);
+    const list: GroupMember[] = await memberRules.members(deps, auth.userId, publicId);
     return list;
   });
 }
@@ -170,7 +179,7 @@ export async function listMembers(event: HttpEvent) {
 export async function leaveGroup(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const publicId = asPublicGroupId(pathParam(event, 'publicId'));
-    await groups.leave(auth.userId, publicId);
+    await memberRules.leave(deps, auth.userId, publicId);
   });
 }
 
@@ -178,13 +187,13 @@ export async function removeMember(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const publicId = asPublicGroupId(pathParam(event, 'publicId'));
     const userPublicId = asPublicUserId(pathParam(event, 'userPublicId'));
-    await groups.removeMember(auth.userId, publicId, userPublicId);
+    await memberRules.removeMember(deps, auth.userId, publicId, userPublicId);
   });
 }
 
 export async function myGroupInvites(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    const list: MyGroupInvite[] = await groups.myInvites(auth.userId);
+    const list: MyGroupInvite[] = await inviteRules.myInvites(deps, auth.userId);
     return list;
   });
 }
@@ -192,7 +201,7 @@ export async function myGroupInvites(event: HttpEvent) {
 export async function declineGroupInvite(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const inviteId = pathParam(event, 'inviteId');
-    await groups.declineInvite(auth.userId, inviteId);
+    await inviteRules.declineInvite(deps, auth.userId, inviteId);
   });
 }
 
@@ -200,7 +209,7 @@ export async function setJoinMode(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const input: SetGroupJoinModeInput = parseBody(event, SetGroupJoinModeInputSchema);
     const publicId = asPublicGroupId(pathParam(event, 'publicId'));
-    const group: Group = await groups.setJoinMode(auth.userId, publicId, input);
+    const group: Group = await openRules.setJoinMode(deps, auth.userId, publicId, input);
     return group;
   });
 }
@@ -209,7 +218,7 @@ export async function setModality(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const input: SetGroupModalityInput = parseBody(event, SetGroupModalityInputSchema);
     const publicId = asPublicGroupId(pathParam(event, 'publicId'));
-    const group: Group = await groups.setModality(auth.userId, publicId, input);
+    const group: Group = await groupRules.setGroupModality(deps, auth.userId, publicId, input);
     return group;
   });
 }
@@ -217,7 +226,7 @@ export async function setModality(event: HttpEvent) {
 export async function previewGroup(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const publicId = asPublicGroupId(pathParam(event, 'publicId'));
-    const preview: GroupPreview = await groups.preview(auth.userId, publicId);
+    const preview: GroupPreview = await openRules.preview(deps, auth.userId, publicId);
     return preview;
   });
 }
@@ -225,7 +234,7 @@ export async function previewGroup(event: HttpEvent) {
 export async function requestToJoin(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const publicId = asPublicGroupId(pathParam(event, 'publicId'));
-    const preview: GroupPreview = await groups.request(auth.userId, publicId);
+    const preview: GroupPreview = await openRules.request(deps, auth.userId, publicId);
     return preview;
   });
 }
@@ -233,14 +242,14 @@ export async function requestToJoin(event: HttpEvent) {
 export async function cancelJoinRequest(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const publicId = asPublicGroupId(pathParam(event, 'publicId'));
-    await groups.cancelRequest(auth.userId, publicId);
+    await openRules.cancelRequest(deps, auth.userId, publicId);
   });
 }
 
 export async function listJoinRequests(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const publicId = asPublicGroupId(pathParam(event, 'publicId'));
-    const list: GroupJoinRequest[] = await groups.listRequests(auth.userId, publicId);
+    const list: GroupJoinRequest[] = await openRules.listRequests(deps, auth.userId, publicId);
     return list;
   });
 }
@@ -250,7 +259,7 @@ export async function approveJoinRequest(event: HttpEvent) {
     const input: ApproveGroupRequestInput = parseBody(event, ApproveGroupRequestInputSchema);
     const publicId = asPublicGroupId(pathParam(event, 'publicId'));
     const userPublicId = asPublicUserId(pathParam(event, 'userPublicId'));
-    await groups.approveRequest(auth.userId, publicId, userPublicId, input);
+    await openRules.approveRequest(deps, auth.userId, publicId, userPublicId, input);
   });
 }
 
@@ -258,7 +267,7 @@ export async function declineJoinRequest(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const publicId = asPublicGroupId(pathParam(event, 'publicId'));
     const userPublicId = asPublicUserId(pathParam(event, 'userPublicId'));
-    await groups.declineRequest(auth.userId, publicId, userPublicId);
+    await openRules.declineRequest(deps, auth.userId, publicId, userPublicId);
   });
 }
 
@@ -266,7 +275,7 @@ export async function declineJoinRequest(event: HttpEvent) {
 export async function listRoles(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const publicId = asPublicGroupId(pathParam(event, 'publicId'));
-    const list: GroupRoles = await groups.roles(auth.userId, publicId);
+    const list: GroupRoles = await roleRules.listRoles(deps, auth.userId, publicId);
     return list;
   });
 }
@@ -275,7 +284,7 @@ export async function createRole(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const input: CreateGroupRoleInput = parseBody(event, CreateGroupRoleInputSchema);
     const publicId = asPublicGroupId(pathParam(event, 'publicId'));
-    const list: GroupRoles = await groups.createRole(auth.userId, publicId, input);
+    const list: GroupRoles = await roleRules.createRole(deps, auth.userId, publicId, input);
     return created(list);
   });
 }
@@ -285,7 +294,7 @@ export async function updateRole(event: HttpEvent) {
     const input: UpdateGroupRoleInput = parseBody(event, UpdateGroupRoleInputSchema);
     const publicId = asPublicGroupId(pathParam(event, 'publicId'));
     const roleId = pathParam(event, 'roleId');
-    const list: GroupRoles = await groups.updateRole(auth.userId, publicId, roleId, input);
+    const list: GroupRoles = await roleRules.updateRole(deps, auth.userId, publicId, roleId, input);
     return list;
   });
 }
@@ -294,7 +303,7 @@ export async function orderRoles(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const input: OrderGroupRolesInput = parseBody(event, OrderGroupRolesInputSchema);
     const publicId = asPublicGroupId(pathParam(event, 'publicId'));
-    const list: GroupRoles = await groups.orderRoles(auth.userId, publicId, input);
+    const list: GroupRoles = await roleRules.orderRoles(deps, auth.userId, publicId, input);
     return list;
   });
 }
@@ -304,7 +313,7 @@ export async function deleteRole(event: HttpEvent) {
     const input: DeleteGroupRoleInput = parseBody(event, DeleteGroupRoleInputSchema);
     const publicId = asPublicGroupId(pathParam(event, 'publicId'));
     const roleId = pathParam(event, 'roleId');
-    const list: GroupRoles = await groups.deleteRole(auth.userId, publicId, roleId, input);
+    const list: GroupRoles = await roleRules.deleteRole(deps, auth.userId, publicId, roleId, input);
     return list;
   });
 }
@@ -314,7 +323,7 @@ export async function setMemberRole(event: HttpEvent) {
     const input: SetMemberRoleInput = parseBody(event, SetMemberRoleInputSchema);
     const publicId = asPublicGroupId(pathParam(event, 'publicId'));
     const userPublicId = asPublicUserId(pathParam(event, 'userPublicId'));
-    await groups.setMemberRole(auth.userId, publicId, userPublicId, input);
+    await roleRules.setMemberRole(deps, auth.userId, publicId, userPublicId, input);
   });
 }
 
@@ -322,6 +331,6 @@ export async function transferGroup(event: HttpEvent) {
   return authRoute(event, async (auth) => {
     const input: TransferGroupInput = parseBody(event, TransferGroupInputSchema);
     const publicId = asPublicGroupId(pathParam(event, 'publicId'));
-    await groups.transfer(auth.userId, publicId, input);
+    await roleRules.transfer(deps, auth.userId, publicId, input);
   });
 }

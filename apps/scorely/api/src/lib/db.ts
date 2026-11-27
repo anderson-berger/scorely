@@ -8,7 +8,7 @@ import {
 } from '@aws-sdk/lib-dynamodb';
 import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
 import { type AppError, appError } from '@scorely/api/src/lib/errors';
-import { chunk } from '@scorely/api/src/lib/fn';
+import { chunk, range } from '@scorely/api/src/lib/fn';
 import { LOGIN_CODE_ENTITY, SESSION_ENTITY } from '@scorely/api/src/modules/auth/data/auth.table';
 import {
   USER_PREFERENCES_ENTITY,
@@ -340,19 +340,22 @@ export function createTransactWrite(deps: {
   attempts?: number;
 }): (items: TransactItem[]) => Promise<TransactResult> {
   const attempts = deps.attempts ?? 3;
-  async function attempt(items: TransactItem[], n: number): Promise<TransactResult> {
-    try {
-      await deps.send(items);
-      return { ok: true };
-    } catch (err) {
-      const failure = transactionFailure(err);
-      if (failure?.kind === 'condition') return { ok: false, failed: failure.failed };
-      if (failure?.kind !== 'retry' || n >= attempts) throw err;
-      await deps.sleep((50 + Math.random() * 100) * n);
-      return attempt(items, n + 1);
+  return async (items) => {
+    for (const n of range(attempts)) {
+      try {
+        await deps.send(items);
+        return { ok: true };
+      } catch (err) {
+        const failure = transactionFailure(err);
+        if (failure?.kind === 'condition') return { ok: false, failed: failure.failed };
+        const last = n === attempts - 1;
+        if (failure?.kind !== 'retry' || last) throw err;
+        // Espera um pouco mais a cada envio, com um sorteio para as repetições não baterem juntas.
+        await deps.sleep((50 + Math.random() * 100) * (n + 1));
+      }
     }
-  }
-  return (items) => attempt(items, 1);
+    throw new Error('Transaction was not sent');
+  };
 }
 
 export const transactWrite = createTransactWrite({

@@ -1,5 +1,6 @@
 import { newEntity } from '@scorely/api/src/lib/entity';
 import { appError } from '@scorely/api/src/lib/errors';
+import { range } from '@scorely/api/src/lib/fn';
 import type { GroupId, UserId } from '@scorely/api/src/lib/ids';
 import { localParts } from '@scorely/api/src/lib/zoned';
 import type { CompetitionContext } from '@scorely/api/src/modules/groups/competitions/competitions.service';
@@ -132,7 +133,8 @@ export function createCompetitionRules(
     }
     const openIds = new Set(open.map((c) => c.id));
 
-    const attempt = async (left: number): Promise<StoredCompetition> => {
+    // Outra criação pegou o mesmo número: relê a sequência e tenta de novo.
+    for (const _ of range(CREATE_ATTEMPTS)) {
       const [previousNumber, targets] = await Promise.all([
         repo.getSequence(ctx.groupId),
         seriesTargets(ctx.groupId, body.seriesIds),
@@ -166,13 +168,9 @@ export function createCompetitionRules(
         series,
         matches,
       });
-      if (ok) return competition;
-      if (left <= 1) throw new Error('Competition create kept conflicting');
-      return attempt(left - 1);
-    };
-
-    const competition = await attempt(CREATE_ATTEMPTS);
-    return view(ctx, userId, competition, 'all');
+      if (ok) return view(ctx, userId, competition, 'all');
+    }
+    throw new Error('Competition create kept conflicting');
   }
 
   /** COM-07: abertas e no prazo pelo fim; depois as travadas, da mais recente para a mais antiga. */

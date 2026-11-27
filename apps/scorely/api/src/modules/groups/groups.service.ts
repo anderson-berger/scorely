@@ -1,19 +1,14 @@
-// O service do grupo: junta os assuntos de rules/ (ADR 0021) sobre um contexto comum.
+// As dependências do grupo. As regras ficam em rules/, uma por assunto, e o handler chama direto.
 import type { UserId } from '@scorely/api/src/lib/ids';
 import type { GroupRepository } from '@scorely/api/src/modules/groups/data/groups.repository';
-import { groupContext, groupRules } from '@scorely/api/src/modules/groups/rules/groups';
-import { inviteRules } from '@scorely/api/src/modules/groups/rules/invites';
-import { memberRules } from '@scorely/api/src/modules/groups/rules/members';
-import { openRules } from '@scorely/api/src/modules/groups/rules/open';
-import { roleRules } from '@scorely/api/src/modules/groups/rules/roles';
 import type { MediaService } from '@scorely/api/src/modules/media/media.service';
 import type { NotificationService } from '@scorely/api/src/modules/notifications/notifications.service';
 import type { UserDirectory } from '@scorely/api/src/modules/users/users.access';
 import type { PublicGroupId } from '@scorely/contracts';
 
 export {
-  forViewer,
   newPublicGroupId,
+  toGroup,
   toUser,
   type UrlOf,
 } from '@scorely/api/src/modules/groups/rules/groups';
@@ -24,7 +19,8 @@ export interface GroupsDeps {
   media?: Pick<MediaService, 'urlOf'>;
   /** Perfis das pessoas (GRV-19, 29) e ids públicos → uuid (GRV-31). */
   users: Pick<UserDirectory, 'getMany' | 'resolve'>;
-  now?: () => Date;
+  /** A hora atual (`systemNow` em produção). */
+  now: () => Date;
   newPublicId?: () => PublicGroupId;
   /** GRV-23: o email da conta (parte privada, USR-13) e a conta de um email. */
   emails: {
@@ -37,13 +33,7 @@ export interface GroupsDeps {
   newToken?: () => string;
 }
 
-export function createGroupService(deps: GroupsDeps) {
-  const ctx = groupContext(deps);
-  return {
-    ...roleRules(ctx),
-    ...groupRules(ctx),
-    ...inviteRules(ctx),
-    ...memberRules(ctx),
-    ...openRules(ctx),
-  };
+/** Logo e capa (GRV-09): o repositório, a mídia inteira (o envio e a troca do arquivo) e a hora. */
+export interface GroupImagesDeps extends Pick<GroupsDeps, 'groups' | 'now'> {
+  media: MediaService;
 }

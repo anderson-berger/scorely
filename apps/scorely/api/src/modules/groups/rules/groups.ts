@@ -1,7 +1,8 @@
-// Criar, modalidade, identificação e ver o grupo (GRV-01–05, 08, 52), e o contexto que os outros assuntos usam.
+// Criar, modalidade, identificação e ver o grupo (GRV-01–05, 08, 52), e o que os outros assuntos usam em comum.
 import { randomInt } from 'node:crypto';
 import { newEntity } from '@scorely/api/src/lib/entity';
 import { appError } from '@scorely/api/src/lib/errors';
+import { range } from '@scorely/api/src/lib/fn';
 import type { UserId } from '@scorely/api/src/lib/ids';
 import type { StoredGroup, StoredMembership } from '@scorely/api/src/modules/groups/data/groups.repository';
 import type { GroupsDeps } from '@scorely/api/src/modules/groups/groups.service';
@@ -33,6 +34,9 @@ const PUBLIC_ID_ATTEMPTS = 3;
 /** GRV-02: o grupo recém-criado só tem os cargos fixos. */
 const NO_ROLES: GroupRoles = { roles: [], everyonePermissions: [] };
 
+/** GRV-02: quem cria é membro com o cargo Dono. */
+const OWNER: Pick<StoredMembership, 'role' | 'tier'> = { role: 'owner', tier: 'member' };
+
 /** GRV-05: ordem de nome sem diferenciar maiúsculas e acentos. */
 const byName = new Intl.Collator('pt-BR', { sensitivity: 'base' });
 
@@ -55,13 +59,14 @@ export function toUser(record: UserRecord, urlOf: UrlOf): User {
   };
 }
 
-/** O grupo para quem pede: o id público no lugar do uuid (GRV-08), o papel (GRV-04) e as URLs das imagens (GRV-10). */
-export function forViewer(
+/** O grupo como sai na resposta, para quem pede: o id público no lugar do uuid (GRV-08), o papel (GRV-04) e as URLs das imagens (GRV-10). */
+export function toGroup(
+  deps: Pick<GroupsDeps, 'media'>,
   group: StoredGroup,
   membership: Pick<StoredMembership, 'role' | 'tier'>,
   roles: GroupRoles,
-  urlOf: UrlOf = productionUrlOf,
 ): Group {
+  const urlOf = mediaUrlOf(deps);
   return {
     id: group.publicId,
     createdAt: group.createdAt,
@@ -77,100 +82,90 @@ export function forViewer(
   };
 }
 
-/** O que os assuntos do grupo usam em comum: as deps, o relógio, as URLs, o acesso e os perfis. */
-export function groupContext(deps: GroupsDeps) {
-  const now = deps.now ?? (() => new Date());
-  const urlOf: UrlOf = (purpose, mediaId) => (deps.media?.urlOf ?? productionUrlOf)(purpose, mediaId);
-
-  /** Quem participa e o grupo; senão `GROUP_NOT_FOUND` (GRV-04, 15). */
-  async function access(userId: UserId, publicId: PublicGroupId) {
-    const id = await deps.groups.resolve(publicId);
-    if (id === undefined) throw appError('GROUP_NOT_FOUND');
-    const [group, membership, roles] = await Promise.all([
-      deps.groups.get(id),
-      deps.groups.getMembership(id, userId),
-      deps.groups.getRoles(id),
-    ]);
-    if (!group || !membership) throw appError('GROUP_NOT_FOUND');
-    return { id, group, membership, roles };
-  }
-
-  /** Perfis de uma vez (`getMany`). */
-  async function profiles(ids: readonly UserId[]): Promise<Map<UserId, User>> {
-    const unique = [...new Set(ids)];
-    const records = unique.length > 0 ? await deps.users.getMany(unique) : [];
-    return new Map(records.map((r) => [r.id, toUser(r, urlOf)]));
-  }
-
-  function profileOf(map: Map<UserId, User>, id: UserId): User {
-    const user = map.get(id);
-    if (!user) throw new Error('Group participant without a user profile');
-    return user;
-  }
-
-  return { deps, now, urlOf, access, profiles, profileOf };
+/** MID-12: a URL pública pelas deps; sem mídia nas deps, a de produção. */
+export function mediaUrlOf(deps: Pick<GroupsDeps, 'media'>): UrlOf {
+  return (purpose, mediaId) => (deps.media?.urlOf ?? productionUrlOf)(purpose, mediaId);
 }
 
-export type GroupContext = ReturnType<typeof groupContext>;
+/** Quem participa e o grupo; senão `GROUP_NOT_FOUND` (GRV-04, 15). */
+export async function requireMembership(deps: GroupsDeps, userId: UserId, publicId: PublicGroupId) {
+  const id = await deps.groups.resolve(publicId);
+  if (id === undefined) throw appError('GROUP_NOT_FOUND');
+  const [group, membership, roles] = await Promise.all([
+    deps.groups.get(id),
+    deps.groups.getMembership(id, userId),
+    deps.groups.getRoles(id),
+  ]);
+  if (!group || !membership) throw appError('GROUP_NOT_FOUND');
+  return { id, group, membership, roles };
+}
 
-/** Criar, ver, os meus grupos e a modalidade. */
-export function groupRules(ctx: GroupContext) {
-  const { deps, now, access } = ctx;
-  const newPublicId = deps.newPublicId ?? newPublicGroupId;
+/** Perfis de uma vez (`getMany`). */
+export async function loadProfiles(deps: GroupsDeps, ids: readonly UserId[]): Promise<Map<UserId, User>> {
+  const unique = [...new Set(ids)];
+  const records = unique.length > 0 ? await deps.users.getMany(unique) : [];
+  const urlOf = mediaUrlOf(deps);
+  return new Map(records.map((r) => [r.id, toUser(r, urlOf)]));
+}
 
-  /** GRV-01, 02, 03, 08: o nome já vem validado pelo contrato; quem cria é o dono. */
-  async function create(userId: UserId, input: CreateGroupInput, attempt = 1): Promise<Group> {
-    // `newEntity` gera o id do sistema (uuid) e o `createdAt`; o `updatedAt` nasce igual (ADR 0013).
-    const entity = newEntity<Omit<StoredGroup, 'updatedAt'>>(
-      { publicId: newPublicId(), name: input.name, joinMode: 'invite', modality: 'mixed', version: 1 },
-      now(),
-    );
-    const group: StoredGroup = { ...entity, updatedAt: entity.createdAt };
+export function profileOf(map: Map<UserId, User>, id: UserId): User {
+  const user = map.get(id);
+  if (!user) throw new Error('Group participant without a user profile');
+  return user;
+}
+
+/** GRV-01, 02, 03: quem cria é o dono. */
+export async function createGroup(deps: GroupsDeps, userId: UserId, input: CreateGroupInput): Promise<Group> {
+  const group = await insertGroup(deps, userId, input.name);
+  return toGroup(deps, group, OWNER, NO_ROLES);
+}
+
+/** GRV-08: grava o grupo; código em uso → sorteia outro, até `PUBLIC_ID_ATTEMPTS` vezes. */
+async function insertGroup(deps: GroupsDeps, userId: UserId, name: string): Promise<StoredGroup> {
+  for (const _ of range(PUBLIC_ID_ATTEMPTS)) {
+    const group = newGroup(deps, name);
     const result = await deps.groups.create(group, userId);
-    if (result === 'public_id_taken') {
-      if (attempt >= PUBLIC_ID_ATTEMPTS) throw new Error('Could not allocate a group public id');
-      return create(userId, input, attempt + 1);
-    }
-    return forViewer(group, { role: 'owner', tier: 'member' }, NO_ROLES, deps.media?.urlOf);
+    if (result === 'created') return group;
   }
+  throw new Error('Could not allocate a group public id');
+}
 
-  /** GRV-04: quem não participa, ou um código que não existe, recebe `GROUP_NOT_FOUND`. */
-  async function get(userId: UserId, publicId: PublicGroupId): Promise<Group> {
-    const id = await deps.groups.resolve(publicId);
-    if (id === undefined) throw appError('GROUP_NOT_FOUND');
-    const [group, membership, roles] = await Promise.all([
-      deps.groups.get(id),
-      deps.groups.getMembership(id, userId),
-      deps.groups.getRoles(id),
-    ]);
-    if (!group || !membership) throw appError('GROUP_NOT_FOUND');
-    return forViewer(group, membership, roles, deps.media?.urlOf);
-  }
+/** GRV-02: o grupo novo, no modo de convite e misto. O `updatedAt` nasce igual ao `createdAt` (ADR 0013). */
+function newGroup(deps: GroupsDeps, name: string): StoredGroup {
+  const publicId = deps.newPublicId?.() ?? newPublicGroupId();
+  const entity = newEntity<Omit<StoredGroup, 'updatedAt'>>(
+    { publicId, name, joinMode: 'invite', modality: 'mixed', version: 1 },
+    deps.now(),
+  );
+  return { ...entity, updatedAt: entity.createdAt };
+}
 
-  /** GRV-05: os grupos de que a pessoa participa, por nome. */
-  async function mine(userId: UserId): Promise<Group[]> {
-    const rows = await deps.groups.listMine(userId);
-    const roles = await Promise.all(rows.map(({ group }) => deps.groups.getRoles(group.id)));
-    return rows
-      .map(({ group, membership }, i) =>
-        forViewer(group, membership, roles[i] as GroupRoles, deps.media?.urlOf),
-      )
-      .sort((a, b) => byName.compare(a.name, b.name));
-  }
+/** GRV-04: quem não participa, ou um código que não existe, recebe `GROUP_NOT_FOUND`. */
+export async function getGroup(deps: GroupsDeps, userId: UserId, publicId: PublicGroupId): Promise<Group> {
+  const { group, membership, roles } = await requireMembership(deps, userId, publicId);
+  return toGroup(deps, group, membership, roles);
+}
 
-  /** GRV-52: quem tem `group.edit` muda a modalidade, com a `version` conferida (ADR 0016). Só informa. */
-  async function setModality(
-    userId: UserId,
-    publicId: PublicGroupId,
-    input: SetGroupModalityInput,
-  ): Promise<Group> {
-    const { id, membership, roles } = await access(userId, publicId);
-    requirePermission(membership, roles, 'group.edit');
-    await deps.groups.setModality(id, input.modality, input.expectedVersion, now());
-    const group = await deps.groups.get(id, { consistent: true });
-    if (!group) throw appError('GROUP_NOT_FOUND');
-    return forViewer(group, membership, roles, deps.media?.urlOf);
-  }
+/** GRV-05: os grupos de que a pessoa participa, por nome. */
+export async function listMyGroups(deps: GroupsDeps, userId: UserId): Promise<Group[]> {
+  const rows = await deps.groups.listMine(userId);
+  const roles = await Promise.all(rows.map(({ group }) => deps.groups.getRoles(group.id)));
+  return rows
+    .map(({ group, membership }, i) => toGroup(deps, group, membership, roles[i] as GroupRoles))
+    .sort((a, b) => byName.compare(a.name, b.name));
+}
 
-  return { create, get, mine, setModality };
+/** GRV-52: quem tem `group.edit` muda a modalidade, com a `version` conferida (ADR 0016). Só informa. */
+export async function setGroupModality(
+  deps: GroupsDeps,
+  userId: UserId,
+  publicId: PublicGroupId,
+  input: SetGroupModalityInput,
+): Promise<Group> {
+  const { id, membership, roles } = await requireMembership(deps, userId, publicId);
+  requirePermission(membership, roles, 'group.edit');
+  await deps.groups.setModality(id, input.modality, input.expectedVersion, deps.now());
+  const group = await deps.groups.get(id, { consistent: true });
+  if (!group) throw appError('GROUP_NOT_FOUND');
+  return toGroup(deps, group, membership, roles);
 }

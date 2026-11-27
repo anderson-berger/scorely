@@ -39,7 +39,34 @@ export async function createInvite(event: HttpEvent) {
   - Check: `checks/api.test.ts` (só os `handlers.ts`, dentro das `export async function`).
 - Nos parâmetros, só o `event` é anotado (`HttpEvent`); o `auth` vem tipado pelo callback do `authRoute`.
 - Helper compartilhado entre rotas é função do módulo, sem `export`.
-- Fora dos handlers, função exportada também é **declaração** (`export function x() {}`), não arrow em const. Factories que devolvem objeto (`createUserService`) e valores (`const users = ...`) continuam como estão.
+- Fora dos handlers, função exportada também é **declaração** (`export function x() {}`), não arrow em const.
+
+## Regras como funções
+
+Motivo: [docs/decisions/0025-regras-como-funcoes.md](../../docs/decisions/0025-regras-como-funcoes.md).
+
+```ts
+// rules/groups.ts
+export async function createGroup(deps: GroupsDeps, userId: UserId, input: CreateGroupInput): Promise<Group> {
+  const group = await insertGroup(deps, userId, input.name);
+  return toGroup(deps, group, OWNER, NO_ROLES);
+}
+
+// handlers.ts
+import * as groupRules from '@scorely/api/src/modules/groups/rules/groups';
+const deps: GroupsDeps = { groups: dynamoGroupRepository, now: systemNow, ... };
+const group: Group = await groupRules.createGroup(deps, auth.userId, input);
+```
+
+- Toda regra é `export async function <nome>(deps, ...)`: as dependências no 1º argumento, depois quem pede (`userId`), os ids e por último o `input`. Nomes curtos: `deps`, `input`.
+- **Sem fábrica que devolve objeto** (`createXService(...)`, `xRules(ctx)`, `return { a, b }`) e sem service que só repassa. O handler chama a regra direto, com `import * as <assunto>Rules`.
+- O `<Mod>Deps` fica no `<mod>.service.ts`. Módulo sem `rules/` tem as regras ali mesmo.
+- Função que só o assunto usa fica sem `export`. A que outros assuntos usam (`requireMembership`, `toGroup`) é exportada pelo assunto dono.
+- Quem monta a resposta se chama `to<Coisa>` (`toGroup`, `toUser`, `toMe`).
+- **A hora é `deps.now()`**, obrigatório no `<Mod>Deps`. Em produção o `handlers.ts` passa `systemNow` (`src/lib/clock.ts`); o teste passa o relógio dele. `new Date()` sem argumento e `Date.now()` só no `clock.ts`.
+- Os repositórios continuam objetos (`dynamo<Mod>Repository`): são a porta que o teste troca pela memória.
+- O módulo que serve outro (notificações, mídia) é passado nas deps como um objeto pequeno, montado no `handlers.ts`: `notifications: { notify: (userId, input) => notify(notificationDeps, userId, input) }`.
+- Check: `checks/api.test.ts`.
 
 ## Handlers devolvem só os dados
 
@@ -66,10 +93,12 @@ Motivo: [docs/decisions/0021-modulo-por-assunto.md](../../docs/decisions/0021-mo
 <mod>/
   functions.ts            as rotas
   handlers.ts             os handlers; monta as dependências (repositórios do DynamoDB)
-  <mod>.service.ts        o service; com rules/, só junta os assuntos
+  <mod>.service.ts        o <Mod>Deps; sem rules/, também as regras (ADR 0025)
   <mod>.access.ts         a porta para os outros módulos (só quando há)
   rules/<assunto>.ts      um arquivo por assunto do doc do módulo (só com mais de um assunto)
   data/                   <mod>.table.ts, <mod>.repository.ts, <mod>.memory.ts
+                          repositório grande: um <mod>.<assunto>.repository.ts por assunto, que o
+                          <mod>.repository.ts junta; tipos em <mod>.types.ts, helpers comuns em <mod>.dynamo.ts
   tests/                  fixtures.ts (o setup único), <assunto>.test.ts, repository.contract.test.ts
   <sub>/                  submódulo (tem functions.ts), com a mesma forma por dentro
 ```

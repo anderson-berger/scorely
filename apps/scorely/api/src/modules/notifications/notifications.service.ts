@@ -1,5 +1,6 @@
 import { newEntity } from '@scorely/api/src/lib/entity';
 import { appError } from '@scorely/api/src/lib/errors';
+import { range } from '@scorely/api/src/lib/fn';
 import type { UserId } from '@scorely/api/src/lib/ids';
 import type { NotificationRepository } from '@scorely/api/src/modules/notifications/data/notifications.repository';
 import type { StoredNotification } from '@scorely/api/src/modules/notifications/data/notifications.table';
@@ -22,13 +23,21 @@ function toNotification({ userId: _owner, ...n }: StoredNotification): Notificat
 }
 
 export function createNotificationService(repo: NotificationRepository, now: () => Date = () => new Date()) {
-  async function removeOwned(userId: UserId, id: string, attemptsLeft: number): Promise<void> {
+  /** A notificação da pessoa; de outra pessoa ou sumida → `NOTIFICATION_NOT_FOUND`. */
+  async function getOwned(userId: UserId, id: string): Promise<StoredNotification> {
     const n = await repo.get(id);
     if (!n || n.userId !== userId) throw appError('NOTIFICATION_NOT_FOUND');
-    // Esgotou as tentativas e ela ainda existe: mudou o tempo todo (não é o caso "sumiu", que dá 404 acima).
-    if (attemptsLeft === 0) throw new Error('Notification kept changing during removal');
-    if (await repo.remove(n)) return;
-    return removeOwned(userId, id, attemptsLeft - 1);
+    return n;
+  }
+
+  async function removeOwned(userId: UserId, id: string): Promise<void> {
+    for (const _ of range(REMOVE_ATTEMPTS)) {
+      const n = await getOwned(userId, id);
+      if (await repo.remove(n)) return;
+    }
+    // Esgotou as tentativas: se ela sumiu, é 404; se ainda existe, mudou o tempo todo.
+    await getOwned(userId, id);
+    throw new Error('Notification kept changing during removal');
   }
 
   return {
@@ -64,7 +73,7 @@ export function createNotificationService(repo: NotificationRepository, now: () 
 
     /** Apaga uma notificação do próprio usuário. De outro usuário ou inexistente → 404. */
     async remove(userId: UserId, id: string): Promise<void> {
-      await removeOwned(userId, id, REMOVE_ATTEMPTS);
+      await removeOwned(userId, id);
     },
   };
 }
