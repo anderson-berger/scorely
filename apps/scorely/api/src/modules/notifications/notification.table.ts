@@ -8,6 +8,9 @@ import type { Notification } from '@scorely/contracts';
 /** A notificação como fica no banco: com o dono (id do sistema). */
 export type StoredNotification = Notification & { userId: UserId };
 
+/** NTF-10: dias que a notificação lida fica, contados da leitura. */
+export const NOTIFICATION_READ_TTL_DAYS = 90;
+
 export const NOTIFICATION_ENTITY = 'Notification';
 export const INBOX_ENTITY = 'Inbox';
 

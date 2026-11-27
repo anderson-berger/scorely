@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { normalizeEmail } from '@scorely/api/src/lib/email';
 import { newEntity } from '@scorely/api/src/lib/entity';
 import { appError } from '@scorely/api/src/lib/errors';
-import type { UserId } from '@scorely/api/src/lib/ids';
+import type { GroupId, UserId } from '@scorely/api/src/lib/ids';
 import {
   type GroupRoles,
   isBelow,
@@ -17,6 +17,7 @@ import {
   graceTtl,
   type InviteTarget,
   type JoinAction,
+  requestExpiresAt,
   type StoredGroup,
   type StoredInvite,
   type StoredJoinRequest,
@@ -34,6 +35,7 @@ import {
   type CreateGroupRoleInput,
   type DeleteGroupRoleInput,
   GROUP_INVITE_MAX_ACTIVE,
+  GROUP_PARTICIPANT_MAX,
   GROUP_ROLE_MAX,
   type Group,
   type GroupInvite,
@@ -125,6 +127,9 @@ function inviteStatus(invite: StoredInvite, now: Date): GroupInviteStatus {
 /** GRV-19: o convite que deixou de valer há mais de 30 dias já não aparece (o `ttl` do banco atrasa até ~48 h). */
 const isGone = (invite: StoredInvite, now: Date) =>
   invite.ttl !== undefined && invite.ttl * 1000 <= now.getTime();
+
+/** GRV-27: o pedido que não venceu. O vencido conta como se não existisse. */
+const isLive = (request: StoredJoinRequest, now: Date) => request.expiresAt > now.toISOString();
 
 /** O grupo para quem pede: o id público no lugar do uuid (GRV-08), o papel (GRV-04) e as URLs das imagens (GRV-10). */
 export function forViewer(
@@ -257,6 +262,12 @@ export function createGroupService(deps: GroupsDeps) {
   ): Promise<{ target?: InviteTarget; accountId?: UserId }> {
     const wanted = input.target;
     if (!wanted) return {};
+    // GRV-23: o convite para uma pessoa tem prazo (o contrato já recusa; aqui vale para quem chama o service direto).
+    if (input.validityDays === null) {
+      throw appError('VALIDATION_ERROR', {
+        issues: [{ code: 'custom', path: ['validityDays'], message: 'A personal invite must expire' }],
+      });
+    }
     const byPublicId =
       'publicId' in wanted ? (await deps.users.resolve([wanted.publicId])).get(wanted.publicId) : undefined;
     if ('publicId' in wanted && byPublicId === undefined) throw appError('USER_NOT_FOUND');
@@ -436,6 +447,7 @@ export function createGroupService(deps: GroupsDeps) {
     }
     const action: JoinAction = current ? 'promote' : 'join';
     const result = await deps.groups.joinByInvite({ invite, userId, action, now: now() });
+    if (result === 'group_full') throw appError('GROUP_FULL', { limit: GROUP_PARTICIPANT_MAX });
     if (result === 'ok') {
       const tier = action === 'join' ? invite.tier : 'member';
       const roles = await deps.groups.getRoles(group.id);
@@ -488,12 +500,15 @@ export function createGroupService(deps: GroupsDeps) {
     );
   }
 
-  /** GRV-24: a pessoa recusa o convite que é para ela; sem aviso para quem convidou. */
+  /**
+   * GRV-24: a pessoa recusa o convite que é para ela; sem aviso para quem convidou. Só os lookups dela (a conta e o
+   * email) acham o convite: o de outra pessoa é `not_found`.
+   */
   async function declineInvite(userId: UserId, inviteId: string): Promise<void> {
-    const pointer = await deps.groups.resolveInviteId(inviteId);
+    const email = await deps.emails.emailOf(userId);
+    const pointer = await deps.groups.findPersonalInvite(inviteId, { userId, email });
     const invite = pointer && (await deps.groups.getInvite(pointer.groupId, pointer.inviteId));
     if (!invite || isGone(invite, now())) throw appError('GROUP_INVITE_INVALID', { reason: 'not_found' });
-    if (!(await isForUser(invite, userId))) throw appError('GROUP_INVITE_NOT_FOR_YOU');
     if (inviteStatus(invite, now()) !== 'active') return;
     await deps.groups.declineInvite(invite, now());
   }
@@ -612,9 +627,19 @@ export function createGroupService(deps: GroupsDeps) {
     const group = await openGroup(publicId);
     const [membership, request] = await Promise.all([
       deps.groups.getMembership(group.id, userId),
-      deps.groups.getRequest(group.id, userId),
+      liveRequest(group.id, userId),
     ]);
     return previewOf(group, membership, request);
+  }
+
+  /** GRV-27: o pedido da pessoa, se há um que não venceu (o `ttl` atrasa, ADR 0004). */
+  async function liveRequest(
+    groupId: GroupId,
+    userId: UserId,
+    opts?: { consistent?: boolean },
+  ): Promise<StoredJoinRequest | undefined> {
+    const found = await deps.groups.getRequest(groupId, userId, opts);
+    return found && isLive(found, now()) ? found : undefined;
   }
 
   /** GRV-27: pede para entrar; pedir de novo não muda nada nem avisa de novo. */
@@ -622,7 +647,7 @@ export function createGroupService(deps: GroupsDeps) {
     const group = await openGroup(publicId);
     const [membership, existing] = await Promise.all([
       deps.groups.getMembership(group.id, userId),
-      deps.groups.getRequest(group.id, userId),
+      liveRequest(group.id, userId),
     ]);
     if (membership) {
       throw appError('VALIDATION_ERROR', {
@@ -630,10 +655,16 @@ export function createGroupService(deps: GroupsDeps) {
       });
     }
     if (existing) return previewOf(group, undefined, existing);
-    const created: StoredJoinRequest = { groupId: group.id, userId, createdAt: now().toISOString() };
+    const createdAt = now().toISOString();
+    const created: StoredJoinRequest = {
+      groupId: group.id,
+      userId,
+      createdAt,
+      expiresAt: requestExpiresAt(createdAt),
+    };
     if (!(await deps.groups.putRequest(created))) {
       // Outro pedido da mesma pessoa entrou antes: vale o dele, e quem avisou foi ele.
-      const current = await deps.groups.getRequest(group.id, userId, { consistent: true });
+      const current = await liveRequest(group.id, userId, { consistent: true });
       return previewOf(group, undefined, current ?? created);
     }
     await notifyRequest(group, userId);
@@ -672,7 +703,10 @@ export function createGroupService(deps: GroupsDeps) {
   async function listRequests(userId: UserId, publicId: PublicGroupId): Promise<GroupJoinRequest[]> {
     const { id, membership, roles } = await access(userId, publicId);
     requirePermission(membership, roles, 'members.invite');
-    const list = (await deps.groups.listRequests(id)).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const at = now();
+    const list = (await deps.groups.listRequests(id))
+      .filter((r) => isLive(r, at))
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     const people = await profiles(list.map((r) => r.userId));
     // Uma conta que sumiu (AUTH-16) não tem perfil: o pedido dela não aparece.
     return list.flatMap((r) => {
@@ -705,6 +739,7 @@ export function createGroupService(deps: GroupsDeps) {
       now: now(),
     });
     if (result === 'request_gone') throw appError('GROUP_REQUEST_NOT_FOUND');
+    if (result === 'group_full') throw appError('GROUP_FULL', { limit: GROUP_PARTICIPANT_MAX });
     if (result === 'already_member') return;
     await deps.notifications.notify(targetId, {
       type: 'group_join_approved',

@@ -36,6 +36,8 @@ const RESERVES_AT = '2026-11-26T22:00:00.000Z'; // 24 h antes
 const UNKNOWN_MATCH = '00000000-0000-4000-8000-000000000001';
 const iso = (base: string, hours: number) => new Date(Date.parse(base) + hours * HOUR).toISOString();
 
+const JOINED_AT = '2026-01-01T00:00:00.000Z';
+
 function setup() {
   const clock = { now: new Date(T0) };
   const sent: { userId: UserId; type: string; link?: string | undefined }[] = [];
@@ -60,7 +62,8 @@ function setup() {
         permissions,
       };
     },
-    participants: async () => new Map(state.participants),
+    participants: async () =>
+      new Map([...state.participants].map(([id, tier]) => [id, { tier, joinedAt: JOINED_AT }])),
     holders: async () => [...state.managers],
   };
   const users = {

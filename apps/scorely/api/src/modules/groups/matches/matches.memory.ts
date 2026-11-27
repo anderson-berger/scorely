@@ -29,8 +29,7 @@ export function memoryMatches() {
   const key = (...parts: string[]) => parts.join('#');
   const copy = <T extends object>(value: T): T => ({ ...value });
 
-  const isPending = (g: StoredGuest) =>
-    g.approvedAt === undefined && g.declinedAt === undefined && g.cancelledAt === undefined;
+  const isPending = (g: StoredGuest) => g.approvedAt === undefined && g.declinedAt === undefined;
   const isApproved = (g: StoredGuest) => g.approvedAt !== undefined && g.removedAt === undefined;
 
   /** Grava itens da agenda (um repetido só se regrava, mantendo o `createdAt`); só as escritas da partida chamam. */
@@ -220,9 +219,6 @@ export function memoryMatches() {
       series.set(k, { ...current, endedAt: iso, updatedAt: iso, version: current.version + 1 });
       return true;
     },
-    async createNextMatch({ at, ...next }) {
-      return insertNext(next, at);
-    },
     async listAgenda(from, to) {
       const firstHour = from.toISOString().slice(0, 13);
       const until = to.toISOString();
@@ -278,15 +274,17 @@ export function memoryMatches() {
       const fromOk = transition === 'remove' ? isApproved(current) : isPending(current);
       if (!fromOk) return false;
       const iso = at.toISOString();
-      const step: Partial<StoredGuest> =
-        transition === 'approve'
-          ? { approvedAt: iso, approvedBy: by }
-          : transition === 'decline'
-            ? { declinedAt: iso, declinedBy: by }
-            : transition === 'cancel'
-              ? { cancelledAt: iso }
+      // PAR-14: o pedido de que a pessoa desistiu é apagado.
+      if (transition === 'cancel') guests.delete(k);
+      else {
+        const step: Partial<StoredGuest> =
+          transition === 'approve'
+            ? { approvedAt: iso, approvedBy: by }
+            : transition === 'decline'
+              ? { declinedAt: iso, declinedBy: by }
               : { removedAt: iso, removedBy: by };
-      guests.set(k, { ...current, ...step, updatedAt: iso, version: current.version + 1 });
+        guests.set(k, { ...current, ...step, updatedAt: iso, version: current.version + 1 });
+      }
       if (transition !== 'approve') {
         names.delete(key(guest.groupId, guest.matchId, current.normalizedName));
         const counterKey = key(guest.groupId, guest.matchId);

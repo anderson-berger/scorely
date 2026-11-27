@@ -27,7 +27,7 @@ export function groupPublicIdLookupKey(publicId: PublicGroupId) {
 }
 
 /**
- * Grupos da pessoa (GRV-05): `PK=LOOKUP#USER#<userId>#GROUP`, `SK=<groupId>`, `{ id }`. Leitura: Query → BatchGet
+ * Grupos da pessoa (GRV-05): `PK=LOOKUP#USER#GROUPS#<userId>`, `SK=<groupId>`, `{ id }`. Leitura: Query → BatchGet
  * do `META` e da `MEMBER#<userId>` de cada grupo.
  */
 export function userGroupsLookupKey(userId: UserId, id: GroupId) {
@@ -35,7 +35,7 @@ export function userGroupsLookupKey(userId: UserId, id: GroupId) {
 }
 
 export function userGroupsLookupPk(userId: UserId) {
-  return `LOOKUP#USER#${userId}#GROUP`;
+  return `LOOKUP#USER#GROUPS#${userId}`;
 }
 
 export const GROUP_INVITE_ENTITY = 'GroupInvite';
@@ -62,7 +62,7 @@ export function groupInviteUseKey(id: GroupId, inviteId: string, userId: UserId)
 }
 
 /**
- * Convites para a pessoa (GRV-24): `PK=LOOKUP#USER#<userId>#GROUPINVITE`, `SK=<inviteId>`, `{ groupId, inviteId }`.
+ * Convites para a pessoa (GRV-24): `PK=LOOKUP#USER#GROUPINVITES#<userId>`, `SK=<inviteId>`, `{ groupId, inviteId }`.
  * Do convite pessoal pelo id público. Leitura: Query.
  */
 export function userGroupInvitesLookupKey(userId: UserId, inviteId: string) {
@@ -70,22 +70,28 @@ export function userGroupInvitesLookupKey(userId: UserId, inviteId: string) {
 }
 
 export function userGroupInvitesLookupPk(userId: UserId) {
-  return `LOOKUP#USER#${userId}#GROUPINVITE`;
+  return `LOOKUP#USER#GROUPINVITES#${userId}`;
 }
 
-/** Convites para o email (GRV-24): `PK=LOOKUP#EMAIL#<email>#GROUPINVITE`, `SK=<inviteId>`. O email já vem normalizado. */
+/** Convites para o email (GRV-24): `PK=LOOKUP#EMAIL#GROUPINVITES#<email>`, `SK=<inviteId>`. O email já vem normalizado. */
 export function emailGroupInvitesLookupKey(email: string, inviteId: string) {
   return { PK: emailGroupInvitesLookupPk(email), SK: inviteId };
 }
 
 export function emailGroupInvitesLookupPk(email: string) {
-  return `LOOKUP#EMAIL#${email}#GROUPINVITE`;
+  return `LOOKUP#EMAIL#GROUPINVITES#${email}`;
 }
 
-/** Id → convite pessoal (GRV-24, recusar): `PK=LOOKUP#GROUPINVITEID#<inviteId>`, `SK=META`, `{ groupId, inviteId }`. */
-export function groupInviteIdLookupKey(inviteId: string) {
-  return { PK: `LOOKUP#GROUPINVITEID#${inviteId}`, SK: 'META' };
+/**
+ * Contadores do grupo (GRV-54): `PK=GROUP#<id>`, `SK=COUNTERS`, `{ participants }`. Nasce com 1 na criação e muda com
+ * `ADD` na transação de entrar, aceitar, sair e remover. Leitura: GetItem.
+ */
+export function groupCountersKey(id: GroupId) {
+  return { PK: `GROUP#${id}`, SK: 'COUNTERS' };
 }
+
+/** Dias até o pedido para entrar vencer (GRV-27). */
+export const GROUP_REQUEST_DAYS = 90;
 
 export const GROUP_REQUEST_ENTITY = 'GroupJoinRequest';
 export const GROUP_REQUEST_PREFIX = 'REQUEST#';

@@ -18,6 +18,8 @@ const T0 = '2026-11-23T10:00:00.000Z';
 const iso = (base: string, hours: number) => new Date(Date.parse(base) + hours * HOUR).toISOString();
 const link = (matchId: string) => `/groups/${PUBLIC_ID}/matches/${matchId}`;
 
+const JOINED_AT = '2026-01-01T00:00:00.000Z';
+
 function setup(repo?: ReturnType<typeof memoryMatches>['repo']) {
   const clock = { now: new Date(T0) };
   const sent: { userId: UserId; link?: string | undefined }[] = [];
@@ -38,7 +40,8 @@ function setup(repo?: ReturnType<typeof memoryMatches>['repo']) {
         permissions: ['matches.manage'],
       };
     },
-    participants: async () => new Map(participants),
+    participants: async () =>
+      new Map([...participants].map(([id, tier]) => [id, { tier, joinedAt: JOINED_AT }])),
     holders: async () => [ANA],
   };
   const users = {

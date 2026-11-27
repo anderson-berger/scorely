@@ -1,6 +1,6 @@
 # Módulo Notificações
 
-> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-24.
+> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-27.
 
 Código: `apps/scorely/api/src/modules/notifications/`, `apps/scorely/web/src/modules/notifications/`. Contrato: `apps/scorely/contracts/src/notifications.ts`.
 
@@ -37,6 +37,8 @@ Avisar a pessoa, dentro do app, do que aconteceu sem ela estar olhando: por exem
   - _Por quê:_ mantém a operação barata, e ninguém tem 100 avisos não lidos na prática.
 - **NTF-07. Clicar numa notificação** marca como lida e abre o `link`, se houver.
 - **NTF-08. Apagar uma notificação** também desconta das não lidas, se ela não estava lida.
+- **NTF-10. A notificação lida some sozinha 90 dias depois de lida.** A não lida fica até ser lida (ou apagada), e então conta os 90 dias. _(Nova em 2026-11-26.)_
+  - _Por quê:_ o aviso é do momento, e o texto copia o nome do grupo, o apelido de quem agiu e o nome de convidados: guardado para sempre, ficava desatualizado e guardava dado de terceiros sem motivo. Contar a partir da leitura, e não da criação, mantém o contador de não lidas certo: sumir sozinha uma não lida deixaria o sino contando um aviso que não existe.
 - **NTF-09. O sino consulta as notificações ao entrar logado e depois a cada 5 min,** só com a aba visível.
   - "Entrar logado" é o login e também abrir o app com a sessão ainda válida.
   - Aba escondida: a contagem para. Nenhuma consulta é feita enquanto ela está escondida.
@@ -49,11 +51,11 @@ Avisar a pessoa, dentro do app, do que aconteceu sem ela estar olhando: por exem
 
 ### Dados
 
-| Item                   | Chave                                                     | Observação                                      |
-| ---------------------- | --------------------------------------------------------- | ----------------------------------------------- |
-| Notificação            | `NOTIFICATION#<id>` / `META`                              | `userId`, `type`, textos, `link` e `readAt`     |
-| Notificações da pessoa | `LOOKUP#USER#NOTIFICATIONS#<userId>` / `<createdAt>#<id>` | ordem da lista (NTF-05)                         |
-| Contador de não lidas  | `INBOX#<userId>` / `META`                                 | `unread`, que muda com `ADD` na mesma transação |
+| Item                   | Chave                                                     | Observação                                                                                                                                                    |
+| ---------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Notificação            | `NOTIFICATION#<id>` / `META`                              | `userId`, `type`, textos, `link` e `readAt`; lida, `ttl` 90 dias depois do `readAt` (NTF-10)                                                                  |
+| Notificações da pessoa | `LOOKUP#USER#NOTIFICATIONS#<userId>` / `<createdAt>#<id>` | ordem da lista (NTF-05); ganha o mesmo `ttl` da notificação, na mesma transação de marcar como lida. A lista ignora o ponteiro cuja notificação já não existe |
+| Contador de não lidas  | `INBOX#<userId>` / `META`                                 | `unread`, que muda com `ADD` na mesma transação                                                                                                               |
 
 ### Rotas
 
@@ -70,4 +72,5 @@ Erro: `NOTIFICATION_NOT_FOUND`.
 
 - Não há página de notificações (só o sino), nem email ou push ([PRODUCT.md](../product/PRODUCT.md), "Depois").
 - Os textos são só em pt-BR (NTF-03).
+- A não lida nunca some sozinha (NTF-10); as mais antigas que as 100 de "marcar todas" (NTF-06) ficam até serem abertas.
 - Um aviso novo pode levar até 5 min para aparecer no sino com a aba aberta (NTF-09).

@@ -143,12 +143,12 @@ export function createCompetitionService(deps: CompetitionsDeps) {
   /** COM-05, 06, 08, 09: as linhas dos três recortes, pelos membros e gêneros de agora. */
   async function liveCuts(c: StoredCompetition, list: readonly StoredResult[]) {
     const participants = await deps.groups.participants(c.groupId);
-    const members = [...participants.entries()].flatMap(([id, tier]) => (tier === 'member' ? [id] : []));
+    const members = [...participants.entries()].flatMap(([id, { tier }]) => (tier === 'member' ? [id] : []));
     const records = members.length > 0 ? await deps.users.getMany(members) : [];
     const gender = new Map(records.map((r) => [r.id as string, r.gender]));
     const cut = (which: CompetitionCut): FinalLine[] =>
       competitionRanking(list, c.points, playerKey, (p) => {
-        if (p.kind !== 'user' || participants.get(p.id as UserId) !== 'member') return false;
+        if (p.kind !== 'user' || participants.get(p.id as UserId)?.tier !== 'member') return false;
         return which === 'all' || gender.get(p.id) === CUT_GENDER[which];
       }).map(({ member, winRate: _w, ...line }) => ({ ...line, userId: member.id as UserId }));
     return Object.fromEntries(CUTS.map((which) => [which, cut(which)])) as Record<

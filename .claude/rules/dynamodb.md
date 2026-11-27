@@ -15,8 +15,12 @@ Motivo: [docs/decisions/0002-single-table-sem-gsi.md](../../docs/decisions/0002-
 
 - **Entidade**: `PK=<ENTIDADE>#<id>`, `SK=META`, com todos os atributos.
 - **Item que pertence a uma entidade** (dados à parte, contadores, extensões, segredos): fica na partição dela, `PK=<ENTIDADE>#<id>`, `SK=<O QUE É>` (ex.: `USER#<u>/PRIVATE`, `GROUP#<g>/INVITES`, `GROUP#<g>/COMPETITION`). O `META` é sempre lido por GetItem, nunca pela partição inteira. Segredo (token, email) nunca fica no `META`. Motivo: [0014](../../docs/decisions/0014-itens-do-grupo-na-particao-do-grupo.md).
-- **Entidade de relação** (N:N, sem identidade além do par, ex.: a participação): chave natural, sem `id` e sem `newEntity`, mas com `createdAt` e `dbItem`. Ela mora na partição da ponta que lista (`GROUP#<g>/MEMBER#<u>`): "os X da entidade" é uma Query nessa partição, sem lookup; a outra direção tem o seu lookup (`LOOKUP#USER#<u>#GROUP`). Motivo: [0009](../../docs/decisions/0009-entidade-de-relacao-chave-natural.md), [0014](../../docs/decisions/0014-itens-do-grupo-na-particao-do-grupo.md).
+- **Entidade de relação** (N:N, sem identidade além do par, ex.: a participação): chave natural, sem `id` e sem `newEntity`, mas com `createdAt` e `dbItem`. Ela mora na partição da ponta que lista (`GROUP#<g>/MEMBER#<u>`): "os X da entidade" é uma Query nessa partição, sem lookup; a outra direção tem o seu lookup (`LOOKUP#USER#GROUPS#<u>`). Motivo: [0009](../../docs/decisions/0009-entidade-de-relacao-chave-natural.md), [0014](../../docs/decisions/0014-itens-do-grupo-na-particao-do-grupo.md).
 - **Lookup**: guarda **só o `id`** da entidade, nunca uma cópia dos dados. Toda busca tem duas etapas: lê o lookup, pega o `id` e busca a entidade pela chave.
+- **Chave do lookup**: `LOOKUP#<de quem>#<o quê>#<valor>` (ex.: `LOOKUP#USER#PUBLIC#<publicId>`, `LOOKUP#USER#GROUPS#<u>`, `LOOKUP#EMAIL#GROUPINVITES#<email>`, `LOOKUP#GROUP#INVITE#<token>`). O valor vai sempre no fim. Exceções:
+  - lookups que guardam a chave composta da entidade (convites: `{ groupId, inviteId }`);
+  - ponteiros na partição da entidade dona, que guardam só o id da filha (`MATCHEND#<endsAt>#<matchId>`, `MATCHOPEN#<matchId>`);
+  - a agenda, que guarda o que a rotina precisa para avisar (`MATCHAGENDA#<hora>`, ADR 0004).
 
 | Caso                                     | Chave do lookup                                     | Leitura                                                                                                       |
 | ---------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |

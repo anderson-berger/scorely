@@ -12,7 +12,7 @@ import {
   dynamoCompetitionRepository,
   type StoredCompetition,
 } from '@scorely/api/src/modules/groups/competitions/competition.repository';
-import type { GroupAccess } from '@scorely/api/src/modules/groups/group.access';
+import type { GroupAccess, Participation } from '@scorely/api/src/modules/groups/group.access';
 import { toUser, type UrlOf } from '@scorely/api/src/modules/groups/group.service';
 import type {
   AgendaEntry,
@@ -124,7 +124,6 @@ export function guestStatus(guest: StoredGuest): MatchGuestStatus {
   if (guest.removedAt !== undefined) return 'removed';
   if (guest.approvedAt !== undefined) return 'approved';
   if (guest.declinedAt !== undefined) return 'declined';
-  if (guest.cancelledAt !== undefined) return 'cancelled';
   return 'pending';
 }
 
@@ -224,6 +223,20 @@ type LineupItem =
   | { kind: 'guest'; at: string; id: string; guest: StoredGuest };
 
 /**
+ * PAR-10: as respostas que contam, as de quem participa hoje dadas desde a entrada atual. Quem saiu e voltou começa
+ * sem resposta: a de antes de sair fica guardada, mas não aparece como dele.
+ */
+function currentAnswers(
+  attendances: readonly StoredAttendance[],
+  participants: Map<UserId, Participation>,
+): StoredAttendance[] {
+  return attendances.filter((a) => {
+    const joinedAt = participants.get(a.userId)?.joinedAt;
+    return joinedAt !== undefined && a.respondedAt >= joinedAt;
+  });
+}
+
+/**
  * PAR-09, 10: a lista, calculada ao ler. As respostas "vou" de quem ainda participa e os convidados liberados, pela
  * hora de chegada e, no empate, pelo id como texto. As primeiras posições, até as vagas, estão dentro.
  */
@@ -231,10 +244,11 @@ function lineup(
   match: StoredMatch,
   attendances: readonly StoredAttendance[],
   guests: readonly StoredGuest[],
-  participants: Map<UserId, GroupTier>,
+  participants: Map<UserId, Participation>,
 ) {
-  const players: LineupItem[] = attendances.flatMap((a) => {
-    const tier = participants.get(a.userId);
+  const answers = currentAnswers(attendances, participants);
+  const players: LineupItem[] = answers.flatMap((a) => {
+    const tier = participants.get(a.userId)?.tier;
     return a.status === 'going' && tier !== undefined
       ? [{ kind: 'player' as const, at: a.respondedAt, id: a.userId, userId: a.userId, tier }]
       : [];
@@ -248,8 +262,8 @@ function lineup(
     a.at === b.at ? (a.id < b.id ? -1 : a.id > b.id ? 1 : 0) : a.at < b.at ? -1 : 1,
   );
   const slots = slotsOf(match);
-  const notGoing = attendances
-    .filter((a) => a.status === 'not_going' && participants.has(a.userId))
+  const notGoing = answers
+    .filter((a) => a.status === 'not_going')
     .sort((a, b) => (a.respondedAt < b.respondedAt ? -1 : a.respondedAt > b.respondedAt ? 1 : 0));
   return { in: ordered.slice(0, slots), queue: ordered.slice(slots), notGoing };
 }
@@ -328,14 +342,14 @@ function historyResult(
  */
 function resultMember(
   guests: readonly StoredGuest[],
-  participants: Map<UserId, GroupTier>,
+  participants: Map<UserId, Participation>,
   people: Map<UserId, User>,
 ): (p: StoredTeamPlayer) => MatchResultMember {
   const byId = new Map(guests.map((g) => [g.id, g]));
   return (p) => {
     if (p.kind === 'user') {
       const user = people.get(p.id as UserId);
-      const tier = participants.get(p.id as UserId);
+      const tier = participants.get(p.id as UserId)?.tier;
       return user ? { kind: 'player', user, ...(tier !== undefined && { tier }) } : { kind: 'gone' };
     }
     const guest = byId.get(p.id);
@@ -454,12 +468,12 @@ function nextDate(series: StoredSeries, from: string, at: Date): string {
 function listOpenRecipients(
   from: MatchWave | undefined,
   to: MatchWave,
-  participants: Map<UserId, GroupTier>,
+  participants: Map<UserId, Participation>,
   attendances: readonly StoredAttendance[],
 ): UserId[] {
   const answered = new Set(attendances.map((a) => a.userId));
   const opened = (wave: MatchWave) => rank(from) < rank(wave) && rank(wave) <= rank(to);
-  return [...participants.entries()].flatMap(([userId, tier]) =>
+  return [...participants.entries()].flatMap(([userId, { tier }]) =>
     opened(TIER_WAVE[tier]) && !answered.has(userId) ? [userId] : [],
   );
 }
@@ -533,7 +547,13 @@ export function createMatchService(deps: MatchesDeps) {
       deps.matches.listGuests(match.groupId, match.id, { consistent }),
       deps.groups.participants(match.groupId),
     ]);
-    return { attendances, guests, participants, list: lineup(match, attendances, guests, participants) };
+    // PAR-10: só as respostas que contam (a de antes da volta não é dele).
+    return {
+      attendances: currentAnswers(attendances, participants),
+      guests,
+      participants,
+      list: lineup(match, attendances, guests, participants),
+    };
   }
 
   async function profiles(ids: readonly UserId[]): Promise<Map<UserId, User>> {
@@ -634,7 +654,7 @@ export function createMatchService(deps: MatchesDeps) {
       queue: state.list.queue.map(entry),
       notGoing: state.list.notGoing.map((a) => ({
         user: profileOf(people, a.userId),
-        tier: state.participants.get(a.userId) as GroupTier,
+        tier: state.participants.get(a.userId)?.tier as GroupTier,
       })),
       guestRequests: requests.map((g) => ({
         id: g.id,
@@ -684,7 +704,7 @@ export function createMatchService(deps: MatchesDeps) {
       const left = !inside.has(`${p.kind}:${p.id}`);
       if (p.kind === 'user') {
         const user = people.get(p.id as UserId);
-        const tier = state.participants.get(p.id as UserId);
+        const tier = state.participants.get(p.id as UserId)?.tier;
         return user ? { kind: 'player', user, ...(tier !== undefined && { tier }), left } : gone;
       }
       const guest = guests.get(p.id);
@@ -873,7 +893,12 @@ export function createMatchService(deps: MatchesDeps) {
       deps.matches.listAttendances(match.groupId, match.id, { consistent: true }),
       deps.groups.participants(match.groupId),
     ]);
-    const people = listOpenRecipients(match.notifiedWave, wave, participants, attendances);
+    const people = listOpenRecipients(
+      match.notifiedWave,
+      wave,
+      participants,
+      currentAnswers(attendances, participants),
+    );
     await Promise.all(
       people.map((u) =>
         deps.notifications.notify(u, {

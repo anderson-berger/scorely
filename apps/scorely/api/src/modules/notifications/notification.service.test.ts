@@ -3,6 +3,7 @@ import { range } from '@scorely/api/src/lib/fn';
 import { asUserId } from '@scorely/api/src/lib/ids';
 import type { NotificationRepository } from '@scorely/api/src/modules/notifications/notification.repository';
 import { createNotificationService } from '@scorely/api/src/modules/notifications/notification.service';
+import { NOTIFICATION_READ_TTL_DAYS } from '@scorely/api/src/modules/notifications/notification.table';
 import { describe, expect, it } from 'vitest';
 
 /** O item guardado: com o `userId` (sistema) do dono, que a resposta não leva (USR-16). */
@@ -13,15 +14,21 @@ type MemoryOptions = {
   beforeRemove?: (n: StoredNotification, repo: NotificationRepository) => Promise<void>;
 };
 
-type MemoryRepo = NotificationRepository & { removeCalls: { count: number } };
+type MemoryRepo = NotificationRepository & {
+  removeCalls: { count: number };
+  /** O que o service mandou para `markRead` (NTF-10). */
+  markReadCalls: { id: string; readAt: string }[];
+};
 
 function memoryRepo(opts: MemoryOptions = {}): MemoryRepo {
   const removeCalls = { count: 0 };
+  const markReadCalls: { id: string; readAt: string }[] = [];
   const items = new Map<string, StoredNotification>();
   const unread = new Map<string, number>();
   const bump = (userId: string, delta: number) => unread.set(userId, (unread.get(userId) ?? 0) + delta);
   const repo: MemoryRepo = {
     removeCalls,
+    markReadCalls,
     async create(n) {
       items.set(n.id, { ...n });
       bump(n.userId, 1);
@@ -37,11 +44,12 @@ function memoryRepo(opts: MemoryOptions = {}): MemoryRepo {
       return { items: mine.slice(0, limit) };
     },
     unreadCount: async (userId) => Math.max(0, unread.get(userId) ?? 0),
-    async markRead(userId, id, readAt) {
-      const n = items.get(id);
-      if (!n || n.userId !== userId || n.readAt) return false;
-      n.readAt = readAt;
-      bump(userId, -1);
+    async markRead(n, readAt) {
+      markReadCalls.push({ id: n.id, readAt });
+      const stored = items.get(n.id);
+      if (!stored || stored.userId !== n.userId || stored.readAt) return false;
+      stored.readAt = readAt;
+      bump(n.userId, -1);
       return true;
     },
     async remove(n) {
@@ -109,6 +117,53 @@ describe('notifications', () => {
     expect(JSON.stringify(page)).not.toContain(USER);
   });
 
+  describe('NTF-10: a lida some 90 dias depois de lida', () => {
+    const clock = { now: new Date('2026-11-26T10:00:00.000Z') };
+
+    it('NTF-10: o prazo é de 90 dias', () => {
+      expect(NOTIFICATION_READ_TTL_DAYS).toBe(90);
+    });
+
+    it('NTF-10: markRead entrega ao repositório a notificação já lida pelo service e a hora de agora', async () => {
+      const repo = memoryRepo();
+      const service = createNotificationService(repo, () => clock.now);
+      const n = await service.notify(USER, { type: 'welcome', title: 'Oi' });
+      await service.markRead(USER, n.id);
+      expect(repo.markReadCalls).toEqual([{ id: n.id, readAt: clock.now.toISOString() }]);
+    });
+
+    it('NTF-10: já lida → nada é regravado (o prazo conta da primeira leitura)', async () => {
+      const repo = memoryRepo();
+      const service = createNotificationService(repo, () => clock.now);
+      const n = await service.notify(USER, { type: 'welcome', title: 'Oi' });
+      await service.markRead(USER, n.id);
+      await service.markRead(USER, n.id);
+      expect(repo.markReadCalls).toHaveLength(1);
+    });
+
+    it('NTF-10: de outro usuário ou inexistente → NOTIFICATION_NOT_FOUND, sem marcar', async () => {
+      const repo = memoryRepo();
+      const service = createNotificationService(repo, () => clock.now);
+      const n = await service.notify(OTHER, { type: 'welcome', title: 'Oi' });
+      await expectNotFound(service.markRead(USER, n.id));
+      await expectNotFound(service.markRead(USER, '33333333-3333-4333-8333-333333333333'));
+      expect(repo.markReadCalls).toEqual([]);
+    });
+
+    it('NTF-10: marcar todas passa só as não lidas, todas com a mesma hora', async () => {
+      const repo = memoryRepo();
+      const service = createNotificationService(repo, () => clock.now);
+      const a = await service.notify(USER, { type: 'welcome', title: 'A' });
+      await service.notify(USER, { type: 'welcome', title: 'B' });
+      await service.markRead(USER, a.id);
+      repo.markReadCalls.length = 0;
+      await service.markAllRead(USER);
+      expect(repo.markReadCalls).toHaveLength(1);
+      expect(repo.markReadCalls[0]?.readAt).toBe(clock.now.toISOString());
+      expect((await service.list(USER)).unreadCount).toBe(0);
+    });
+  });
+
   describe('remove', () => {
     it('caso 1: apagar uma lida → some da lista e unreadCount não muda', async () => {
       const service = createNotificationService(memoryRepo());
@@ -168,7 +223,7 @@ describe('notifications', () => {
         async beforeRemove(n, r) {
           if (!race.pending) return;
           race.pending = false;
-          await r.markRead(n.userId, n.id, new Date().toISOString());
+          await r.markRead(n, new Date().toISOString());
         },
       });
       const service = createNotificationService(repo);

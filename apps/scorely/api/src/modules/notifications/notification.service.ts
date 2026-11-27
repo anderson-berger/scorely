@@ -48,16 +48,18 @@ export function createNotificationService(repo: NotificationRepository, now: () 
     },
 
     async markRead(userId: UserId, id: string): Promise<void> {
-      if (await repo.markRead(userId, id, now().toISOString())) return;
-      // Não marcou: ou já estava lida (ok, idempotente) ou não existe/não é do usuário.
-      const existing = await repo.get(id);
-      if (!existing || existing.userId !== userId) throw appError('NOTIFICATION_NOT_FOUND');
+      const n = await repo.get(id);
+      if (!n || n.userId !== userId) throw appError('NOTIFICATION_NOT_FOUND');
+      // Já lida: idempotente (e o prazo de NTF-10 continua contando da primeira leitura).
+      if (n.readAt) return;
+      // `false` = outra leitura entrou no meio: também já está lida.
+      await repo.markRead(n, now().toISOString());
     },
 
     async markAllRead(userId: UserId): Promise<void> {
       const { items } = await repo.list(userId, { limit: READ_ALL_SCAN });
       const readAt = now().toISOString();
-      for (const n of items) if (!n.readAt) await repo.markRead(userId, n.id, readAt);
+      for (const n of items) if (!n.readAt) await repo.markRead(n, readAt);
     },
 
     /** Apaga uma notificação do próprio usuário. De outro usuário ou inexistente → 404. */

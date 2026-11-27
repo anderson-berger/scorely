@@ -45,6 +45,7 @@ export const ErrorCodeSchema = z.enum([
   'GROUP_ROLE_NOT_FOUND',
   'GROUP_ROLE_NAME_TAKEN',
   'GROUP_ROLE_LIMIT',
+  'GROUP_FULL',
   // matches
   'MATCH_NOT_FOUND',
   'MATCH_LIMIT',
@@ -99,6 +100,7 @@ export const ErrorDetailsSchemas = {
   GROUP_INVITE_LIMIT: z.object({ limit: z.number().int().positive() }),
   /** GRV-44: o máximo de cargos criados. */
   GROUP_ROLE_LIMIT: z.object({ limit: z.number().int().positive() }),
+  GROUP_FULL: z.object({ limit: z.number().int().positive() }),
   /** PAR-01: o máximo de partidas por vir. */
   MATCH_LIMIT: z.object({ limit: z.number().int().positive() }),
   /** PAR-20: o máximo de repetições ativas. */

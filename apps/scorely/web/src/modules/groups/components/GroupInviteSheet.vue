@@ -54,9 +54,21 @@ export default defineComponent({
     shareable(): boolean {
       return canShare();
     },
+
+    /** GRV-23, 33: o convite para uma pessoa tem prazo: o "sem prazo" some. */
+    validityChoices(): { value: number | null }[] {
+      return this.forPerson ? this.validityOptions.filter((o) => o.value !== null) : this.validityOptions;
+    },
   },
 
   watch: {
+    /** GRV-33: ao escolher uma pessoa com "sem prazo" marcado, a validade volta para o padrão do contrato (7 dias). */
+    forPerson(person: boolean) {
+      if (person && this.form.validityDays === null) {
+        this.form.validityDays = CreateGroupInviteInputSchema.parse({}).validityDays;
+      }
+    },
+
     modelValue(open: boolean) {
       if (open) {
         this.form = CreateGroupInviteInputSchema.parse({});
@@ -214,7 +226,7 @@ export default defineComponent({
           no-caps
           unelevated
           toggle-color="primary"
-          :options="validityOptions.map((o) => ({ label: validityLabel(o.value), value: o.value }))"
+          :options="validityChoices.map((o) => ({ label: validityLabel(o.value), value: o.value }))"
         />
       </div>
 

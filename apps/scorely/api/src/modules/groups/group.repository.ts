@@ -1,6 +1,7 @@
 import { DeleteCommand, GetCommand, PutCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import {
   batchGetOrdered,
+  COUNTERS_ENTITY,
   dbItem,
   isConditionFailed,
   LOOKUP_ENTITY,
@@ -25,10 +26,11 @@ import {
   GROUP_INVITE_USE_PREFIX,
   GROUP_MEMBER_ENTITY,
   GROUP_MEMBER_PREFIX,
+  GROUP_REQUEST_DAYS,
   GROUP_REQUEST_ENTITY,
   GROUP_REQUEST_PREFIX,
   GROUP_ROLES_ENTITY,
-  groupInviteIdLookupKey,
+  groupCountersKey,
   groupInviteKey,
   groupInviteTokenLookupKey,
   groupInviteUseKey,
@@ -42,12 +44,13 @@ import {
   userGroupsLookupKey,
   userGroupsLookupPk,
 } from '@scorely/api/src/modules/groups/group.table';
-import type {
-  GroupJoinMode,
-  GroupModality,
-  GroupPermission,
-  GroupTier,
-  PublicGroupId,
+import {
+  GROUP_PARTICIPANT_MAX,
+  type GroupJoinMode,
+  type GroupModality,
+  type GroupPermission,
+  type GroupTier,
+  type PublicGroupId,
 } from '@scorely/contracts';
 
 /** O grupo como fica no banco (`META`): `id` é o uuid do sistema, `publicId` o código (GRV-08). Interno da api. */
@@ -104,13 +107,21 @@ export interface StoredJoinRequest {
   groupId: GroupId;
   userId: UserId;
   createdAt: string;
+  /** Quando vence (GRV-27): 90 dias depois do `createdAt`. O vencido é ignorado ao ler (o `ttl` atrasa, ADR 0004). */
+  expiresAt: string;
+}
+
+/** GRV-27: quando vence o pedido feito em `createdAt`. */
+export function requestExpiresAt(createdAt: string): string {
+  return new Date(Date.parse(createdAt) + GROUP_REQUEST_DAYS * DAY_MS).toISOString();
 }
 
 /**
- * Resultado de aceitar (GRV-28): `request_gone` = o pedido não existe mais (cancelado, recusado ou aceito por outra
- * pessoa); `already_member` = a pessoa já participa (entrou por um convite antes): o pedido foi apagado e nada mais.
+ * Resultado de aceitar (GRV-28): `request_gone` = o pedido não existe mais (cancelado, recusado, vencido ou aceito
+ * por outra pessoa); `already_member` = a pessoa já participa (entrou por um convite antes): o pedido foi apagado e
+ * nada mais; `group_full` = o grupo tem o máximo de participantes (GRV-54): nada muda.
  */
-export type ApproveRequestResult = 'ok' | 'request_gone' | 'already_member';
+export type ApproveRequestResult = 'ok' | 'request_gone' | 'already_member' | 'group_full';
 
 /** Para quem é o convite pessoal (GRV-23). */
 export type InviteTarget = { userId: UserId } | { email: string };
@@ -151,9 +162,10 @@ export type JoinAction = 'join' | 'promote';
 
 /**
  * Resultado da gravação de entrar: `invite_stale` = o convite deixou de valer ou mudou desde a leitura (o service relê
- * e decide o motivo); `membership_stale` = a participação mudou desde a leitura (o service relê e decide de novo).
+ * e decide o motivo); `membership_stale` = a participação mudou desde a leitura (o service relê e decide de novo);
+ * `group_full` = o grupo tem o máximo de participantes (GRV-54): nada muda, nem o uso do convite.
  */
-export type JoinByInviteResult = 'ok' | 'invite_stale' | 'membership_stale';
+export type JoinByInviteResult = 'ok' | 'invite_stale' | 'membership_stale' | 'group_full';
 
 /** Resultado de passar o grupo (GRV-49): `conflict` = alguma das duas participações mudou desde a leitura. */
 export type TransferGroupResult = 'ok' | 'conflict';
@@ -197,8 +209,14 @@ export interface GroupRepository {
   revokeInvite(invite: StoredInvite, at: Date): Promise<void>;
   /** Os convites pessoais da pessoa, pelo id ou pelo email (GRV-24); em ordem qualquer, inclusive os que já não valem. */
   listInvitesFor(target: InviteTarget): Promise<{ groupId: GroupId; inviteId: string }[]>;
-  /** Id do convite pessoal → chave dele (GRV-24, recusar). */
-  resolveInviteId(inviteId: string): Promise<{ groupId: GroupId; inviteId: string } | undefined>;
+  /**
+   * O convite pessoal `inviteId` feito para a pessoa (GRV-24, recusar): lê o lookup da conta e, sem ele e com email, o
+   * do email. `undefined` = não é um convite para ela.
+   */
+  findPersonalInvite(
+    inviteId: string,
+    who: { userId: UserId; email?: string | undefined },
+  ): Promise<{ groupId: GroupId; inviteId: string } | undefined>;
   /** Marca como recusado (GRV-24) e agenda a limpeza (`ttl`). Quem chama já conferiu que vale. */
   declineInvite(invite: StoredInvite, at: Date): Promise<void>;
   /** Quem entrou por convites do grupo (GRV-19). */
@@ -240,9 +258,12 @@ export interface GroupRepository {
   }): Promise<TransferGroupResult>;
   /** Todas as participações do grupo (GRV-29). */
   listMembers(groupId: GroupId): Promise<StoredMembership[]>;
-  /** Número de participantes (GRV-21), por `Select: COUNT`. */
+  /** Número de participantes (GRV-21, 54): o contador `COUNTERS`, num GetItem. */
   countParticipants(groupId: GroupId): Promise<number>;
-  /** Apaga a participação e o lookup do usuário (GRV-30, 31). `false` = a pessoa já não participava. */
+  /**
+   * Apaga a participação e o lookup do usuário e desconta 1 dos participantes (GRV-30, 31, 54). `false` = a pessoa já
+   * não participava.
+   */
   removeMembership(groupId: GroupId, userId: UserId): Promise<boolean>;
 
   /** Muda o modo de entrada (GRV-25), com a `version` conferida (ADR 0016): versão velha → `VERSION_CONFLICT`. */
@@ -255,15 +276,19 @@ export interface GroupRepository {
     userId: UserId,
     opts?: { consistent?: boolean },
   ): Promise<StoredJoinRequest | undefined>;
-  /** Grava o pedido, se ainda não há (GRV-27). `false` = já havia um, que fica como estava. */
+  /**
+   * Grava o pedido (com o `ttl` no `expiresAt`), se não há um ou se o que há venceu (GRV-27). `false` = já havia um
+   * pedido valendo, que fica como estava.
+   */
   putRequest(request: StoredJoinRequest): Promise<boolean>;
   /** Apaga o pedido (GRV-27, 28). Com `mustExist`, `false` = não havia pedido; sem, apagar o que não há não é erro. */
   deleteRequest(groupId: GroupId, userId: UserId, opts?: { mustExist?: boolean }): Promise<boolean>;
   /** Os pedidos do grupo, em ordem qualquer (o service ordena, GRV-28). */
   listRequests(groupId: GroupId): Promise<StoredJoinRequest[]>;
   /**
-   * Aceita o pedido (GRV-28), numa transação: apaga o pedido (que precisa existir), grava a participação (que não pode
-   * existir) e o lookup do usuário. Se a pessoa já participa, só apaga o pedido.
+   * Aceita o pedido (GRV-28), numa transação: apaga o pedido (que precisa existir e valer), grava a participação (que
+   * não pode existir), o lookup do usuário e soma 1 nos participantes, com a condição de ter vaga (GRV-54). Se a pessoa
+   * já participa, só apaga o pedido.
    */
   approveRequest(input: {
     groupId: GroupId;
@@ -273,7 +298,14 @@ export interface GroupRepository {
   }): Promise<ApproveRequestResult>;
 }
 
-/** O convite pessoal grava os lookups do alvo e o do id, na mesma transação do convite (GRV-24). */
+/** O lookup do alvo do convite pessoal (GRV-24): o da conta ou o do email. */
+function targetLookupKey(invite: StoredInvite & { target: InviteTarget }) {
+  return 'userId' in invite.target
+    ? userGroupInvitesLookupKey(invite.target.userId, invite.id)
+    : emailGroupInvitesLookupKey(invite.target.email, invite.id);
+}
+
+/** O convite pessoal grava o lookup do alvo, na mesma transação do convite (GRV-24). */
 function targetLookups(invite: StoredInvite): TransactItem[] {
   if (!invite.target) return [];
   const body = {
@@ -281,31 +313,26 @@ function targetLookups(invite: StoredInvite): TransactItem[] {
     inviteId: invite.id,
     ...(invite.ttl !== undefined && { ttl: invite.ttl }),
   };
-  const put = (key: { PK: string; SK: string }): TransactItem => ({
-    Put: { TableName: tableName(), Item: dbItem(key, LOOKUP_ENTITY, body, invite.createdAt) },
-  });
   return [
-    put(
-      'userId' in invite.target
-        ? userGroupInvitesLookupKey(invite.target.userId, invite.id)
-        : emailGroupInvitesLookupKey(invite.target.email, invite.id),
-    ),
-    put(groupInviteIdLookupKey(invite.id)),
+    {
+      Put: {
+        TableName: tableName(),
+        Item: dbItem(
+          targetLookupKey({ ...invite, target: invite.target }),
+          LOOKUP_ENTITY,
+          body,
+          invite.createdAt,
+        ),
+      },
+    },
   ];
 }
 
-/** Os lookups do convite somem junto com ele: o do token e, no convite pessoal, os do alvo e do id (GRV-24). */
+/** Os lookups do convite somem junto com ele: o do token e, no convite pessoal, o do alvo (GRV-24). */
 function lookupTtls(invite: StoredInvite, ttl: number): TransactItem[] {
   const keys = [
     groupInviteTokenLookupKey(invite.token),
-    ...(invite.target
-      ? [
-          'userId' in invite.target
-            ? userGroupInvitesLookupKey(invite.target.userId, invite.id)
-            : emailGroupInvitesLookupKey(invite.target.email, invite.id),
-          groupInviteIdLookupKey(invite.id),
-        ]
-      : []),
+    ...(invite.target ? [targetLookupKey({ ...invite, target: invite.target })] : []),
   ];
   // O lookup é gravado com o convite: faltar é bug, e o Update não pode criar um item só com a chave e o `ttl`.
   return keys.map((Key) => ({
@@ -321,6 +348,31 @@ function lookupTtls(invite: StoredInvite, ttl: number): TransactItem[] {
 }
 
 const joinedPk = (id: GroupId) => `GROUP#${id}`;
+
+/**
+ * GRV-54: soma `delta` nos participantes. Ao entrar (+1), com a condição de ter vaga: a falha dela é o grupo cheio.
+ * O contador nasce com o grupo; o `if_not_exists` só protege o `createdAt`.
+ */
+function participantsDelta(groupId: GroupId, delta: 1 | -1, at: string): TransactItem {
+  return {
+    Update: {
+      TableName: tableName(),
+      Key: groupCountersKey(groupId),
+      UpdateExpression:
+        'SET #entity = :entity, createdAt = if_not_exists(createdAt, :createdAt) ADD participants :delta',
+      ...(delta === 1 && {
+        ConditionExpression: 'attribute_not_exists(participants) OR participants < :max',
+      }),
+      ExpressionAttributeNames: { '#entity': 'entity' },
+      ExpressionAttributeValues: {
+        ':entity': COUNTERS_ENTITY,
+        ':createdAt': at,
+        ':delta': delta,
+        ...(delta === 1 && { ':max': GROUP_PARTICIPANT_MAX }),
+      },
+    },
+  };
+}
 
 /**
  * Convite sem prazo que deixou de valer: os `INVITEUSE` já gravados ganham o `ttl` dele, logo depois da transação e
@@ -368,23 +420,6 @@ async function queryByPrefix(
   return LastEvaluatedKey ? [...Items, ...(await queryByPrefix(id, prefix, LastEvaluatedKey))] : Items;
 }
 
-async function countByPrefix(
-  id: GroupId,
-  prefix: string,
-  startKey?: Record<string, unknown>,
-): Promise<number> {
-  const { Count = 0, LastEvaluatedKey } = await dynamo().send(
-    new QueryCommand({
-      TableName: tableName(),
-      KeyConditionExpression: 'PK = :pk AND begins_with(SK, :prefix)',
-      ExpressionAttributeValues: { ':pk': joinedPk(id), ':prefix': prefix },
-      Select: 'COUNT',
-      ...(startKey && { ExclusiveStartKey: startKey }),
-    }),
-  );
-  return LastEvaluatedKey ? Count + (await countByPrefix(id, prefix, LastEvaluatedKey)) : Count;
-}
-
 async function getItem(
   Key: Record<string, string>,
   consistent = false,
@@ -429,6 +464,8 @@ export const dynamoGroupRepository: GroupRepository = {
           group.createdAt,
         ),
       ),
+      // GRV-54: o dono é o primeiro participante.
+      put(dbItem(groupCountersKey(group.id), COUNTERS_ENTITY, { participants: 1 }, group.createdAt)),
     ]);
     if (result.ok) return 'created';
     if (result.failed.includes(3)) return 'public_id_taken';
@@ -548,8 +585,11 @@ export const dynamoGroupRepository: GroupRepository = {
     }));
   },
 
-  async resolveInviteId(inviteId) {
-    const pointer = await getItem(groupInviteIdLookupKey(inviteId));
+  async findPersonalInvite(inviteId, who) {
+    const byUser = await getItem(userGroupInvitesLookupKey(who.userId, inviteId));
+    const pointer =
+      byUser ??
+      (who.email !== undefined ? await getItem(emailGroupInvitesLookupKey(who.email, inviteId)) : undefined);
     return pointer
       ? { groupId: asGroupId(pointer.groupId as string), inviteId: pointer.inviteId as string }
       : undefined;
@@ -652,9 +692,12 @@ export const dynamoGroupRepository: GroupRepository = {
         : lastUse
           ? graceTtl(now)
           : undefined;
+    // GRV-54: só quem entra conta; a reserva que sobe já estava na conta. Fica no índice 2, para ler a falha.
+    const counter: TransactItem[] = action === 'join' ? [participantsDelta(invite.groupId, 1, at)] : [];
     const items: TransactItem[] = [
       useInvite,
       membership,
+      ...counter,
       {
         Put: {
           TableName: tableName(),
@@ -691,6 +734,7 @@ export const dynamoGroupRepository: GroupRepository = {
     if (result.ok) return 'ok';
     if (result.failed.includes(0)) return 'invite_stale';
     if (result.failed.includes(1)) return 'membership_stale';
+    if (action === 'join' && result.failed.includes(2)) return 'group_full';
     throw new Error('Group join failed');
   },
 
@@ -781,8 +825,9 @@ export const dynamoGroupRepository: GroupRepository = {
     return rows.map((row) => stripKeys<StoredMembership>(row));
   },
 
-  countParticipants(groupId) {
-    return countByPrefix(groupId, GROUP_MEMBER_PREFIX);
+  async countParticipants(groupId) {
+    const item = await getItem(groupCountersKey(groupId));
+    return (item?.participants as number | undefined) ?? 0;
   },
 
   async removeMembership(groupId, userId) {
@@ -795,6 +840,7 @@ export const dynamoGroupRepository: GroupRepository = {
         },
       },
       { Delete: { TableName: tableName(), Key: userGroupsLookupKey(userId, groupId) } },
+      participantsDelta(groupId, -1, new Date().toISOString()),
     ]);
     return result.ok;
   },
@@ -855,8 +901,13 @@ export const dynamoGroupRepository: GroupRepository = {
       await dynamo().send(
         new PutCommand({
           TableName: tableName(),
-          Item: dbItem(groupRequestKey(request.groupId, request.userId), GROUP_REQUEST_ENTITY, request),
-          ConditionExpression: 'attribute_not_exists(PK)',
+          Item: dbItem(groupRequestKey(request.groupId, request.userId), GROUP_REQUEST_ENTITY, {
+            ...request,
+            ttl: ttlFrom(new Date(request.expiresAt)),
+          }),
+          // GRV-27: o pedido vencido (o `ttl` atrasa) é regravado como se não existisse.
+          ConditionExpression: 'attribute_not_exists(PK) OR expiresAt <= :now',
+          ExpressionAttributeValues: { ':now': request.createdAt },
         }),
       );
       return true;
@@ -895,7 +946,9 @@ export const dynamoGroupRepository: GroupRepository = {
         Delete: {
           TableName: tableName(),
           Key: groupRequestKey(groupId, userId),
-          ConditionExpression: 'attribute_exists(PK)',
+          // GRV-27: o vencido conta como apagado.
+          ConditionExpression: 'attribute_exists(PK) AND expiresAt > :now',
+          ExpressionAttributeValues: { ':now': at },
         },
       },
       {
@@ -911,14 +964,17 @@ export const dynamoGroupRepository: GroupRepository = {
           Item: dbItem(userGroupsLookupKey(userId, groupId), LOOKUP_ENTITY, { id: groupId }, at),
         },
       },
+      participantsDelta(groupId, 1, at),
     ]);
     if (result.ok) return 'ok';
     if (result.failed.includes(0)) return 'request_gone';
+    // Corrida com entrar por convite (GRV-22): a pessoa já participa; só o pedido some, sem mudar a participação.
+    // Vem antes do cheio: ela não ocuparia vaga nova.
     if (result.failed.includes(1)) {
-      // Corrida com entrar por convite (GRV-22): a pessoa já participa; só o pedido some, sem mudar a participação.
       await dynamoGroupRepository.deleteRequest(groupId, userId);
       return 'already_member';
     }
+    if (result.failed.includes(3)) return 'group_full';
     throw new Error('Group request approve failed');
   },
 };

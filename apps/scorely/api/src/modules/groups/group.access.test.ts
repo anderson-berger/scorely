@@ -98,9 +98,9 @@ describe('GroupAccess', () => {
   it('PAR-10: participants devolve quem participa hoje, com a participação', async () => {
     const { access, group } = await setup();
     const people = await access.participants(group.id);
-    expect(people.get(ANA)).toBe('member');
-    expect(people.get(BIA)).toBe('member');
-    expect(people.get(DUDA)).toBe('reserve');
+    expect(people.get(ANA)).toMatchObject({ tier: 'member', joinedAt: T0 });
+    expect(people.get(BIA)).toMatchObject({ tier: 'member', joinedAt: T0 });
+    expect(people.get(DUDA)).toMatchObject({ tier: 'reserve', joinedAt: T0 });
     expect(people.size).toBe(4);
   });
 

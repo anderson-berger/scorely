@@ -547,17 +547,32 @@ describe.each([
       expect(await repo.requestGuest(newGuest(match, 'Joao'), 1)).toBe('ok');
     });
 
-    it('PAR-11, PAR-14: cancel (pending) grava cancelledAt e libera o nome', async () => {
+    it('PAR-11, PAR-14: cancel (pending) apaga o convidado e libera o nome', async () => {
       const match = newMatch(newGroup());
       const guest = newGuest(match, 'Joao');
       await repo.requestGuest(guest, 30);
       expect(
         await repo.transitionGuest({ guest, transition: 'cancel', by: guest.requestedBy, at: at(5) }),
       ).toBe(true);
-      expect((await repo.getGuest(match.groupId, match.id, guest.id, read))?.cancelledAt).toBe(
-        at(5).toISOString(),
-      );
+      expect(await repo.getGuest(match.groupId, match.id, guest.id, read)).toBeUndefined();
+      expect((await repo.listGuests(match.groupId, match.id, read)).map((g) => g.id)).not.toContain(guest.id);
       expect(await repo.requestGuest(newGuest(match, 'Joao'), 30)).toBe('ok');
+    });
+
+    it('PAR-14: cancel apaga e desconta do contador: com 30 pedidos, desistir de um abre uma vaga; cancelar de novo é false', async () => {
+      const match = newMatch(newGroup());
+      const guests = Array.from({ length: 30 }, (_, i) => newGuest(match, `G${i}`));
+      for (const g of guests) expect(await repo.requestGuest(g, 30)).toBe('ok');
+      expect(await repo.requestGuest(newGuest(match, 'Extra'), 30)).toBe('limit');
+      const first = guests[0] as StoredGuest;
+      expect(
+        await repo.transitionGuest({ guest: first, transition: 'cancel', by: first.requestedBy, at: at(5) }),
+      ).toBe(true);
+      expect(await repo.requestGuest(newGuest(match, 'Extra'), 30)).toBe('ok');
+      expect(
+        await repo.transitionGuest({ guest: first, transition: 'cancel', by: first.requestedBy, at: at(6) }),
+      ).toBe(false);
+      expect(await repo.requestGuest(newGuest(match, 'Extra2'), 30)).toBe('limit');
     });
 
     it('PAR-11, PAR-14: remove só vale para um approved; grava removedAt e removedBy e libera o nome', async () => {
@@ -585,7 +600,7 @@ describe.each([
       expect(await repo.transitionGuest({ guest, transition: 'cancel', by, at: at(7) })).toBe(false);
     });
 
-    it('PAR-11: o convidado fora da lista continua guardado (nada é apagado)', async () => {
+    it('PAR-11: o recusado e o removido continuam guardados, com quem decidiu e quando', async () => {
       const match = newMatch(newGroup());
       const guest = newGuest(match, 'Joao');
       await repo.requestGuest(guest, 30);
@@ -604,6 +619,67 @@ describe.each([
       expect(results.filter(Boolean)).toHaveLength(1);
     });
   });
+  describe('próximas partidas (índice das abertas)', () => {
+    it('PAR-15: editar o início e o fim mantém a partida nas próximas, uma vez só', async () => {
+      const groupId = newGroup();
+      const match = newMatch(groupId, {
+        startsAt: '2026-11-27T22:00:00.000Z',
+        endsAt: '2026-11-28T00:00:00.000Z',
+      });
+      await repo.createMatch(match);
+      await repo.updateMatch(
+        { ...match, startsAt: '2026-12-05T22:00:00.000Z', endsAt: '2026-12-06T00:00:00.000Z' },
+        1,
+        at(1),
+      );
+      const list = await repo.listMatches(groupId, T0);
+      expect(list.map((m) => m.id)).toEqual([match.id]);
+      expect(list[0]?.startsAt).toBe('2026-12-05T22:00:00.000Z');
+    });
+
+    it('PAR-43: finishMatch tira a partida das próximas', async () => {
+      const groupId = newGroup();
+      const match = newMatch(groupId);
+      await repo.createMatch(match);
+      await repo.startMatch(groupId, match.id, newUser(), at(1));
+      expect(await repo.finishMatch(groupId, match.id, newUser(), at(2))).toBe(true);
+      expect(await repo.listMatches(groupId, at(3))).toEqual([]);
+    });
+
+    it('PAR-07: a cancelada fica nas próximas até o fim marcado; depois do fim marcado de uma edição, sai nesse novo instante', async () => {
+      const groupId = newGroup();
+      const match = newMatch(groupId);
+      await repo.createMatch(match);
+      expect(await repo.cancelMatch(groupId, match.id, at(1))).toBe(true);
+      const end = Date.parse(match.endsAt);
+      expect((await repo.listMatches(groupId, new Date(end - 1))).map((m) => m.id)).toEqual([match.id]);
+      expect(await repo.listMatches(groupId, new Date(end))).toEqual([]);
+    });
+
+    it('PAR-21, 07: cancelMatch com next tira a cancelada (depois do fim) e põe a seguinte nas próximas', async () => {
+      const groupId = newGroup();
+      const match = newMatch(groupId);
+      const series = newSeries(match);
+      await repo.createMatch(match, { series });
+      const next = {
+        match: { ...newMatch(groupId), seriesId: series.id, seriesDate: '2026-12-04' },
+        previousMatchId: match.id,
+        agenda: [],
+      };
+      expect(await repo.cancelMatch(groupId, match.id, at(1), next)).toBe(true);
+      const ids = (await repo.listMatches(groupId, at(2))).map((m) => m.id);
+      expect(ids).toContain(next.match.id);
+    });
+
+    it('PAR-01: as partidas de outro grupo não entram nas próximas', async () => {
+      const mine = newGroup();
+      const mineMatch = newMatch(mine);
+      const other = newMatch(newGroup());
+      await Promise.all([mineMatch, other].map((m) => repo.createMatch(m)));
+      expect((await repo.listMatches(mine, T0)).map((m) => m.id)).toEqual([mineMatch.id]);
+    });
+  });
+
   describe('times', () => {
     const user = (): StoredTeamPlayer => ({ kind: 'user', id: randomUUID() });
     const guest = (): StoredTeamPlayer => ({ kind: 'guest', id: randomUUID() });
@@ -766,30 +842,6 @@ describe.each([
       expect(await repo.endSeries(match.groupId, series.id, at(1))).toBe(true);
       expect(await repo.endSeries(match.groupId, series.id, at(2))).toBe(false);
       expect((await repo.getSeries(match.groupId, series.id, read))?.endedAt).toBe(at(1).toISOString());
-    });
-
-    it('PAR-21: createNextMatch cria uma vez só, e não cria com a repetição encerrada', async () => {
-      const match = newMatch(newGroup());
-      const series = newSeries(match);
-      await repo.createMatch(match, { series });
-      const next = { ...newMatch(match.groupId), seriesId: series.id, seriesDate: '2026-12-04' };
-      const other = { ...newMatch(match.groupId), seriesId: series.id, seriesDate: '2026-12-04' };
-      const results = await Promise.all([
-        repo.createNextMatch({ match: next, previousMatchId: match.id, agenda: [], at: at(1) }),
-        repo.createNextMatch({ match: other, previousMatchId: match.id, agenda: [], at: at(1) }),
-      ]);
-      expect(results.filter(Boolean)).toHaveLength(1);
-      expect((await repo.getSeries(match.groupId, series.id, read))?.currentDate).toBe('2026-12-04');
-
-      const ended = newMatch(newGroup());
-      const endedSeries = newSeries(ended);
-      await repo.createMatch(ended, { series: endedSeries });
-      await repo.endSeries(ended.groupId, endedSeries.id, at(1));
-      const after = { ...newMatch(ended.groupId), seriesId: endedSeries.id, seriesDate: '2026-12-04' };
-      expect(
-        await repo.createNextMatch({ match: after, previousMatchId: ended.id, agenda: [], at: at(2) }),
-      ).toBe(false);
-      expect(await repo.getMatch(ended.groupId, after.id, read)).toBeUndefined();
     });
 
     const nextOf = (previous: StoredMatch, series: StoredSeries) => ({
@@ -1234,22 +1286,6 @@ describe.each([
       expect(page.items.map((e) => e.match.id)).toEqual([done.id, none.id]);
       expect(page.items[0]?.result).toEqual(saved);
       expect(page.items[1]?.result).toBeUndefined();
-    });
-
-    it('PAR-36: createNextMatch coloca a partida nova no histórico', async () => {
-      const first = endedMatch(newGroup(), 3);
-      const series = newSeries(first);
-      await repo.createMatch(first, { series });
-      const next = {
-        ...endedMatch(first.groupId, 10),
-        seriesId: series.id,
-        seriesDate: '2026-11-10',
-      };
-      expect(
-        await repo.createNextMatch({ match: next, previousMatchId: first.id, agenda: [], at: at(1) }),
-      ).toBe(true);
-      const page = await repo.listHistory(first.groupId, END, { limit: 20 });
-      expect(page.items.map((e) => e.match.id)).toEqual([next.id, first.id]);
     });
 
     it('PAR-36: updateMatch com previousEndsAt diferente muda onde a cancelada aparece e a antiga posição some', async () => {

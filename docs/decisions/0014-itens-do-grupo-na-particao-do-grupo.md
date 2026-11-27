@@ -28,8 +28,8 @@ A entidade de relação continua com chave natural ([0009](0009-entidade-de-rela
 
 ## Consequências
 
-- Quando a direção da busca é "os X da entidade", a busca é uma Query na partição dela, sem lookup. As outras direções continuam com lookup, que guarda só o `id` ([0002](0002-single-table-sem-gsi.md)). Exemplo: "meus grupos" continua em `LOOKUP#USER#<u>#GROUP`.
-- O limite de 10 GB por partição não preocupa: um grupo tem no máximo 61 participações (GRP-38).
+- Quando a direção da busca é "os X da entidade", a busca é uma Query na partição dela, sem lookup. As outras direções continuam com lookup, que guarda só o `id` ([0002](0002-single-table-sem-gsi.md)). Exemplo: "meus grupos" continua num lookup, hoje `LOOKUP#USER#GROUPS#<u>` (o padrão das chaves de lookup mudou em 2026-11-26; antes, `LOOKUP#USER#<u>#GROUP`).
+- O limite de 10 GB por partição não preocupa: um grupo tem no máximo 100 participantes (GRV-54; nota de 2026-11-26: antes, o argumento era o das 61 participações da GRP-38, que saiu com o grupo antigo).
 - Nunca leia a partição inteira só para pegar o `META`: o `META` é sempre um GetItem.
 - Item com vida própria, que é buscado sem a entidade dona, continua na sua partição (ex.: `GAME#<id>`).
 - Regra: `.claude/rules/dynamodb.md`.

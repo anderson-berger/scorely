@@ -34,6 +34,7 @@ export const en: MessageSchema = {
     GROUP_ROLE_NOT_FOUND: 'This role no longer exists',
     GROUP_ROLE_NAME_TAKEN: 'There is already a role with this name',
     GROUP_ROLE_LIMIT: 'The group has reached its role limit',
+    GROUP_FULL: 'The group is full: it has {limit} participants',
     MATCH_NOT_FOUND: 'This match no longer exists',
     MATCH_LIMIT: 'The group has reached the limit of {limit} upcoming matches',
     MATCH_SERIES_NOT_FOUND: 'This weekly repeat was not found',

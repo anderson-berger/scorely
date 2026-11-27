@@ -4,6 +4,12 @@ import { permissionsOf } from '@scorely/api/src/modules/groups/group.permissions
 import type { GroupRepository } from '@scorely/api/src/modules/groups/group.repository';
 import type { GroupPermission, GroupTier, PublicGroupId } from '@scorely/contracts';
 
+/** Como a pessoa participa hoje (GRV-17) e desde quando (o `createdAt` da participação, PAR-10). */
+export interface Participation {
+  tier: GroupTier;
+  joinedAt: string;
+}
+
 /**
  * O que os outros módulos (partidas) perguntam ao grupo: quem participa, como, e se a pessoa tem uma permissão
  * (GRV-15, 17). O grupo não sabe nada de quem pergunta (partidas.md, seção 3).
@@ -20,8 +26,8 @@ export interface GroupAccess {
     tier: GroupTier;
     permissions: GroupPermission[];
   }>;
-  /** PAR-10, 16: quem participa hoje, com a participação. */
-  participants(groupId: GroupId): Promise<Map<UserId, GroupTier>>;
+  /** PAR-10, 16: quem participa hoje, com a participação e a data de entrada atual. */
+  participants(groupId: GroupId): Promise<Map<UserId, Participation>>;
   /** PAR-12: quem tem a permissão. */
   holders(groupId: GroupId, permission: GroupPermission): Promise<UserId[]>;
 }
@@ -47,7 +53,7 @@ export function createGroupAccess(repo: GroupRepository): GroupAccess {
     },
     async participants(groupId) {
       const members = await repo.listMembers(groupId);
-      return new Map(members.map((m) => [m.userId, m.tier]));
+      return new Map(members.map((m) => [m.userId, { tier: m.tier, joinedAt: m.createdAt }]));
     },
     async holders(groupId, permission) {
       const [members, roles] = await Promise.all([repo.listMembers(groupId), repo.getRoles(groupId)]);

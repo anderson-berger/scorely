@@ -46,6 +46,7 @@ const CATALOG = {
   GROUP_ROLE_NOT_FOUND: { status: 404, message: 'Role not found in this group' },
   GROUP_ROLE_NAME_TAKEN: { status: 409, message: 'A role with this name already exists' },
   GROUP_ROLE_LIMIT: { status: 409, message: 'The group has too many roles' },
+  GROUP_FULL: { status: 409, message: 'The group is full' },
 
   MATCH_NOT_FOUND: { status: 404, message: 'Match not found in this group' },
   MATCH_LIMIT: { status: 409, message: 'The group has too many upcoming matches' },

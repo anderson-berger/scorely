@@ -20,6 +20,9 @@ export type PublicGroupId = z.infer<typeof PublicGroupIdSchema>;
 /** GRV-01: de 1 a 80 caracteres, sem os espaços das pontas. Pode repetir (GRV-03). */
 export const GroupNameSchema = z.string().trim().min(1, 'Name is required').max(80);
 
+/** Máximo de participantes por grupo, membros e reservas, o dono incluído (GRV-54). */
+export const GROUP_PARTICIPANT_MAX = 100;
+
 /** Máximo de cargos criados por grupo (GRV-44). */
 export const GROUP_ROLE_MAX = 20;
 
@@ -106,12 +109,18 @@ export type GroupInviteTargetInput = z.infer<typeof GroupInviteTargetInputSchema
  * Corpo do `POST /groups/{publicId}/invites` (GRV-18, 23). Padrões: membro, 7 dias, sem limite, para qualquer
  * pessoa. Com `target`, o convite tem sempre 1 uso: a api ignora o `maxUses`.
  */
-export const CreateGroupInviteInputSchema = z.object({
-  tier: GroupTierSchema.default('member'),
-  validityDays: GroupInviteValiditySchema.default(7),
-  maxUses: GroupInviteMaxUsesSchema.default(null),
-  target: GroupInviteTargetInputSchema.optional(),
-});
+export const CreateGroupInviteInputSchema = z
+  .object({
+    tier: GroupTierSchema.default('member'),
+    validityDays: GroupInviteValiditySchema.default(7),
+    maxUses: GroupInviteMaxUsesSchema.default(null),
+    target: GroupInviteTargetInputSchema.optional(),
+  })
+  // GRV-23: o convite para uma pessoa tem prazo.
+  .refine((input) => !input.target || input.validityDays !== null, {
+    message: 'A personal invite must expire',
+    path: ['validityDays'],
+  });
 export type CreateGroupInviteInput = z.infer<typeof CreateGroupInviteInputSchema>;
 /** O corpo como a tela manda: o que fica de fora a api completa com o padrão (GRV-18, 32). */
 export type CreateGroupInviteBody = z.input<typeof CreateGroupInviteInputSchema>;

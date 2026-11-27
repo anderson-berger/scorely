@@ -68,7 +68,7 @@ export const MyAttendanceSchema = z.enum(['in', 'queued', 'not_going']);
 export type MyAttendance = z.infer<typeof MyAttendanceSchema>;
 
 /** Situação do convidado (PAR-11). */
-export const MatchGuestStatusSchema = z.enum(['pending', 'approved', 'declined', 'cancelled', 'removed']);
+export const MatchGuestStatusSchema = z.enum(['pending', 'approved', 'declined', 'removed']);
 export type MatchGuestStatus = z.infer<typeof MatchGuestStatusSchema>;
 
 /** O jeito do resultado (PAR-31): pelo dia ou por jogo. A partida e a repetição nascem `day`. */

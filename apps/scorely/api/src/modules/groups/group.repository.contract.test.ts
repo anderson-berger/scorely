@@ -43,6 +43,13 @@ function newInvite(groupId: GroupId, createdBy: UserId, overrides: Partial<Store
   };
 }
 
+const DAY = 24 * 60 * 60 * 1000;
+
+/** O pedido como fica gravado (GRV-27): vence 90 dias depois de criado. */
+function request(groupId: GroupId, userId: UserId, createdAt = T0.toISOString()) {
+  return { groupId, userId, createdAt, expiresAt: new Date(Date.parse(createdAt) + 90 * DAY).toISOString() };
+}
+
 /** Entra no grupo pelo próprio repositório (convite + entrar), para ter mais participações. */
 async function addMember(
   repo: GroupRepository,
@@ -291,7 +298,7 @@ describe.each([
     it('GRV-22: o pedido esperando some quando a pessoa entra por convite', async () => {
       const { group, ownerId } = await setup();
       const userId = newUser();
-      expect(await repo.putRequest({ groupId: group.id, userId, createdAt: T0.toISOString() })).toBe(true);
+      expect(await repo.putRequest(request(group.id, userId))).toBe(true);
       const invite = await issue(group.id, ownerId);
       expect(await repo.joinByInvite({ invite: { ...invite }, userId, action: 'join', now: T0 })).toBe('ok');
       expect(await repo.getRequest(group.id, userId, { consistent: true })).toBeUndefined();
@@ -402,7 +409,7 @@ describe.each([
       async (tier) => {
         const { group } = await setup();
         const userId = newUser();
-        await repo.putRequest({ groupId: group.id, userId, createdAt: T0.toISOString() });
+        await repo.putRequest(request(group.id, userId));
         const now = new Date('2026-11-24T12:00:00.000Z');
         expect(await repo.approveRequest({ groupId: group.id, userId, tier, now })).toBe('ok');
         const m = await repo.getMembership(group.id, userId, { consistent: true });
@@ -426,12 +433,164 @@ describe.each([
       const { group, ownerId } = await setup();
       const userId = await addMember(repo, group.id, ownerId, 'member');
       const before = await repo.getMembership(group.id, userId, { consistent: true });
-      expect(await repo.putRequest({ groupId: group.id, userId, createdAt: T0.toISOString() })).toBe(true);
+      expect(await repo.putRequest(request(group.id, userId))).toBe(true);
       expect(await repo.approveRequest({ groupId: group.id, userId, tier: 'reserve', now: T0 })).toBe(
         'already_member',
       );
       expect(await repo.getRequest(group.id, userId, { consistent: true })).toBeUndefined();
       expect(await repo.getMembership(group.id, userId, { consistent: true })).toEqual(before);
+    });
+  });
+
+  describe('GRV-54: o contador de participantes e o teto', () => {
+    const setup = async () => {
+      const group = newGroup();
+      const ownerId = newUser();
+      await repo.create(group, ownerId);
+      return { group, ownerId };
+    };
+    /** Enche o grupo até 100 pelo próprio repositório, com um convite sem limite de usos. */
+    const fill = async (groupId: GroupId, ownerId: UserId, count = 99) => {
+      const invite = newInvite(groupId, ownerId);
+      await repo.createInvite(invite);
+      for (const _ of Array.from({ length: count })) {
+        expect(await repo.joinByInvite({ invite, userId: newUser(), action: 'join', now: T0 })).toBe('ok');
+      }
+      return invite;
+    };
+
+    it('GRV-54: create deixa o contador em 1; join soma 1; removeMembership tira 1', async () => {
+      const { group, ownerId } = await setup();
+      expect(await repo.countParticipants(group.id)).toBe(1);
+      const userId = await addMember(repo, group.id, ownerId, 'member');
+      expect(await repo.countParticipants(group.id)).toBe(2);
+      await repo.removeMembership(group.id, userId);
+      expect(await repo.countParticipants(group.id)).toBe(1);
+    });
+
+    it('GRV-54: promote (reserva vira membro) e membership_stale não mudam o contador', async () => {
+      const { group, ownerId } = await setup();
+      const userId = await addMember(repo, group.id, ownerId, 'reserve');
+      const invite = newInvite(group.id, ownerId, { tier: 'member' });
+      await repo.createInvite(invite);
+      expect(await repo.joinByInvite({ invite, userId, action: 'promote', now: T0 })).toBe('ok');
+      expect(await repo.joinByInvite({ invite, userId, action: 'join', now: T0 })).toBe('membership_stale');
+      expect(await repo.countParticipants(group.id)).toBe(2);
+    });
+
+    it('GRV-54: com 100, join → group_full, sem participação e sem gastar o uso do convite', async () => {
+      const { group, ownerId } = await setup();
+      const invite = await fill(group.id, ownerId);
+      expect(await repo.countParticipants(group.id)).toBe(100);
+      const userId = newUser();
+      const limited = newInvite(group.id, ownerId, { maxUses: 5 });
+      await repo.createInvite(limited);
+      expect(await repo.joinByInvite({ invite: limited, userId, action: 'join', now: T0 })).toBe(
+        'group_full',
+      );
+      expect(await repo.getMembership(group.id, userId, { consistent: true })).toBeUndefined();
+      expect((await repo.getInvite(group.id, limited.id, { consistent: true }))?.uses).toBe(0);
+      expect(await repo.countParticipants(group.id)).toBe(100);
+      expect(invite.id).not.toBe(limited.id);
+    });
+
+    it('GRV-54: com 100, promote ainda funciona (a conta não muda)', async () => {
+      const { group, ownerId } = await setup();
+      const reserve = await addMember(repo, group.id, ownerId, 'reserve');
+      await fill(group.id, ownerId, 98);
+      expect(await repo.countParticipants(group.id)).toBe(100);
+      const invite = newInvite(group.id, ownerId, { tier: 'member' });
+      await repo.createInvite(invite);
+      expect(await repo.joinByInvite({ invite, userId: reserve, action: 'promote', now: T0 })).toBe('ok');
+      expect(await repo.countParticipants(group.id)).toBe(100);
+    });
+
+    it('GRV-54: com 100, approveRequest → group_full, e o pedido continua; abrindo uma vaga, aceita', async () => {
+      const { group, ownerId } = await setup();
+      await fill(group.id, ownerId);
+      const userId = newUser();
+      await repo.putRequest(request(group.id, userId));
+      expect(await repo.approveRequest({ groupId: group.id, userId, tier: 'member', now: T0 })).toBe(
+        'group_full',
+      );
+      expect(await repo.getRequest(group.id, userId, { consistent: true })).toBeDefined();
+      expect(await repo.getMembership(group.id, userId, { consistent: true })).toBeUndefined();
+      const [first] = (await repo.listMembers(group.id)).filter((m) => m.userId !== ownerId);
+      await repo.removeMembership(group.id, first?.userId as UserId);
+      expect(await repo.approveRequest({ groupId: group.id, userId, tier: 'member', now: T0 })).toBe('ok');
+      expect(await repo.countParticipants(group.id)).toBe(100);
+    });
+
+    it('GRV-54: duas entradas ao mesmo tempo na última vaga → uma ok e uma group_full', async () => {
+      const { group, ownerId } = await setup();
+      await fill(group.id, ownerId);
+      const [first] = (await repo.listMembers(group.id)).filter((m) => m.userId !== ownerId);
+      await repo.removeMembership(group.id, first?.userId as UserId);
+      const invite = newInvite(group.id, ownerId);
+      await repo.createInvite(invite);
+      const results = await Promise.all(
+        [newUser(), newUser()].map((userId) =>
+          repo.joinByInvite({ invite, userId, action: 'join', now: T0 }),
+        ),
+      );
+      expect([...results].sort()).toEqual(['group_full', 'ok']);
+      expect(await repo.countParticipants(group.id)).toBe(100);
+    });
+
+    it('GRV-28: approveRequest que dá already_member ou request_gone não muda o contador', async () => {
+      const { group, ownerId } = await setup();
+      const member = await addMember(repo, group.id, ownerId, 'member');
+      await repo.putRequest(request(group.id, member));
+      expect(await repo.approveRequest({ groupId: group.id, userId: member, tier: 'member', now: T0 })).toBe(
+        'already_member',
+      );
+      expect(
+        await repo.approveRequest({ groupId: group.id, userId: newUser(), tier: 'member', now: T0 }),
+      ).toBe('request_gone');
+      expect(await repo.countParticipants(group.id)).toBe(2);
+    });
+  });
+
+  describe('GRV-27: o pedido vence em 90 dias', () => {
+    const setup = async () => {
+      const group = newGroup();
+      await repo.create(group, newUser());
+      return { group };
+    };
+
+    it('GRV-27: putRequest sobre um pedido vencido regrava (true) e fica o novo; sobre um que vale → false', async () => {
+      const { group } = await setup();
+      const userId = newUser();
+      const old = request(group.id, userId, T0.toISOString());
+      expect(await repo.putRequest(old)).toBe(true);
+      const later = request(group.id, userId, new Date(T0.getTime() + 91 * DAY).toISOString());
+      expect(await repo.putRequest(later)).toBe(true);
+      expect(await repo.getRequest(group.id, userId, { consistent: true })).toMatchObject({
+        createdAt: later.createdAt,
+        expiresAt: later.expiresAt,
+      });
+      const again = request(group.id, userId, new Date(T0.getTime() + 92 * DAY).toISOString());
+      expect(await repo.putRequest(again)).toBe(false);
+    });
+
+    it('GRV-27: getRequest e listRequests devolvem o vencido, como está gravado (quem ignora é o service)', async () => {
+      const { group } = await setup();
+      const userId = newUser();
+      const old = request(group.id, userId);
+      await repo.putRequest(old);
+      expect(await repo.getRequest(group.id, userId, { consistent: true })).toMatchObject(old);
+      expect((await repo.listRequests(group.id)).map((r) => r.userId)).toContain(userId);
+    });
+
+    it('GRV-27/28: approveRequest de um pedido vencido → request_gone, sem participação', async () => {
+      const { group } = await setup();
+      const userId = newUser();
+      await repo.putRequest(request(group.id, userId));
+      const now = new Date(T0.getTime() + 91 * DAY);
+      expect(await repo.approveRequest({ groupId: group.id, userId, tier: 'member', now })).toBe(
+        'request_gone',
+      );
+      expect(await repo.getMembership(group.id, userId, { consistent: true })).toBeUndefined();
     });
   });
 
@@ -484,7 +643,7 @@ describe.each([
       expect(await repo.resolveToken(first.token)).toEqual({ groupId: group.id, inviteId: first.id });
     });
 
-    it('GRV-23/24: convite pessoal pelo id e pelo email: cada alvo acha o seu, e resolveInviteId leva a ele', async () => {
+    it('GRV-23/24: convite pessoal pelo id e pelo email: cada alvo acha o seu, e findPersonalInvite leva a ele', async () => {
       const { group, ownerId } = await setup();
       const targetId = newUser();
       const email = `${randomUUID()}@example.com`;
@@ -495,9 +654,29 @@ describe.each([
         { groupId: group.id, inviteId: byId.id },
       ]);
       expect(await repo.listInvitesFor({ email })).toEqual([{ groupId: group.id, inviteId: byEmail.id }]);
-      expect(await repo.resolveInviteId(byId.id)).toEqual({ groupId: group.id, inviteId: byId.id });
-      expect(await repo.resolveInviteId(byEmail.id)).toEqual({ groupId: group.id, inviteId: byEmail.id });
-      expect(await repo.resolveInviteId(common.id)).toBeUndefined();
+      expect(await repo.findPersonalInvite(byId.id, { userId: targetId })).toEqual({
+        groupId: group.id,
+        inviteId: byId.id,
+      });
+      expect(await repo.findPersonalInvite(byEmail.id, { userId: targetId, email })).toEqual({
+        groupId: group.id,
+        inviteId: byEmail.id,
+      });
+      expect(await repo.findPersonalInvite(common.id, { userId: targetId, email })).toBeUndefined();
+    });
+
+    it('GRV-24: findPersonalInvite só acha para o alvo: outra pessoa, ou o convite por email sem o email, → undefined', async () => {
+      const { group, ownerId } = await setup();
+      const targetId = newUser();
+      const email = `${randomUUID()}@example.com`;
+      const byId = await issue(group.id, ownerId, { target: { userId: targetId }, maxUses: 1 });
+      const byEmail = await issue(group.id, ownerId, { target: { email }, maxUses: 1 });
+      expect(await repo.findPersonalInvite(byId.id, { userId: newUser(), email })).toBeUndefined();
+      expect(await repo.findPersonalInvite(byEmail.id, { userId: targetId })).toBeUndefined();
+      expect(
+        await repo.findPersonalInvite(byEmail.id, { userId: newUser(), email: 'outro@example.com' }),
+      ).toBeUndefined();
+      expect(await repo.findPersonalInvite('nao-existe', { userId: targetId, email })).toBeUndefined();
     });
 
     it('GRV-20: revokeInvite grava revokedAt, ttl e soma 1 na version; cancelar de novo não muda nada', async () => {
@@ -637,10 +816,10 @@ describe.each([
     it('GRV-27: putRequest grava o pedido; o segundo da mesma pessoa → false e fica o primeiro', async () => {
       const { group } = await setup();
       const userId = newUser();
-      const first = { groupId: group.id, userId, createdAt: T0.toISOString() };
+      const first = request(group.id, userId);
       expect(await repo.putRequest(first)).toBe(true);
       expect(await repo.getRequest(group.id, userId, { consistent: true })).toMatchObject(first);
-      expect(await repo.putRequest({ ...first, createdAt: '2026-11-25T00:00:00.000Z' })).toBe(false);
+      expect(await repo.putRequest(request(group.id, userId, '2026-11-25T00:00:00.000Z'))).toBe(false);
       expect((await repo.getRequest(group.id, userId, { consistent: true }))?.createdAt).toBe(
         first.createdAt,
       );
@@ -651,16 +830,16 @@ describe.each([
       const other = await setup();
       const a = newUser();
       const b = newUser();
-      await repo.putRequest({ groupId: group.id, userId: a, createdAt: T0.toISOString() });
-      await repo.putRequest({ groupId: group.id, userId: b, createdAt: T0.toISOString() });
-      await repo.putRequest({ groupId: other.group.id, userId: newUser(), createdAt: T0.toISOString() });
+      await repo.putRequest(request(group.id, a));
+      await repo.putRequest(request(group.id, b));
+      await repo.putRequest(request(other.group.id, newUser()));
       expect((await repo.listRequests(group.id)).map((r) => r.userId).sort()).toEqual([a, b].sort());
     });
 
     it('GRV-27: deleteRequest apaga o pedido; sem pedido, com mustExist → false e sem mustExist → true', async () => {
       const { group } = await setup();
       const userId = newUser();
-      await repo.putRequest({ groupId: group.id, userId, createdAt: T0.toISOString() });
+      await repo.putRequest(request(group.id, userId));
       expect(await repo.deleteRequest(group.id, userId, { mustExist: true })).toBe(true);
       expect(await repo.getRequest(group.id, userId, { consistent: true })).toBeUndefined();
       expect(await repo.deleteRequest(group.id, userId, { mustExist: true })).toBe(false);

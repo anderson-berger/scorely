@@ -90,3 +90,15 @@ export const MATCH_END_PREFIX = 'MATCHEND#';
 export function matchEndKey(groupId: GroupId, endsAt: string, matchId: string) {
   return { PK: pk(groupId), SK: `${MATCH_END_PREFIX}${endsAt}#${matchId}` };
 }
+
+/** Prefixo do índice das próximas (PAR-15): Query `begins_with(SK, "MATCHOPEN#")`. */
+export const MATCH_OPEN_PREFIX = 'MATCHOPEN#';
+
+/**
+ * Uma partida que ainda está nas próximas (PAR-15): `GROUP#<g> / MATCHOPEN#<matchId>`, `{ matchId }`. Ponteiro
+ * (`LOOKUP_ENTITY`), gravado com a partida e apagado ao finalizar; ao cancelar, ganha `ttl` (ADR 0004). Sem o início
+ * na chave: editar o início não troca o ponteiro, e a ordem sai ao ler.
+ */
+export function matchOpenKey(groupId: GroupId, matchId: string) {
+  return { PK: pk(groupId), SK: `${MATCH_OPEN_PREFIX}${matchId}` };
+}

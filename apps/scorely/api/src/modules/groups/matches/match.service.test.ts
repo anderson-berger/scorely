@@ -43,6 +43,8 @@ const RESERVES_AT = '2026-11-26T22:00:00.000Z'; // 24 h antes
 const GUESTS_AT = '2026-11-27T16:00:00.000Z'; // 6 h antes
 const iso = (base: string, hours: number) => new Date(Date.parse(base) + hours * HOUR).toISOString();
 
+const JOINED_AT = '2026-01-01T00:00:00.000Z';
+
 function setup() {
   const clock = { now: new Date(T0) };
   const sent: { userId: UserId; type: string; link?: string | undefined }[] = [];
@@ -55,6 +57,8 @@ function setup() {
       [EDU, 'member'],
     ]),
     managers: new Set<UserId>([ANA]),
+    /** Data de entrada no grupo (PAR-10); quem não está aqui entrou antes de tudo. */
+    joinedAt: new Map<UserId, string>(),
   };
   const groups: GroupAccess = {
     access: async (userId, publicId) => {
@@ -63,7 +67,13 @@ function setup() {
       const permissions: GroupPermission[] = state.managers.has(userId) ? ['matches.manage'] : [];
       return { groupId: GROUP_ID, publicId: PUBLIC_ID, name: 'Pelada de sexta', tier, permissions };
     },
-    participants: async () => new Map(state.participants),
+    participants: async () =>
+      new Map(
+        [...state.participants].map(([id, tier]) => [
+          id,
+          { tier, joinedAt: state.joinedAt.get(id) ?? JOINED_AT },
+        ]),
+      ),
     holders: async () => [...state.managers],
   };
   const users = {
@@ -1047,7 +1057,7 @@ describe('PAR-10: quem sai do grupo', () => {
     expect(t.sent).toEqual([]);
   });
 
-  it('PAR-10: quem saiu do grupo também some de "não vou", e a resposta fica guardada (volta se voltar ao grupo)', async () => {
+  it('PAR-10: quem saiu do grupo também some de "não vou", e a leitura sem a pessoa não apaga a resposta', async () => {
     const t = setup();
     const m = await create(t);
     await fill(t, m.id, [BIA]);
@@ -1059,6 +1069,46 @@ describe('PAR-10: quem sai do grupo', () => {
     expect(gone.notGoing).toEqual([]);
     t.state.participants.set(BIA, 'member');
     expect(publicIds((await get(t, ANA, m.id)).in)).toEqual([pub(BIA)]);
+  });
+});
+
+describe('PAR-10: quem volta ao grupo começa sem resposta', () => {
+  it('PAR-10: quem saiu e voltou não tem a resposta de antes: some da lista e da "minha resposta"', async () => {
+    const t = setup();
+    const m = await create(t);
+    await fill(t, m.id, [BIA, CAIO]);
+    t.state.participants.delete(BIA);
+    t.at(iso(MEMBERS_AT, 1));
+    t.state.participants.set(BIA, 'member');
+    t.state.joinedAt.set(BIA, t.clock.now.toISOString());
+    const seen = await get(t, ANA, m.id);
+    expect(publicIds(seen.in)).toEqual([pub(CAIO)]);
+    expect((await get(t, BIA, m.id)).myAttendance).toBeUndefined();
+  });
+
+  it('PAR-10: quem voltou responde de novo e vai para o fim da lista, pela hora da nova resposta', async () => {
+    const t = setup();
+    const m = await create(t);
+    await fill(t, m.id, [BIA, CAIO]);
+    t.state.participants.delete(BIA);
+    t.at(iso(MEMBERS_AT, 1));
+    t.state.participants.set(BIA, 'member');
+    t.state.joinedAt.set(BIA, t.clock.now.toISOString());
+    t.at(iso(MEMBERS_AT, 2));
+    await go(t, BIA, m.id);
+    expect(publicIds((await get(t, ANA, m.id)).in)).toEqual([pub(CAIO), pub(BIA)]);
+  });
+
+  it('PAR-10: a resposta "não vou" de antes da volta também não conta', async () => {
+    const t = setup();
+    const m = await create(t);
+    await fill(t, m.id, [CAIO]);
+    await go(t, BIA, m.id, 'not_going');
+    t.state.participants.delete(BIA);
+    t.at(iso(MEMBERS_AT, 1));
+    t.state.participants.set(BIA, 'member');
+    t.state.joinedAt.set(BIA, t.clock.now.toISOString());
+    expect((await get(t, ANA, m.id)).notGoing).toEqual([]);
   });
 });
 

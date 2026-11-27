@@ -38,6 +38,7 @@ export const ptBR = {
     GROUP_ROLE_NOT_FOUND: 'Esse cargo não existe mais',
     GROUP_ROLE_NAME_TAKEN: 'Já existe um cargo com esse nome',
     GROUP_ROLE_LIMIT: 'O grupo chegou ao limite de cargos',
+    GROUP_FULL: 'O grupo está cheio: tem {limit} participantes',
     MATCH_NOT_FOUND: 'Esta partida não existe mais',
     MATCH_LIMIT: 'O grupo chegou ao limite de {limit} partidas por vir',
     MATCH_SERIES_NOT_FOUND: 'Esta repetição não foi encontrada',

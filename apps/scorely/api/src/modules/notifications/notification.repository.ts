@@ -9,6 +9,7 @@ import {
   stripKeys,
   touch,
   transactWrite,
+  ttlFrom,
 } from '@scorely/api/src/lib/db';
 import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
 import type { UserId } from '@scorely/api/src/lib/ids';
@@ -16,6 +17,7 @@ import {
   INBOX_ENTITY,
   inboxKey,
   NOTIFICATION_ENTITY,
+  NOTIFICATION_READ_TTL_DAYS,
   notificationKey,
   notificationListLookupKey,
   notificationListLookupPk,
@@ -30,8 +32,11 @@ export interface NotificationRepository {
     opts: { limit: number; cursor?: string | undefined },
   ): Promise<Page<StoredNotification>>;
   unreadCount(userId: UserId): Promise<number>;
-  /** Marca como lida e decrementa o contador. `false` se já estava lida (ou não é do usuário). */
-  markRead(userId: UserId, id: string, readAt: string): Promise<boolean>;
+  /**
+   * Marca como lida, decrementa o contador e grava o `ttl` (NTF-10: 90 dias depois da leitura) na notificação e no
+   * lookup da lista, numa transação. `false` se já estava lida (ou não é do usuário).
+   */
+  markRead(n: StoredNotification, readAt: string): Promise<boolean>;
   /**
    * Apaga a notificação, o lookup da lista e (se não estava lida) decrementa o contador, numa transação.
    * `false` se ela mudou desde a leitura (sumiu ou foi marcada como lida): o service relê.
@@ -50,6 +55,8 @@ function inboxDelta(userId: UserId, delta: 1 | -1) {
     },
   };
 }
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 export const dynamoNotificationRepository: NotificationRepository = {
   async create(n) {
@@ -93,18 +100,31 @@ export const dynamoNotificationRepository: NotificationRepository = {
     return Math.max(0, (Item?.unread as number | undefined) ?? 0);
   },
 
-  async markRead(userId, id, readAt) {
+  async markRead(n, readAt) {
+    const ttl = ttlFrom(new Date(Date.parse(readAt) + NOTIFICATION_READ_TTL_DAYS * DAY_MS));
     const result = await transactWrite([
       {
         Update: touch({
           TableName: tableName(),
-          Key: notificationKey(id),
-          UpdateExpression: 'SET readAt = :readAt',
+          Key: notificationKey(n.id),
+          UpdateExpression: 'SET readAt = :readAt, #ttl = :ttl',
           ConditionExpression: 'attribute_exists(PK) AND userId = :userId AND attribute_not_exists(readAt)',
-          ExpressionAttributeValues: { ':readAt': readAt, ':userId': userId },
+          ExpressionAttributeNames: { '#ttl': 'ttl' },
+          ExpressionAttributeValues: { ':readAt': readAt, ':userId': n.userId, ':ttl': ttl },
         }),
       },
-      inboxDelta(userId, -1),
+      // NTF-10: o ponteiro some junto. Os dois TTLs podem não sair no mesmo instante: a lista ignora o órfão.
+      {
+        Update: {
+          TableName: tableName(),
+          Key: notificationListLookupKey(n),
+          UpdateExpression: 'SET #ttl = :ttl',
+          ConditionExpression: 'attribute_exists(PK)',
+          ExpressionAttributeNames: { '#ttl': 'ttl' },
+          ExpressionAttributeValues: { ':ttl': ttl },
+        },
+      },
+      inboxDelta(n.userId, -1),
     ]);
     return result.ok;
   },

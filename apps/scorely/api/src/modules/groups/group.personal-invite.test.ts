@@ -289,10 +289,12 @@ describe('groups convites para mim', () => {
     expect((await service.listInvites(ANA, gid))[0]?.status).toBe('declined');
   });
 
-  it('GRV-24: só o alvo recusa (senão GROUP_INVITE_NOT_FOR_YOU); convite que não existe → GROUP_INVITE_INVALID not_found', async () => {
+  it('GRV-24: só o alvo recusa: para outra pessoa, ou convite que não existe → GROUP_INVITE_INVALID not_found', async () => {
     const { service, gid } = await withGroup();
     const invite = await service.createInvite(ANA, gid, FOR_CAIO);
-    expect((await errorOf(service.declineInvite(DUDA, invite.id)))?.code).toBe('GROUP_INVITE_NOT_FOR_YOU');
+    const other = await errorOf(service.declineInvite(DUDA, invite.id));
+    expect(other?.code).toBe('GROUP_INVITE_INVALID');
+    expect(other?.details).toMatchObject({ reason: 'not_found' });
     const missing = await errorOf(service.declineInvite(CAIO, '00000000-0000-4000-8000-000000000000'));
     expect(missing?.code).toBe('GROUP_INVITE_INVALID');
     expect(missing?.details).toMatchObject({ reason: 'not_found' });

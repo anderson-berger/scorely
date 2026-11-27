@@ -13,6 +13,8 @@ const PUBLIC_ID = asPublicGroupId('K3X9PQ2A');
 const GROUP_ID = asGroupId('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
 const POINTS = { win: 3, draw: 1, loss: 0 };
 
+const JOINED_AT = '2026-01-01T00:00:00.000Z';
+
 function setup() {
   const clock = { now: new Date('2026-11-25T15:00:00.000Z') };
   const groups: GroupAccess = {
@@ -26,7 +28,7 @@ function setup() {
         permissions: ['competitions.manage'],
       };
     },
-    participants: async () => new Map([[ANA, 'member' as const]]),
+    participants: async () => new Map([[ANA, { tier: 'member' as const, joinedAt: JOINED_AT }]]),
     holders: async () => [ANA],
   };
   const store = memoryMatches();

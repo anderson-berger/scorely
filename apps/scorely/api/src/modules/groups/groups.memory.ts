@@ -11,7 +11,7 @@ import {
   type StoredRoles,
 } from '@scorely/api/src/modules/groups/group.repository';
 import type { GroupsDeps } from '@scorely/api/src/modules/groups/group.service';
-import type { PublicGroupId } from '@scorely/contracts';
+import { GROUP_PARTICIPANT_MAX, type PublicGroupId } from '@scorely/contracts';
 
 export const ANA = asUserId('11111111-1111-4111-8111-111111111111');
 export const BIA = asUserId('22222222-2222-4222-8222-222222222222');
@@ -39,6 +39,8 @@ export function memoryGroups() {
   const rolesByGroup = new Map<string, StoredRoles>();
   const calls = { create: 0 };
   const inviteKey = (groupId: string, inviteId: string) => `${groupId}#${inviteId}`;
+  const participantsOf = (groupId: string) =>
+    [...members.values()].filter((m) => m.groupId === groupId).length;
   const repo: GroupRepository = {
     async create(group, ownerId) {
       calls.create += 1;
@@ -116,8 +118,13 @@ export function memoryGroups() {
         })
         .map((i) => ({ groupId: i.groupId, inviteId: i.id }));
     },
-    async resolveInviteId(inviteId) {
-      const found = [...invites.values()].find((i) => i.id === inviteId && i.target !== undefined);
+    async findPersonalInvite(inviteId, who) {
+      // Como os dois lookups: o da conta e, sem ele, o do email.
+      const found = [...invites.values()].find((i) => {
+        const t = i.target;
+        if (i.id !== inviteId || !t) return false;
+        return 'userId' in t ? t.userId === who.userId : who.email !== undefined && t.email === who.email;
+      });
       return found && { groupId: found.groupId, inviteId: found.id };
     },
     async declineInvite({ groupId, id: inviteId }, at) {
@@ -147,6 +154,8 @@ export function memoryGroups() {
       const memberKey = `${invite.groupId}#${userId}`;
       const current = members.get(memberKey);
       if (action === 'join' ? current !== undefined : current?.tier !== 'reserve') return 'membership_stale';
+      // GRV-54: só quem entra conta; nada muda com o grupo cheio, nem o uso do convite.
+      if (action === 'join' && participantsOf(invite.groupId) >= GROUP_PARTICIPANT_MAX) return 'group_full';
       const lastUse = stored.maxUses !== undefined && stored.uses + 1 >= stored.maxUses;
       invites.set(inviteKey(invite.groupId, invite.id), {
         ...stored,
@@ -222,7 +231,7 @@ export function memoryGroups() {
       return [...members.values()].filter((m) => m.groupId === groupId);
     },
     async countParticipants(groupId) {
-      return [...members.values()].filter((m) => m.groupId === groupId).length;
+      return participantsOf(groupId);
     },
     async removeMembership(groupId, userId) {
       return members.delete(`${groupId}#${userId}`);
@@ -256,7 +265,9 @@ export function memoryGroups() {
     },
     async putRequest(request) {
       const key = `${request.groupId}#${request.userId}`;
-      if (requests.has(key)) return false;
+      // GRV-27: o vencido é regravado, como a condição do Dynamo.
+      const current = requests.get(key);
+      if (current && current.expiresAt > request.createdAt) return false;
       requests.set(key, { ...request });
       return true;
     },
@@ -269,9 +280,15 @@ export function memoryGroups() {
     },
     async approveRequest({ groupId, userId, tier, now }) {
       const key = `${groupId}#${userId}`;
-      if (!requests.has(key)) return 'request_gone';
+      const pending = requests.get(key);
+      if (!pending || pending.expiresAt <= now.toISOString()) return 'request_gone';
+      if (members.has(key)) {
+        requests.delete(key);
+        return 'already_member';
+      }
+      // GRV-54: com o grupo cheio nada muda; o pedido fica.
+      if (participantsOf(groupId) >= GROUP_PARTICIPANT_MAX) return 'group_full';
       requests.delete(key);
-      if (members.has(key)) return 'already_member';
       members.set(key, { groupId, userId, tier, role: 'everyone', createdAt: now.toISOString() });
       return 'ok';
     },

@@ -16,10 +16,12 @@ const DUDA = asUserId('44444444-4444-4444-8444-444444444444');
 const STRANGER = asUserId('99999999-9999-4999-8999-999999999999');
 const PUBLIC_ID = asPublicGroupId('K3X9PQ2A');
 const GROUP_ID = asGroupId('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
-const PUB = { [ANA]: '1AAAAAAA', [BIA]: '2BBBBBBB', [CAIO]: '3CCCCCCC', [DUDA]: '4DDDDDDD' } as Record<
-  string,
-  string
->;
+const PUB = {
+  [ANA]: '1AAAAAAA',
+  [BIA]: '2BBBBBBB',
+  [CAIO]: '3CCCCCCC',
+  [DUDA]: '4DDDDDDD',
+} as Record<string, string>;
 
 const HOUR = 3_600_000;
 const T0 = '2026-11-23T10:00:00.000Z';
@@ -28,6 +30,8 @@ const END = '2026-11-28T00:00:00.000Z';
 const MEMBERS_AT = '2026-11-24T22:00:00.000Z';
 const GUESTS_AT = '2026-11-27T16:00:00.000Z';
 const iso = (base: string, hours: number) => new Date(Date.parse(base) + hours * HOUR).toISOString();
+
+const JOINED_AT = '2026-01-01T00:00:00.000Z';
 
 function setup() {
   const clock = { now: new Date(T0) };
@@ -46,9 +50,16 @@ function setup() {
       const tier = state.participants.get(userId);
       if (tier === undefined || publicId !== PUBLIC_ID) throw appError('GROUP_NOT_FOUND');
       const permissions: GroupPermission[] = state.managers.has(userId) ? ['matches.manage'] : [];
-      return { groupId: GROUP_ID, publicId: PUBLIC_ID, name: 'Pelada de sexta', tier, permissions };
+      return {
+        groupId: GROUP_ID,
+        publicId: PUBLIC_ID,
+        name: 'Pelada de sexta',
+        tier,
+        permissions,
+      };
     },
-    participants: async () => new Map(state.participants),
+    participants: async () =>
+      new Map([...state.participants].map(([id, tier]) => [id, { tier, joinedAt: JOINED_AT }])),
     holders: async () => [...state.managers],
   };
   const users = {
@@ -108,8 +119,14 @@ function input(over: Partial<Settings> = {}): Settings {
 
 /** Cria só com início e fim (PAR-01) e ajusta as configurações (PAR-06). */
 async function createWith(t: T, over: Partial<Settings> = {}) {
-  const first = await t.service.create(ANA, PUBLIC_ID, { startsAt: START, endsAt: END });
-  return t.service.update(ANA, PUBLIC_ID, first.id, { ...input(over), expectedVersion: first.version });
+  const first = await t.service.create(ANA, PUBLIC_ID, {
+    startsAt: START,
+    endsAt: END,
+  });
+  return t.service.update(ANA, PUBLIC_ID, first.id, {
+    ...input(over),
+    expectedVersion: first.version,
+  });
 }
 
 /** Cria a partida e põe o relógio na onda de convidados. */
@@ -155,7 +172,10 @@ describe('PAR-12: pedir um convidado', () => {
     const after = await ask(t, BIA, m.id, 'Primo do Edu');
     expect(after.in).toEqual([]);
     expect(after.guestRequests).toHaveLength(1);
-    expect(after.guestRequests[0]).toMatchObject({ name: 'Primo do Edu', requestedBy: { id: PUB[BIA] } });
+    expect(after.guestRequests[0]).toMatchObject({
+      name: 'Primo do Edu',
+      requestedBy: { id: PUB[BIA] },
+    });
   });
 
   it('PAR-12: antes da onda de convidados responde MATCH_NOT_OPEN_FOR_YOU', async () => {
@@ -177,7 +197,10 @@ describe('PAR-12: pedir um convidado', () => {
 
   it('PAR-12, PAR-03: sem a abertura configurada, o pedido passa desde a criação', async () => {
     const t = setup();
-    const m = await t.service.create(ANA, PUBLIC_ID, { startsAt: START, endsAt: END });
+    const m = await t.service.create(ANA, PUBLIC_ID, {
+      startsAt: START,
+      endsAt: END,
+    });
     expect((await ask(t, BIA, m.id, 'Joao')).guestRequests).toHaveLength(1);
     expect((await get(t, BIA, m.id)).actions.requestGuest).toBe(true);
   });
@@ -223,7 +246,7 @@ describe('PAR-12: pedir um convidado', () => {
     expect(err?.status).toBe(409);
   });
 
-  it('PAR-12: um nome recusado, cancelado ou removido pode ser pedido de novo', async () => {
+  it('PAR-12: um nome recusado, desistido ou removido pode ser pedido de novo', async () => {
     const t = setup();
     const m = await open(t);
     const declined = await pending(t, m.id, 'Joao');
@@ -303,7 +326,7 @@ describe('PAR-11: situações do convidado', () => {
     expect(err?.details).toMatchObject({ status: 'declined' });
   });
 
-  it('PAR-11: o recusado, o cancelado e o removido não contam no limite', async () => {
+  it('PAR-11: o recusado, o desistido e o removido não contam no limite', async () => {
     const t = setup();
     const m = await open(t);
     const ids = [] as string[];
@@ -395,14 +418,17 @@ describe('PAR-13: liberar e recusar', () => {
     expect(err?.details).toMatchObject({ status: 'approved' });
   });
 
-  it('PAR-13: quem pediu desistiu antes da decisão: decidir responde MATCH_GUEST_NOT_PENDING com cancelled', async () => {
+  it('PAR-13: quem pediu desistiu antes da decisão (o pedido foi apagado): decidir responde MATCH_GUEST_NOT_FOUND (404)', async () => {
     const t = setup();
     const m = await open(t);
     const id = await pending(t, m.id);
     await remove(t, BIA, m.id, id);
-    const err = await failure(approve(t, ANA, m.id, id));
-    expect(err?.code).toBe('MATCH_GUEST_NOT_PENDING');
-    expect(err?.details).toMatchObject({ status: 'cancelled' });
+    const approved = await failure(approve(t, ANA, m.id, id));
+    expect(approved?.code).toBe('MATCH_GUEST_NOT_FOUND');
+    expect(approved?.status).toBe(404);
+    expect((await failure(t.service.declineGuest(ANA, PUBLIC_ID, m.id, id)))?.code).toBe(
+      'MATCH_GUEST_NOT_FOUND',
+    );
   });
 
   it('PAR-13: um id que não existe responde MATCH_GUEST_NOT_FOUND (404)', async () => {
@@ -425,7 +451,7 @@ describe('PAR-13: liberar e recusar', () => {
 });
 
 describe('PAR-14: tirar o convidado', () => {
-  it('PAR-14: um pending só quem pediu tira (vira cancelled); outro membro e quem organiza recebem GROUP_PERMISSION_DENIED', async () => {
+  it('PAR-14: um pending só quem pediu tira (o pedido é apagado); outro membro e quem organiza recebem GROUP_PERMISSION_DENIED', async () => {
     const t = setup();
     const m = await open(t);
     const id = await pending(t, m.id);
@@ -434,6 +460,17 @@ describe('PAR-14: tirar o convidado', () => {
     const after = await remove(t, BIA, m.id, id);
     expect(after.guestRequests).toEqual([]);
     expect(after.in).toEqual([]);
+  });
+
+  it('PAR-14: quem desiste do pedido pode pedir o mesmo nome de novo, e desistir de novo responde MATCH_GUEST_NOT_FOUND', async () => {
+    const t = setup();
+    const m = await open(t);
+    const id = await pending(t, m.id, 'Joao');
+    await remove(t, BIA, m.id, id);
+    expect((await failure(remove(t, BIA, m.id, id)))?.code).toBe('MATCH_GUEST_NOT_FOUND');
+    const again = await ask(t, BIA, m.id, 'Joao');
+    expect(again.guestRequests).toHaveLength(1);
+    expect(again.guestRequests[0]?.id).not.toBe(id);
   });
 
   it('PAR-14: um approved, quem pediu tira (vira removed) e a fila sobe com o aviso ao promovido', async () => {
@@ -511,7 +548,9 @@ describe('PAR-14: tirar o convidado', () => {
     t.at(iso(GUESTS_AT, 0.2));
     await approve(t, ANA, m.id, id);
     t.sent.length = 0;
-    await t.service.setAttendance(CAIO, PUBLIC_ID, m.id, { status: 'not_going' });
+    await t.service.setAttendance(CAIO, PUBLIC_ID, m.id, {
+      status: 'not_going',
+    });
     expect(t.sent).toEqual([]);
     expect(names((await t.service.get(ANA, PUBLIC_ID, m.id)).in)).toEqual(['Joao']);
   });

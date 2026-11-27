@@ -29,7 +29,7 @@ import {
   MATCH_END_PREFIX,
   MATCH_ENTITY,
   MATCH_GUEST_ENTITY,
-  MATCH_PREFIX,
+  MATCH_OPEN_PREFIX,
   MATCH_RESULT_ENTITY,
   MATCH_SERIES_ENTITY,
   MATCH_SERIES_PREFIX,
@@ -44,6 +44,7 @@ import {
   matchGuestPrefix,
   matchGuestsCounterKey,
   matchKey,
+  matchOpenKey,
   matchResultKey,
   matchSeriesKey,
   matchTeamsKey,
@@ -183,7 +184,6 @@ export interface StoredGuest {
   approvedBy?: UserId | undefined;
   declinedAt?: string | undefined;
   declinedBy?: UserId | undefined;
-  cancelledAt?: string | undefined;
   removedAt?: string | undefined;
   removedBy?: UserId | undefined;
 }
@@ -237,7 +237,7 @@ export interface HistoryEntry {
   result?: StoredResult | undefined;
 }
 
-/** PAR-11: de `pending` para `approve`, `decline` ou `cancel`; de `approved` para `remove`. */
+/** PAR-11: de `pending` para `approve`, `decline` ou `cancel` (que apaga, PAR-14); de `approved` para `remove`. */
 export type GuestTransition = 'approve' | 'decline' | 'cancel' | 'remove';
 
 export type RequestGuestResult = 'ok' | 'duplicate' | 'limit';
@@ -315,11 +315,6 @@ export interface MatchRepository {
   updateSeries(series: StoredSeries, expectedVersion: number, at: Date): Promise<StoredSeries>;
   /** PAR-23: `false` = já encerrada. */
   endSeries(groupId: GroupId, seriesId: string, at: Date): Promise<boolean>;
-  /**
-   * PAR-21: numa transação, a partida nova, a agenda dela e a repetição apontando para ela, se a repetição ainda
-   * aponta para `previousMatchId` e não foi encerrada. `false` = outro já criou (ou encerrou).
-   */
-  createNextMatch(input: NextMatch & { at: Date }): Promise<boolean>;
   /** Os itens com instante até `to`, das partições da hora de `from` à de `to` (UTC). */
   listAgenda(from: Date, to: Date): Promise<AgendaEntry[]>;
   deleteAgenda(entry: AgendaEntry): Promise<void>;
@@ -399,18 +394,20 @@ export interface MatchRepository {
 }
 
 const PENDING_CONDITION =
-  'attribute_exists(PK) AND attribute_not_exists(approvedAt) AND attribute_not_exists(declinedAt) AND attribute_not_exists(cancelledAt)';
+  'attribute_exists(PK) AND attribute_not_exists(approvedAt) AND attribute_not_exists(declinedAt)';
 const APPROVED_CONDITION = 'attribute_exists(approvedAt) AND attribute_not_exists(removedAt)';
 
-/** O que cada passo grava no convidado (PAR-11). */
-function transitionSet(transition: GuestTransition): { set: string; withBy: boolean; condition: string } {
+/** O que cada passo grava no convidado (PAR-11). `cancel` não grava: apaga (PAR-14). */
+function transitionSet(
+  transition: GuestTransition,
+): { set: string; withBy: boolean; condition: string } | undefined {
   switch (transition) {
     case 'approve':
       return { set: 'approvedAt = :at, approvedBy = :by', withBy: true, condition: PENDING_CONDITION };
     case 'decline':
       return { set: 'declinedAt = :at, declinedBy = :by', withBy: true, condition: PENDING_CONDITION };
     case 'cancel':
-      return { set: 'cancelledAt = :at', withBy: false, condition: PENDING_CONDITION };
+      return undefined;
     case 'remove':
       return { set: 'removedAt = :at, removedBy = :by', withBy: true, condition: APPROVED_CONDITION };
   }
@@ -429,22 +426,14 @@ async function getItem(
 async function queryByPrefix(
   pk: string,
   prefix: string,
-  opts: { consistent?: boolean; at?: string } = {},
+  opts: { consistent?: boolean } = {},
   startKey?: Record<string, unknown>,
 ): Promise<Record<string, unknown>[]> {
   const { Items = [], LastEvaluatedKey } = await dynamo().send(
     new QueryCommand({
       TableName: tableName(),
       KeyConditionExpression: 'PK = :pk AND begins_with(SK, :prefix)',
-      ExpressionAttributeValues: {
-        ':pk': pk,
-        ':prefix': prefix,
-        ...(opts.at !== undefined && { ':at': opts.at }),
-      },
-      ...(opts.at !== undefined && {
-        FilterExpression:
-          'attribute_not_exists(finishedAt) AND (attribute_not_exists(cancelledAt) OR endsAt > :at)',
-      }),
+      ExpressionAttributeValues: { ':pk': pk, ':prefix': prefix },
       ConsistentRead: opts.consistent,
       ...(startKey && { ExclusiveStartKey: startKey }),
     }),
@@ -455,7 +444,7 @@ async function queryByPrefix(
 /**
  * PAR-07, 41–43: uma mudança de situação da partida, com a condição, somando a `version` (ADR 0013). `false` = a
  * condição não valeu. Com `next`, a partida seguinte da repetição (PAR-21) entra na mesma transação; `checks` são
- * condições de outros itens.
+ * condições ou escritas de outros itens (o índice das próximas, PAR-15), também na mesma transação.
  */
 async function changeMatch(
   groupId: GroupId,
@@ -507,6 +496,7 @@ async function changeMatch(
           },
           { Put: matchPut(next.match) },
           { Put: endPut(next.match) },
+          { Put: openPut(next.match) },
           ...next.agenda.map((entry) => ({ Put: agendaPut(entry, next.match.createdAt) })),
         ];
   const result = await transactWrite([{ Update: changed }, ...checks, ...series]);
@@ -624,6 +614,20 @@ const matchPut = (match: StoredMatch) => ({
   ConditionExpression: 'attribute_not_exists(PK)',
 });
 
+/** PAR-15: o ponteiro das próximas, gravado com a partida (o `createdAt` é o dela). */
+const openPut = (match: Pick<StoredMatch, 'groupId' | 'id' | 'createdAt'>) => ({
+  TableName: tableName(),
+  Item: dbItem(matchOpenKey(match.groupId, match.id), LOOKUP_ENTITY, { matchId: match.id }, match.createdAt),
+});
+
+/** PAR-15: pelo início e, no empate, pelo id. */
+function byStart(a: StoredMatch, b: StoredMatch): number {
+  return a.startsAt === b.startsAt ? a.id.localeCompare(b.id) : a.startsAt < b.startsAt ? -1 : 1;
+}
+
+/** PAR-07: a cancelada continua no índice como reserva; o `ttl` o limpa 7 dias depois do fim marcado (ADR 0004). */
+const OPEN_CANCELLED_TTL_MS = 7 * 24 * 3_600_000;
+
 /** PAR-36: o índice do histórico, gravado com a partida (o `createdAt` é o dela). */
 const endPut = (match: Pick<StoredMatch, 'groupId' | 'id' | 'endsAt' | 'createdAt'>) => ({
   TableName: tableName(),
@@ -670,6 +674,7 @@ export const dynamoMatchRepository: MatchRepository = {
     const result = await transactWrite([
       { Put: matchPut(match) },
       { Put: endPut(match) },
+      { Put: openPut(match) },
       ...(extras.series ? [{ Put: seriesPut(extras.series) }] : []),
       ...agenda.map((entry) => ({ Put: agendaPut(entry, match.createdAt) })),
     ]);
@@ -682,8 +687,14 @@ export const dynamoMatchRepository: MatchRepository = {
   },
 
   async listMatches(groupId, at) {
-    const rows = await queryByPrefix(groupPk(groupId), MATCH_PREFIX, { at: at.toISOString() });
-    return rows.map((row) => stripKeys<StoredMatch>(row));
+    // PAR-15: o índice das próximas → as partidas. A cancelada fica no índice até o `ttl`: sai pelo fim marcado.
+    const pointers = await queryByPrefix(groupPk(groupId), MATCH_OPEN_PREFIX);
+    const rows = await batchGetOrdered(pointers.map((p) => matchKey(groupId, p.matchId as string)));
+    const after = at.toISOString();
+    return rows
+      .map((row) => stripKeys<StoredMatch>(row))
+      .filter((m) => m.finishedAt === undefined && (m.cancelledAt === undefined || m.endsAt > after))
+      .sort(byStart);
   },
 
   async updateMatch(match, expectedVersion, at, opts = {}) {
@@ -773,6 +784,10 @@ export const dynamoMatchRepository: MatchRepository = {
   },
 
   async cancelMatch(groupId, matchId, at, next) {
+    // PAR-07: o ponteiro das próximas fica, com o `ttl` contado do fim marcado (a cancelada não muda de horário).
+    const current = await getItem(matchKey(groupId, matchId), true);
+    if (!current) return false;
+    const endsAt = Date.parse(current.endsAt as string);
     return changeMatch(
       groupId,
       matchId,
@@ -784,6 +799,17 @@ export const dynamoMatchRepository: MatchRepository = {
         ExpressionAttributeValues: { ':at': at.toISOString() },
       },
       next,
+      [
+        {
+          Update: {
+            TableName: tableName(),
+            Key: matchOpenKey(groupId, matchId),
+            UpdateExpression: 'SET #ttl = :ttl',
+            ExpressionAttributeNames: { '#ttl': 'ttl' },
+            ExpressionAttributeValues: { ':ttl': ttlFrom(new Date(endsAt + OPEN_CANCELLED_TTL_MS)) },
+          },
+        },
+      ],
     );
   },
 
@@ -832,6 +858,8 @@ export const dynamoMatchRepository: MatchRepository = {
         ExpressionAttributeValues: { ':at': at.toISOString(), ':by': by },
       },
       next,
+      // PAR-43: a finalizada sai das próximas.
+      [{ Delete: { TableName: tableName(), Key: matchOpenKey(groupId, matchId) } }],
     );
   },
 
@@ -908,38 +936,6 @@ export const dynamoMatchRepository: MatchRepository = {
       if (isConditionFailed(err)) return false;
       throw err;
     }
-  },
-
-  async createNextMatch({ match, previousMatchId, agenda, at }) {
-    if (match.seriesId === undefined || match.seriesDate === undefined)
-      throw new Error('Next match without a series');
-    const result = await transactWrite([
-      {
-        Update: {
-          TableName: tableName(),
-          ...touch(
-            {
-              Key: matchSeriesKey(match.groupId, match.seriesId),
-              UpdateExpression: 'SET currentMatchId = :next, currentDate = :date',
-              ConditionExpression:
-                'attribute_exists(PK) AND currentMatchId = :previous AND attribute_not_exists(endedAt)',
-              ExpressionAttributeValues: {
-                ':next': match.id,
-                ':date': match.seriesDate,
-                ':previous': previousMatchId,
-              },
-            },
-            at,
-          ),
-        },
-      },
-      { Put: matchPut(match) },
-      { Put: endPut(match) },
-      ...agenda.map((entry) => ({ Put: agendaPut(entry, match.createdAt) })),
-    ]);
-    if (result.ok) return true;
-    if (result.failed.includes(0)) return false;
-    throw new Error('Next match create failed');
   },
 
   async listAgenda(from, to) {
@@ -1057,24 +1053,30 @@ export const dynamoMatchRepository: MatchRepository = {
     const { groupId, matchId } = guest;
     const step = transitionSet(transition);
     const frees = transition !== 'approve';
-    const items: TransactItem[] = [
-      {
-        Update: {
-          TableName: tableName(),
-          ...touch(
-            {
-              Key: matchGuestKey(groupId, matchId, guest.id),
-              UpdateExpression: `SET ${step.set}`,
-              ConditionExpression: step.condition,
-              ExpressionAttributeValues: {
-                ':at': at.toISOString(),
-                ...(step.withBy && { ':by': by }),
-              },
+    const key = matchGuestKey(groupId, matchId, guest.id);
+    // PAR-11, 14: o pedido de que a pessoa desistiu é apagado; os outros passos gravam a data e quem.
+    const own: TransactItem =
+      step === undefined
+        ? { Delete: { TableName: tableName(), Key: key, ConditionExpression: PENDING_CONDITION } }
+        : {
+            Update: {
+              TableName: tableName(),
+              ...touch(
+                {
+                  Key: key,
+                  UpdateExpression: `SET ${step.set}`,
+                  ConditionExpression: step.condition,
+                  ExpressionAttributeValues: {
+                    ':at': at.toISOString(),
+                    ...(step.withBy && { ':by': by }),
+                  },
+                },
+                at,
+              ),
             },
-            at,
-          ),
-        },
-      },
+          };
+    const items: TransactItem[] = [
+      own,
       ...(frees
         ? [
             {

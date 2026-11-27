@@ -59,6 +59,8 @@ const UNKNOWN = '00000000-0000-4000-8000-000000000000';
 const iso = (base: string, hours: number) => new Date(Date.parse(base) + hours * HOUR).toISOString();
 const plusDays = (base: string, days: number) => new Date(Date.parse(base) + days * DAY).toISOString();
 
+const JOINED_AT = '2026-01-01T00:00:00.000Z';
+
 function setup() {
   const clock = { now: new Date(T0) };
   const state = {
@@ -82,7 +84,8 @@ function setup() {
       ];
       return { groupId: GROUP_ID, publicId: PUBLIC_ID, name: 'Pelada de sexta', tier, permissions };
     },
-    participants: async () => new Map(state.participants),
+    participants: async () =>
+      new Map([...state.participants].map(([id, tier]) => [id, { tier, joinedAt: JOINED_AT }])),
     holders: async () => [...state.matchManagers],
   };
   const users = {
