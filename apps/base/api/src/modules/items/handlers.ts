@@ -1,7 +1,7 @@
 import { created, HttpError, type HttpEvent, parseBody, route } from '@base/api/src/lib/http';
-import { dynamoItemRepository } from '@base/api/src/modules/items/item.repository';
+import { dynamoItemRepository } from '@base/api/src/modules/items/data/items.repository';
 import { CreateItemInputSchema } from '@base/api/src/modules/items/item.schema';
-import { createItemService } from '@base/api/src/modules/items/item.service';
+import { createItemService } from '@base/api/src/modules/items/items.service';
 
 const service = createItemService(dynamoItemRepository);
 

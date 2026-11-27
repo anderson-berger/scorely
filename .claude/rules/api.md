@@ -51,8 +51,30 @@ Motivo: [docs/decisions/0016-version-confere-nas-edicoes.md](../../docs/decision
 - Item que ainda não existe: a tela manda `0`. Criar não manda versão.
 - Versão velha → `VERSION_CONFLICT` (409, `details.currentVersion`). No web, o `onPermissionError` trata o conflito como a permissão perdida: o casco relê, o painel fecha e o aviso é o `errors.VERSION_CONFLICT`.
 
-## Módulo novo
+## Forma do módulo
 
-`api/src/modules/<mod>/` (functions.ts, handlers, service, repository, testes) → spread do `<mod>Functions` em `functions` no `serverless.ts`.
+Motivo: [docs/decisions/0021-modulo-por-assunto.md](../../docs/decisions/0021-modulo-por-assunto.md).
+
+```
+<mod>/
+  functions.ts            as rotas
+  handlers.ts             os handlers; monta as dependências (repositórios do DynamoDB)
+  <mod>.service.ts        o service; com rules/, só junta os assuntos
+  <mod>.access.ts         a porta para os outros módulos (só quando há)
+  rules/<assunto>.ts      um arquivo por assunto do doc do módulo (só com mais de um assunto)
+  data/                   <mod>.table.ts, <mod>.repository.ts, <mod>.memory.ts
+  tests/                  fixtures.ts (o setup único), <assunto>.test.ts, repository.contract.test.ts
+  <sub>/                  submódulo (tem functions.ts), com a mesma forma por dentro
+```
+
+- As únicas pastas de nome livre são os submódulos. Assunto é arquivo (`rules/invites.ts`), não pasta.
+- O prefixo dos arquivos é o nome da pasta do módulo (`groups.repository.ts`, `matches.table.ts`).
+- Outro módulo de cima importa só a raiz (`<mod>.service.ts`, `<mod>.access.ts`). O `data/` de outro módulo aparece só no `handlers.ts` e nos `tests/`. Dentro do mesmo módulo de cima (o grupo e os submódulos) o `data/` é livre. Exceção: `src/lib/db.ts` lê os `*_ENTITY` de `auth/data` e `users/data`.
+- Teste da api só em pasta `tests/` (inclusive os de `src/lib/`, em `src/lib/tests/`).
+- O `handlers.ts` de cada módulo fica na raiz dele; o `auth/authorizer.ts` (handler do authorizer) também.
+
+Check: `checks/api.test.ts`.
+
+Módulo novo: crie na forma acima e faça o spread do `<mod>Functions` em `functions` no `serverless.ts`.
 
 Submódulo ([ADR 0022](../../docs/decisions/0022-submodulos-do-grupo.md)): assunto que só existe dentro de outro módulo vai em `api/src/modules/<mod>/<sub>/`, com o próprio `functions.ts` (handler `src/modules/<mod>/<sub>/handlers.<nome>`) e doc próprio, listado no índice como `projeto/<mod>/<sub>`. Ex.: `groups/matches`, `groups/competitions`.

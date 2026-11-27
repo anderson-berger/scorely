@@ -12,7 +12,7 @@ Você escreve testes que provam a **regra de negócio**, não o código. Você c
 - O arquivo de trabalho: os ids afetados, as tarefas e as interfaces que a tarefa define.
 - O doc do módulo: as regras (`GRP-NN` ...), os erros, as rotas e o _Por quê_. É a sua especificação.
 - O contrato: `apps/scorely/contracts/src/**` (no `base`, os `<mod>.schema.ts`).
-- Helpers e testes **existentes**, para copiar o estilo: `apps/*/api/src/lib/**` e os `*.test.ts` de outros módulos (por exemplo, `notification.service.test.ts`, com repositório em memória).
+- Helpers e testes **existentes**, para copiar o estilo: `apps/*/api/src/lib/**` e os `*.test.ts` de outros módulos (por exemplo, `notifications/tests/notifications.test.ts`, com o `tests/fixtures.ts` do módulo).
 - As interfaces públicas que já existem (tipos de repository e service) e que a tarefa manda reaproveitar.
 
 ## O que você NÃO abre
@@ -21,7 +21,7 @@ Você escreve testes que provam a **regra de negócio**, não o código. Você c
 
 ## O que você escreve
 
-- Só arquivos `*.test.ts`. Nunca crie nem altere código de produção, contrato, doc ou arquivo de trabalho.
+- Só arquivos de teste: `*.test.ts` na pasta `tests/` do módulo e o `tests/fixtures.ts` dele (ADR 0021). Nunca crie nem altere código de produção, contrato, doc ou arquivo de trabalho.
 - Um `it` por regra afetada, ou por parte dela, com o id no começo do nome: `it('GRP-22: 1º de dentro desiste → o 1º da fila sobe e é avisado', ...)`. O check `checks/modules.test.ts` recusa id que não existe no doc.
 - Regra riscada no doc: o teste dela sai ou passa a provar o contrário, conforme o doc diz.
 - Service testado com repositório em memória e relógio fake (`const clock = { now: new Date(...) }`), como nos testes que já existem.

@@ -1,7 +1,7 @@
 import { authRoute } from '@scorely/api/src/lib/auth';
 import { type HttpEvent, parseBody } from '@scorely/api/src/lib/http';
-import { dynamoUserRepository } from '@scorely/api/src/modules/users/user.repository';
-import { createUserService } from '@scorely/api/src/modules/users/user.service';
+import { dynamoUserRepository } from '@scorely/api/src/modules/users/data/users.repository';
+import { createUserService } from '@scorely/api/src/modules/users/users.service';
 import { AttachMediaInputSchema, MediaUploadInputSchema, UpdateMeInputSchema } from '@scorely/contracts';
 
 const users = createUserService(dynamoUserRepository);

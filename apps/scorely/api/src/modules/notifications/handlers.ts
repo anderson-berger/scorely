@@ -1,7 +1,7 @@
 import { authRoute } from '@scorely/api/src/lib/auth';
 import { type HttpEvent, pathParam } from '@scorely/api/src/lib/http';
-import { dynamoNotificationRepository } from '@scorely/api/src/modules/notifications/notification.repository';
-import { createNotificationService } from '@scorely/api/src/modules/notifications/notification.service';
+import { dynamoNotificationRepository } from '@scorely/api/src/modules/notifications/data/notifications.repository';
+import { createNotificationService } from '@scorely/api/src/modules/notifications/notifications.service';
 
 const notifications = createNotificationService(dynamoNotificationRepository);
 

@@ -1,8 +1,12 @@
 import { newEntity } from '@scorely/api/src/lib/entity';
 import { appError } from '@scorely/api/src/lib/errors';
 import { MEDIA_PREFIXES, type MediaStorage, s3MediaStorage } from '@scorely/api/src/lib/storage';
-import { dynamoMediaRepository, type MediaRepository } from '@scorely/api/src/modules/media/media.repository';
-import type { MediaRecord, MediaTarget } from '@scorely/api/src/modules/media/media.table';
+import {
+  dynamoMediaRepository,
+  type MediaRepository,
+} from '@scorely/api/src/modules/media/data/media.repository';
+import type { MediaRecord } from '@scorely/api/src/modules/media/data/media.table';
+import type { MediaTarget } from '@scorely/api/src/modules/media/media.access';
 import {
   type ImageContentType,
   MEDIA_PURPOSES,

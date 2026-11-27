@@ -1,13 +1,16 @@
 import { authRoute } from '@scorely/api/src/lib/auth';
 import { created, type HttpEvent, parseBody, pathParam } from '@scorely/api/src/lib/http';
 import { asPublicGroupId, asPublicUserId } from '@scorely/api/src/lib/ids';
-import { createGroupImages } from '@scorely/api/src/modules/groups/group.images';
-import { dynamoGroupRepository } from '@scorely/api/src/modules/groups/group.repository';
-import { createGroupService } from '@scorely/api/src/modules/groups/group.service';
+import { dynamoGroupRepository } from '@scorely/api/src/modules/groups/data/groups.repository';
+import { createGroupService } from '@scorely/api/src/modules/groups/groups.service';
+import { createGroupImages } from '@scorely/api/src/modules/groups/rules/images';
 import { mediaService } from '@scorely/api/src/modules/media/media.service';
-import { dynamoNotificationRepository } from '@scorely/api/src/modules/notifications/notification.repository';
-import { createNotificationService } from '@scorely/api/src/modules/notifications/notification.service';
-import { dynamoUserDirectory, dynamoUserRepository } from '@scorely/api/src/modules/users/user.repository';
+import { dynamoNotificationRepository } from '@scorely/api/src/modules/notifications/data/notifications.repository';
+import { createNotificationService } from '@scorely/api/src/modules/notifications/notifications.service';
+import {
+  dynamoUserDirectory,
+  dynamoUserRepository,
+} from '@scorely/api/src/modules/users/data/users.repository';
 import {
   ApproveGroupRequestInputSchema,
   AttachMediaInputSchema,

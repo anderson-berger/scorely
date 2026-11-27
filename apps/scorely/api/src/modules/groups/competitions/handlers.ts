@@ -1,13 +1,13 @@
 import { authRoute } from '@scorely/api/src/lib/auth';
 import { created, type HttpEvent, parseBody, pathParam } from '@scorely/api/src/lib/http';
 import { asPublicGroupId } from '@scorely/api/src/lib/ids';
-import { dynamoCompetitionRepository } from '@scorely/api/src/modules/groups/competitions/competition.repository';
-import { createCompetitionService } from '@scorely/api/src/modules/groups/competitions/competition.service';
-import { createGroupAccess } from '@scorely/api/src/modules/groups/group.access';
-import { dynamoGroupRepository } from '@scorely/api/src/modules/groups/group.repository';
-import { dynamoMatchRepository } from '@scorely/api/src/modules/groups/matches/match.repository';
+import { createCompetitionService } from '@scorely/api/src/modules/groups/competitions/competitions.service';
+import { dynamoCompetitionRepository } from '@scorely/api/src/modules/groups/competitions/data/competitions.repository';
+import { dynamoGroupRepository } from '@scorely/api/src/modules/groups/data/groups.repository';
+import { createGroupAccess } from '@scorely/api/src/modules/groups/groups.access';
+import { dynamoMatchRepository } from '@scorely/api/src/modules/groups/matches/data/matches.repository';
 import { mediaService } from '@scorely/api/src/modules/media/media.service';
-import { dynamoUserDirectory } from '@scorely/api/src/modules/users/user.repository';
+import { dynamoUserDirectory } from '@scorely/api/src/modules/users/data/users.repository';
 import {
   CompetitionQuerySchema,
   CreateCompetitionInputSchema,

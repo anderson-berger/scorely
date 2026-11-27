@@ -1,6 +1,6 @@
 # Módulo Auth
 
-> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-25.
+> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-27.
 
 Código: `apps/scorely/api/src/modules/auth/`, `apps/scorely/api/src/lib/auth.ts`, `apps/scorely/web/src/modules/auth/`, `apps/scorely/web/src/app/guard.ts`. Contrato: `apps/scorely/contracts/src/auth.ts`.
 

@@ -22,6 +22,8 @@ web/src/modules/groups/
   competitions/
 ```
 
+A forma interna de cada módulo e submódulo (`rules/`, `data/`, `tests/`) mudou depois: [ADR 0021](0021-modulo-por-assunto.md). O desenho acima é o de quando os submódulos foram criados.
+
 **Submódulo é a subpasta de um módulo que tem o próprio `functions.ts`.** Ele continua tendo doc próprio (`partidas.md`/`PAR`, `competicao.md`/`COM`), rotas, handlers, service e repositório próprios. Só a pasta muda; nenhum nome de arquivo, rota, função (lambda) ou regra muda.
 
 ## Por quê

@@ -1,0 +1,284 @@
+import { range } from '@scorely/api/src/lib/fn';
+import { verifyJwt } from '@scorely/api/src/lib/jwt';
+import { AUTH_LIMITS } from '@scorely/api/src/modules/auth/auth.service';
+import {
+  EMAIL,
+  errorOf,
+  loggedIn,
+  SECRET,
+  setup,
+  withCode,
+  wrong,
+} from '@scorely/api/src/modules/auth/tests/fixtures';
+import { PublicUserIdSchema } from '@scorely/contracts';
+import { describe, expect, it } from 'vitest';
+
+describe('auth: pedir código', () => {
+  it('envia um código de 6 dígitos por email', async () => {
+    const t = setup();
+    const result = await t.service.requestCode(EMAIL);
+    expect(result.expiresInSeconds).toBe(AUTH_LIMITS.codeTtlSeconds);
+    expect(t.sent).toHaveLength(1);
+    expect(t.sent[0]?.to).toBe(EMAIL);
+    expect(t.lastCode()).toMatch(/^\d{6}$/);
+  });
+
+  it('exige esperar antes de reenviar', async () => {
+    const t = setup();
+    await t.service.requestCode(EMAIL);
+    const cooldown = await errorOf(t.service.requestCode(EMAIL));
+    expect(cooldown).toMatchObject({ status: 429, code: 'AUTH_CODE_COOLDOWN' });
+    expect(cooldown.details).toEqual({ retryInSeconds: expect.any(Number) });
+    t.advance(AUTH_LIMITS.resendCooldownSeconds);
+    await expect(t.service.requestCode(EMAIL)).resolves.toBeDefined();
+  });
+
+  it('limita quantos códigos por hora', async () => {
+    const t = setup();
+    for (const _ of range(AUTH_LIMITS.codesPerHour)) {
+      await t.service.requestCode(EMAIL);
+      t.advance(AUTH_LIMITS.resendCooldownSeconds);
+    }
+    expect(await errorOf(t.service.requestCode(EMAIL))).toMatchObject({
+      status: 429,
+      code: 'AUTH_CODE_LIMIT',
+    });
+    t.advance(60 * 60);
+    await expect(t.service.requestCode(EMAIL)).resolves.toBeDefined();
+  });
+});
+
+describe('auth: email normalizado e janela (AUTH-01, AUTH-02)', () => {
+  it('AUTH-01: Ana@Example.com com espaços é o mesmo limite que ana@example.com', async () => {
+    const t = setup();
+    await t.service.requestCode(EMAIL);
+    const cooldown = await errorOf(t.service.requestCode('  Ana@Example.COM '));
+    expect(cooldown).toMatchObject({ status: 429, code: 'AUTH_CODE_COOLDOWN' });
+  });
+
+  it('AUTH-01: o código pedido com o email em maiúsculas vale para o email normalizado, na mesma conta', async () => {
+    const t = setup();
+    await t.service.requestCode(' Ana@Example.com');
+    const result = await t.service.verifyCode(EMAIL, t.lastCode());
+    expect(result.user.private.email).toBe(EMAIL);
+    t.advance(AUTH_LIMITS.resendCooldownSeconds);
+    await t.service.requestCode(EMAIL);
+    const again = await t.service.verifyCode('ANA@example.com ', t.lastCode());
+    expect(again.isNewUser).toBe(false);
+    expect(again.user.id).toBe(result.user.id);
+  });
+
+  it('AUTH-02: a hora conta do 1º pedido, mesmo com todos os códigos já vencidos', async () => {
+    const t = setup();
+    for (const _ of range(AUTH_LIMITS.codesPerHour)) {
+      await t.service.requestCode(EMAIL);
+      t.advance(AUTH_LIMITS.codeTtlSeconds);
+    }
+    // 5 pedidos a cada 10 min: 50 min desde o 1º, ainda dentro da janela
+    expect(await errorOf(t.service.requestCode(EMAIL))).toMatchObject({
+      code: 'AUTH_CODE_LIMIT',
+    });
+    t.advance(AUTH_LIMITS.codeTtlSeconds);
+    await expect(t.service.requestCode(EMAIL)).resolves.toBeDefined();
+  });
+});
+
+describe('auth: verificar código', () => {
+  it('cria o usuário no primeiro login, avisa e devolve tokens válidos', async () => {
+    const t = await withCode();
+    const result = await t.service.verifyCode(EMAIL, t.lastCode());
+    expect(result.isNewUser).toBe(true);
+    expect(result.user.private.email).toBe(EMAIL);
+    const userId = t.systemIdOf(EMAIL);
+    expect(t.notified).toEqual([`${userId}:welcome`]);
+    expect(verifyJwt(result.accessToken, SECRET, t.nowSeconds())?.sub).toBe(userId);
+  });
+
+  it('USR-16: o JWT leva o id do sistema; a pessoa devolvida no login, só o id público', async () => {
+    const t = await withCode();
+    const result = await t.service.verifyCode(EMAIL, t.lastCode());
+    const userId = t.systemIdOf(EMAIL);
+    expect(verifyJwt(result.accessToken, SECRET, t.nowSeconds())?.sub).toBe(userId);
+    expect(PublicUserIdSchema.safeParse(result.user.id).success).toBe(true);
+    expect(result.user.id).not.toBe(userId);
+    expect(JSON.stringify(result.user)).not.toContain(userId);
+  });
+
+  it('reconhece o usuário no segundo login', async () => {
+    const t = await withCode();
+    const first = await t.service.verifyCode(EMAIL, t.lastCode());
+    t.advance(AUTH_LIMITS.resendCooldownSeconds);
+    await t.service.requestCode(EMAIL);
+    const second = await t.service.verifyCode(EMAIL, t.lastCode());
+    expect(second.isNewUser).toBe(false);
+    expect(second.user.id).toBe(first.user.id);
+    expect(t.notified).toHaveLength(1);
+  });
+
+  it('o código é de uso único', async () => {
+    const t = await withCode();
+    const code = t.lastCode();
+    await t.service.verifyCode(EMAIL, code);
+    expect((await errorOf(t.service.verifyCode(EMAIL, code))).code).toBe('AUTH_CODE_INVALID');
+  });
+
+  it('rejeita código expirado', async () => {
+    const t = await withCode();
+    t.advance(AUTH_LIMITS.codeTtlSeconds);
+    expect((await errorOf(t.service.verifyCode(EMAIL, t.lastCode()))).code).toBe('AUTH_CODE_INVALID');
+  });
+
+  it('bloqueia depois do limite de tentativas, mesmo com o código certo', async () => {
+    const t = await withCode();
+    const code = t.lastCode();
+    for (const _ of range(AUTH_LIMITS.maxAttempts)) {
+      expect((await errorOf(t.service.verifyCode(EMAIL, wrong(code)))).code).toBe('AUTH_CODE_INVALID');
+    }
+    expect((await errorOf(t.service.verifyCode(EMAIL, code))).code).toBe('AUTH_CODE_INVALID');
+  });
+
+  it('não aceita o código de outro email', async () => {
+    const t = await withCode();
+    expect((await errorOf(t.service.verifyCode('bia@example.com', t.lastCode()))).code).toBe(
+      'AUTH_CODE_INVALID',
+    );
+  });
+});
+
+describe('auth: sessão', () => {
+  it('refresh rotaciona o token e mantém o usuário', async () => {
+    const t = await loggedIn();
+    t.advance(60);
+    const next = await t.service.refresh(t.tokens.refreshToken);
+    expect(next.refreshToken).not.toBe(t.tokens.refreshToken);
+    expect(verifyJwt(next.accessToken, SECRET, t.nowSeconds())?.sub).toBe(t.systemIdOf(EMAIL));
+  });
+
+  it('reusar um refresh token antigo derruba a sessão inteira', async () => {
+    const t = await loggedIn();
+    const next = await t.service.refresh(t.tokens.refreshToken);
+    expect((await errorOf(t.service.refresh(t.tokens.refreshToken))).status).toBe(401);
+    expect((await errorOf(t.service.refresh(next.refreshToken))).status).toBe(401);
+  });
+
+  it('logout invalida o refresh token', async () => {
+    const t = await loggedIn();
+    const sid = verifyJwt(t.tokens.accessToken, SECRET, t.nowSeconds())?.sid ?? '';
+    await t.service.logout(sid);
+    expect((await errorOf(t.service.refresh(t.tokens.refreshToken))).status).toBe(401);
+  });
+
+  it('sessão expira depois de 30 dias sem uso', async () => {
+    const t = await loggedIn();
+    t.advance(AUTH_LIMITS.sessionTtlDays * 24 * 60 * 60);
+    expect((await errorOf(t.service.refresh(t.tokens.refreshToken))).status).toBe(401);
+  });
+
+  it('rejeita refresh token malformado', async () => {
+    const t = setup();
+    expect((await errorOf(t.service.refresh('lixo'))).status).toBe(401);
+  });
+});
+
+describe('auth: idioma do email do código', () => {
+  const codeIn = (text: string) => text.match(/\d{6}/)?.[0];
+
+  it('caso 5: requestCode com locale en → assunto e texto em inglês, com o código', async () => {
+    const t = setup();
+    await t.service.requestCode(EMAIL, 'en');
+    const email = t.sent[0];
+    expect(email?.to).toBe(EMAIL);
+    expect(codeIn(email?.text ?? '')).toMatch(/^\d{6}$/);
+    expect(email?.subject).toMatch(/code/i);
+    expect(email?.text).toMatch(/code/i);
+    expect(`${email?.subject} ${email?.text}`).not.toMatch(/código|seu|expira/i);
+  });
+
+  it('caso 5: o código do email em inglês é o que vale no login', async () => {
+    const t = setup();
+    await t.service.requestCode(EMAIL, 'en');
+    const result = await t.service.verifyCode(EMAIL, codeIn(t.sent[0]?.text ?? '') ?? '');
+    expect(result.user.private.email).toBe(EMAIL);
+  });
+
+  it('caso 6: requestCode sem locale → email em português (igual a hoje)', async () => {
+    const t = setup();
+    await t.service.requestCode(EMAIL);
+    const email = t.sent[0];
+    expect(codeIn(email?.text ?? '')).toMatch(/^\d{6}$/);
+    expect(`${email?.subject} ${email?.text}`).toMatch(/código/i);
+  });
+
+  it('caso 6: locale pt-BR explícito → mesmo email que sem locale', async () => {
+    const a = setup();
+    const b = setup();
+    await a.service.requestCode(EMAIL);
+    await b.service.requestCode(EMAIL, 'pt-BR');
+    const strip = (s: string | undefined) => (s ?? '').replace(/\d{6}/g, '######');
+    expect(strip(b.sent[0]?.subject)).toBe(strip(a.sent[0]?.subject));
+    expect(strip(b.sent[0]?.text)).toBe(strip(a.sent[0]?.text));
+  });
+});
+
+/** Mais um login de EMAIL no mesmo contexto (outro aparelho): espera o intervalo, pede e confere um código novo. */
+async function loginAgain(t: ReturnType<typeof setup>) {
+  t.advance(AUTH_LIMITS.resendCooldownSeconds);
+  await t.service.requestCode(EMAIL);
+  return t.service.verifyCode(EMAIL, t.lastCode());
+}
+
+describe('auth: a pessoa e as preferências no login e na renovação (USR-14)', () => {
+  it('AUTH-06: o login devolve a pessoa com o email e as preferências (vazias numa conta nova)', async () => {
+    const t = await withCode();
+    const result = await t.service.verifyCode(EMAIL, t.lastCode());
+    expect(result.user).toMatchObject({
+      private: { email: EMAIL },
+      preferences: {},
+    });
+    expect(result.user).not.toHaveProperty('email');
+    expect(result.user).not.toHaveProperty('locale');
+    expect(result.user).not.toHaveProperty('timeZone');
+  });
+
+  it('AUTH-06: o login traz o idioma e o fuso guardados nas preferências', async () => {
+    const t = await loggedIn();
+    await t.users.update(t.systemIdOf(EMAIL), {
+      version: 1,
+      preferences: { locale: 'en', timeZone: 'Asia/Tokyo' },
+    });
+    const again = await loginAgain(t);
+    expect(again.user.preferences).toEqual({
+      locale: 'en',
+      timeZone: 'Asia/Tokyo',
+    });
+    expect(again.user.private.email).toBe(EMAIL);
+  });
+
+  it('AUTH-07: a renovação devolve as preferências atuais da pessoa', async () => {
+    const t = await loggedIn();
+    const next = await t.service.refresh(t.tokens.refreshToken);
+    expect(next.preferences).toEqual({});
+  });
+
+  it('AUTH-07: mudou num aparelho → a renovação do outro já traz as preferências novas', async () => {
+    const t = await loggedIn();
+    const other = await loginAgain(t);
+    await t.users.update(t.systemIdOf(EMAIL), {
+      version: 1,
+      preferences: { locale: 'en', timeZone: 'Europe/Lisbon' },
+    });
+    const next = await t.service.refresh(other.refreshToken);
+    expect(next.preferences).toEqual({
+      locale: 'en',
+      timeZone: 'Europe/Lisbon',
+    });
+    expect(next.refreshToken).not.toBe(other.refreshToken);
+    expect(verifyJwt(next.accessToken, SECRET, t.nowSeconds())?.sub).toBe(t.systemIdOf(EMAIL));
+  });
+
+  it('AUTH-07: a renovação não traz o perfil nem o email, só os tokens e as preferências', async () => {
+    const t = await loggedIn();
+    const next = await t.service.refresh(t.tokens.refreshToken);
+    expect(Object.keys(next).sort()).toEqual(['accessToken', 'expiresIn', 'preferences', 'refreshToken']);
+  });
+});

@@ -3,12 +3,12 @@ import { mailer } from '@scorely/api/src/lib/email';
 import { env } from '@scorely/api/src/lib/env';
 import { lazy } from '@scorely/api/src/lib/fn';
 import { type HttpEvent, parseBody, route } from '@scorely/api/src/lib/http';
-import { dynamoAuthRepository } from '@scorely/api/src/modules/auth/auth.repository';
 import { createAuthService } from '@scorely/api/src/modules/auth/auth.service';
-import { dynamoNotificationRepository } from '@scorely/api/src/modules/notifications/notification.repository';
-import { createNotificationService } from '@scorely/api/src/modules/notifications/notification.service';
-import { dynamoUserRepository } from '@scorely/api/src/modules/users/user.repository';
-import { createUserService } from '@scorely/api/src/modules/users/user.service';
+import { dynamoAuthRepository } from '@scorely/api/src/modules/auth/data/auth.repository';
+import { dynamoNotificationRepository } from '@scorely/api/src/modules/notifications/data/notifications.repository';
+import { createNotificationService } from '@scorely/api/src/modules/notifications/notifications.service';
+import { dynamoUserRepository } from '@scorely/api/src/modules/users/data/users.repository';
+import { createUserService } from '@scorely/api/src/modules/users/users.service';
 import { RefreshInputSchema, RequestCodeInputSchema, VerifyCodeInputSchema } from '@scorely/contracts';
 
 // Criado na primeira chamada: o env (segredo) só é lido quando a Lambda roda.

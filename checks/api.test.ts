@@ -2,9 +2,10 @@
 // handlers.ts que responde por `route(event, ...)` ou `authRoute(event, ...)`; rota com authorizer ⇔ `authRoute`.
 // Toda função do serverless (também `schedule`) aponta para um arquivo e um export que existem.
 // O handlers.ts não exporta nenhuma `const`. Nenhum código lê o header Authorization fora de `src/lib/auth.ts`.
+// Forma do módulo (ADR 0021): raiz, `rules/`, `data/` e `tests/` com nome fixo; só submódulos têm nome livre.
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { apiSources, type FunctionConfig, loadConfig, projects, ROOT, read } from '@checks/lib';
+import { apiSources, type FunctionConfig, filesUnder, loadConfig, projects, ROOT, read } from '@checks/lib';
 import { describe, expect, it } from 'vitest';
 
 type Kind = 'route' | 'authRoute';
@@ -211,5 +212,157 @@ describe('api: os checks pegam a violação plantada', () => {
     const text = 'const h = event.headers?.authorization;';
     expect(authHeaderViolations([{ path: 'apps/x/api/src/modules/a/handlers.ts', text }])).toHaveLength(1);
     expect(authHeaderViolations([{ path: 'apps/x/api/src/lib/auth.ts', text }])).toEqual([]);
+  });
+});
+
+const FIXED_DIRS = ['rules', 'data', 'tests'];
+const DATA_KIND = /\.(table|repository|memory)\.ts$/;
+/** Quem lê os nomes de entidade de `auth/data` e `users/data` (ADR 0021). */
+const DATA_IMPORT_EXCEPTIONS = ['lib/db.ts'];
+
+/**
+ * Forma do módulo (ADR 0021). `path` relativo a `src/` (`modules/groups/matches/rules/x.ts`, `lib/tests/x.test.ts`).
+ * Devolve o motivo da violação, ou `undefined`.
+ */
+function shapeViolation(path: string, all: Set<string>): string | undefined {
+  const segs = path.split('/');
+  const name = segs.at(-1) as string;
+  if (segs[0] === 'lib') {
+    const ok = !name.endsWith('.test.ts') || (segs.length === 3 && segs[1] === 'tests');
+    return ok ? undefined : 'teste de lib só em lib/tests/';
+  }
+  if (segs[0] !== 'modules' || segs.length < 3) return undefined;
+  const base = ['modules', segs[1] as string];
+  while (segs.length > base.length + 1) {
+    const next = segs[base.length] as string;
+    if (FIXED_DIRS.includes(next)) break;
+    if (!all.has([...base, next, 'functions.ts'].join('/')))
+      return `pasta \`${next}/\` de nome livre que não é submódulo (sem functions.ts)`;
+    base.push(next);
+  }
+  const mod = base.at(-1) as string;
+  const rest = segs.slice(base.length);
+  const dir = rest.length > 1 ? (rest[0] as string) : undefined;
+  if (name.endsWith('.test.ts') && dir !== 'tests') return 'teste só em tests/';
+  if (DATA_KIND.test(name) && dir !== 'data') return 'table/repository/memory só em data/';
+  if (dir === undefined) {
+    const ok =
+      ['functions.ts', 'handlers.ts', 'authorizer.ts', `${mod}.service.ts`, `${mod}.access.ts`].includes(
+        name,
+      ) || name.endsWith('.schema.ts');
+    return ok ? undefined : 'arquivo não previsto na raiz do módulo';
+  }
+  if (!FIXED_DIRS.includes(dir)) return `pasta \`${dir}/\` não prevista`;
+  if (rest.length > 2) return `subpasta dentro de ${dir}/ (assunto é arquivo)`;
+  if (dir === 'data' && DATA_KIND.test(name) && !name.startsWith(`${mod}.`))
+    return `arquivo de data/ sem o prefixo \`${mod}.\``;
+  if (dir === 'tests' && name !== 'fixtures.ts' && !name.endsWith('.test.ts'))
+    return 'tests/ só com fixtures.ts e *.test.ts';
+  return undefined;
+}
+
+function shapeViolations(paths: string[]): string[] {
+  const all = new Set(paths);
+  return paths.flatMap((path) => {
+    const reason = shapeViolation(path, all);
+    return reason ? [`${path}: ${reason}`] : [];
+  });
+}
+
+/** O `data/` de outro módulo de cima só no `handlers.ts` e nos `tests/` (o mesmo módulo de cima é livre). */
+function dataImportViolations(files: { path: string; text: string }[]): string[] {
+  return files.flatMap(({ path, text }) => {
+    if (DATA_IMPORT_EXCEPTIONS.includes(path)) return [];
+    const segs = path.split('/');
+    const own = segs[0] === 'modules' ? segs[1] : undefined;
+    if (segs.at(-1) === 'handlers.ts' || segs.includes('tests')) return [];
+    return [...text.matchAll(/from '[^']*\/modules\/(\w+)\/(?:[\w-]+\/)*data\/[^']*'/g)]
+      .filter((m) => m[1] !== own)
+      .map((m) => `${path}: importa o data/ do módulo ${m[1]} (use ${m[1]}.service/${m[1]}.access)`);
+  });
+}
+
+describe.each(projects())('api: forma do módulo (ADR 0021): %s', (project) => {
+  const prefix = `apps/${project}/api/src/`;
+  const sources = filesUnder(`apps/${project}/api/src`, (p) => p.endsWith('.ts')).map((p) =>
+    p.slice(prefix.length),
+  );
+  it('pastas e arquivos nos lugares certos', () => {
+    expect(shapeViolations(sources)).toEqual([]);
+  });
+  it('data/ de outro módulo só no handlers.ts e nos tests/', () => {
+    const files = sources
+      .filter((p) => !p.endsWith('.test.ts'))
+      .map((path) => ({ path, text: read(prefix + path) }));
+    expect(dataImportViolations(files)).toEqual([]);
+  });
+});
+
+describe('api: a forma do módulo pega a violação plantada', () => {
+  const ok = [
+    'modules/groups/functions.ts',
+    'modules/groups/handlers.ts',
+    'modules/groups/groups.service.ts',
+    'modules/groups/groups.access.ts',
+    'modules/groups/rules/invites.ts',
+    'modules/groups/data/groups.table.ts',
+    'modules/groups/data/groups.repository.ts',
+    'modules/groups/data/groups.memory.ts',
+    'modules/groups/tests/fixtures.ts',
+    'modules/groups/tests/invites.test.ts',
+    'modules/groups/tests/repository.contract.test.ts',
+    'modules/groups/matches/functions.ts',
+    'modules/groups/matches/matches.service.ts',
+    'modules/groups/matches/rules/series.ts',
+    'modules/groups/matches/data/matches.table.ts',
+    'modules/groups/matches/tests/series.test.ts',
+    'modules/auth/authorizer.ts',
+    'modules/items/item.schema.ts',
+    'lib/db.ts',
+    'lib/tests/http.test.ts',
+  ];
+  it('forma correta passa (inclusive submódulo)', () => {
+    expect(shapeViolations(ok)).toEqual([]);
+  });
+  it.each([
+    ['teste solto na raiz do módulo', 'modules/groups/group.members.test.ts'],
+    ['teste em rules/', 'modules/groups/rules/invites.test.ts'],
+    ['repository fora de data/', 'modules/groups/groups.repository.ts'],
+    ['memory fora de data/', 'modules/groups/tests/groups.memory.ts'],
+    ['table na raiz', 'modules/users/users.table.ts'],
+    ['data/ sem o prefixo do módulo', 'modules/groups/data/group.table.ts'],
+    ['data/ de submódulo com prefixo do pai', 'modules/groups/matches/data/groups.repository.ts'],
+    ['arquivo solto na raiz', 'modules/groups/public-id.ts'],
+    ['service com prefixo errado', 'modules/groups/group.service.ts'],
+    ['pasta de nome livre que não é submódulo', 'modules/groups/invites/invites.service.ts'],
+    ['subpasta dentro de rules/', 'modules/groups/rules/invites/invites.ts'],
+    ['arquivo estranho em tests/', 'modules/groups/tests/helpers.ts'],
+    ['teste de lib fora de lib/tests/', 'lib/http.test.ts'],
+  ])('%s', (_what, path) => {
+    expect(shapeViolations([...ok, path])).toHaveLength(1);
+  });
+
+  const importing = (path: string, from: string) => ({
+    path,
+    text: `import { x } from '@scorely/api/src/modules/${from}';`,
+  });
+  it('import do data/ de outro módulo de cima', () => {
+    expect(
+      dataImportViolations([importing('modules/groups/rules/members.ts', 'users/data/users.repository')]),
+    ).toHaveLength(1);
+    expect(
+      dataImportViolations([importing('modules/groups/groups.service.ts', 'media/data/media.table')]),
+    ).toHaveLength(1);
+  });
+  it('import permitido: handlers, tests, o próprio módulo (e submódulos) e a exceção do lib/db.ts', () => {
+    expect(
+      dataImportViolations([
+        importing('modules/groups/handlers.ts', 'users/data/users.repository'),
+        importing('modules/groups/tests/fixtures.ts', 'users/data/users.memory'),
+        importing('modules/groups/matches/rules/teams.ts', 'groups/data/groups.repository'),
+        importing('modules/groups/groups.service.ts', 'users/users.access'),
+        importing('lib/db.ts', 'auth/data/auth.table'),
+      ]),
+    ).toEqual([]);
   });
 });

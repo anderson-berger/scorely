@@ -9,8 +9,11 @@ import {
 import { dynamo, tableName } from '@scorely/api/src/lib/dynamo';
 import { type AppError, appError } from '@scorely/api/src/lib/errors';
 import { chunk } from '@scorely/api/src/lib/fn';
-import { LOGIN_CODE_ENTITY, SESSION_ENTITY } from '@scorely/api/src/modules/auth/auth.table';
-import { USER_PREFERENCES_ENTITY, USER_PRIVATE_ENTITY } from '@scorely/api/src/modules/users/user.table';
+import { LOGIN_CODE_ENTITY, SESSION_ENTITY } from '@scorely/api/src/modules/auth/data/auth.table';
+import {
+  USER_PREFERENCES_ENTITY,
+  USER_PRIVATE_ENTITY,
+} from '@scorely/api/src/modules/users/data/users.table';
 import { z } from 'zod';
 
 export interface Key {

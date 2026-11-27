@@ -4,11 +4,10 @@ import { newEntity } from '@scorely/api/src/lib/entity';
 import { appError } from '@scorely/api/src/lib/errors';
 import type { UserId } from '@scorely/api/src/lib/ids';
 import { signJwt } from '@scorely/api/src/lib/jwt';
-import type { AuthRepository } from '@scorely/api/src/modules/auth/auth.repository';
-import type { LoginCode, Session } from '@scorely/api/src/modules/auth/auth.table';
-import { loginCodeEmail } from '@scorely/api/src/modules/auth/login-code.email';
-import type { NotificationService } from '@scorely/api/src/modules/notifications/notification.service';
-import type { UserService } from '@scorely/api/src/modules/users/user.service';
+import type { AuthRepository } from '@scorely/api/src/modules/auth/data/auth.repository';
+import type { LoginCode, Session } from '@scorely/api/src/modules/auth/data/auth.table';
+import type { NotificationService } from '@scorely/api/src/modules/notifications/notifications.service';
+import type { UserService } from '@scorely/api/src/modules/users/users.service';
 import type { Locale, LoginResult, RefreshResult, RequestCodeResult, Tokens } from '@scorely/contracts';
 
 export const AUTH_LIMITS = {
@@ -164,3 +163,22 @@ export function createAuthService({
   };
 }
 export type AuthService = ReturnType<typeof createAuthService>;
+
+type Template = (code: string, minutes: number) => { subject: string; text: string };
+
+/** Assunto e texto do email com o código de login, por idioma (o usuário pode ainda não existir). */
+const TEMPLATES: Record<Locale, Template> = {
+  'pt-BR': (code, minutes) => ({
+    subject: `${code} é o seu código do scorely`,
+    text: `Seu código de acesso é ${code}.\n\nEle vale por ${minutes} minutos. Se não foi você, ignore este email.`,
+  }),
+  en: (code, minutes) => ({
+    subject: `${code} is your scorely code`,
+    text: `Your access code is ${code}.\n\nIt is valid for ${minutes} minutes. If this wasn't you, ignore this email.`,
+  }),
+};
+
+/** Sem idioma na requisição → `pt-BR` (plano 005, pergunta 2). */
+function loginCodeEmail(code: string, minutes: number, locale: Locale = 'pt-BR') {
+  return TEMPLATES[locale](code, minutes);
+}

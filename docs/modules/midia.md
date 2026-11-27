@@ -1,6 +1,6 @@
 # Módulo Mídia
 
-> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-20.
+> **Documento vivo.** Descreve como o módulo funciona **hoje** e por quê. Toda mudança no módulo começa aqui: primeiro muda a regra neste arquivo, depois o código. Conferido com o código em 2026-11-27.
 
 Código: `apps/scorely/api/src/modules/media/`, `apps/scorely/api/src/lib/storage.ts`, `apps/scorely/web/src/lib/media.ts`. Contrato: `apps/scorely/contracts/src/media.ts`.
 
