@@ -9,7 +9,17 @@ import { dynamoNotificationRepository } from '@scorely/api/src/modules/notificat
 import { createNotificationService } from '@scorely/api/src/modules/notifications/notifications.service';
 import { dynamoUserRepository } from '@scorely/api/src/modules/users/data/users.repository';
 import { createUserService } from '@scorely/api/src/modules/users/users.service';
-import { RefreshInputSchema, RequestCodeInputSchema, VerifyCodeInputSchema } from '@scorely/contracts';
+import {
+  type LoginResult,
+  type RefreshInput,
+  RefreshInputSchema,
+  type RefreshResult,
+  type RequestCodeInput,
+  RequestCodeInputSchema,
+  type RequestCodeResult,
+  type VerifyCodeInput,
+  VerifyCodeInputSchema,
+} from '@scorely/contracts';
 
 // Criado na primeira chamada: o env (segredo) só é lido quando a Lambda roda.
 const auth = lazy(() =>
@@ -25,24 +35,24 @@ const auth = lazy(() =>
 // Rotas públicas (sem authorizer).
 export async function requestCode(event: HttpEvent) {
   return route(event, async () => {
-    const { email, locale } = parseBody(event, RequestCodeInputSchema);
-    const result = await auth().requestCode(email, locale);
+    const { email, locale }: RequestCodeInput = parseBody(event, RequestCodeInputSchema);
+    const result: RequestCodeResult = await auth().requestCode(email, locale);
     return result;
   });
 }
 
 export async function verifyCode(event: HttpEvent) {
   return route(event, async () => {
-    const { email, code } = parseBody(event, VerifyCodeInputSchema);
-    const result = await auth().verifyCode(email, code);
+    const { email, code }: VerifyCodeInput = parseBody(event, VerifyCodeInputSchema);
+    const result: LoginResult = await auth().verifyCode(email, code);
     return result;
   });
 }
 
 export async function refresh(event: HttpEvent) {
   return route(event, async () => {
-    const { refreshToken } = parseBody(event, RefreshInputSchema);
-    const result = await auth().refresh(refreshToken);
+    const { refreshToken }: RefreshInput = parseBody(event, RefreshInputSchema);
+    const result: RefreshResult = await auth().refresh(refreshToken);
     return result;
   });
 }

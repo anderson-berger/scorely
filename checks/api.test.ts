@@ -2,10 +2,13 @@
 // handlers.ts que responde por `route(event, ...)` ou `authRoute(event, ...)`; rota com authorizer ⇔ `authRoute`.
 // Toda função do serverless (também `schedule`) aponta para um arquivo e um export que existem.
 // O handlers.ts não exporta nenhuma `const`. Nenhum código lê o header Authorization fora de `src/lib/auth.ts`.
+// Handlers em passos (ler → chamar → responder): `await` só como comando ou valor de `const`, sem chamada
+// aninhada no que é aguardado nem no `created`, `return` só do valor pronto, e tipo escrito no input e no resultado.
 // Forma do módulo (ADR 0021): raiz, `rules/`, `data/` e `tests/` com nome fixo; só submódulos têm nome livre.
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { apiSources, type FunctionConfig, filesUnder, loadConfig, projects, ROOT, read } from '@checks/lib';
+import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
 type Kind = 'route' | 'authRoute';
@@ -35,6 +38,140 @@ function exportedConsts(path: string, text: string): string[] {
     (m) =>
       `${path}:${text.slice(0, m.index).split('\n').length}: \`export const\` (use \`export async function\`)`,
   );
+}
+
+/** Todos os nós abaixo de `node`, na ordem do texto. */
+function descendants(node: ts.Node): ts.Node[] {
+  const found: ts.Node[] = [];
+  ts.forEachChild(node, (child) => {
+    found.push(child, ...descendants(child));
+  });
+  return found;
+}
+
+/** Tira o que não muda o valor: parênteses, `as`, `satisfies` e `!`. */
+function unwrap(node: ts.Expression): ts.Expression {
+  const wraps =
+    ts.isParenthesizedExpression(node) ||
+    ts.isAsExpression(node) ||
+    ts.isSatisfiesExpression(node) ||
+    ts.isNonNullExpression(node);
+  return wraps ? unwrap(node.expression) : node;
+}
+
+function hasCall(node: ts.Node): boolean {
+  return [node, ...descendants(node)].some(
+    (n) => ts.isCallExpression(n) || ts.isNewExpression(n) || ts.isTaggedTemplateExpression(n),
+  );
+}
+
+/** Nome, propriedade, ou objeto/literal sem chamada nem `await`. */
+function isReadyValue(node: ts.Expression): boolean {
+  const value = unwrap(node);
+  if (ts.isIdentifier(value)) return true;
+  if (ts.isPropertyAccessExpression(value)) return isReadyValue(value.expression);
+  if (ts.isElementAccessExpression(value))
+    return isReadyValue(value.expression) && !hasCall(value.argumentExpression);
+  if (ts.isPrefixUnaryExpression(value)) return ts.isNumericLiteral(value.operand);
+  const literal =
+    ts.isLiteralExpression(value) ||
+    ts.isTemplateExpression(value) ||
+    ts.isObjectLiteralExpression(value) ||
+    ts.isArrayLiteralExpression(value) ||
+    [ts.SyntaxKind.TrueKeyword, ts.SyntaxKind.FalseKeyword, ts.SyntaxKind.NullKeyword].includes(value.kind);
+  return literal && !hasCall(value) && !descendants(value).some(ts.isAwaitExpression);
+}
+
+function calleeName(node: ts.CallExpression): string | undefined {
+  return ts.isIdentifier(node.expression) ? node.expression.text : undefined;
+}
+
+/** O que o callback do `route`/`authRoute` devolve: o corpo-expressão ou cada `return` dele (sem os de funções internas). */
+function returnedValues(callback: ts.ArrowFunction | ts.FunctionExpression): ts.Expression[] {
+  if (!ts.isBlock(callback.body)) return [callback.body];
+  const visit = (node: ts.Node): ts.Expression[] => {
+    if (ts.isFunctionLike(node)) return [];
+    if (ts.isReturnStatement(node)) return node.expression ? [node.expression] : [];
+    const found: ts.Expression[] = [];
+    ts.forEachChild(node, (child) => {
+      found.push(...visit(child));
+    });
+    return found;
+  };
+  return visit(callback.body);
+}
+
+/** `await`, `parseBody(...)` e `<Schema>.parse(...)`: a `const` que recebe um deles tem o tipo escrito. */
+function needsType(initializer: ts.Expression): boolean {
+  const value = unwrap(initializer);
+  if (ts.isAwaitExpression(value)) return true;
+  if (!ts.isCallExpression(value)) return false;
+  if (calleeName(value) === 'parseBody') return true;
+  const callee = value.expression;
+  return (
+    ts.isPropertyAccessExpression(callee) &&
+    callee.name.text === 'parse' &&
+    /Schema$/.test(callee.expression.getText())
+  );
+}
+
+type StepRule = 'await-solto' | 'chamada-aninhada' | 'return' | 'sem-tipo';
+
+const STEP_MESSAGES: Record<StepRule, string> = {
+  'await-solto': '`await` só como comando ou como valor de uma `const`',
+  'chamada-aninhada': 'chamada dentro do argumento (guarde numa `const` antes)',
+  return: '`return` só de nome, propriedade, literal sem chamada ou `created(nome)`',
+  'sem-tipo': '`const` de `await`, `parseBody` ou `<Schema>.parse` sem o tipo escrito',
+};
+
+function stepNodeViolations(node: ts.Node): [StepRule, ts.Node][] {
+  if (ts.isAwaitExpression(node)) {
+    const { parent } = node;
+    const statement = ts.isExpressionStatement(parent);
+    const constValue =
+      ts.isVariableDeclaration(parent) &&
+      parent.initializer === node &&
+      (ts.getCombinedNodeFlags(parent) & ts.NodeFlags.Const) !== 0;
+    const loose: [StepRule, ts.Node][] = statement || constValue ? [] : [['await-solto', node]];
+    const call = unwrap(node.expression);
+    const nested = ts.isCallExpression(call) && call.arguments.some(hasCall);
+    return nested ? [...loose, ['chamada-aninhada', node]] : loose;
+  }
+  if (ts.isVariableDeclaration(node))
+    return node.initializer && !node.type && needsType(node.initializer) ? [['sem-tipo', node]] : [];
+  if (!ts.isCallExpression(node)) return [];
+  const name = calleeName(node);
+  if (name === 'created') return node.arguments.some(hasCall) ? [['chamada-aninhada', node]] : [];
+  if (name !== 'route' && name !== 'authRoute') return [];
+  return node.arguments
+    .filter((arg) => ts.isArrowFunction(arg) || ts.isFunctionExpression(arg))
+    .flatMap(returnedValues)
+    .filter((returned) => {
+      const value = unwrap(returned);
+      const isCreated =
+        ts.isCallExpression(value) && calleeName(value) === 'created' && value.arguments.every(isReadyValue);
+      return !isCreated && !isReadyValue(value);
+    })
+    .map((returned): [StepRule, ts.Node] => ['return', returned]);
+}
+
+/** Dentro das `export async function` do handlers.ts: ler → chamar → responder, um passo por vez. */
+function stepViolations(path: string, text: string): string[] {
+  const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true);
+  return source.statements
+    .filter(ts.isFunctionDeclaration)
+    .filter((fn) => {
+      const kinds = ts.getModifiers(fn)?.map((m) => m.kind) ?? [];
+      return kinds.includes(ts.SyntaxKind.ExportKeyword) && kinds.includes(ts.SyntaxKind.AsyncKeyword);
+    })
+    .flatMap((fn) =>
+      descendants(fn)
+        .flatMap(stepNodeViolations)
+        .map(([rule, node]) => {
+          const line = source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
+          return `${path}:${line} (${fn.name?.text}) [${rule}]: ${STEP_MESSAGES[rule]}`;
+        }),
+    );
 }
 
 interface Route {
@@ -142,6 +279,12 @@ describe.each(projects())('api: %s', (project) => {
     expect(files.flatMap((path) => exportedConsts(path, read(path)))).toEqual([]);
   });
 
+  it('handlers.ts em passos (ler → chamar → responder)', () => {
+    const files = apiSources(project).filter((path) => path.endsWith('/handlers.ts'));
+    expect(files.length).toBeGreaterThan(0);
+    expect(files.flatMap((path) => stepViolations(path, read(path)))).toEqual([]);
+  });
+
   it('Authorization só em src/lib/auth.ts', () => {
     const files = apiSources(project).map((path) => ({ path, text: read(path) }));
     expect(authHeaderViolations(files)).toEqual([]);
@@ -212,6 +355,164 @@ describe('api: os checks pegam a violação plantada', () => {
     const text = 'const h = event.headers?.authorization;';
     expect(authHeaderViolations([{ path: 'apps/x/api/src/modules/a/handlers.ts', text }])).toHaveLength(1);
     expect(authHeaderViolations([{ path: 'apps/x/api/src/lib/auth.ts', text }])).toEqual([]);
+  });
+});
+
+describe('api: o check dos handlers em passos', () => {
+  const inHandler = (...lines: string[]) =>
+    [
+      'export async function x(event: HttpEvent) {',
+      '  return authRoute(event, async (auth) => {',
+      ...lines,
+      '  });',
+      '}',
+    ].join('\n');
+  const rulesOf = (text: string) =>
+    stepViolations('h.ts', text).map((violation) => /\[([\w-]+)\]/.exec(violation)?.[1]);
+
+  it.each([
+    [
+      'ler, chamar com tipo e responder 201',
+      inHandler(
+        "const publicId = asPublicGroupId(pathParam(event, 'publicId'));",
+        'const input: CreateGroupInviteInput = parseBody(event, CreateGroupInviteInputSchema);',
+        'const invite: GroupInvite = await groups.createInvite(auth.userId, publicId, input);',
+        'return created(invite);',
+      ),
+    ],
+    [
+      '`await` como comando e `return` vazio',
+      inHandler('await groups.remove(auth.userId, input.version);', 'return;'),
+    ],
+    ['`return` de nome', inHandler('const user: Me = await users.get(auth.userId);', 'return user;')],
+    [
+      '`return` de objeto sem chamada',
+      inHandler("return { items, total: page.total, ok: true, kind: 'a' };"),
+    ],
+    ['`return` dentro de `if`', inHandler('if (!page.next) {', '  return page.items;', '}', 'return [];')],
+    [
+      'corpo-expressão com propriedade ou objeto literal',
+      [
+        'export async function me(event: HttpEvent) {',
+        '  return authRoute(event, async (auth) => auth.userId);',
+        '}',
+        'export async function health(event: HttpEvent) {',
+        '  return route(event, async () => ({ ok: true }));',
+        '}',
+      ].join('\n'),
+    ],
+    [
+      'chamada no callee não é argumento',
+      inHandler('const session: Session = await auth().login(input);', 'return session;'),
+    ],
+    [
+      'desestruturação com tipo',
+      inHandler('const { user }: LoginResult = await service.login(input);', 'return user;'),
+    ],
+    [
+      '`<Schema>.parse` com tipo e valores simples sem tipo',
+      inHandler(
+        'const query: ListQuery = ListQuerySchema.parse(event.queryStringParameters ?? {});',
+        "const id = pathParam(event, 'id');",
+        'const raw = JSON.parse(text);',
+      ),
+    ],
+    [
+      '`return` de função interna não é o do callback',
+      inHandler('const ids = list.map((item) => {', '  return toId(item);', '});', 'return ids;'),
+    ],
+    [
+      'helper sem `export` fica de fora',
+      [
+        'async function groupOf(publicId: string) {',
+        '  return await groups.get(asPublicGroupId(publicId));',
+        '}',
+      ].join('\n'),
+    ],
+  ])('passa: %s', (_what, text) => {
+    expect(stepViolations('h.ts', text)).toEqual([]);
+  });
+
+  it.each([
+    ['`return await`', inHandler('return await users.get(auth.userId);'), ['return', 'await-solto']],
+    [
+      '`created(await ...)`',
+      inHandler('return created(await groups.create(auth.userId, input));'),
+      ['return', 'chamada-aninhada', 'await-solto'],
+    ],
+    [
+      '`await` dentro de objeto',
+      inHandler('return { items: await groups.list(auth.userId) };'),
+      ['return', 'await-solto'],
+    ],
+    [
+      '`await` no argumento de outra chamada',
+      inHandler('toView(await groups.get(publicId));'),
+      ['await-solto'],
+    ],
+    [
+      '`await` encadeado numa propriedade',
+      inHandler('const id = (await groups.get(publicId)).id;'),
+      ['await-solto'],
+    ],
+    [
+      '`await` em variável que não é `const`',
+      inHandler('var group: Group = await groups.get(id);'),
+      ['await-solto'],
+    ],
+    [
+      'chamada no argumento do que é aguardado',
+      inHandler('await groups.remove(auth.userId, asPublicGroupId(publicId));'),
+      ['chamada-aninhada'],
+    ],
+    [
+      'chamada dentro de um objeto no argumento',
+      inHandler('await groups.update(auth.userId, { id: toId(publicId) });'),
+      ['chamada-aninhada'],
+    ],
+    [
+      '`parseBody` direto no argumento',
+      inHandler('const group: Group = await groups.create(auth.userId, parseBody(event, Schema));'),
+      ['chamada-aninhada'],
+    ],
+    [
+      'chamada no argumento do `created`',
+      inHandler('return created(toView(group));'),
+      ['return', 'chamada-aninhada'],
+    ],
+    ['`return` de chamada', inHandler('return users.get(auth.userId);'), ['return']],
+    ['`return` de objeto com chamada', inHandler('return { items: toViews(items) };'), ['return']],
+    ['`return` de propriedade de chamada', inHandler('return toView(group).id;'), ['return']],
+    [
+      '`return` de chamada dentro de `if`',
+      inHandler('if (input.all) {', '  return groups.list();', '}', 'return;'),
+      ['return'],
+    ],
+    [
+      'corpo-expressão com chamada',
+      [
+        'export async function me(event: HttpEvent) {',
+        '  return authRoute(event, async (auth) => users.get(auth.userId));',
+        '}',
+      ].join('\n'),
+      ['return'],
+    ],
+    ['`await` sem tipo', inHandler('const user = await users.get(auth.userId);'), ['sem-tipo']],
+    ['`parseBody` sem tipo', inHandler('const input = parseBody(event, UpdateMeInputSchema);'), ['sem-tipo']],
+    [
+      '`<Schema>.parse` sem tipo',
+      inHandler('const query = ListQuerySchema.parse(event.queryStringParameters);'),
+      ['sem-tipo'],
+    ],
+    ['desestruturação sem tipo', inHandler('const { user } = await service.login(input);'), ['sem-tipo']],
+  ])('pega: %s', (_what, text, rules) => {
+    expect(rulesOf(text)).toEqual(rules);
+  });
+
+  it('a violação diz o arquivo, a linha e a função', () => {
+    expect(stepViolations('h.ts', inHandler('return users.get(auth.userId);'))).toEqual([
+      expect.stringMatching(/^h\.ts:3 \(x\) \[return\]: /),
+    ]);
   });
 });
 

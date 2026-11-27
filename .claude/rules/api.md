@@ -14,23 +14,30 @@ const users = createUserService(dynamoUserRepository);
 
 export async function me(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    const user = await users.get(auth.userId);
+    const user: Me = await users.get(auth.userId);
     return user;
   });
 }
 
-export async function updateMe(event: HttpEvent) {
+export async function createInvite(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    const patch = parseBody(event, UpdateMeInputSchema);
-    const user = await users.update(auth.userId, patch);
-    return user;
+    const input: CreateGroupInviteInput = parseBody(event, CreateGroupInviteInputSchema);
+    const publicId = asPublicGroupId(pathParam(event, 'publicId'));
+    const invite: GroupInvite = await groups.createInvite(auth.userId, publicId, input);
+    return created(invite);
   });
 }
 ```
 
 - O nome da função é exatamente o do `functions.ts` (`handler('me')` → `export async function me`).
-- O callback aguarda o service e devolve o valor: `const user = await users.get(...); return user;`, não `return users.get(...)`. O hover mostra o tipo resolvido (`Me`, não `Promise<Me>`). O resultado em runtime é o mesmo (o `route` aguarda de qualquer forma). `created(await ...)` continua como está.
-- Só o `event` é anotado (`HttpEvent`); o `auth` vem tipado pelo callback do `authRoute`.
+- **Em passos: ler → chamar → responder**, um por linha:
+  - `await` só como comando (`await x.y(...);`) ou como valor de uma `const`. Nada de `return await` nem `created(await ...)`.
+  - Argumento do que é aguardado e do `created(...)` não contém outra chamada: guarde numa `const` antes.
+  - O `return` devolve nome, propriedade, objeto/literal sem chamada ou `created(nome)`. Para outro status: `const response = new HttpResponse(...); return response;`.
+  - A `const` que recebe `await ...`, `parseBody(...)` ou `<Schema>.parse(...)` tem o tipo escrito (também na desestruturação). Valor simples, como o `publicId`, dispensa. Tipo sem nome exportado: crie o `export type` no contrato.
+  - A ordem das leituras define qual erro sai primeiro: não troque ao mexer num handler.
+  - Check: `checks/api.test.ts` (só os `handlers.ts`, dentro das `export async function`).
+- Nos parâmetros, só o `event` é anotado (`HttpEvent`); o `auth` vem tipado pelo callback do `authRoute`.
 - Helper compartilhado entre rotas é função do módulo, sem `export`.
 - Fora dos handlers, função exportada também é **declaração** (`export function x() {}`), não arrow em const. Factories que devolvem objeto (`createUserService`) e valores (`const users = ...`) continuam como estão.
 

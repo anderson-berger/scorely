@@ -12,19 +12,41 @@ import {
   dynamoUserRepository,
 } from '@scorely/api/src/modules/users/data/users.repository';
 import {
+  type ApproveGroupRequestInput,
   ApproveGroupRequestInputSchema,
+  type AttachMediaInput,
   AttachMediaInputSchema,
+  type CreateGroupInput,
   CreateGroupInputSchema,
+  type CreateGroupInviteInput,
   CreateGroupInviteInputSchema,
+  type CreateGroupRoleInput,
   CreateGroupRoleInputSchema,
+  type DeleteGroupRoleInput,
   DeleteGroupRoleInputSchema,
+  type Group,
   GroupImageSlotSchema,
+  type GroupInvite,
+  type GroupInvitePreview,
+  type GroupJoinRequest,
+  type GroupMember,
+  type GroupPreview,
+  type GroupRoles,
+  type MediaUpload,
+  type MediaUploadInput,
   MediaUploadInputSchema,
+  type MyGroupInvite,
+  type OrderGroupRolesInput,
   OrderGroupRolesInputSchema,
+  type SetGroupJoinModeInput,
   SetGroupJoinModeInputSchema,
+  type SetGroupModalityInput,
   SetGroupModalityInputSchema,
+  type SetMemberRoleInput,
   SetMemberRoleInputSchema,
+  type TransferGroupInput,
   TransferGroupInputSchema,
+  type UpdateGroupRoleInput,
   UpdateGroupRoleInputSchema,
 } from '@scorely/contracts';
 
@@ -46,268 +68,260 @@ const slotOf = (event: HttpEvent) => GroupImageSlotSchema.parse(pathParam(event,
 
 export async function createGroup(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    return created(await groups.create(auth.userId, parseBody(event, CreateGroupInputSchema)));
+    const input: CreateGroupInput = parseBody(event, CreateGroupInputSchema);
+    const group: Group = await groups.create(auth.userId, input);
+    return created(group);
   });
 }
 
 export async function getGroup(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    const group = await groups.get(auth.userId, asPublicGroupId(pathParam(event, 'publicId')));
+    const publicId = asPublicGroupId(pathParam(event, 'publicId'));
+    const group: Group = await groups.get(auth.userId, publicId);
     return group;
   });
 }
 
 export async function myGroups(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    const list = await groups.mine(auth.userId);
+    const list: Group[] = await groups.mine(auth.userId);
     return list;
   });
 }
 
 export async function requestImageUpload(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    const input = parseBody(event, MediaUploadInputSchema);
-    const result = await images.requestUpload(
-      auth.userId,
-      asPublicGroupId(pathParam(event, 'publicId')),
-      slotOf(event),
-      input,
-    );
-    return result;
+    const input: MediaUploadInput = parseBody(event, MediaUploadInputSchema);
+    const publicId = asPublicGroupId(pathParam(event, 'publicId'));
+    const slot = slotOf(event);
+    const upload: MediaUpload = await images.requestUpload(auth.userId, publicId, slot, input);
+    return upload;
   });
 }
 
 export async function attachImage(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    const input = parseBody(event, AttachMediaInputSchema);
-    const result = await images.attach(
-      auth.userId,
-      asPublicGroupId(pathParam(event, 'publicId')),
-      slotOf(event),
-      input,
-    );
-    return result;
+    const input: AttachMediaInput = parseBody(event, AttachMediaInputSchema);
+    const publicId = asPublicGroupId(pathParam(event, 'publicId'));
+    const slot = slotOf(event);
+    const group: Group = await images.attach(auth.userId, publicId, slot, input);
+    return group;
   });
 }
 
 export async function detachImage(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    const result = await images.detach(
-      auth.userId,
-      asPublicGroupId(pathParam(event, 'publicId')),
-      slotOf(event),
-    );
-    return result;
+    const publicId = asPublicGroupId(pathParam(event, 'publicId'));
+    const slot = slotOf(event);
+    const group: Group = await images.detach(auth.userId, publicId, slot);
+    return group;
   });
 }
 
 export async function createInvite(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    const input = parseBody(event, CreateGroupInviteInputSchema);
-    return created(
-      await groups.createInvite(auth.userId, asPublicGroupId(pathParam(event, 'publicId')), input),
-    );
+    const input: CreateGroupInviteInput = parseBody(event, CreateGroupInviteInputSchema);
+    const publicId = asPublicGroupId(pathParam(event, 'publicId'));
+    const invite: GroupInvite = await groups.createInvite(auth.userId, publicId, input);
+    return created(invite);
   });
 }
 
 export async function listInvites(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    const list = await groups.listInvites(auth.userId, asPublicGroupId(pathParam(event, 'publicId')));
+    const publicId = asPublicGroupId(pathParam(event, 'publicId'));
+    const list: GroupInvite[] = await groups.listInvites(auth.userId, publicId);
     return list;
   });
 }
 
 export async function revokeInvite(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    await groups.revokeInvite(
-      auth.userId,
-      asPublicGroupId(pathParam(event, 'publicId')),
-      pathParam(event, 'inviteId'),
-    );
+    const publicId = asPublicGroupId(pathParam(event, 'publicId'));
+    const inviteId = pathParam(event, 'inviteId');
+    await groups.revokeInvite(auth.userId, publicId, inviteId);
   });
 }
 
 export async function previewInvite(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    const preview = await groups.previewInvite(auth.userId, pathParam(event, 'token'));
+    const token = pathParam(event, 'token');
+    const preview: GroupInvitePreview = await groups.previewInvite(auth.userId, token);
     return preview;
   });
 }
 
 export async function joinInvite(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    const group = await groups.joinByInvite(auth.userId, pathParam(event, 'token'));
+    const token = pathParam(event, 'token');
+    const group: Group = await groups.joinByInvite(auth.userId, token);
     return group;
   });
 }
 
 export async function listMembers(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    const list = await groups.members(auth.userId, asPublicGroupId(pathParam(event, 'publicId')));
+    const publicId = asPublicGroupId(pathParam(event, 'publicId'));
+    const list: GroupMember[] = await groups.members(auth.userId, publicId);
     return list;
   });
 }
 
 export async function leaveGroup(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    await groups.leave(auth.userId, asPublicGroupId(pathParam(event, 'publicId')));
+    const publicId = asPublicGroupId(pathParam(event, 'publicId'));
+    await groups.leave(auth.userId, publicId);
   });
 }
 
 export async function removeMember(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    await groups.removeMember(
-      auth.userId,
-      asPublicGroupId(pathParam(event, 'publicId')),
-      asPublicUserId(pathParam(event, 'userPublicId')),
-    );
+    const publicId = asPublicGroupId(pathParam(event, 'publicId'));
+    const userPublicId = asPublicUserId(pathParam(event, 'userPublicId'));
+    await groups.removeMember(auth.userId, publicId, userPublicId);
   });
 }
 
 export async function myGroupInvites(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    const list = await groups.myInvites(auth.userId);
+    const list: MyGroupInvite[] = await groups.myInvites(auth.userId);
     return list;
   });
 }
 
 export async function declineGroupInvite(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    await groups.declineInvite(auth.userId, pathParam(event, 'inviteId'));
+    const inviteId = pathParam(event, 'inviteId');
+    await groups.declineInvite(auth.userId, inviteId);
   });
 }
 
 export async function setJoinMode(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    const input = parseBody(event, SetGroupJoinModeInputSchema);
-    const group = await groups.setJoinMode(auth.userId, asPublicGroupId(pathParam(event, 'publicId')), input);
+    const input: SetGroupJoinModeInput = parseBody(event, SetGroupJoinModeInputSchema);
+    const publicId = asPublicGroupId(pathParam(event, 'publicId'));
+    const group: Group = await groups.setJoinMode(auth.userId, publicId, input);
     return group;
   });
 }
 
 export async function setModality(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    const input = parseBody(event, SetGroupModalityInputSchema);
-    const group = await groups.setModality(auth.userId, asPublicGroupId(pathParam(event, 'publicId')), input);
+    const input: SetGroupModalityInput = parseBody(event, SetGroupModalityInputSchema);
+    const publicId = asPublicGroupId(pathParam(event, 'publicId'));
+    const group: Group = await groups.setModality(auth.userId, publicId, input);
     return group;
   });
 }
 
 export async function previewGroup(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    const preview = await groups.preview(auth.userId, asPublicGroupId(pathParam(event, 'publicId')));
+    const publicId = asPublicGroupId(pathParam(event, 'publicId'));
+    const preview: GroupPreview = await groups.preview(auth.userId, publicId);
     return preview;
   });
 }
 
 export async function requestToJoin(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    const preview = await groups.request(auth.userId, asPublicGroupId(pathParam(event, 'publicId')));
+    const publicId = asPublicGroupId(pathParam(event, 'publicId'));
+    const preview: GroupPreview = await groups.request(auth.userId, publicId);
     return preview;
   });
 }
 
 export async function cancelJoinRequest(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    await groups.cancelRequest(auth.userId, asPublicGroupId(pathParam(event, 'publicId')));
+    const publicId = asPublicGroupId(pathParam(event, 'publicId'));
+    await groups.cancelRequest(auth.userId, publicId);
   });
 }
 
 export async function listJoinRequests(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    const list = await groups.listRequests(auth.userId, asPublicGroupId(pathParam(event, 'publicId')));
+    const publicId = asPublicGroupId(pathParam(event, 'publicId'));
+    const list: GroupJoinRequest[] = await groups.listRequests(auth.userId, publicId);
     return list;
   });
 }
 
 export async function approveJoinRequest(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    const input = parseBody(event, ApproveGroupRequestInputSchema);
-    await groups.approveRequest(
-      auth.userId,
-      asPublicGroupId(pathParam(event, 'publicId')),
-      asPublicUserId(pathParam(event, 'userPublicId')),
-      input,
-    );
+    const input: ApproveGroupRequestInput = parseBody(event, ApproveGroupRequestInputSchema);
+    const publicId = asPublicGroupId(pathParam(event, 'publicId'));
+    const userPublicId = asPublicUserId(pathParam(event, 'userPublicId'));
+    await groups.approveRequest(auth.userId, publicId, userPublicId, input);
   });
 }
 
 export async function declineJoinRequest(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    await groups.declineRequest(
-      auth.userId,
-      asPublicGroupId(pathParam(event, 'publicId')),
-      asPublicUserId(pathParam(event, 'userPublicId')),
-    );
+    const publicId = asPublicGroupId(pathParam(event, 'publicId'));
+    const userPublicId = asPublicUserId(pathParam(event, 'userPublicId'));
+    await groups.declineRequest(auth.userId, publicId, userPublicId);
   });
 }
 
 // Cargos (GRV-42–48)
 export async function listRoles(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    const list = await groups.roles(auth.userId, asPublicGroupId(pathParam(event, 'publicId')));
+    const publicId = asPublicGroupId(pathParam(event, 'publicId'));
+    const list: GroupRoles = await groups.roles(auth.userId, publicId);
     return list;
   });
 }
 
 export async function createRole(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    const input = parseBody(event, CreateGroupRoleInputSchema);
-    return created(
-      await groups.createRole(auth.userId, asPublicGroupId(pathParam(event, 'publicId')), input),
-    );
+    const input: CreateGroupRoleInput = parseBody(event, CreateGroupRoleInputSchema);
+    const publicId = asPublicGroupId(pathParam(event, 'publicId'));
+    const list: GroupRoles = await groups.createRole(auth.userId, publicId, input);
+    return created(list);
   });
 }
 
 export async function updateRole(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    const input = parseBody(event, UpdateGroupRoleInputSchema);
-    const list = await groups.updateRole(
-      auth.userId,
-      asPublicGroupId(pathParam(event, 'publicId')),
-      pathParam(event, 'roleId'),
-      input,
-    );
+    const input: UpdateGroupRoleInput = parseBody(event, UpdateGroupRoleInputSchema);
+    const publicId = asPublicGroupId(pathParam(event, 'publicId'));
+    const roleId = pathParam(event, 'roleId');
+    const list: GroupRoles = await groups.updateRole(auth.userId, publicId, roleId, input);
     return list;
   });
 }
 
 export async function orderRoles(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    const input = parseBody(event, OrderGroupRolesInputSchema);
-    const list = await groups.orderRoles(auth.userId, asPublicGroupId(pathParam(event, 'publicId')), input);
+    const input: OrderGroupRolesInput = parseBody(event, OrderGroupRolesInputSchema);
+    const publicId = asPublicGroupId(pathParam(event, 'publicId'));
+    const list: GroupRoles = await groups.orderRoles(auth.userId, publicId, input);
     return list;
   });
 }
 
 export async function deleteRole(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    const input = parseBody(event, DeleteGroupRoleInputSchema);
-    const list = await groups.deleteRole(
-      auth.userId,
-      asPublicGroupId(pathParam(event, 'publicId')),
-      pathParam(event, 'roleId'),
-      input,
-    );
+    const input: DeleteGroupRoleInput = parseBody(event, DeleteGroupRoleInputSchema);
+    const publicId = asPublicGroupId(pathParam(event, 'publicId'));
+    const roleId = pathParam(event, 'roleId');
+    const list: GroupRoles = await groups.deleteRole(auth.userId, publicId, roleId, input);
     return list;
   });
 }
 
 export async function setMemberRole(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    const input = parseBody(event, SetMemberRoleInputSchema);
-    await groups.setMemberRole(
-      auth.userId,
-      asPublicGroupId(pathParam(event, 'publicId')),
-      asPublicUserId(pathParam(event, 'userPublicId')),
-      input,
-    );
+    const input: SetMemberRoleInput = parseBody(event, SetMemberRoleInputSchema);
+    const publicId = asPublicGroupId(pathParam(event, 'publicId'));
+    const userPublicId = asPublicUserId(pathParam(event, 'userPublicId'));
+    await groups.setMemberRole(auth.userId, publicId, userPublicId, input);
   });
 }
 
 export async function transferGroup(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    const input = parseBody(event, TransferGroupInputSchema);
-    await groups.transfer(auth.userId, asPublicGroupId(pathParam(event, 'publicId')), input);
+    const input: TransferGroupInput = parseBody(event, TransferGroupInputSchema);
+    const publicId = asPublicGroupId(pathParam(event, 'publicId'));
+    await groups.transfer(auth.userId, publicId, input);
   });
 }

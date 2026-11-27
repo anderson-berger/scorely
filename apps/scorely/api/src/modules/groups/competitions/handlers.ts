@@ -9,8 +9,13 @@ import { dynamoMatchRepository } from '@scorely/api/src/modules/groups/matches/d
 import { mediaService } from '@scorely/api/src/modules/media/media.service';
 import { dynamoUserDirectory } from '@scorely/api/src/modules/users/data/users.repository';
 import {
+  type Competition,
+  type CompetitionList,
+  type CompetitionQuery,
   CompetitionQuerySchema,
+  type CreateCompetitionInput,
   CreateCompetitionInputSchema,
+  type UpdateCompetitionInput,
   UpdateCompetitionInputSchema,
 } from '@scorely/contracts';
 
@@ -27,37 +32,46 @@ const competitionOf = (event: HttpEvent) => pathParam(event, 'competitionId');
 
 export async function createCompetition(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    const input = parseBody(event, CreateCompetitionInputSchema);
-    return created(await competitions.create(auth.userId, groupOf(event), input));
+    const input: CreateCompetitionInput = parseBody(event, CreateCompetitionInputSchema);
+    const publicId = groupOf(event);
+    const competition: Competition = await competitions.create(auth.userId, publicId, input);
+    return created(competition);
   });
 }
 
 export async function listCompetitions(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    const list = await competitions.list(auth.userId, groupOf(event));
+    const publicId = groupOf(event);
+    const list: CompetitionList = await competitions.list(auth.userId, publicId);
     return list;
   });
 }
 
 export async function getCompetition(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    const { cut } = CompetitionQuerySchema.parse(event.queryStringParameters ?? {});
-    const competition = await competitions.get(auth.userId, groupOf(event), competitionOf(event), cut);
+    const { cut }: CompetitionQuery = CompetitionQuerySchema.parse(event.queryStringParameters ?? {});
+    const publicId = groupOf(event);
+    const competitionId = competitionOf(event);
+    const competition: Competition = await competitions.get(auth.userId, publicId, competitionId, cut);
     return competition;
   });
 }
 
 export async function updateCompetition(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    const input = parseBody(event, UpdateCompetitionInputSchema);
-    const competition = await competitions.update(auth.userId, groupOf(event), competitionOf(event), input);
+    const input: UpdateCompetitionInput = parseBody(event, UpdateCompetitionInputSchema);
+    const publicId = groupOf(event);
+    const competitionId = competitionOf(event);
+    const competition: Competition = await competitions.update(auth.userId, publicId, competitionId, input);
     return competition;
   });
 }
 
 export async function closeCompetition(event: HttpEvent) {
   return authRoute(event, async (auth) => {
-    const competition = await competitions.close(auth.userId, groupOf(event), competitionOf(event));
+    const publicId = groupOf(event);
+    const competitionId = competitionOf(event);
+    const competition: Competition = await competitions.close(auth.userId, publicId, competitionId);
     return competition;
   });
 }
